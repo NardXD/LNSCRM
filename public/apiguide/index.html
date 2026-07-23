@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ItsWorkPlace CRM — API Guide</title>
+    <meta name="description" content="Developer API guide for ItsWorkPlace CRM. MCP JSON-RPC, Recorder REST, authentication, examples, and OpenAPI spec.">
+    <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<button class="menu-toggle" aria-label="Toggle menu">&#9776;</button>
+
+<div class="search-modal" id="search-modal">
+    <div class="search-modal-inner">
+        <input type="search" id="search-modal-input" placeholder="Search documentation…" aria-label="Search">
+        <div class="search-results" id="search-results"></div>
+    </div>
+</div>
+
+<div class="layout">
+    <aside class="sidebar" id="sidebar">
+        <div class="brand">
+            <div class="logo">IW</div>
+            <div>
+                <div class="title">ItsWorkPlace CRM</div>
+                <div class="subtitle">API Guide v1.2</div>
+            </div>
+        </div>
+
+        <div class="sidebar-search">
+            <span class="search-icon">&#128269;</span>
+            <input type="search" id="sidebar-search" placeholder="Filter sections…" aria-label="Filter sections">
+            <div class="search-hint">Press <kbd>Ctrl</kbd>+<kbd>K</kbd> for search</div>
+        </div>
+
+        <nav>
+            <div class="nav-group">
+                <h4>Getting Started</h4>
+                <a href="#introduction">Overview</a>
+                <a href="#base-url">Base URL</a>
+                <a href="#authentication">Authentication</a>
+                <a href="#permissions">Permissions</a>
+                <a href="#environments">Environments</a>
+                <a href="#versioning">Versioning</a>
+            </div>
+            <div class="nav-group">
+                <h4>Quick Start</h4>
+                <a href="#quickstart-mcp">CRM Data API</a>
+                <a href="#quickstart-recorder">Recorder API</a>
+            </div>
+            <div class="nav-group">
+                <h4>Core Concepts</h4>
+                <a href="#core-concepts">MCP &amp; Responses</a>
+                <a href="#content-parsing">Parsing content[0].text</a>
+            </div>
+            <div class="nav-group">
+                <h4>CRM Data API (MCP)</h4>
+                <a href="#mcp-overview">Transport</a>
+                <a href="#mcp-list-tools">List Tools</a>
+                <a href="#mcp-call-tool">Call a Tool</a>
+                <a href="#mcp-tools">Read Tools</a>
+                <a href="#mcp-write">Write Tools</a>
+            </div>
+            <div class="nav-group">
+                <h4>Recorder API</h4>
+                <a href="#recorder-login">Login</a>
+                <a href="#recorder-time">Time Tracking</a>
+                <a href="#recorder-uploads">Recording Uploads</a>
+            </div>
+            <div class="nav-group">
+                <h4>Reference</h4>
+                <a href="#errors">Error Handling</a>
+                <a href="#pagination">Filtering</a>
+                <a href="#rate-limits">Rate Limits</a>
+                <a href="#security">Security</a>
+                <a href="#changelog">Changelog</a>
+                <a href="#faq">FAQ</a>
+                <a href="openapi.yaml">OpenAPI Spec</a>
+            </div>
+        </nav>
+    </aside>
+
+    <main class="content">
+        <div class="top-bar">
+            <header class="page-head">
+                <h1>API Guide</h1>
+                <p>Connect to ItsWorkPlace CRM with the MCP Data API or the Recorder API.</p>
+            </header>
+            <div class="meta">
+                <span class="badge">v1.2.0</span>
+                <a class="badge" href="openapi.yaml">OpenAPI 3.1</a>
+            </div>
+        </div>
+
+        <!-- ========== GETTING STARTED ========== -->
+        <section id="introduction">
+            <h2>Overview</h2>
+            <p class="lead">
+                ItsWorkPlace CRM exposes two HTTP APIs. Each request is authenticated and scoped to a single
+                company, so data is always isolated to the credentials you are given.
+            </p>
+            <div class="grid-2">
+                <div class="callout info">
+                    <div class="icon">&#128218;</div>
+                    <div>
+                        <strong>CRM Data API (MCP)</strong>
+                        <p>Read and write CRM data — clients, deals, tasks, tickets, invoices, HR, payroll, and knowledge base. JSON-RPC 2.0 over <code>POST /mcp</code>. Auth: <code>X-API-Key</code>.</p>
+                    </div>
+                </div>
+                <div class="callout info">
+                    <div class="icon">&#127909;</div>
+                    <div>
+                        <strong>Recorder API</strong>
+                        <p>Desktop and mobile clients for time tracking and screen-recording uploads. REST JSON at <code>/api/recorder/*</code>. Auth: Bearer token.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="base-url">
+            <h2>Base URL</h2>
+            <p>All endpoints are relative to your CRM host. Production uses per-company subdomains.</p>
+            <table>
+                <thead><tr><th>Environment</th><th>URL pattern</th><th>Example</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td>Production (tenant)</td>
+                        <td><code>https://{subdomain}.logon.online</code></td>
+                        <td><code>https://itsworkplace.logon.online</code></td>
+                    </tr>
+                    <tr>
+                        <td>Production (root)</td>
+                        <td><code>https://logon.online</code></td>
+                        <td>Valid for MCP when using an API key</td>
+                    </tr>
+                </tbody>
+            </table>
+            <table>
+                <thead><tr><th>API</th><th>Endpoint prefix</th><th>Company scope from</th></tr></thead>
+                <tbody>
+                    <tr><td>MCP</td><td><code>/mcp</code></td><td>API key (not hostname)</td></tr>
+                    <tr><td>Recorder</td><td><code>/api/recorder/*</code></td><td><code>company_subdomain</code> at login</td></tr>
+                </tbody>
+            </table>
+            <div class="callout warn">
+                <div class="icon">&#9888;</div>
+                <p>Always use <strong>HTTPS</strong> in production. Credentials sent over plain HTTP can be intercepted.</p>
+            </div>
+        </section>
+
+        <section id="authentication">
+            <h2>Authentication</h2>
+            <p>The two APIs use different credential types. Use the one that matches the API you are calling.</p>
+
+            <h3>CRM Data API — <span class="pill">X-API-Key</span></h3>
+            <p>Each company has one or more API keys. A key is generated on the server and shown <strong>only once</strong>. Send it on every MCP request.</p>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>X-API-Key: mcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</code></pre>
+            </div>
+
+            <h4>Create keys</h4>
+            <ul>
+                <li><strong>Admin UI:</strong> Admin &rarr; API Keys (set write access and allowed tools)</li>
+                <li><strong>CLI:</strong> <code>php artisan mcp:create-key --company=1 --name="Production" --write</code></li>
+            </ul>
+
+            <h3>Read-only vs write-enabled keys</h3>
+            <p>Keys are <strong>read-only</strong> by default and can only call <code>get_*</code> tools. Write access is granted per key at creation time.</p>
+            <div class="callout warn">
+                <div class="icon">&#9888;</div>
+                <p>Write tools called with a read-only key return HTTP <strong>200</strong> with <code>isError: true</code> — not HTTP 403. Grant write keys sparingly.</p>
+            </div>
+
+            <h3>Recorder API — <span class="pill">Bearer token</span></h3>
+            <p>Exchange user credentials via <a href="#recorder-login">login</a>. Tokens are valid for <strong>30 days</strong> and must be sent on every protected request.</p>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>Authorization: Bearer rec_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</code></pre>
+            </div>
+
+            <h3>Token expiration &amp; refresh</h3>
+            <p>There is <strong>no token refresh endpoint</strong>. When a Recorder token expires, call <code>POST /api/recorder/login</code> again to obtain a new token.</p>
+
+            <h3>Key rotation &amp; revocation</h3>
+            <ol>
+                <li>Create a new API key (admin UI or Artisan).</li>
+                <li>Update your integration to use the new key.</li>
+                <li>Revoke the old key in Admin &rarr; API Keys (delete).</li>
+            </ol>
+            <p>Plaintext keys cannot be retrieved after creation — rotation always means issuing a new key.</p>
+        </section>
+
+        <section id="permissions">
+            <h2>Permissions &amp; Scoping</h2>
+            <table>
+                <thead><tr><th>Capability</th><th>Read-only key</th><th>Write key</th></tr></thead>
+                <tbody>
+                    <tr><td><code>get_*</code> tools</td><td>Yes</td><td>Yes</td></tr>
+                    <tr><td><code>create_*</code> / <code>update_*</code> tools</td><td>No (<code>isError: true</code>)</td><td>Yes</td></tr>
+                    <tr><td><code>tools/list</code>, <code>initialize</code>, <code>ping</code></td><td>Yes</td><td>Yes</td></tr>
+                </tbody>
+            </table>
+            <h3>Per-tool restrictions</h3>
+            <p>Each key can be limited to a specific set of tools via <code>allowed_tools</code>. When restricted, calling any other tool returns <code>isError: true</code> with a "not permitted" message.</p>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>php artisan mcp:create-key --company=1 --tools=get_clients,get_deals</code></pre>
+            </div>
+            <p>All referenced IDs (<code>client_id</code>, <code>project_id</code>, <code>user_id</code>, etc.) must belong to the same company as the API key.</p>
+        </section>
+
+        <section id="environments">
+            <h2>Environments</h2>
+            <p>Use separate API keys per environment. Never use production keys in staging, CI logs, or non-production systems.</p>
+            <table>
+                <thead><tr><th>Environment</th><th>Recommendation</th></tr></thead>
+                <tbody>
+                    <tr><td>Production</td><td>Read-only key unless writes required; restrict <code>allowed_tools</code></td></tr>
+                    <tr><td>Staging</td><td>Dedicated company + dedicated keys</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section id="versioning">
+            <h2>Versioning</h2>
+            <table>
+                <thead><tr><th>Component</th><th>Version</th><th>Notes</th></tr></thead>
+                <tbody>
+                    <tr><td>MCP protocol</td><td><code>2025-03-26</code></td><td>Returned by <code>initialize</code></td></tr>
+                    <tr><td>MCP server</td><td><code>1.0.0</code></td><td>In <code>serverInfo.version</code></td></tr>
+                    <tr><td>API guide / OpenAPI</td><td><code>1.2.0</code></td><td>Recorder API + write tools</td></tr>
+                    <tr><td>Recorder REST</td><td>Unversioned</td><td><code>/api/recorder/*</code> — breaking changes will be announced in changelog</td></tr>
+                </tbody>
+            </table>
+            <p>Call <code>tools/list</code> for the authoritative live list of tools and input schemas.</p>
+        </section>
+
+        <!-- ========== QUICK START ========== -->
+        <section id="quickstart-mcp">
+            <h2>Quick Start — CRM Data API</h2>
+            <p>Complete flow: authenticate, initialize, list tools, call a tool, and parse the response.</p>
+            <div class="flow-steps">
+                <div class="flow-step"><span class="num">1</span><div><strong>Initialize</strong> — handshake and capabilities</div></div>
+                <div class="flow-step"><span class="num">2</span><div><strong>tools/list</strong> — discover tools and schemas</div></div>
+                <div class="flow-step"><span class="num">3</span><div><strong>tools/call</strong> — invoke <code>get_clients</code></div></div>
+                <div class="flow-step"><span class="num">4</span><div><strong>Parse</strong> — <code>JSON.parse(result.content[0].text)</code></div></div>
+            </div>
+
+            <div class="code-tabs">
+                <div class="tab-bar">
+                    <button type="button" data-lang="curl">cURL</button>
+                    <button type="button" data-lang="javascript">JavaScript</button>
+                    <button type="button" data-lang="php">PHP</button>
+                    <button type="button" data-lang="python">Python</button>
+                </div>
+                <div class="code-panel" data-lang="curl">
+                    <div class="code-wrap">
+                        <button class="copy-btn" type="button">Copy</button>
+                        <pre><code data-base-url>curl -X POST "{{BASE_URL}}/mcp" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "X-API-Key: mcp_your_key_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/call",
+    "params": {
+      "name": "get_clients",
+      "arguments": { "status": "active" }
+    }
+  }'</code></pre>
+                    </div>
+                </div>
+                <div class="code-panel" data-lang="javascript">
+                    <div class="code-wrap">
+                        <button class="copy-btn" type="button">Copy</button>
+                        <pre><code data-base-url>const res = await fetch("{{BASE_URL}}/mcp", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "X-API-Key": process.env.MCP_API_KEY,
+  },
+  body: JSON.stringify({
+    jsonrpc: "2.0",
+    id: 3,
+    method: "tools/call",
+    params: { name: "get_clients", arguments: { status: "active" } },
+  }),
+});
+
+const envelope = await res.json();
+if (envelope.error) throw new Error(envelope.error.message);
+if (envelope.result?.isError) {
+  const err = JSON.parse(envelope.result.content[0].text);
+  throw new Error(err.error ?? "Tool error");
+}
+
+const data = JSON.parse(envelope.result.content[0].text);
+console.log(data.clients);</code></pre>
+                    </div>
+                </div>
+                <div class="code-panel" data-lang="php">
+                    <div class="code-wrap">
+                        <button class="copy-btn" type="button">Copy</button>
+                        <pre><code data-base-url>$response = Http::withHeaders(['X-API-Key' => env('MCP_API_KEY')])
+    ->post('{{BASE_URL}}/mcp', [
+        'jsonrpc' => '2.0',
+        'id' => 3,
+        'method' => 'tools/call',
+        'params' => ['name' => 'get_clients', 'arguments' => ['status' => 'active']],
+    ])
+    ->json();
+
+if (isset($response['error'])) {
+    throw new RuntimeException($response['error']['message']);
+}
+
+$text = $response['result']['content'][0]['text'];
+$payload = json_decode($text, true);
+
+if ($response['result']['isError'] ?? false) {
+    throw new RuntimeException($payload['error'] ?? 'Tool error');
+}
+
+$clients = $payload['clients'];</code></pre>
+                    </div>
+                </div>
+                <div class="code-panel" data-lang="python">
+                    <div class="code-wrap">
+                        <button class="copy-btn" type="button">Copy</button>
+                        <pre><code data-base-url>import os, json, requests
+
+r = requests.post(
+    "{{BASE_URL}}/mcp",
+    headers={"X-API-Key": os.environ["MCP_API_KEY"]},
+    json={
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {"name": "get_clients", "arguments": {"status": "active"}},
+    },
+)
+envelope = r.json()
+if "error" in envelope:
+    raise RuntimeError(envelope["error"]["message"])
+result = envelope["result"]
+payload = json.loads(result["content"][0]["text"])
+if result.get("isError"):
+    raise RuntimeError(payload.get("error", "Tool error"))
+print(payload["clients"])</code></pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="quickstart-recorder">
+            <h2>Quick Start — Recorder API</h2>
+            <p>Login, clock in, and check status.</p>
+            <div class="code-tabs">
+                <div class="tab-bar">
+                    <button type="button" data-lang="curl">cURL</button>
+                    <button type="button" data-lang="javascript">JavaScript</button>
+                </div>
+                <div class="code-panel" data-lang="curl">
+                    <div class="code-wrap">
+                        <button class="copy-btn" type="button">Copy</button>
+                        <pre><code data-base-url># 1. Login
+curl -X POST "{{BASE_URL}}/api/recorder/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "secret",
+    "company_subdomain": "itsworkplace",
+    "device_id": "DESKTOP-ABC123",
+    "platform": "windows"
+  }'
+
+# 2. Clock in (use token from login response)
+curl -X POST "{{BASE_URL}}/api/recorder/time-tracking/time-in" \
+  -H "Authorization: Bearer rec_your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{"date":"2026-06-17","time":"09:00:00"}'
+
+# 3. Check status
+curl "{{BASE_URL}}/api/recorder/time-tracking/status" \
+  -H "Authorization: Bearer rec_your_token_here"</code></pre>
+                    </div>
+                </div>
+                <div class="code-panel" data-lang="javascript">
+                    <div class="code-wrap">
+                        <button class="copy-btn" type="button">Copy</button>
+                        <pre><code data-base-url>const login = await fetch("{{BASE_URL}}/api/recorder/login", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    email: "user@example.com",
+    password: "secret",
+    company_subdomain: "itsworkplace",
+    device_id: "DESKTOP-ABC123",
+    platform: "windows",
+  }),
+});
+const { token } = await login.json();
+
+await fetch("{{BASE_URL}}/api/recorder/time-tracking/time-in", {
+  method: "POST",
+  headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+  body: JSON.stringify({ date: "2026-06-17", time: "09:00:00" }),
+});</code></pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========== CORE CONCEPTS ========== -->
+        <section id="core-concepts">
+            <h2>Core Concepts — MCP Tools &amp; Responses</h2>
+
+            <h3>MCP Tools</h3>
+            <p>Named operations (e.g. <code>get_clients</code>, <code>create_deal</code>) invoked via <code>tools/call</code>. Live input schemas are returned by <code>tools/list</code>.</p>
+
+            <h3>JSON-RPC methods</h3>
+            <table>
+                <thead><tr><th>Method</th><th>Purpose</th></tr></thead>
+                <tbody>
+                    <tr><td><code>initialize</code></td><td>Handshake; returns protocol version and server info</td></tr>
+                    <tr><td><code>tools/list</code></td><td>List all tools with <code>inputSchema</code></td></tr>
+                    <tr><td><code>tools/call</code></td><td>Execute a tool by name</td></tr>
+                    <tr><td><code>ping</code></td><td>Health check</td></tr>
+                    <tr><td><code>notifications/initialized</code></td><td>Client notification — returns HTTP 202, no body</td></tr>
+                </tbody>
+            </table>
+
+            <h3>Three layers of errors</h3>
+            <table>
+                <thead><tr><th>Layer</th><th>HTTP</th><th>Where to look</th></tr></thead>
+                <tbody>
+                    <tr><td>Transport auth</td><td>401</td><td><code>{"error":"Unauthorized","message":"..."}</code></td></tr>
+                    <tr><td>JSON-RPC protocol</td><td>200</td><td><code>envelope.error.code</code> (-32700, -32601, -32603)</td></tr>
+                    <tr><td>Tool business logic</td><td>200</td><td><code>envelope.result.isError</code> + parse <code>content[0].text</code></td></tr>
+                </tbody>
+            </table>
+
+            <h3>Batch requests</h3>
+            <p>Send a JSON <strong>array</strong> of JSON-RPC messages in one POST. Responses are returned as an array (notifications filtered out).</p>
+        </section>
+
+        <section id="content-parsing">
+            <h2>Parsing content[0].text</h2>
+            <p>MCP tool results wrap the actual payload as a <strong>JSON string</strong> inside <code>result.content[0].text</code>. You must parse it.</p>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"clients\":[{\"id\":1,\"name\":\"Acme Inc\",\"email\":\"ops@acme.com\",\"status\":\"active\"}]}"
+      }
+    ],
+    "isError": false
+  }
+}</code></pre>
+            </div>
+            <h3>Parsing checklist</h3>
+            <ol>
+                <li>Check HTTP status — 401 means invalid/missing API key.</li>
+                <li>Check <code>envelope.error</code> for JSON-RPC protocol errors.</li>
+                <li>Check <code>envelope.result.isError</code> for tool-level failures.</li>
+                <li><code>JSON.parse(envelope.result.content[0].text)</code> to get the payload.</li>
+                <li>If payload contains <code>"error"</code>, handle the business error.</li>
+            </ol>
+            <div class="callout info">
+                <div class="icon">&#128161;</div>
+                <p>Validation failures inside MCP tools return HTTP 200 with <code>isError: false</code> and <code>text</code> containing <code>{"error":"Validation failed","details":{...}}</code> — not HTTP 422.</p>
+            </div>
+        </section>
+
+        <!-- ========== MCP ========== -->
+        <section id="mcp-overview">
+            <h2>CRM Data API — Transport</h2>
+            <p>JSON-RPC 2.0 over a single endpoint. All data is scoped to the company tied to your API key.</p>
+            <div class="endpoint">
+                <span class="method post">POST</span>
+                <span class="path">/mcp</span>
+            </div>
+            <table>
+                <thead><tr><th>Header</th><th>Value</th></tr></thead>
+                <tbody>
+                    <tr><td><code>X-API-Key</code> <span class="req">required</span></td><td>Your company API key</td></tr>
+                    <tr><td><code>Content-Type</code></td><td><code>application/json</code></td></tr>
+                    <tr><td><code>Accept</code></td><td><code>application/json</code> (or <code>application/json, text/event-stream</code>)</td></tr>
+                </tbody>
+            </table>
+
+            <h3>Initialize</h3>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code data-base-url>curl -X POST "{{BASE_URL}}/mcp" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: mcp_your_key_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2025-03-26",
+      "capabilities": {},
+      "clientInfo": { "name": "my-app", "version": "1.0" }
+    }
+  }'</code></pre>
+            </div>
+            <h4>Response</h4>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "protocolVersion": "2025-03-26",
+    "capabilities": { "tools": { "listChanged": true } },
+    "serverInfo": { "name": "ItsWorkPlace CRM", "version": "1.0.0" }
+  }
+}</code></pre>
+            </div>
+        </section>
+
+        <section id="mcp-list-tools">
+            <h2>List Tools</h2>
+            <p>Returns every available tool and its <code>inputSchema</code>. This is the authoritative schema source.</p>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code data-base-url>curl -X POST "{{BASE_URL}}/mcp" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: mcp_your_key_here" \
+  -d '{ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }'</code></pre>
+            </div>
+        </section>
+
+        <section id="mcp-call-tool">
+            <h2>Call a Tool</h2>
+            <p>Use <code>tools/call</code> with a tool <code>name</code> and <code>arguments</code>.</p>
+            <div class="endpoint">
+                <span class="method post">POST</span>
+                <span class="path">/mcp</span>
+            </div>
+            <table>
+                <thead><tr><th>Body field</th><th>Type</th><th>Description</th></tr></thead>
+                <tbody>
+                    <tr><td><code>params.name</code></td><td>string</td><td>Tool name (e.g. <code>get_clients</code>)</td></tr>
+                    <tr><td><code>params.arguments</code></td><td>object</td><td>Tool-specific arguments per <code>tools/list</code></td></tr>
+                </tbody>
+            </table>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code data-base-url>curl -X POST "{{BASE_URL}}/mcp" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: mcp_your_key_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/call",
+    "params": {
+      "name": "get_clients",
+      "arguments": { "status": "active", "search": "acme" }
+    }
+  }'</code></pre>
+            </div>
+            <h3>Success response</h3>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "content": [{
+      "type": "text",
+      "text": "{\n  \"clients\": [\n    {\n      \"id\": 1,\n      \"name\": \"Acme Inc\",\n      \"email\": \"ops@acme.com\",\n      \"status\": \"active\",\n      \"contacts\": []\n    }\n  ]\n}"
+    }],
+    "isError": false
+  }
+}</code></pre>
+            </div>
+            <h3>Tool error response (read-only key)</h3>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [{
+      "type": "text",
+      "text": "{\"error\":\"This API key is read-only. Write access is required for this tool.\"}"
+    }],
+    "isError": true
+  }
+}</code></pre>
+            </div>
+        </section>
+
+        <section id="mcp-tools">
+            <h2>Read Tools</h2>
+            <p>Read-only tools scoped to your company. Available to any valid key (unless restricted by <code>allowed_tools</code>).</p>
+
+            <h3>CRM &amp; Sales</h3>
+            <table>
+                <thead><tr><th>Tool</th><th>Description</th><th>Arguments</th></tr></thead>
+                <tbody>
+                    <tr><td><code>get_clients</code></td><td>Full client list with contacts</td><td><code>status</code> <span class="opt">opt</span>, <code>search</code> <span class="opt">opt</span></td></tr>
+                    <tr><td><code>get_client</code></td><td>Single client profile with notes</td><td><code>id</code> <span class="req">req</span></td></tr>
+                    <tr><td><code>get_deals</code></td><td>All deals / projects</td><td><code>status</code> <span class="opt">opt</span></td></tr>
+                    <tr><td><code>get_deal</code></td><td>Single deal with tasks &amp; team</td><td><code>id</code> <span class="req">req</span></td></tr>
+                    <tr><td><code>get_tasks</code></td><td>Tasks across deals</td><td><code>project_id</code>, <code>status</code>, <code>assigned_to</code> <span class="opt">opt</span></td></tr>
+                    <tr><td><code>get_tickets</code></td><td>Support tickets</td><td><code>status</code>, <code>priority</code> <span class="opt">opt</span></td></tr>
+                    <tr><td><code>get_ticket</code></td><td>Single ticket with comments</td><td><code>id</code> <span class="req">req</span></td></tr>
+                    <tr><td><code>get_activity</code></td><td>Client activity log</td><td><code>client_id</code> <span class="req">req</span></td></tr>
+                </tbody>
+            </table>
+
+            <h3>Billing</h3>
+            <table>
+                <thead><tr><th>Tool</th><th>Description</th><th>Arguments</th></tr></thead>
+                <tbody>
+                    <tr><td><code>get_invoices</code></td><td>All invoices</td><td><code>status</code> <span class="opt">opt</span></td></tr>
+                    <tr><td><code>get_invoices_by_client</code></td><td>Invoices for one client</td><td><code>client_id</code> <span class="req">req</span></td></tr>
+                    <tr><td><code>get_quotations</code></td><td>All quotations</td><td><code>status</code>, <code>client_id</code> <span class="opt">opt</span></td></tr>
+                    <tr><td><code>get_quotation</code></td><td>Single quotation with line items</td><td><code>id</code> <span class="req">req</span></td></tr>
+                </tbody>
+            </table>
+
+            <h3>HR &amp; People</h3>
+            <table>
+                <thead><tr><th>Tool</th><th>Description</th><th>Arguments</th></tr></thead>
+                <tbody>
+                    <tr><td><code>get_employees</code></td><td>Employees / users</td><td><code>status</code>, <code>department_id</code>, <code>search</code> <span class="opt">opt</span></td></tr>
+                    <tr><td><code>get_teams</code></td><td>Teams with leaders &amp; members</td><td><code>active</code> <span class="opt">opt</span></td></tr>
+                    <tr><td><code>get_departments</code></td><td>Departments with user counts</td><td><code>active</code> <span class="opt">opt</span></td></tr>
+                    <tr><td><code>get_time_tracking</code></td><td>Clock in/out records</td><td><code>user_id</code>, <code>date_from</code>, <code>date_to</code>, <code>status</code> <span class="opt">opt</span></td></tr>
+                    <tr><td><code>get_leave_requests</code></td><td>Leave requests</td><td><code>status</code>, <code>user_id</code> <span class="opt">opt</span></td></tr>
+                    <tr><td><code>get_leave_credits</code></td><td>Leave credit balances</td><td><code>user_id</code>, <code>year</code> <span class="opt">opt</span></td></tr>
+                </tbody>
+            </table>
+
+            <h3>Payroll &amp; Knowledge Base</h3>
+            <table>
+                <thead><tr><th>Tool</th><th>Description</th><th>Arguments</th></tr></thead>
+                <tbody>
+                    <tr><td><code>get_payroll_reports</code></td><td>Payroll reports</td><td><code>status</code> <span class="opt">opt</span></td></tr>
+                    <tr><td><code>get_payroll_report</code></td><td>Single report with items</td><td><code>id</code> <span class="req">req</span></td></tr>
+                    <tr><td><code>get_salary_computations</code></td><td>Salary computations</td><td><code>user_id</code>, <code>status</code> <span class="opt">opt</span></td></tr>
+                    <tr><td><code>get_knowledge_base</code></td><td>Articles, guides, FAQs</td><td><code>type</code> (<code>article</code>|<code>guide</code>|<code>faq</code>), <code>category</code>, <code>search</code> <span class="opt">opt</span></td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section id="mcp-write">
+            <h2>Write Tools</h2>
+            <p>Require a write-enabled key. Referenced IDs must belong to the key's company.</p>
+
+            <h3>Example — create a client</h3>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code data-base-url>curl -X POST "{{BASE_URL}}/mcp" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: mcp_your_write_key_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "create_client",
+      "arguments": {
+        "name": "Acme Inc",
+        "email": "ops@acme.com",
+        "phone": "+1 555 0100"
+      }
+    }
+  }'</code></pre>
+            </div>
+            <h4>Validation rules — create_client</h4>
+            <table>
+                <thead><tr><th>Field</th><th>Rules</th></tr></thead>
+                <tbody>
+                    <tr><td><code>name</code></td><td><span class="req">required</span>, string, max 255</td></tr>
+                    <tr><td><code>email</code></td><td>optional, valid email, max 255</td></tr>
+                    <tr><td><code>phone</code></td><td>optional, string, max 50</td></tr>
+                    <tr><td><code>contact_person</code>, <code>industry</code>, <code>status</code>, <code>website</code></td><td>optional strings</td></tr>
+                    <tr><td><code>address</code></td><td>optional string</td></tr>
+                    <tr><td><code>revenue</code></td><td>optional numeric</td></tr>
+                </tbody>
+            </table>
+            <h4>Success response</h4>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [{
+      "type": "text",
+      "text": "{\"success\":true,\"client\":{\"id\":42,\"name\":\"Acme Inc\"}}"
+    }],
+    "isError": false
+  }
+}</code></pre>
+            </div>
+
+            <h3>CRM &amp; Sales</h3>
+            <table>
+                <thead><tr><th>Tool</th><th>Description</th><th>Key arguments</th></tr></thead>
+                <tbody>
+                    <tr><td><code>create_client</code></td><td>Create a client</td><td><code>name</code> <span class="req">req</span></td></tr>
+                    <tr><td><code>update_client</code></td><td>Update a client</td><td><code>id</code> <span class="req">req</span> + fields</td></tr>
+                    <tr><td><code>create_deal</code></td><td>Create a deal/project</td><td><code>title</code> <span class="req">req</span></td></tr>
+                    <tr><td><code>update_deal</code></td><td>Update a deal</td><td><code>id</code> <span class="req">req</span> + fields</td></tr>
+                    <tr><td><code>create_task</code></td><td>Create a task</td><td><code>project_id</code>, <code>title</code> <span class="req">req</span></td></tr>
+                    <tr><td><code>update_task</code></td><td>Update a task</td><td><code>id</code> <span class="req">req</span> + fields</td></tr>
+                    <tr><td><code>create_ticket</code></td><td>Create a ticket</td><td><code>subject</code> <span class="req">req</span></td></tr>
+                    <tr><td><code>update_ticket</code></td><td>Update a ticket</td><td><code>id</code> <span class="req">req</span> + fields</td></tr>
+                    <tr><td><code>add_ticket_comment</code></td><td>Comment on ticket</td><td><code>ticket_id</code>, <code>content</code> <span class="req">req</span></td></tr>
+                    <tr><td><code>add_client_note</code></td><td>Add client note</td><td><code>client_id</code>, <code>note</code> <span class="req">req</span></td></tr>
+                </tbody>
+            </table>
+
+            <h3>Billing &amp; HR</h3>
+            <table>
+                <thead><tr><th>Tool</th><th>Description</th><th>Key arguments</th></tr></thead>
+                <tbody>
+                    <tr><td><code>create_quotation</code></td><td>Create quotation + items</td><td><code>client_id</code> <span class="req">req</span>, <code>items[]</code></td></tr>
+                    <tr><td><code>update_quotation</code></td><td>Update quotation</td><td><code>id</code> <span class="req">req</span> (items replace lines)</td></tr>
+                    <tr><td><code>create_invoice</code></td><td>Create invoice + items</td><td><code>client_id</code> <span class="req">req</span>, <code>items[]</code></td></tr>
+                    <tr><td><code>update_invoice</code></td><td>Update invoice</td><td><code>id</code> <span class="req">req</span></td></tr>
+                    <tr><td><code>create_employee</code></td><td>Create employee</td><td><code>name</code>, <code>email</code>, <code>password</code> <span class="req">req</span></td></tr>
+                    <tr><td><code>update_employee</code></td><td>Update employee</td><td><code>id</code> <span class="req">req</span></td></tr>
+                    <tr><td><code>create_leave_request</code></td><td>Create leave request</td><td><code>user_id</code>, <code>leave_type</code>, dates <span class="req">req</span></td></tr>
+                    <tr><td><code>update_leave_request</code></td><td>Approve/reject leave</td><td><code>id</code> <span class="req">req</span></td></tr>
+                    <tr><td><code>create_salary_computation</code></td><td>Create salary computation</td><td><code>user_id</code>, period dates <span class="req">req</span></td></tr>
+                    <tr><td><code>update_salary_computation</code></td><td>Update computation</td><td><code>id</code> <span class="req">req</span></td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- ========== RECORDER ========== -->
+        <section id="recorder-login">
+            <h2>Recorder API — Login</h2>
+            <p>Exchange user credentials for a 30-day Bearer token. No authentication required.</p>
+            <div class="endpoint">
+                <span class="method post">POST</span>
+                <span class="path">/api/recorder/login</span>
+            </div>
+            <table>
+                <thead><tr><th>Field</th><th>Type</th><th>Rules</th></tr></thead>
+                <tbody>
+                    <tr><td><code>email</code></td><td>string</td><td><span class="req">required</span>, valid email</td></tr>
+                    <tr><td><code>password</code></td><td>string</td><td><span class="req">required</span></td></tr>
+                    <tr><td><code>company_subdomain</code></td><td>string</td><td><span class="req">required</span>, max 255</td></tr>
+                    <tr><td><code>device_id</code></td><td>string</td><td><span class="req">required</span>, max 255</td></tr>
+                    <tr><td><code>platform</code></td><td>string</td><td><span class="req">required</span>, <code>windows</code> or <code>ios</code></td></tr>
+                    <tr><td><code>token_name</code></td><td>string</td><td>optional, max 255</td></tr>
+                </tbody>
+            </table>
+            <h3>Success response (200)</h3>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>{
+  "success": true,
+  "token": "rec_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "expires_at": "2026-07-17T00:00:00.000000Z",
+  "user": { "id": 1, "name": "Jane Doe", "email": "user@example.com" },
+  "company": { "id": 1, "name": "Acme", "subdomain": "acme", "timezone": "UTC" }
+}</code></pre>
+            </div>
+            <h3>Error responses</h3>
+            <table>
+                <thead><tr><th>Status</th><th>Example</th></tr></thead>
+                <tbody>
+                    <tr><td>401</td><td><code>{"success":false,"message":"Invalid credentials."}</code></td></tr>
+                    <tr><td>403</td><td><code>{"success":false,"message":"Your account is not active."}</code></td></tr>
+                    <tr><td>404</td><td><code>{"success":false,"message":"Company subdomain not found."}</code></td></tr>
+                    <tr><td>422</td><td>Laravel validation <code>errors</code> object</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section id="recorder-time">
+            <h2>Recorder API — Time Tracking</h2>
+            <p>Date and time values are interpreted in the <strong>company timezone</strong> returned at login.</p>
+
+            <div class="endpoint"><span class="method get">GET</span><span class="path">/api/recorder/time-tracking/status</span></div>
+            <h4>Success response (200)</h4>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>{
+  "success": true,
+  "clocked_in": true,
+  "record": { "id": 42, "date": "2026-06-17", "time_in": "09:00:00", "status": "active" },
+  "last_time_in": { "date": "2026-06-17", "time": "09:00:00", "display": "2026-06-17 09:00:00" },
+  "last_time_out": null
+}</code></pre>
+            </div>
+
+            <div class="endpoint"><span class="method post">POST</span><span class="path">/api/recorder/time-tracking/time-in</span></div>
+            <div class="endpoint"><span class="method post">POST</span><span class="path">/api/recorder/time-tracking/time-out</span></div>
+            <table>
+                <thead><tr><th>Field</th><th>Type</th><th>Format</th></tr></thead>
+                <tbody>
+                    <tr><td><code>date</code></td><td>string</td><td><code>YYYY-MM-DD</code></td></tr>
+                    <tr><td><code>time</code></td><td>string</td><td><code>HH:MM:SS</code></td></tr>
+                </tbody>
+            </table>
+            <h4>Time-in success (200)</h4>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>{
+  "success": true,
+  "message": "Time in recorded successfully.",
+  "record": { "id": 42, "date": "2026-06-17", "time_in": "09:00:00", "status": "active" }
+}</code></pre>
+            </div>
+            <h4>Already clocked in (400)</h4>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>{
+  "success": false,
+  "message": "You have an active time tracking session. Please clock out first before starting a new one.",
+  "record": { }
+}</code></pre>
+            </div>
+            <h4>Clock out without clock in (400)</h4>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>{ "success": false, "message": "Please clock in first." }</code></pre>
+            </div>
+        </section>
+
+        <section id="recorder-uploads">
+            <h2>Recorder API — Recording Uploads</h2>
+            <p>Upload flow: <strong>start</strong> &rarr; <strong>chunk</strong> &rarr; <strong>finalize</strong>.</p>
+
+            <div class="endpoint"><span class="method get">GET</span><span class="path">/api/recorder/recordings/today</span></div>
+            <p>Today's recordings for the authenticated user (max 100). Uses company timezone for "today".</p>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>{
+  "success": true,
+  "recordings": [
+    { "id": 1, "upload_id": "upl-today", "date": "2026-06-17", "sync_status": "uploaded" }
+  ]
+}</code></pre>
+            </div>
+
+            <div class="endpoint"><span class="method get">GET</span><span class="path">/api/recorder/uploads/pending</span></div>
+            <p>Queued, uploading, or failed uploads (max 50).</p>
+
+            <h3>1. Start upload session</h3>
+            <div class="endpoint"><span class="method post">POST</span><span class="path">/api/recorder/uploads/start</span></div>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>{
+  "success": true,
+  "recording_id": 10,
+  "upload_id": "upl-123"
+}</code></pre>
+            </div>
+
+            <h3>2. Upload file</h3>
+            <div class="endpoint"><span class="method post">POST</span><span class="path">/api/recorder/uploads/chunk</span></div>
+            <p>Multipart form: <code>upload_id</code> + <code>recording</code> file (<code>webm</code>, <code>mp4</code>, <code>ogg</code>, <code>mov</code> — max 300&nbsp;MB).</p>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code data-base-url>curl -X POST "{{BASE_URL}}/api/recorder/uploads/chunk" \
+  -H "Authorization: Bearer rec_your_token_here" \
+  -F "upload_id=upl-123" \
+  -F "recording=@/path/to/recording.webm"</code></pre>
+            </div>
+
+            <h3>3. Finalize</h3>
+            <div class="endpoint"><span class="method post">POST</span><span class="path">/api/recorder/uploads/finalize</span></div>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>{
+  "success": true,
+  "recording_id": 10,
+  "message": "Recording finalized."
+}</code></pre>
+            </div>
+
+            <h3>Update sync status</h3>
+            <div class="endpoint"><span class="method post">POST</span><span class="path">/api/recorder/uploads/status</span></div>
+            <p><code>sync_status</code>: <code>queued</code>, <code>uploading</code>, <code>uploaded</code>, or <code>failed</code>.</p>
+        </section>
+
+        <!-- ========== REFERENCE ========== -->
+        <section id="errors">
+            <h2>Error Handling</h2>
+            <p>ItsWorkPlace uses <strong>two error models</strong>. MCP tool errors often return HTTP 200.</p>
+
+            <h3>HTTP status codes</h3>
+            <div class="status-row"><span class="status-code s2">200</span><span>Success. MCP tool errors may also use 200 with <code>isError: true</code>.</span></div>
+            <div class="status-row"><span class="status-code s2">202</span><span>MCP notification accepted — empty body.</span></div>
+            <div class="status-row"><span class="status-code s4">400</span><span>Bad request — e.g. clock-in while already active, clock-out without clock-in.</span></div>
+            <div class="status-row"><span class="status-code s4">401</span><span>Missing or invalid API key or Bearer token.</span></div>
+            <div class="status-row"><span class="status-code s4">403</span><span>Account not active (Recorder login).</span></div>
+            <div class="status-row"><span class="status-code s4">404</span><span>Resource not found — company subdomain, upload session, recording file.</span></div>
+            <div class="status-row"><span class="status-code s4">422</span><span>Recorder validation failed — check <code>errors</code> object. (Not used for MCP tool validation.)</span></div>
+            <div class="status-row"><span class="status-code s4">429</span><span>Rate limited — <em>planned, not yet enforced</em>.</span></div>
+            <div class="status-row"><span class="status-code s5">500</span><span>Server error. MCP may return JSON-RPC <code>-32603</code> internal error.</span></div>
+
+            <h3>JSON-RPC error codes (MCP)</h3>
+            <table>
+                <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
+                <tbody>
+                    <tr><td><code>-32700</code></td><td>Parse error — invalid JSON body</td></tr>
+                    <tr><td><code>-32601</code></td><td>Method not found</td></tr>
+                    <tr><td><code>-32603</code></td><td>Internal server error</td></tr>
+                </tbody>
+            </table>
+
+            <h3>MCP auth error (401)</h3>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>{ "error": "Unauthorized", "message": "Missing X-API-Key header" }</code></pre>
+            </div>
+
+            <h3>Recorder validation error (422)</h3>
+            <div class="code-wrap">
+                <button class="copy-btn" type="button">Copy</button>
+                <pre><code>{
+  "message": "The platform field is required.",
+  "errors": {
+    "platform": ["The platform field is required."]
+  }
+}</code></pre>
+            </div>
+        </section>
+
+        <section id="pagination">
+            <h2>Filtering</h2>
+            <p>There is no page-based pagination. List tools return full result sets with optional filters.</p>
+            <table>
+                <thead><tr><th>Tool</th><th>Filter arguments</th></tr></thead>
+                <tbody>
+                    <tr><td><code>get_clients</code></td><td><code>status</code>, <code>search</code></td></tr>
+                    <tr><td><code>get_tasks</code></td><td><code>project_id</code>, <code>status</code>, <code>assigned_to</code></td></tr>
+                    <tr><td><code>get_time_tracking</code></td><td><code>user_id</code>, <code>date_from</code>, <code>date_to</code>, <code>status</code></td></tr>
+                    <tr><td><code>get_knowledge_base</code></td><td><code>type</code>, <code>category</code>, <code>search</code></td></tr>
+                </tbody>
+            </table>
+            <p>Recorder list endpoints cap results: today's recordings (100), pending uploads (50).</p>
+        </section>
+
+        <section id="rate-limits">
+            <h2>Rate Limits</h2>
+            <div class="callout warn">
+                <div class="icon">&#9888;</div>
+                <p>Rate limiting is <strong>not currently enforced</strong> on MCP or Recorder routes. The limits below are recommended for a future release.</p>
+            </div>
+            <table>
+                <thead><tr><th>API</th><th>Recommended limit</th></tr></thead>
+                <tbody>
+                    <tr><td>MCP</td><td>60 requests/minute per API key</td></tr>
+                    <tr><td>Recorder login</td><td>10 requests/minute per IP</td></tr>
+                    <tr><td>Recorder (authenticated)</td><td>120 requests/minute per token</td></tr>
+                </tbody>
+            </table>
+            <p>When implemented, respect the <code>Retry-After</code> header and use exponential backoff.</p>
+        </section>
+
+        <section id="security">
+            <h2>Security</h2>
+            <table>
+                <thead><tr><th>Topic</th><th>Guidance</th></tr></thead>
+                <tbody>
+                    <tr><td>API key storage</td><td>Environment variables (<code>MCP_API_KEY</code>) or secrets manager — never commit to git</td></tr>
+                    <tr><td>Least privilege</td><td>Read-only keys; restrict <code>allowed_tools</code> to minimum required</td></tr>
+                    <tr><td>Rotation</td><td>Create new key &rarr; migrate &rarr; revoke old (no in-place rotation)</td></tr>
+                    <tr><td>Revocation</td><td>Admin &rarr; API Keys &rarr; Delete (immediate)</td></tr>
+                    <tr><td>HTTPS</td><td>Required in production for all API traffic</td></tr>
+                    <tr><td>Recorder tokens</td><td>Treat as passwords; 30-day expiry; re-login to renew</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section id="changelog">
+            <h2>Changelog</h2>
+            <div class="changelog-entry">
+                <h4>1.2.0</h4>
+                <div class="version-date">June 2026</div>
+                <ul>
+                    <li>Recorder API: login, time tracking, recording uploads</li>
+                    <li>MCP write tools and per-key <code>allowed_tools</code> restrictions</li>
+                    <li>HR, payroll, and knowledge base read tools</li>
+                </ul>
+            </div>
+            <div class="changelog-entry">
+                <h4>1.0.0</h4>
+                <div class="version-date">March 2026</div>
+                <ul>
+                    <li>Initial MCP server (<code>protocolVersion: 2025-03-26</code>)</li>
+                    <li>Read tools for clients, deals, tickets, invoices, activity</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="faq">
+            <h2>FAQ</h2>
+
+            <details class="faq-item">
+                <summary>What is the difference between the MCP and Recorder APIs?</summary>
+                <div class="faq-body">MCP is JSON-RPC for CRM data integrations and AI agents. Recorder is REST for desktop/mobile time tracking and screen recording uploads.</div>
+            </details>
+            <details class="faq-item">
+                <summary>Do I need a subdomain in the URL for MCP?</summary>
+                <div class="faq-body">No. MCP resolves company scope from your API key, not the hostname.</div>
+            </details>
+            <details class="faq-item">
+                <summary>Why is my tool response a string inside content[0].text?</summary>
+                <div class="faq-body">MCP returns tool output as text content blocks. The text field is a JSON string you must parse with JSON.parse() or json_decode().</div>
+            </details>
+            <details class="faq-item">
+                <summary>Why did I get HTTP 200 but isError: true?</summary>
+                <div class="faq-body">MCP tool-level errors (permissions, not found, read-only key) use HTTP 200 with isError: true. Check envelope.result.isError before parsing the text payload.</div>
+            </details>
+            <details class="faq-item">
+                <summary>How do I get write access?</summary>
+                <div class="faq-body">Create a key with --write or enable write access in Admin → API Keys.</div>
+            </details>
+            <details class="faq-item">
+                <summary>Can I limit which tools a key can call?</summary>
+                <div class="faq-body">Yes. Set allowed_tools in the admin UI or use --tools=get_clients,get_deals with the Artisan command.</div>
+            </details>
+            <details class="faq-item">
+                <summary>How long do Recorder tokens last?</summary>
+                <div class="faq-body">30 days from issuance. There is no refresh endpoint — call login again.</div>
+            </details>
+            <details class="faq-item">
+                <summary>What platforms does the Recorder API support?</summary>
+                <div class="faq-body">windows and ios (required at login).</div>
+            </details>
+            <details class="faq-item">
+                <summary>What file types can I upload for recordings?</summary>
+                <div class="faq-body">webm, mp4, ogg, and mov — maximum 300 MB per file.</div>
+            </details>
+            <details class="faq-item">
+                <summary>What timezone is used for clock-in?</summary>
+                <div class="faq-body">The company timezone returned in the login response.</div>
+            </details>
+            <details class="faq-item">
+                <summary>Can I use this with Claude Desktop?</summary>
+                <div class="faq-body">Yes. Configure the MCP server URL and X-API-Key header in your MCP client.</div>
+            </details>
+            <details class="faq-item">
+                <summary>Are batch JSON-RPC requests supported?</summary>
+                <div class="faq-body">Yes. Send a JSON array of requests in one POST body.</div>
+            </details>
+            <details class="faq-item">
+                <summary>How do I revoke an API key?</summary>
+                <div class="faq-body">Delete it in Admin → API Keys. Effect is immediate.</div>
+            </details>
+            <details class="faq-item">
+                <summary>Why is MCP validation not HTTP 422?</summary>
+                <div class="faq-body">Validation runs inside tools. Failures return HTTP 200 with a JSON string containing error and details fields.</div>
+            </details>
+            <details class="faq-item">
+                <summary>Is there rate limiting?</summary>
+                <div class="faq-body">Not yet. It is planned — see the Rate Limits section.</div>
+            </details>
+            <details class="faq-item">
+                <summary>Where is the live tool schema?</summary>
+                <div class="faq-body">Call tools/list — it is always authoritative.</div>
+            </details>
+            <details class="faq-item">
+                <summary>Do referenced IDs need to be in my company?</summary>
+                <div class="faq-body">Yes. Cross-company references are rejected.</div>
+            </details>
+            <details class="faq-item">
+                <summary>Where is the OpenAPI specification?</summary>
+                <div class="faq-body"><a href="openapi.yaml">openapi.yaml</a> — import into Postman, Stoplight, or Scalar.</div>
+            </details>
+            <details class="faq-item">
+                <summary>What happens when I send notifications/initialized?</summary>
+                <div class="faq-body">The server returns HTTP 202 with an empty body.</div>
+            </details>
+            <details class="faq-item">
+                <summary>Can read-only keys call tools/list?</summary>
+                <div class="faq-body">Yes. tools/list, initialize, and ping work with any valid key.</div>
+            </details>
+        </section>
+
+        <footer>
+            <p>ItsWorkPlace CRM API Guide v1.2.0 &middot; <a href="openapi.yaml">OpenAPI 3.1</a> &middot; Keep your API keys and tokens secret.</p>
+        </footer>
+    </main>
+</div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

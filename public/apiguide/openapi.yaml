@@ -1,0 +1,688 @@
+openapi: 3.1.0
+info:
+  title: ItsWorkPlace CRM API
+  version: 1.2.0
+  description: |
+    ItsWorkPlace CRM exposes two HTTP APIs:
+
+    - **CRM Data API (MCP)** — JSON-RPC 2.0 at `POST /mcp`, authenticated with `X-API-Key`.
+    - **Recorder API** — REST JSON at `/api/recorder/*`, authenticated with Bearer tokens.
+
+    MCP tool results return payloads as **JSON strings** inside `result.content[0].text`.
+    You must parse that string to access the data.
+
+servers:
+  - url: https://{subdomain}.logon.online
+    description: Company tenant host
+    variables:
+      subdomain:
+        default: itsworkplace
+        description: Your company subdomain
+  - url: https://logon.online
+    description: Platform root (MCP works with API key on any host)
+
+tags:
+  - name: MCP
+    description: CRM Data API (JSON-RPC)
+  - name: Recorder Auth
+  - name: Recorder Time Tracking
+  - name: Recorder Uploads
+
+paths:
+  /mcp:
+    post:
+      tags: [MCP]
+      summary: MCP JSON-RPC endpoint
+      description: |
+        Single endpoint for all MCP methods: `initialize`, `tools/list`, `tools/call`, `ping`.
+        Batch requests (JSON array) are supported.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/JsonRpcInitialize'
+                - $ref: '#/components/schemas/JsonRpcToolsList'
+                - $ref: '#/components/schemas/JsonRpcToolsCall'
+                - $ref: '#/components/schemas/JsonRpcPing'
+            examples:
+              initialize:
+                summary: Initialize handshake
+                value:
+                  jsonrpc: "2.0"
+                  id: 1
+                  method: initialize
+                  params:
+                    protocolVersion: "2025-03-26"
+                    capabilities: {}
+                    clientInfo:
+                      name: my-integration
+                      version: "1.0.0"
+              toolsList:
+                summary: List available tools
+                value:
+                  jsonrpc: "2.0"
+                  id: 2
+                  method: tools/list
+              getClients:
+                summary: Call get_clients tool
+                value:
+                  jsonrpc: "2.0"
+                  id: 3
+                  method: tools/call
+                  params:
+                    name: get_clients
+                    arguments:
+                      status: active
+      responses:
+        '200':
+          description: JSON-RPC response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/JsonRpcSuccessResponse'
+                  - $ref: '#/components/schemas/JsonRpcErrorResponse'
+        '202':
+          description: Notification accepted (no body)
+        '401':
+          $ref: '#/components/responses/UnauthorizedMcp'
+
+  /api/recorder/login:
+    post:
+      tags: [Recorder Auth]
+      summary: Exchange credentials for a Bearer token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecorderLoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecorderLoginResponse'
+        '401':
+          $ref: '#/components/responses/RecorderUnauthorized'
+        '403':
+          $ref: '#/components/responses/RecorderForbidden'
+        '404':
+          $ref: '#/components/responses/RecorderNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/recorder/time-tracking/status:
+    get:
+      tags: [Recorder Time Tracking]
+      summary: Get current clock-in state
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeTrackingStatusResponse'
+        '401':
+          $ref: '#/components/responses/RecorderUnauthorized'
+
+  /api/recorder/time-tracking/time-in:
+    post:
+      tags: [Recorder Time Tracking]
+      summary: Record clock-in
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimeClockRequest'
+      responses:
+        '200':
+          description: Clocked in successfully
+        '400':
+          description: Already clocked in or invalid state
+        '401':
+          $ref: '#/components/responses/RecorderUnauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/recorder/time-tracking/time-out:
+    post:
+      tags: [Recorder Time Tracking]
+      summary: Record clock-out
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimeClockRequest'
+      responses:
+        '200':
+          description: Clocked out successfully
+        '400':
+          description: Not clocked in or already clocked out
+        '401':
+          $ref: '#/components/responses/RecorderUnauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/recorder/recordings/today:
+    get:
+      tags: [Recorder Uploads]
+      summary: List today's recordings
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Recordings list (max 100)
+        '401':
+          $ref: '#/components/responses/RecorderUnauthorized'
+
+  /api/recorder/uploads/pending:
+    get:
+      tags: [Recorder Uploads]
+      summary: List pending/failed uploads
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Pending uploads (max 50)
+        '401':
+          $ref: '#/components/responses/RecorderUnauthorized'
+
+  /api/recorder/uploads/start:
+    post:
+      tags: [Recorder Uploads]
+      summary: Start an upload session
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadStartRequest'
+      responses:
+        '200':
+          description: Upload session created
+        '401':
+          $ref: '#/components/responses/RecorderUnauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/recorder/uploads/chunk:
+    post:
+      tags: [Recorder Uploads]
+      summary: Upload recording file
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [upload_id, recording]
+              properties:
+                upload_id:
+                  type: string
+                  maxLength: 100
+                recording:
+                  type: string
+                  format: binary
+                  description: webm, mp4, ogg, or mov — max 300 MB
+      responses:
+        '200':
+          description: File uploaded
+        '404':
+          description: Upload session not found
+        '401':
+          $ref: '#/components/responses/RecorderUnauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/recorder/uploads/finalize:
+    post:
+      tags: [Recorder Uploads]
+      summary: Finalize an upload
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadFinalizeRequest'
+      responses:
+        '200':
+          description: Recording finalized
+        '404':
+          description: Upload session or file not found
+        '401':
+          $ref: '#/components/responses/RecorderUnauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/recorder/uploads/status:
+    post:
+      tags: [Recorder Uploads]
+      summary: Update client sync status
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadStatusRequest'
+      responses:
+        '200':
+          description: Status updated
+        '404':
+          description: Upload session not found
+        '401':
+          $ref: '#/components/responses/RecorderUnauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: MCP API key with mcp_ prefix
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: rec_
+      description: Recorder token from login (30-day expiry)
+
+  schemas:
+    JsonRpcInitialize:
+      type: object
+      required: [jsonrpc, id, method, params]
+      properties:
+        jsonrpc:
+          const: "2.0"
+        id: {}
+        method:
+          const: initialize
+        params:
+          type: object
+          properties:
+            protocolVersion:
+              type: string
+              example: "2025-03-26"
+            capabilities:
+              type: object
+            clientInfo:
+              type: object
+              properties:
+                name:
+                  type: string
+                version:
+                  type: string
+
+    JsonRpcToolsList:
+      type: object
+      required: [jsonrpc, id, method]
+      properties:
+        jsonrpc:
+          const: "2.0"
+        id: {}
+        method:
+          const: tools/list
+
+    JsonRpcToolsCall:
+      type: object
+      required: [jsonrpc, id, method, params]
+      properties:
+        jsonrpc:
+          const: "2.0"
+        id: {}
+        method:
+          const: tools/call
+        params:
+          type: object
+          required: [name]
+          properties:
+            name:
+              type: string
+              description: Tool name
+              enum:
+                - get_clients
+                - get_client
+                - get_deals
+                - get_deal
+                - get_tasks
+                - get_tickets
+                - get_ticket
+                - get_activity
+                - get_invoices
+                - get_invoices_by_client
+                - get_quotations
+                - get_quotation
+                - get_employees
+                - get_teams
+                - get_departments
+                - get_time_tracking
+                - get_leave_requests
+                - get_leave_credits
+                - get_payroll_reports
+                - get_payroll_report
+                - get_salary_computations
+                - get_knowledge_base
+                - create_client
+                - update_client
+                - create_deal
+                - update_deal
+                - create_task
+                - update_task
+                - create_ticket
+                - update_ticket
+                - add_ticket_comment
+                - add_client_note
+                - create_quotation
+                - update_quotation
+                - create_invoice
+                - update_invoice
+                - create_employee
+                - update_employee
+                - create_leave_request
+                - update_leave_request
+                - create_salary_computation
+                - update_salary_computation
+            arguments:
+              type: object
+              additionalProperties: true
+
+    JsonRpcPing:
+      type: object
+      required: [jsonrpc, id, method]
+      properties:
+        jsonrpc:
+          const: "2.0"
+        id: {}
+        method:
+          const: ping
+
+    McpToolResult:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                const: text
+              text:
+                type: string
+                description: Stringified JSON payload — must be parsed
+        isError:
+          type: boolean
+
+    JsonRpcSuccessResponse:
+      type: object
+      properties:
+        jsonrpc:
+          const: "2.0"
+        id: {}
+        result:
+          oneOf:
+            - $ref: '#/components/schemas/McpToolResult'
+            - type: object
+
+    JsonRpcErrorResponse:
+      type: object
+      properties:
+        jsonrpc:
+          const: "2.0"
+        id: {}
+        error:
+          type: object
+          properties:
+            code:
+              type: integer
+              description: "-32700 parse, -32601 method not found, -32603 internal"
+            message:
+              type: string
+
+    RecorderLoginRequest:
+      type: object
+      required: [email, password, company_subdomain, device_id, platform]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+        company_subdomain:
+          type: string
+          maxLength: 255
+        device_id:
+          type: string
+          maxLength: 255
+        platform:
+          type: string
+          enum: [windows, ios]
+        token_name:
+          type: string
+          maxLength: 255
+
+    RecorderLoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/UserSummary'
+        company:
+          $ref: '#/components/schemas/CompanySummary'
+
+    UserSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+
+    CompanySummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        subdomain:
+          type: string
+        timezone:
+          type: string
+
+    TimeClockRequest:
+      type: object
+      required: [date, time]
+      properties:
+        date:
+          type: string
+          format: date
+          description: YYYY-MM-DD in company timezone
+        time:
+          type: string
+          description: HH:MM:SS
+
+    TimeTrackingStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        clocked_in:
+          type: boolean
+        record:
+          type: object
+          nullable: true
+        last_time_in:
+          type: object
+          nullable: true
+        last_time_out:
+          type: object
+          nullable: true
+
+    UploadStartRequest:
+      type: object
+      required: [upload_id, date]
+      properties:
+        upload_id:
+          type: string
+          maxLength: 100
+        date:
+          type: string
+          format: date
+        duration:
+          type: integer
+          minimum: 0
+        file_size:
+          type: integer
+          minimum: 1
+        upload_checksum:
+          type: string
+          maxLength: 128
+        metadata:
+          type: object
+          additionalProperties: true
+
+    UploadFinalizeRequest:
+      type: object
+      required: [upload_id]
+      properties:
+        upload_id:
+          type: string
+          maxLength: 100
+        duration:
+          type: integer
+          minimum: 0
+        file_size:
+          type: integer
+          minimum: 1
+        upload_checksum:
+          type: string
+          maxLength: 128
+
+    UploadStatusRequest:
+      type: object
+      required: [upload_id, sync_status]
+      properties:
+        upload_id:
+          type: string
+          maxLength: 100
+        sync_status:
+          type: string
+          enum: [queued, uploading, uploaded, failed]
+        retry_count:
+          type: integer
+        last_error:
+          type: string
+
+    ApiError:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+
+    ValidationErrorBody:
+      type: object
+      properties:
+        message:
+          type: string
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+  responses:
+    UnauthorizedMcp:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              message:
+                type: string
+          example:
+            error: Unauthorized
+            message: Missing X-API-Key header
+
+    RecorderUnauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+          examples:
+            missing:
+              value:
+                success: false
+                message: Missing bearer token.
+            invalid:
+              value:
+                success: false
+                message: Invalid recorder token.
+            expired:
+              value:
+                success: false
+                message: Recorder token has expired.
+
+    RecorderForbidden:
+      description: Account not active
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+          example:
+            success: false
+            message: Your account is not active.
+
+    RecorderNotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+          example:
+            success: false
+            message: Company subdomain not found.
+
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorBody'

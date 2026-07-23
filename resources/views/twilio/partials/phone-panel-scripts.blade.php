@@ -1,0 +1,365 @@
+<script>
+(function () {
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+    const routes = {
+        history: @json(route('twilio.call-history')),
+        contacts: @json(route('twilio.contacts')),
+        contactsStore: @json(route('twilio.contacts.store')),
+        contactsUpdate: @json(url('/twilio/contacts/__ID__')),
+        contactsDelete: @json(url('/twilio/contacts/__ID__')),
+        smsThreads: @json(route('twilio.sms.threads')),
+        smsMessages: @json(route('twilio.sms.messages')),
+        smsSend: @json(route('twilio.sms.send')),
+        numbers: @json(route('twilio.numbers')),
+        numbersSearch: @json(route('twilio.numbers.search')),
+        numbersPurchase: @json(route('twilio.numbers.purchase')),
+        numbersSync: @json(route('twilio.numbers.sync')),
+        numbersAssign: @json(url('/twilio/numbers/__ID__/assign')),
+        numbersUnassign: @json(url('/twilio/numbers/__ID__/unassign')),
+        numbersEmployees: @json(route('twilio.numbers.employees')),
+    };
+
+    const flags = {
+        history: @json(auth()->user()?->hasPermission('view_call_history') ?? false),
+        contacts: @json(!empty($canManageContacts) && $canManageContacts),
+        sms: @json((!empty($canSendSms) && $canSendSms) || (!empty($canViewSms) && $canViewSms)),
+        canSendSms: @json(!empty($canSendSms) && $canSendSms),
+        numbers: @json(!empty($canManageNumbers) && $canManageNumbers),
+    };
+
+    let activeSmsPeer = null;
+
+    function apiFetch(url, options = {}) {
+        return fetch(url, {
+            headers: {
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': csrf,
+                ...(options.headers || {}),
+            },
+            ...options,
+        }).then(async (r) => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.message || 'Request failed');
+            return data;
+        });
+    }
+
+    function escapeHtml(str) {
+        const d = document.createElement('div');
+        d.textContent = str ?? '';
+        return d.innerHTML;
+    }
+
+    function dialFromPanel(number) {
+        const input = document.getElementById('phoneNumber');
+        if (input) {
+            input.value = number;
+            input.dispatchEvent(new Event('input'));
+        }
+        if (typeof window.makeCall === 'function') {
+            window.makeCall();
+        }
+    }
+
+    // Tab switching
+    document.querySelectorAll('.phone-tab-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const tab = btn.getAttribute('data-phone-tab');
+            document.querySelectorAll('.phone-tab-btn').forEach((b) => b.classList.remove('active'));
+            document.querySelectorAll('.phone-tab-panel').forEach((p) => p.classList.remove('active'));
+            btn.classList.add('active');
+            const panel = document.querySelector(`[data-phone-panel="${tab}"]`);
+            if (panel) panel.classList.add('active');
+            document.getElementById('clearLogBtn').style.display = tab === 'live' ? '' : 'none';
+
+            if (tab === 'history' && flags.history) loadCallHistory();
+            if (tab === 'contacts' && flags.contacts) loadContacts();
+            if (tab === 'sms' && flags.sms) loadSmsThreads();
+            if (tab === 'numbers' && flags.numbers) loadNumbersPanel();
+        });
+    });
+
+    // Call history
+    async function loadCallHistory() {
+        const list = document.getElementById('callHistoryList');
+        if (!list) return;
+        list.innerHTML = '<p class="phone-empty-msg">Loading…</p>';
+        try {
+            const dir = document.getElementById('historyDirectionFilter')?.value || 'all';
+            const url = routes.history + (dir !== 'all' ? '?direction=' + encodeURIComponent(dir) : '');
+            const res = await apiFetch(url);
+            const rows = res.data || [];
+            if (!rows.length) {
+                list.innerHTML = '<p class="phone-empty-msg">No calls recorded yet.</p>';
+                return;
+            }
+            list.innerHTML = rows.map((row) => `
+                <div class="phone-list-item">
+                    <div class="phone-list-item-header">
+                        <span>${escapeHtml(row.direction || 'call')}</span>
+                        <span class="status-badge ${escapeHtml(row.status || '')}">${escapeHtml(row.status || '')}</span>
+                    </div>
+                    <div class="phone-list-item-meta">
+                        ${escapeHtml(row.from)} → ${escapeHtml(row.to)}
+                        ${row.duration ? ' · ' + row.duration + 's' : ''}
+                    </div>
+                    <div class="phone-list-item-meta">${escapeHtml(row.created_at ? new Date(row.created_at).toLocaleString() : '')}</div>
+                    <div class="phone-list-item-actions">
+                        <button type="button" class="btn-secondary btn-sm" data-dial="${escapeHtml(row.direction?.includes('inbound') ? row.from : row.to)}">Call back</button>
+                    </div>
+                </div>
+            `).join('');
+            list.querySelectorAll('[data-dial]').forEach((btn) => {
+                btn.addEventListener('click', () => dialFromPanel(btn.getAttribute('data-dial')));
+            });
+        } catch (e) {
+            list.innerHTML = `<p class="phone-empty-msg">${escapeHtml(e.message)}</p>`;
+        }
+    }
+
+    document.getElementById('refreshHistoryBtn')?.addEventListener('click', loadCallHistory);
+    document.getElementById('historyDirectionFilter')?.addEventListener('change', loadCallHistory);
+
+    // Contacts
+    async function loadContacts() {
+        const list = document.getElementById('contactsList');
+        if (!list) return;
+        try {
+            const res = await apiFetch(routes.contacts);
+            const rows = res.data || [];
+            if (!rows.length) {
+                list.innerHTML = '<p class="phone-empty-msg">No contacts yet.</p>';
+                return;
+            }
+            list.innerHTML = rows.map((c) => `
+                <div class="phone-list-item">
+                    <div class="phone-list-item-header"><span>${escapeHtml(c.name)}</span></div>
+                    <div class="phone-list-item-meta">${escapeHtml(c.phone)}${c.email ? ' · ' + escapeHtml(c.email) : ''}</div>
+                    <div class="phone-list-item-actions">
+                        <button type="button" class="btn-primary btn-sm" data-dial="${escapeHtml(c.phone)}">Call</button>
+                        <button type="button" class="btn-secondary btn-sm" data-edit-contact='${JSON.stringify(c).replace(/'/g, '&#39;')}'>Edit</button>
+                        <button type="button" class="btn-secondary btn-sm" data-delete-contact="${c.id}">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+            list.querySelectorAll('[data-dial]').forEach((btn) => {
+                btn.addEventListener('click', () => dialFromPanel(btn.getAttribute('data-dial')));
+            });
+            list.querySelectorAll('[data-edit-contact]').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const c = JSON.parse(btn.getAttribute('data-edit-contact'));
+                    document.getElementById('contactEditId').value = c.id;
+                    document.getElementById('contactName').value = c.name || '';
+                    document.getElementById('contactPhone').value = c.phone || '';
+                    document.getElementById('contactEmail').value = c.email || '';
+                    document.getElementById('contactNotes').value = c.notes || '';
+                    document.getElementById('contactForm').style.display = '';
+                });
+            });
+            list.querySelectorAll('[data-delete-contact]').forEach((btn) => {
+                btn.addEventListener('click', async () => {
+                    if (!confirm('Delete this contact?')) return;
+                    await apiFetch(routes.contactsDelete.replace('__ID__', btn.getAttribute('data-delete-contact')), { method: 'DELETE' });
+                    loadContacts();
+                });
+            });
+        } catch (e) {
+            list.innerHTML = `<p class="phone-empty-msg">${escapeHtml(e.message)}</p>`;
+        }
+    }
+
+    document.getElementById('addContactBtn')?.addEventListener('click', () => {
+        document.getElementById('contactEditId').value = '';
+        document.getElementById('contactName').value = '';
+        document.getElementById('contactPhone').value = '+';
+        document.getElementById('contactEmail').value = '';
+        document.getElementById('contactNotes').value = '';
+        document.getElementById('contactForm').style.display = '';
+    });
+    document.getElementById('cancelContactBtn')?.addEventListener('click', () => {
+        document.getElementById('contactForm').style.display = 'none';
+    });
+    document.getElementById('refreshContactsBtn')?.addEventListener('click', loadContacts);
+    document.getElementById('saveContactBtn')?.addEventListener('click', async () => {
+        const id = document.getElementById('contactEditId').value;
+        const body = JSON.stringify({
+            name: document.getElementById('contactName').value,
+            phone: document.getElementById('contactPhone').value,
+            email: document.getElementById('contactEmail').value,
+            notes: document.getElementById('contactNotes').value,
+        });
+        if (id) {
+            await apiFetch(routes.contactsUpdate.replace('__ID__', id), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body,
+            });
+        } else {
+            await apiFetch(routes.contactsStore, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body,
+            });
+        }
+        document.getElementById('contactForm').style.display = 'none';
+        loadContacts();
+    });
+
+    // SMS
+    async function loadSmsThreads() {
+        const list = document.getElementById('smsThreadsList');
+        if (!list) return;
+        try {
+            const res = await apiFetch(routes.smsThreads);
+            const rows = res.data || [];
+            if (!rows.length) {
+                list.innerHTML = '<p class="phone-empty-msg">No conversations.</p>';
+                return;
+            }
+            list.innerHTML = rows.map((t) => `
+                <div class="phone-sms-thread-item${activeSmsPeer === t.peer ? ' active' : ''}" data-peer="${escapeHtml(t.peer)}">
+                    <strong>${escapeHtml(t.peer)}</strong>
+                    <div style="font-size:0.72rem;color:var(--text-secondary);margin-top:2px;">${escapeHtml((t.last_message || '').slice(0, 40))}</div>
+                </div>
+            `).join('');
+            list.querySelectorAll('.phone-sms-thread-item').forEach((el) => {
+                el.addEventListener('click', () => {
+                    activeSmsPeer = el.getAttribute('data-peer');
+                    document.getElementById('smsPeerNumber').value = activeSmsPeer;
+                    loadSmsMessages(activeSmsPeer);
+                    list.querySelectorAll('.phone-sms-thread-item').forEach((x) => x.classList.remove('active'));
+                    el.classList.add('active');
+                });
+            });
+        } catch (e) {
+            list.innerHTML = `<p class="phone-empty-msg">${escapeHtml(e.message)}</p>`;
+        }
+    }
+
+    async function loadSmsMessages(peer) {
+        const box = document.getElementById('smsMessagesList');
+        if (!box || !peer) return;
+        const res = await apiFetch(routes.smsMessages + '?peer=' + encodeURIComponent(peer));
+        const rows = (res.data || []).reverse();
+        box.innerHTML = rows.map((m) => `
+            <div class="phone-sms-bubble ${m.direction === 'outbound' ? 'outbound' : 'inbound'}">${escapeHtml(m.body)}</div>
+        `).join('');
+        box.scrollTop = box.scrollHeight;
+    }
+
+    document.getElementById('sendSmsBtn')?.addEventListener('click', async () => {
+        const to = document.getElementById('smsPeerNumber').value;
+        const body = document.getElementById('smsBody').value;
+        await apiFetch(routes.smsSend, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to, body }),
+        });
+        document.getElementById('smsBody').value = '';
+        activeSmsPeer = to;
+        loadSmsThreads();
+        loadSmsMessages(to);
+    });
+
+    // Numbers
+    async function loadNumbersPanel() {
+        const list = document.getElementById('companyNumbersList');
+        const numSelect = document.getElementById('assignNumberSelect');
+        const empSelect = document.getElementById('assignEmployeeSelect');
+        if (!list) return;
+        try {
+            const [numsRes, empRes] = await Promise.all([
+                apiFetch(routes.numbers),
+                apiFetch(routes.numbersEmployees),
+            ]);
+            const numbers = numsRes.data || [];
+            const employees = empRes.data || [];
+
+            if (!numbers.length) {
+                list.innerHTML = '<p class="phone-empty-msg">No numbers in inventory. Search and purchase or sync from Twilio.</p>';
+            } else {
+                list.innerHTML = numbers.map((n) => `
+                    <div class="phone-list-item">
+                        <div class="phone-list-item-header">
+                            <span>${escapeHtml(n.phone_number)}</span>
+                            <span>${n.assigned_user_name ? escapeHtml(n.assigned_user_name) : '<em>Unassigned</em>'}</span>
+                        </div>
+                        ${n.assigned_user_id ? `<button type="button" class="btn-secondary btn-sm" data-unassign="${n.id}">Unassign</button>` : ''}
+                    </div>
+                `).join('');
+                list.querySelectorAll('[data-unassign]').forEach((btn) => {
+                    btn.addEventListener('click', async () => {
+                        await apiFetch(routes.numbersUnassign.replace('__ID__', btn.getAttribute('data-unassign')), { method: 'POST' });
+                        loadNumbersPanel();
+                    });
+                });
+            }
+
+            if (numSelect) {
+                numSelect.innerHTML = '<option value="">Select number</option>' +
+                    numbers.filter((n) => !n.assigned_user_id).map((n) =>
+                        `<option value="${n.id}">${escapeHtml(n.phone_number)}</option>`
+                    ).join('');
+            }
+            if (empSelect) {
+                empSelect.innerHTML = '<option value="">Select employee</option>' +
+                    employees.filter((e) => !e.twilio_number).map((e) =>
+                        `<option value="${e.id}">${escapeHtml(e.name)}</option>`
+                    ).join('');
+            }
+        } catch (e) {
+            list.innerHTML = `<p class="phone-empty-msg">${escapeHtml(e.message)}</p>`;
+        }
+    }
+
+    document.getElementById('searchNumbersBtn')?.addEventListener('click', async () => {
+        const area = document.getElementById('areaCodeInput')?.value || '';
+        const list = document.getElementById('availableNumbersList');
+        list.innerHTML = '<p class="phone-empty-msg">Searching…</p>';
+        try {
+            const res = await apiFetch(routes.numbersSearch + '?area_code=' + encodeURIComponent(area));
+            const rows = res.data || [];
+            if (!rows.length) {
+                list.innerHTML = '<p class="phone-empty-msg">No numbers found.</p>';
+                return;
+            }
+            list.innerHTML = rows.map((n) => `
+                <div class="phone-list-item">
+                    <span>${escapeHtml(n.phone_number)}</span>
+                    <button type="button" class="btn-primary btn-sm" data-buy="${escapeHtml(n.phone_number)}">Buy</button>
+                </div>
+            `).join('');
+            list.querySelectorAll('[data-buy]').forEach((btn) => {
+                btn.addEventListener('click', async () => {
+                    if (!confirm('Purchase ' + btn.getAttribute('data-buy') + '?')) return;
+                    await apiFetch(routes.numbersPurchase, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ phone_number: btn.getAttribute('data-buy') }),
+                    });
+                    loadNumbersPanel();
+                });
+            });
+        } catch (e) {
+            list.innerHTML = `<p class="phone-empty-msg">${escapeHtml(e.message)}</p>`;
+        }
+    });
+
+    document.getElementById('syncNumbersBtn')?.addEventListener('click', async () => {
+        await apiFetch(routes.numbersSync, { method: 'POST' });
+        loadNumbersPanel();
+    });
+
+    document.getElementById('assignNumberBtn')?.addEventListener('click', async () => {
+        const numId = document.getElementById('assignNumberSelect')?.value;
+        const userId = document.getElementById('assignEmployeeSelect')?.value;
+        if (!numId || !userId) return alert('Select a number and employee.');
+        await apiFetch(routes.numbersAssign.replace('__ID__', numId), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: parseInt(userId, 10) }),
+        });
+        loadNumbersPanel();
+    });
+})();
+</script>

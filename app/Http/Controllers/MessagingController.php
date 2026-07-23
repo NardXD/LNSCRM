@@ -1,0 +1,708 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Conversation;
+use App\Models\Message;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+
+class MessagingController extends Controller
+{
+    /**
+     * Display the messaging page.
+     */
+    public function index()
+    {
+        return view('dashboard.messaging');
+    }
+
+    /**
+     * Get total unread message count across all conversations (group and direct).
+     */
+    public function getUnreadCount()
+    {
+        $companyId = $this->requireCompany();
+        if (! $companyId) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
+        $user = Auth::user();
+        $conversations = $user->conversations()
+            ->where('conversations.company_id', $companyId)
+            ->get();
+
+        $total = 0;
+        foreach ($conversations as $conv) {
+            $pivot = $conv->participants()->where('users.id', $user->id)->first()?->pivot;
+            $lastRead = $pivot?->last_read_at;
+            $total += $conv->messages()
+                ->where('user_id', '!=', $user->id)
+                ->where('created_at', '>', $lastRead ?? '1970-01-01')
+                ->count();
+        }
+
+        return response()->json(['success' => true, 'data' => ['total' => $total]]);
+    }
+
+    /**
+     * Ensure user has company and get company ID.
+     */
+    private function requireCompany(): ?int
+    {
+        $user = Auth::user();
+        if (! $user || ! $user->company_id) {
+            return null;
+        }
+
+        return $user->company_id;
+    }
+
+    /**
+     * Get all conversations for the authenticated user within their company.
+     */
+    public function getConversations(Request $request)
+    {
+        $companyId = $this->requireCompany();
+        if (! $companyId) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
+        $user = Auth::user();
+        $search = $request->get('search', '');
+        $limit = min(max((int) $request->get('limit', 15), 5), 50);
+        $offset = max((int) $request->get('offset', 0), 0);
+
+        $query = $user->conversations()
+            ->where('conversations.company_id', $companyId)
+            ->with(['participants' => function ($q) {
+                $q->where('users.id', '!=', Auth::id());
+            }])
+            ->with(['latestMessage' => fn ($q) => $q->with('user')]);
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('conversations.name', 'like', "%{$search}%")
+                    ->orWhereHas('participants', function ($p) use ($search) {
+                        $p->where('users.name', 'like', "%{$search}%")
+                            ->orWhere('users.email', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        $conversations = $query->orderByRaw(
+            '(SELECT MAX(created_at) FROM messages WHERE messages.conversation_id = conversations.id) DESC'
+        )->offset($offset)->limit($limit + 1)->get();
+
+        $hasMore = $conversations->count() > $limit;
+        if ($hasMore) {
+            $conversations = $conversations->take($limit);
+        }
+
+        $data = $conversations->map(function ($conv) use ($user) {
+            $lastMessage = $conv->latestMessage;
+            $displayName = $conv->type === 'group'
+                ? $conv->name
+                : ($conv->participants->first()?->name ?? 'Unknown');
+            $preview = $lastMessage
+                ? ($lastMessage->user_id === $user->id ? 'You: ' : $lastMessage->user->name.': ').$this->messagePreview($lastMessage)
+                : 'No messages yet';
+
+            $pivot = $conv->participants()->where('users.id', $user->id)->first()?->pivot;
+            $lastRead = $pivot?->last_read_at;
+            // Count messages from others after last_read_at (works for both direct and group chats)
+            $unread = $conv->messages()
+                ->where('user_id', '!=', $user->id)
+                ->where('created_at', '>', $lastRead ?? '1970-01-01')
+                ->count();
+
+            $otherParticipant = $conv->participants->first();
+
+            return [
+                'id' => $conv->id,
+                'type' => $conv->type,
+                'name' => $displayName,
+                'preview' => $preview,
+                'last_message_at' => $lastMessage?->created_at?->toIso8601String(),
+                'unread_count' => max($unread, 0),
+                'participants_count' => $conv->participants->count() + 1, // +1 for current user in group
+                'avatar_initials' => $conv->type === 'group' ? $this->getInitials($conv->name ?? '') : $this->getInitials($otherParticipant?->name ?? ''),
+                'avatar_photo' => $conv->type === 'group' ? ($conv->photo ? asset('storage/'.$conv->photo) : null) : ($otherParticipant?->photo ? asset('storage/'.$otherParticipant->photo) : null),
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $data,
+            'has_more' => $hasMore,
+        ]);
+    }
+
+    /**
+     * Get company users (for new chat / add members).
+     */
+    public function getUsers(Request $request)
+    {
+        $companyId = $this->requireCompany();
+        if (! $companyId) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
+        $search = $request->get('search', '');
+        $excludeIds = $request->get('exclude', []);
+
+        $query = User::where('company_id', $companyId)
+            ->where('status', 'active')
+            ->where('id', '!=', Auth::id());
+
+        if (is_array($excludeIds)) {
+            $query->whereNotIn('id', $excludeIds);
+        }
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%");
+            });
+        }
+
+        $users = $query->orderBy('name')->limit(50)->get()->map(function ($u) {
+            return [
+                'id' => $u->id,
+                'name' => $u->name,
+                'email' => $u->email,
+                'initials' => $this->getInitials($u->name),
+                'photo' => $u->photo ? asset('storage/'.$u->photo) : null,
+            ];
+        });
+
+        return response()->json(['success' => true, 'data' => $users]);
+    }
+
+    /**
+     * Create a new conversation (direct or group).
+     */
+    public function createConversation(Request $request)
+    {
+        $companyId = $this->requireCompany();
+        if (! $companyId) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
+        $validated = $request->validate([
+            'type' => ['required', Rule::in(['direct', 'group'])],
+            'name' => ['required_if:type,group', 'nullable', 'string', 'max:255'],
+            'photo_path' => [
+                'nullable',
+                'string',
+                'max:500',
+                Rule::when(filled($request->photo_path), ['regex:/^messaging\/.+/']),
+            ],
+            'participant_ids' => ['required', 'array'],
+            'participant_ids.*' => ['integer', 'exists:users,id'],
+        ]);
+
+        $user = Auth::user();
+        $participantIds = array_unique($validated['participant_ids']);
+
+        // Ensure all participants belong to the same company
+        $companyUsers = User::where('company_id', $companyId)->whereIn('id', $participantIds)->pluck('id')->toArray();
+        if (count($participantIds) !== count(array_intersect($participantIds, $companyUsers))) {
+            return response()->json(['success' => false, 'message' => 'Invalid participants'], 422);
+        }
+
+        if ($validated['type'] === 'direct') {
+            if (count($participantIds) !== 1) {
+                return response()->json(['success' => false, 'message' => 'Direct chat requires exactly one participant'], 422);
+            }
+            $otherId = $participantIds[0];
+            $existing = Conversation::where('company_id', $companyId)
+                ->where('type', 'direct')
+                ->whereHas('participants', fn ($q) => $q->where('users.id', $user->id))
+                ->whereHas('participants', fn ($q) => $q->where('users.id', $otherId))
+                ->first();
+            if ($existing) {
+                return response()->json(['success' => true, 'data' => $this->formatConversation($existing)]);
+            }
+        }
+
+        return DB::transaction(function () use ($companyId, $user, $validated, $participantIds) {
+            $conv = Conversation::create([
+                'company_id' => $companyId,
+                'type' => $validated['type'],
+                'name' => $validated['type'] === 'group' ? $validated['name'] : null,
+                'photo' => $validated['type'] === 'group' && ! empty($validated['photo_path']) ? $validated['photo_path'] : null,
+                'created_by' => $user->id,
+            ]);
+
+            $allParticipantIds = array_merge([$user->id], $participantIds);
+            foreach ($allParticipantIds as $pid) {
+                $conv->participants()->attach($pid);
+            }
+
+            return response()->json(['success' => true, 'data' => $this->formatConversation($conv->fresh())]);
+        });
+    }
+
+    /**
+     * Get messages for a conversation.
+     */
+    public function getMessages(Request $request, Conversation $conversation)
+    {
+        $companyId = $this->requireCompany();
+        if (! $companyId || $conversation->company_id !== $companyId) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        $user = Auth::user();
+        if (! $conversation->participants()->where('users.id', $user->id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Not a participant'], 403);
+        }
+
+        // Mark as read
+        $conversation->participants()->updateExistingPivot($user->id, ['last_read_at' => now()]);
+
+        $limit = min(max((int) $request->get('limit', 25), 5), 100);
+        $beforeId = $request->get('before_id');
+
+        $query = $conversation->messages()->with('user');
+
+        if ($beforeId) {
+            $messages = $query->where('id', '<', $beforeId)
+                ->orderBy('id', 'desc')
+                ->limit($limit + 1)
+                ->get();
+        } else {
+            $messages = $query->orderBy('id', 'desc')
+                ->limit($limit + 1)
+                ->get()
+                ->reverse()
+                ->values();
+        }
+
+        $hasMore = $messages->count() > $limit;
+        if ($hasMore) {
+            $messages = $messages->take($limit);
+        }
+        if ($beforeId) {
+            $messages = $messages->reverse()->values();
+        }
+        $messages = $messages->map(fn ($m) => $this->formatMessage($m, $user));
+
+        $otherParticipant = $conversation->participants()->where('users.id', '!=', $user->id)->first();
+        $displayName = $conversation->type === 'group'
+            ? $conversation->name
+            : ($otherParticipant?->name ?? 'Unknown');
+        $avatarPhoto = $conversation->type === 'group'
+            ? ($conversation->photo ? asset('storage/'.$conversation->photo) : null)
+            : ($otherParticipant?->photo ? asset('storage/'.$otherParticipant->photo) : null);
+
+        $isCreator = $conversation->type === 'group' && $conversation->created_by === $user->id;
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'conversation' => [
+                    'id' => $conversation->id,
+                    'type' => $conversation->type,
+                    'name' => $displayName,
+                    'avatar_photo' => $avatarPhoto,
+                    'avatar_initials' => $this->getInitials($displayName),
+                    'is_creator' => $isCreator,
+                ],
+                'messages' => $messages,
+                'has_more' => $hasMore,
+            ],
+        ]);
+    }
+
+    /**
+     * Send a message.
+     */
+    public function sendMessage(Request $request, Conversation $conversation)
+    {
+        $companyId = $this->requireCompany();
+        if (! $companyId || $conversation->company_id !== $companyId) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        $user = Auth::user();
+        if (! $conversation->participants()->where('users.id', $user->id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Not a participant'], 403);
+        }
+
+        $validated = $request->validate([
+            'body' => ['nullable', 'string'],
+            'attachment_path' => ['nullable', 'string'],
+            'attachment_name' => ['nullable', 'string'],
+            'attachment_type' => ['nullable', 'string', 'in:file,image'],
+        ]);
+
+        if (empty($validated['body']) && empty($validated['attachment_path'])) {
+            return response()->json(['success' => false, 'message' => 'Message body or attachment required'], 422);
+        }
+
+        $message = $conversation->messages()->create([
+            'user_id' => $user->id,
+            'body' => $validated['body'] ?? null,
+            'attachment_path' => $validated['attachment_path'] ?? null,
+            'attachment_name' => $validated['attachment_name'] ?? null,
+            'attachment_type' => $validated['attachment_type'] ?? null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->formatMessage($message->load('user'), $user),
+        ]);
+    }
+
+    /**
+     * Delete a conversation and its messages. Removes attachment files from storage.
+     */
+    public function destroyConversation(Conversation $conversation)
+    {
+        $companyId = $this->requireCompany();
+        if (! $companyId || $conversation->company_id !== $companyId) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        $user = Auth::user();
+        if (! $conversation->participants()->where('users.id', $user->id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Not a participant'], 403);
+        }
+
+        // Only the creator can delete a group chat
+        if ($conversation->type === 'group' && $conversation->created_by !== $user->id) {
+            return response()->json(['success' => false, 'message' => 'Only the group creator can delete this chat'], 403);
+        }
+
+        // Message model's deleting event removes attachment files from storage
+        $conversation->delete();
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Get conversation details (for chat info).
+     */
+    public function getConversation(Conversation $conversation)
+    {
+        $companyId = $this->requireCompany();
+        if (! $companyId || $conversation->company_id !== $companyId) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        $user = Auth::user();
+        if (! $conversation->participants()->where('users.id', $user->id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Not a participant'], 403);
+        }
+
+        $conversation->load('participants');
+
+        if ($conversation->type === 'direct') {
+            $other = $conversation->participants()->where('users.id', '!=', $user->id)->first();
+            $data = [
+                'type' => 'direct',
+                'user' => $other ? [
+                    'id' => $other->id,
+                    'name' => $other->name,
+                    'email' => $other->email,
+                    'phone' => $other->phone ?? null,
+                    'photo' => $other->photo ? asset('storage/'.$other->photo) : null,
+                    'initials' => $this->getInitials($other->name),
+                ] : null,
+            ];
+        } else {
+            $creatorId = $conversation->created_by;
+            $members = $conversation->participants->map(fn ($p) => [
+                'id' => $p->id,
+                'name' => $p->name,
+                'email' => $p->email,
+                'photo' => $p->photo ? asset('storage/'.$p->photo) : null,
+                'initials' => $this->getInitials($p->name),
+                'is_me' => $p->id === $user->id,
+                'is_creator' => $p->id === $creatorId,
+            ]);
+            $data = [
+                'type' => 'group',
+                'name' => $conversation->name,
+                'photo' => $conversation->photo ? asset('storage/'.$conversation->photo) : null,
+                'is_creator' => $creatorId === $user->id,
+                'creator_id' => $creatorId,
+                'members' => $members,
+            ];
+        }
+
+        return response()->json(['success' => true, 'data' => $data]);
+    }
+
+    /**
+     * Update conversation (group name, photo).
+     */
+    public function updateConversation(Request $request, Conversation $conversation)
+    {
+        $companyId = $this->requireCompany();
+        if (! $companyId || $conversation->company_id !== $companyId) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        $user = Auth::user();
+        if (! $conversation->participants()->where('users.id', $user->id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Not a participant'], 403);
+        }
+
+        if ($conversation->type !== 'group') {
+            return response()->json(['success' => false, 'message' => 'Only group chats can be updated'], 422);
+        }
+
+        $validated = $request->validate([
+            'name' => ['nullable', 'string', 'max:255'],
+            'photo_path' => [
+                'nullable',
+                'string',
+                'max:500',
+                Rule::when(filled($request->photo_path), ['regex:/^messaging\/.+/']),
+            ],
+        ]);
+
+        if (isset($validated['name'])) {
+            $conversation->name = $validated['name'];
+        }
+        if (array_key_exists('photo_path', $validated)) {
+            $conversation->photo = $validated['photo_path'] ?: null;
+        }
+        $conversation->save();
+
+        return response()->json(['success' => true, 'data' => $this->formatConversation($conversation->fresh())]);
+    }
+
+    /**
+     * Add member to group conversation.
+     */
+    public function addMember(Request $request, Conversation $conversation)
+    {
+        $companyId = $this->requireCompany();
+        if (! $companyId || $conversation->company_id !== $companyId) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        $user = Auth::user();
+        if (! $conversation->participants()->where('users.id', $user->id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Not a participant'], 403);
+        }
+
+        if ($conversation->type !== 'group') {
+            return response()->json(['success' => false, 'message' => 'Only group chats support adding members'], 422);
+        }
+
+        if ($conversation->created_by !== $user->id) {
+            return response()->json(['success' => false, 'message' => 'Only the group creator can add members'], 403);
+        }
+
+        $validated = $request->validate([
+            'user_id' => ['required', 'integer', 'exists:users,id'],
+        ]);
+
+        $newUserId = $validated['user_id'];
+        $companyUsers = User::where('company_id', $companyId)->where('id', $newUserId)->exists();
+        if (! $companyUsers) {
+            return response()->json(['success' => false, 'message' => 'User not in company'], 422);
+        }
+
+        if ($conversation->participants()->where('users.id', $newUserId)->exists()) {
+            return response()->json(['success' => false, 'message' => 'User is already a member'], 422);
+        }
+
+        $conversation->participants()->attach($newUserId);
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Remove member from group conversation.
+     */
+    public function removeMember(Conversation $conversation, User $userToRemove)
+    {
+        $companyId = $this->requireCompany();
+        if (! $companyId || $conversation->company_id !== $companyId) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        $user = Auth::user();
+        if (! $conversation->participants()->where('users.id', $user->id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Not a participant'], 403);
+        }
+
+        if ($conversation->type !== 'group') {
+            return response()->json(['success' => false, 'message' => 'Only group chats support removing members'], 422);
+        }
+
+        if ($conversation->created_by !== $user->id) {
+            return response()->json(['success' => false, 'message' => 'Only the group creator can remove members'], 403);
+        }
+
+        if (! $conversation->participants()->where('users.id', $userToRemove->id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'User is not a member'], 422);
+        }
+
+        $conversation->participants()->detach($userToRemove->id);
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Transfer group ownership to another member.
+     */
+    public function transferOwnership(Request $request, Conversation $conversation)
+    {
+        $companyId = $this->requireCompany();
+        if (! $companyId || $conversation->company_id !== $companyId) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        $user = Auth::user();
+        if (! $conversation->participants()->where('users.id', $user->id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Not a participant'], 403);
+        }
+
+        if ($conversation->type !== 'group') {
+            return response()->json(['success' => false, 'message' => 'Only group chats support ownership transfer'], 422);
+        }
+
+        if ($conversation->created_by !== $user->id) {
+            return response()->json(['success' => false, 'message' => 'Only the group creator can transfer ownership'], 403);
+        }
+
+        $validated = $request->validate([
+            'user_id' => ['required', 'integer', 'exists:users,id'],
+        ]);
+
+        $newOwnerId = $validated['user_id'];
+        if (! $conversation->participants()->where('users.id', $newOwnerId)->exists()) {
+            return response()->json(['success' => false, 'message' => 'New owner must be a group member'], 422);
+        }
+
+        if ($newOwnerId === $user->id) {
+            return response()->json(['success' => false, 'message' => 'You are already the owner'], 422);
+        }
+
+        $conversation->created_by = $newOwnerId;
+        $conversation->save();
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Upload an attachment for a message.
+     */
+    public function uploadAttachment(Request $request)
+    {
+        $companyId = $this->requireCompany();
+        if (! $companyId) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
+        $request->validate([
+            'file' => ['required', 'file', 'max:10240'], // 10MB
+        ]);
+
+        $file = $request->file('file');
+        $path = $file->store('messaging/'.$companyId, 'public');
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'path' => $path,
+                'url' => asset('storage/'.$path),
+                'name' => $file->getClientOriginalName(),
+                'type' => str_starts_with($file->getMimeType(), 'image/') ? 'image' : 'file',
+            ],
+        ]);
+    }
+
+    /**
+     * Discard an uploaded attachment that was never sent (e.g. user cancelled).
+     */
+    public function discardAttachment(Request $request)
+    {
+        $companyId = $this->requireCompany();
+        if (! $companyId) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
+        $validated = $request->validate([
+            'path' => ['required', 'string', 'max:500'],
+        ]);
+
+        $path = $validated['path'];
+
+        if (str_contains($path, '..')) {
+            return response()->json(['success' => false, 'message' => 'Invalid path'], 422);
+        }
+
+        $prefix = 'messaging/'.$companyId.'/';
+        if (! str_starts_with($path, $prefix)) {
+            return response()->json(['success' => false, 'message' => 'Invalid path'], 422);
+        }
+
+        $fullPath = storage_path('app/public/'.$path);
+        if (file_exists($fullPath) && is_file($fullPath)) {
+            unlink($fullPath);
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    private function formatConversation(Conversation $conv): array
+    {
+        $user = Auth::user();
+        $other = $conv->participants()->where('users.id', '!=', $user->id)->first();
+        $name = $conv->type === 'group' ? $conv->name : ($other?->name ?? 'Unknown');
+
+        return [
+            'id' => $conv->id,
+            'type' => $conv->type,
+            'name' => $name,
+        ];
+    }
+
+    private function formatMessage(Message $m, $currentUser): array
+    {
+        $isMe = $m->user_id === $currentUser->id;
+
+        return [
+            'id' => $m->id,
+            'user_id' => $m->user_id,
+            'author' => $isMe ? 'You' : $m->user->name,
+            'author_initials' => $this->getInitials($m->user->name),
+            'author_photo' => $m->user->photo ? asset('storage/'.$m->user->photo) : null,
+            'body' => $m->body,
+            'attachment_path' => $m->attachment_path ? asset('storage/'.$m->attachment_path) : null,
+            'attachment_name' => $m->attachment_name,
+            'attachment_type' => $m->attachment_type,
+            'created_at' => $m->created_at->toIso8601String(),
+        ];
+    }
+
+    private function messagePreview(Message $m): string
+    {
+        if ($m->attachment_path) {
+            return $m->attachment_name ?: '[Attachment]';
+        }
+
+        return strlen($m->body ?? '') > 80 ? substr($m->body, 0, 80).'...' : ($m->body ?? '');
+    }
+
+    private function getInitials(string $name): string
+    {
+        $parts = preg_split('/\s+/', trim($name), 2);
+
+        return strtoupper(
+            substr($parts[0] ?? '', 0, 1).
+            substr($parts[1] ?? $parts[0] ?? '', 0, 1)
+        ) ?: '?';
+    }
+}

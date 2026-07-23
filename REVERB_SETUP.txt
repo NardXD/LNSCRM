@@ -1,0 +1,44 @@
+# Laravel Reverb (WebSocket) — production setup
+#
+# 1. Generate keys locally:
+#    php artisan reverb:install
+#    (or set REVERB_APP_KEY/SECRET manually)
+#
+# 2. .env:
+#    BROADCAST_CONNECTION=reverb
+#    CACHE_STORE=database   (use until Redis is installed; or redis when available)
+#    REVERB_APP_ID=logon
+#    REVERB_APP_KEY=your-key
+#    REVERB_APP_SECRET=your-secret
+#    REVERB_PORT=443
+#    REVERB_SCHEME=https
+#    REVERB_SERVER_HOST=0.0.0.0
+#    REVERB_SERVER_PORT=8080
+#
+#    Browser WebSocket is derived from window.location (each company subdomain).
+#    Do NOT set REVERB_PORT=8080 for production — 8080 is internal Reverb only.
+#    REVERB_HOST is optional (server metadata); it does not control the browser URL.
+#    REVERB_MAX_REQUEST_SIZE=65536
+#    REVERB_APP_MAX_MESSAGE_SIZE=65536
+#
+#    WebRTC SDP offers/answers are fetched via REST (not WebSocket) to avoid
+#    "Payload too large" errors. Small control signals still use WebSocket.
+#
+# 3. Run Reverb as a service (Supervisor example):
+#    command=php /path/to/artisan reverb:start
+#
+# 4. Nginx — proxy WebSocket to Reverb (repeat for each vhost / wildcard subdomain):
+#    location /app/ {
+#        proxy_pass http://127.0.0.1:8080;
+#        proxy_http_version 1.1;
+#        proxy_set_header Upgrade $http_upgrade;
+#        proxy_set_header Connection "Upgrade";
+#        proxy_set_header Host $host;
+#        proxy_read_timeout 60s;
+#    }
+#
+# 5. After deploy:
+#    composer install
+#    php artisan config:clear
+#    php artisan reverb:restart
+#    Hard-refresh browsers

@@ -1,0 +1,1950 @@
+@extends('layouts.app')
+
+@section('title', 'Integrations')
+
+@section('content')
+    <div class="page-header" style="display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+        <div>
+            <h1 class="page-title">Integrations</h1>
+            <p class="page-subtitle">Connect and manage third-party services and tools</p>
+        </div>
+        <a href="{{ url('/apiguide/index.html') }}" target="_blank" rel="noopener" class="btn-primary" style="display: inline-flex; align-items: center; gap: 0.5rem; text-decoration: none;">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+            </svg>
+            API Guide
+        </a>
+    </div>
+
+    <div class="integrations-container">
+        <!-- Integration Categories -->
+        <div class="integration-categories">
+            <button class="category-btn active" data-category="all">All</button>
+            <button class="category-btn" data-category="payment">Payment</button>
+            <button class="category-btn" data-category="accounting">Accounting</button>
+            <button class="category-btn" data-category="communication">Communication</button>
+            <button class="category-btn" data-category="productivity">Productivity</button>
+            <button class="category-btn" data-category="automation">Automation</button>
+        </div>
+
+        <!-- Integrations Grid -->
+        <div class="integrations-grid" id="integrationsGrid">
+            <!-- Integrations will be populated by JavaScript -->
+        </div>
+    </div>
+
+    <!-- Integration Modal -->
+    <div class="integration-modal" id="integrationModal">
+        <div class="integration-modal-content">
+            <button class="modal-close" onclick="closeIntegrationModal()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
+
+            <div class="modal-header">
+                <div class="modal-integration-info">
+                    <div class="modal-integration-icon" id="modalIcon">
+                        <!-- Icon will be populated by JavaScript -->
+                    </div>
+                    <div>
+                        <h2 class="modal-integration-name" id="modalName">Integration Name</h2>
+                        <p class="modal-integration-description" id="modalDescription">Integration description</p>
+                    </div>
+                </div>
+                <div class="modal-status" id="modalStatus">
+                    <!-- Status will be populated by JavaScript -->
+                </div>
+            </div>
+
+            <div class="modal-body">
+                <div class="integration-details" id="integrationDetails">
+                    <!-- Details will be populated by JavaScript -->
+                </div>
+
+                <div class="integration-config" id="integrationConfig">
+                    <!-- Configuration form will be populated by JavaScript -->
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeIntegrationModal()">Cancel</button>
+                <button class="btn-primary" id="modalActionBtn" onclick="handleIntegrationAction()">
+                    Connect
+                </button>
+            </div>
+        </div>
+    </div>
+@endsection
+
+@push('styles')
+<style>
+    .integrations-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    /* Categories */
+    .integration-categories {
+        display: flex;
+        gap: 0.5rem;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 0.5rem;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .category-btn {
+        padding: 0.625rem 1.25rem;
+        border: none;
+        background: transparent;
+        border-radius: 8px;
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all 0.15s;
+        white-space: nowrap;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .category-btn:hover {
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .category-btn.active {
+        background: var(--accent);
+        color: white;
+    }
+
+    /* Integrations Grid */
+    .integrations-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 1.5rem;
+    }
+
+    .integration-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.5rem;
+        cursor: pointer;
+        transition: all 0.15s;
+        position: relative;
+    }
+
+    .integration-card:hover {
+        border-color: var(--accent);
+        box-shadow: 0 4px 12px rgba(95, 97, 230, 0.1);
+    }
+
+    .integration-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        margin-bottom: 1rem;
+    }
+
+    .integration-icon-wrapper {
+        width: 56px;
+        height: 56px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        flex-shrink: 0;
+        margin-bottom: 1rem;
+    }
+
+    .integration-icon-wrapper.paypal {
+        background: #f0f8ff;
+    }
+
+    .integration-icon-wrapper.stripe {
+        background: #f5f5ff;
+    }
+
+    .integration-icon-wrapper.wise {
+        background: #e6f7f7;
+    }
+
+    .integration-icon-wrapper.google,
+    .integration-icon-wrapper.gmail {
+        background: #f0f4ff;
+    }
+
+    .integration-icon-wrapper.openai {
+        background: #f0f0ff;
+    }
+
+    .integration-icon-wrapper.calendar {
+        background: #f0f7ff;
+    }
+
+    .integration-icon-wrapper.twilio {
+        background: #e6f3ff;
+    }
+
+    .integration-status {
+        padding: 0.25rem 0.75rem;
+        border-radius: 100px;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+
+    .integration-status.connected {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+    .integration-status.disconnected {
+        background: #e5e7eb;
+        color: #6b7280;
+    }
+
+    .integration-name {
+        font-size: 1.125rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 0.5rem;
+    }
+
+    .integration-description {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        line-height: 1.6;
+        margin-bottom: 1rem;
+    }
+
+    .integration-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
+    }
+
+    .integration-category {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .integration-action {
+        padding: 0.5rem 1rem;
+        border: 1px solid var(--border);
+        background: var(--bg-primary);
+        border-radius: 6px;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: var(--text-primary);
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+
+    .integration-action:hover {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: white;
+    }
+
+    /* Integration Modal */
+    .integration-modal {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.75);
+        z-index: 2000;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        opacity: 0;
+        transition: opacity 0.2s;
+    }
+
+    .integration-modal.active {
+        display: flex;
+        opacity: 1;
+    }
+
+    .integration-modal-content {
+        background: var(--bg-card);
+        border-radius: 16px;
+        max-width: 600px;
+        width: 100%;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        transform: scale(0.95);
+        transition: transform 0.2s;
+        overflow: hidden;
+    }
+
+    .integration-modal.active .integration-modal-content {
+        transform: scale(1);
+    }
+
+    .modal-close {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        width: 40px;
+        height: 40px;
+        background: rgba(0, 0, 0, 0.5);
+        border: none;
+        border-radius: 50%;
+        color: white;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        transition: background 0.15s;
+    }
+
+    .modal-close:hover {
+        background: rgba(0, 0, 0, 0.7);
+    }
+
+    .modal-close svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    .modal-header {
+        padding: 1.5rem;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+    }
+
+    .modal-integration-info {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+        flex: 1;
+    }
+
+    .modal-integration-icon {
+        width: 64px;
+        height: 64px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2rem;
+        flex-shrink: 0;
+    }
+
+    .modal-integration-name {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin: 0 0 0.25rem 0;
+    }
+
+    .modal-integration-description {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        margin: 0;
+    }
+
+    .modal-status {
+        flex-shrink: 0;
+    }
+
+    .modal-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.5rem;
+    }
+
+    .integration-details {
+        margin-bottom: 2rem;
+    }
+
+    .details-section {
+        margin-bottom: 1.5rem;
+    }
+
+    .details-section:last-child {
+        margin-bottom: 0;
+    }
+
+    .details-title {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .details-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .detail-item {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+    }
+
+    .detail-item svg {
+        width: 18px;
+        height: 18px;
+        color: var(--accent);
+        flex-shrink: 0;
+    }
+
+    .integration-config {
+        background: var(--bg-primary);
+        border-radius: 8px;
+        padding: 1.5rem;
+    }
+
+    .config-form {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .form-label {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+
+    .form-input {
+        padding: 0.625rem 0.75rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-size: 0.875rem;
+        background: var(--bg-card);
+        color: var(--text-primary);
+        transition: all 0.15s;
+    }
+
+    .form-input:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(95, 97, 230, 0.1);
+    }
+
+    .form-help {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+
+    .connected-info {
+        background: #d1fae5;
+        border: 1px solid #10b981;
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .connected-info-title {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: #059669;
+        margin-bottom: 0.5rem;
+    }
+
+    .connected-info-text {
+        font-size: 0.8125rem;
+        color: #047857;
+    }
+
+    .modal-footer {
+        padding: 1.5rem;
+        border-top: 1px solid var(--border);
+        display: flex;
+        gap: 0.75rem;
+        justify-content: flex-end;
+    }
+
+    /* Buttons */
+    .btn-primary, .btn-secondary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.625rem 1.25rem;
+        border-radius: 8px;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s;
+        border: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .btn-primary {
+        background: var(--accent);
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: var(--accent-hover);
+    }
+
+    .btn-secondary {
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+        background: var(--border);
+    }
+
+    .btn-danger {
+        background: #fee2e2;
+        color: #dc2626;
+        border: 1px solid #fecaca;
+    }
+
+    .btn-danger:hover {
+        background: #fecaca;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        .integration-categories {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .integrations-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .integration-modal-content {
+            max-width: 100%;
+            max-height: 100vh;
+            border-radius: 0;
+        }
+
+        .modal-header {
+            flex-direction: column;
+        }
+
+        .modal-footer {
+            flex-direction: column;
+        }
+
+        .modal-footer .btn-primary,
+        .modal-footer .btn-secondary {
+            width: 100%;
+            justify-content: center;
+        }
+    }
+</style>
+@endpush
+
+@push('scripts')
+<script>
+    const TWILIO_SETUP = {
+        voiceWebhook: @json(route('twilio.voice')),
+        smsWebhook: @json(route('twilio.sms-webhook')),
+        phoneSystemUrl: @json(route('twilio.call')),
+    };
+
+    // Integrations Data
+    const integrationsData = [
+        {
+            id: 'paypal',
+            name: 'PayPal',
+            description: 'Accept payments via PayPal. Process transactions securely and manage your PayPal account.',
+            category: 'payment',
+            icon: '💳',
+            status: 'connected',
+            features: ['Payment processing', 'Refund management', 'Transaction history', 'Webhook support']
+        },
+        {
+            id: 'stripe',
+            name: 'Stripe',
+            description: 'Accept credit card payments with Stripe. Secure payment processing with global support.',
+            category: 'payment',
+            icon: '💳',
+            status: 'disconnected',
+            features: ['Credit card processing', 'Subscription billing', 'Payment intents', '3D Secure']
+        },
+        {
+            id: 'wise',
+            name: 'Wise',
+            description: 'Send and receive international payments with Wise. Low-cost transfers in 50+ currencies.',
+            category: 'payment',
+            icon: '🌍',
+            status: 'disconnected',
+            features: ['International transfers', 'Multi-currency accounts', 'Batch payments', 'Real-time exchange rates']
+        },
+        {
+            id: 'gmail',
+            name: 'Gmail',
+            description: 'Connect your Gmail account to send emails (e.g. quotations, invoices). Uses Gmail SMTP with App Password.',
+            category: 'communication',
+            icon: '📧',
+            status: 'disconnected',
+            features: ['Send emails via SMTP', 'Quotation emails', 'Invoice emails', 'Company-wide configuration']
+        },
+        {
+            id: 'google-login',
+            name: 'Google Login',
+            description: 'Enable users to sign in with their Google account. Quick and secure authentication.',
+            category: 'productivity',
+            icon: '🔐',
+            status: 'connected',
+            features: ['OAuth 2.0', 'Single sign-on', 'Account linking', 'Security compliance']
+        },
+        {
+            id: 'openai',
+            name: 'OpenAI',
+            description: 'AI-powered assistance using OpenAI. Get intelligent responses and automation suggestions.',
+            category: 'automation',
+            icon: '🤖',
+            status: 'disconnected',
+            features: ['Chat assistance', 'Content generation', 'Smart suggestions', 'Text analysis']
+        },
+        {
+            id: 'twilio',
+            name: 'Twilio',
+            description: 'Connect your Twilio account for SMS, voice calls, and video communication capabilities.',
+            category: 'communication',
+            icon: '📞',
+            status: 'disconnected',
+            features: ['SMS sending', 'Voice calls', 'Video calls', 'Call recording', 'Phone number management']
+        },
+        {
+            id: 'calendar',
+            name: 'Calendar',
+            description: 'Configure OAuth for Google Calendar and Microsoft Outlook. Users connect their personal accounts from the Calendar page.',
+            category: 'productivity',
+            icon: '📅',
+            status: 'disconnected',
+            features: ['Google Calendar sync', 'Outlook Calendar sync', 'Per-company OAuth credentials', 'Personal account connection']
+        }
+    ];
+
+    let currentCategory = 'all';
+    let currentIntegration = null;
+
+    // Render Integrations
+    function renderIntegrations(category = 'all') {
+        const grid = document.getElementById('integrationsGrid');
+        const filtered = category === 'all' 
+            ? integrationsData 
+            : integrationsData.filter(integration => integration.category === category);
+
+        grid.innerHTML = filtered.map(integration => `
+            <div class="integration-card" onclick="openIntegrationModal('${integration.id}')">
+                <div class="integration-header">
+                    <div class="integration-icon-wrapper ${integration.id}">
+                        ${integration.icon}
+                    </div>
+                    <span class="integration-status ${integration.status}">
+                        ${integration.status === 'connected' ? 'Connected' : 'Not Connected'}
+                    </span>
+                </div>
+                <h3 class="integration-name">${integration.name}</h3>
+                <p class="integration-description">${integration.description}</p>
+                <div class="integration-footer">
+                    <span class="integration-category">${integration.category}</span>
+                    <button class="integration-action" onclick="event.stopPropagation(); openIntegrationModal('${integration.id}')">
+                        ${integration.status === 'connected' ? 'Configure' : 'Connect'}
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Category Switching
+    document.querySelectorAll('.category-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            currentCategory = this.dataset.category;
+            renderIntegrations(currentCategory);
+        });
+    });
+
+    // Load integration status from server
+    async function loadIntegrationStatus(integrationId) {
+        if (integrationId === 'gmail') {
+            try {
+                const response = await fetch('/api/integrations/gmail');
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (data.integration) {
+                    const integration = integrationsData.find(i => i.id === 'gmail');
+                    if (integration) {
+                        integration.status = data.status || (data.integration.is_active ? 'connected' : 'disconnected');
+                        return data.integration;
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading Gmail integration:', error);
+            }
+            return null;
+        }
+        if (integrationId === 'wise') {
+            try {
+                const response = await fetch('/api/integrations/wise');
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (data.integration) {
+                    const integration = integrationsData.find(i => i.id === 'wise');
+                    if (integration) {
+                        integration.status = data.status || (data.integration.is_active ? 'connected' : 'disconnected');
+                        return data.integration;
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading Wise integration:', error);
+            }
+            return null;
+        }
+        if (integrationId === 'twilio') {
+            try {
+                const response = await fetch('/api/integrations/twilio');
+                if (!response.ok) {
+                    return null;
+                }
+                const data = await response.json();
+                if (data.integration) {
+                    const integration = integrationsData.find(i => i.id === 'twilio');
+                    if (integration) {
+                        integration.status = data.status ?? 'disconnected';
+                        return {
+                            ...data.integration,
+                            status: data.status ?? 'disconnected',
+                            missing_fields: data.missing_fields || [],
+                        };
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading Twilio integration:', error);
+            }
+        }
+        if (integrationId === 'openai') {
+            try {
+                const response = await fetch('/api/integrations/openai');
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (data.integration) {
+                    const integration = integrationsData.find(i => i.id === 'openai');
+                    if (integration) {
+                        integration.status = data.status || (data.integration.is_active ? 'connected' : 'disconnected');
+                    }
+                    return data.integration;
+                }
+            } catch (error) {
+                console.error('Error loading OpenAI integration:', error);
+            }
+            return null;
+        }
+        if (integrationId === 'stripe') {
+            try {
+                const response = await fetch('/api/integrations/stripe');
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (data.integration) {
+                    const integration = integrationsData.find(i => i.id === 'stripe');
+                    if (integration) {
+                        integration.status = data.status || (data.integration.is_active && data.integration.secret_key ? 'connected' : 'disconnected');
+                        return data.integration;
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading Stripe integration:', error);
+            }
+        }
+        if (integrationId === 'calendar') {
+            try {
+                const response = await fetch('{{ route("api.calendar.oauth-settings") }}');
+                if (!response.ok) return null;
+                const data = await response.json();
+                const integration = integrationsData.find(i => i.id === 'calendar');
+                if (integration) {
+                    integration.status = (data.google_configured || data.outlook_configured) ? 'connected' : 'disconnected';
+                }
+                return data;
+            } catch (error) {
+                console.error('Error loading Calendar OAuth settings:', error);
+            }
+            return null;
+        }
+        return null;
+    }
+
+    // Open Integration Modal
+    async function openIntegrationModal(integrationId) {
+        const integration = integrationsData.find(i => i.id === integrationId);
+        if (!integration) return;
+
+        currentIntegration = integration;
+
+        // Load existing integration data
+        let existingIntegration = null;
+        if (integrationId === 'gmail' || integrationId === 'twilio' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'calendar') {
+            existingIntegration = await loadIntegrationStatus(integrationId);
+        }
+
+        // Store existingIntegration in global scope for use in handleIntegrationAction
+        window.existingIntegration = existingIntegration;
+
+        // Update modal header
+        document.getElementById('modalIcon').innerHTML = `
+            <div class="integration-icon-wrapper ${integration.id}" style="width: 64px; height: 64px; font-size: 2rem;">
+                ${integration.icon}
+            </div>
+        `;
+        document.getElementById('modalName').textContent = integration.name;
+        document.getElementById('modalDescription').textContent = integration.description;
+        
+        // Update status
+        if (existingIntegration?.status) {
+            integration.status = existingIntegration.status;
+        }
+        const statusHtml = integration.status === 'connected'
+            ? '<span class="integration-status connected">Connected</span>'
+            : '<span class="integration-status disconnected">Not Connected</span>';
+        document.getElementById('modalStatus').innerHTML = statusHtml;
+
+        // Update details
+        const detailsHtml = `
+            <div class="details-section">
+                <div class="details-title">Features</div>
+                <div class="details-list">
+                    ${integration.features.map(feature => `
+                        <div class="detail-item">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span>${feature}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+        document.getElementById('integrationDetails').innerHTML = detailsHtml;
+
+        // Update configuration
+        let configHtml = '';
+        const twilioFieldLabels = {
+            account_sid: 'Account SID',
+            auth_token: 'Auth Token',
+            app_sid: 'App SID',
+            api_key: 'API Key',
+            api_secret: 'API Secret',
+        };
+        const missingTwilioFields = integration.id === 'twilio' && existingIntegration?.missing_fields?.length
+            ? existingIntegration.missing_fields.map(field => twilioFieldLabels[field] || field)
+            : [];
+
+        if (integration.status === 'connected') {
+            configHtml = `
+                <div class="connected-info">
+                    <div class="connected-info-title">✓ Successfully Connected</div>
+                    <div class="connected-info-text">This integration is active and working properly.</div>
+                </div>
+                <div class="config-form">
+                    ${getIntegrationConfig(integration.id, existingIntegration)}
+                </div>
+            `;
+        } else if (integration.id === 'twilio' && existingIntegration?.account_sid) {
+            configHtml = `
+                <div class="connected-info" style="background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.35);">
+                    <div class="connected-info-title" style="color: #b45309;">Incomplete Twilio configuration</div>
+                    <div class="connected-info-text">Saved settings are missing required values${missingTwilioFields.length ? ': ' + missingTwilioFields.join(', ') : ''}. Fill in all fields and save to verify with Twilio.</div>
+                </div>
+                <div class="config-form">
+                    ${getIntegrationConfig(integration.id, existingIntegration)}
+                </div>
+            `;
+        } else {
+            configHtml = `
+                <div class="config-form">
+                    ${getIntegrationConfig(integration.id, existingIntegration)}
+                </div>
+            `;
+        }
+        
+        document.getElementById('integrationConfig').innerHTML = configHtml;
+        
+        // Update action button
+        const actionBtn = document.getElementById('modalActionBtn');
+        const footer = document.querySelector('.modal-footer');
+        if (integration.status === 'connected' && integrationId === 'wise') {
+            actionBtn.textContent = 'Save';
+            actionBtn.className = 'btn-primary';
+            actionBtn.onclick = () => handleWiseSave();
+            const disconnectBtn = footer?.querySelector('.wise-disconnect-btn');
+            if (disconnectBtn) disconnectBtn.style.display = '';
+            if (footer && !footer.querySelector('.wise-disconnect-btn')) {
+                const d = document.createElement('button');
+                d.className = 'btn-secondary btn-danger wise-disconnect-btn';
+                d.textContent = 'Disconnect';
+                d.onclick = () => { if (confirm('Disconnect Wise?')) handleWiseDisconnect(); };
+                footer.insertBefore(d, actionBtn);
+            }
+        } else if (integration.status === 'connected' && integrationId === 'stripe') {
+            actionBtn.textContent = 'Save';
+            actionBtn.className = 'btn-primary';
+            actionBtn.onclick = () => handleStripeSave();
+            const disconnectBtn = footer?.querySelector('.stripe-disconnect-btn');
+            if (disconnectBtn) disconnectBtn.style.display = '';
+            if (footer && !footer.querySelector('.stripe-disconnect-btn')) {
+                const d = document.createElement('button');
+                d.className = 'btn-secondary btn-danger stripe-disconnect-btn';
+                d.textContent = 'Disconnect';
+                d.onclick = () => { if (confirm('Disconnect Stripe?')) handleStripeDisconnect(); };
+                footer.insertBefore(d, actionBtn);
+            }
+        } else if (integration.status === 'connected' && integrationId === 'openai') {
+            actionBtn.textContent = 'Save';
+            actionBtn.className = 'btn-primary';
+            actionBtn.onclick = () => handleOpenAiSave();
+            const disconnectBtn = footer?.querySelector('.openai-disconnect-btn');
+            if (disconnectBtn) disconnectBtn.style.display = '';
+            if (footer && !footer.querySelector('.openai-disconnect-btn')) {
+                const d = document.createElement('button');
+                d.className = 'btn-secondary btn-danger openai-disconnect-btn';
+                d.textContent = 'Disconnect';
+                d.onclick = () => { if (confirm('Disconnect OpenAI?')) handleOpenAiDisconnect(); };
+                footer.insertBefore(d, actionBtn);
+            }
+        } else if (integrationId === 'calendar') {
+            actionBtn.textContent = 'Save settings';
+            actionBtn.className = 'btn-primary';
+            actionBtn.onclick = () => handleCalendarOauthSave();
+            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
+        } else {
+            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
+        }
+        if (integrationId === 'calendar') {
+            // Handled above - Save settings button
+        } else if (integration.status === 'connected' && integrationId !== 'wise' && integrationId !== 'gmail' && integrationId !== 'stripe' && integrationId !== 'openai') {
+            actionBtn.textContent = 'Disconnect';
+            actionBtn.className = 'btn-primary btn-danger';
+            actionBtn.onclick = () => handleIntegrationAction();
+        } else if (integration.status !== 'connected' || (integrationId !== 'wise' && integrationId !== 'stripe' && integrationId !== 'openai')) {
+            actionBtn.textContent = 'Connect';
+            actionBtn.className = 'btn-primary';
+            actionBtn.onclick = () => handleIntegrationAction();
+        }
+
+        if (integrationId === 'wise') {
+            // Disable Connect button until a profile is selected; bindWiseFetchProfiles re-enables when ready
+            const connectBtn = document.getElementById('modalActionBtn');
+            if (connectBtn) {
+                connectBtn.disabled = true;
+                connectBtn.style.opacity = '0.5';
+                connectBtn.style.cursor = 'not-allowed';
+            }
+            bindWiseFetchProfiles();
+        }
+
+        // Show modal
+        document.getElementById('integrationModal').classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function getIntegrationConfig(integrationId, existingData = null) {
+        const configs = {
+            'paypal': `
+                <div class="form-group">
+                    <label class="form-label">PayPal Client ID</label>
+                    <input type="text" class="form-input" placeholder="Enter PayPal Client ID" value="AK-1234567890">
+                    <span class="form-help">Find this in your PayPal Developer Dashboard</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">PayPal Secret</label>
+                    <input type="password" class="form-input" placeholder="Enter PayPal Secret" value="••••••••">
+                </div>
+            `,
+            'stripe': `
+                <div class="form-group">
+                    <label class="form-label">Stripe Publishable Key</label>
+                    <input type="text" class="form-input" id="stripe-publishable-key" placeholder="pk_live_... or pk_test_..." value="${(existingData && existingData.publishable_key) ? existingData.publishable_key : ''}">
+                    <span class="form-help">Find this in your Stripe Dashboard under Developers → API keys</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Stripe Secret Key</label>
+                    <input type="password" class="form-input" id="stripe-secret-key" placeholder="sk_live_... or sk_test_..." value="">
+                    <span class="form-help">Required for payment links.${existingData && existingData.secret_key ? ' Leave blank to keep current value.' : ''}</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Webhook Signing Secret</label>
+                    <input type="password" class="form-input" id="stripe-webhook-secret" placeholder="whsec_..." value="">
+                    <span class="form-help">Required for automatic invoice status updates when customers pay via Stripe Checkout.${existingData && existingData.webhook_secret ? ' Leave blank to keep current value.' : ' See setup instructions below.'}</span>
+                </div>
+                <div class="webhook-setup-section" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-top: 1rem;">
+                    <div class="details-title" style="margin-bottom: 0.75rem;">How to set up Stripe Webhooks</div>
+                    <ol style="margin: 0; padding-left: 1.25rem; font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.7;">
+                        <li>Go to <a href="https://dashboard.stripe.com/webhooks" target="_blank" rel="noopener">Stripe Dashboard → Developers → Webhooks</a></li>
+                        <li>Click <strong>Add endpoint</strong></li>
+                        <li>Enter your webhook URL: <code style="background: var(--bg-primary); padding: 0.2em 0.4em; border-radius: 4px; font-size: 0.8em; word-break: break-all;">{{ url("/webhooks/stripe/company/" . (auth()->user()?->company_id ?? "YOUR_COMPANY_ID")) }}</code></li>
+                        <li>Select events: <strong>checkout.session.completed</strong> (invoices), <strong>customer.subscription.updated</strong>, <strong>customer.subscription.deleted</strong> (subscriptions)</li>
+                        <li>Click <strong>Add endpoint</strong>, then reveal and copy the <strong>Signing secret</strong> (starts with whsec_)</li>
+                        <li>Paste the signing secret into the Webhook Signing Secret field above and click Save</li>
+                    </ol>
+                    <p style="margin: 0.75rem 0 0; font-size: 0.75rem; color: var(--text-muted);">Your webhook URL: <strong>{{ url("/webhooks/stripe/company/" . (auth()->user()?->company_id ?? "")) }}</strong></p>
+                </div>
+            `,
+            'gmail': `
+                <div class="form-group">
+                    <label class="form-label">Gmail Address</label>
+                    <input type="email" class="form-input" id="gmail-email" placeholder="your-email@gmail.com" value="${(existingData && existingData.email) ? existingData.email : ''}">
+                    <span class="form-help">The Gmail address used to send emails (quotations, invoices, etc.)</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Gmail App Password</label>
+                    <input type="password" class="form-input" id="gmail-app-password" placeholder="Enter 16-character App Password" value="">
+                    <span class="form-help">Generate an App Password in Google Account: Security → 2-Step Verification → App passwords. Leave blank to keep current when updating.</span>
+                </div>
+            `,
+            'wise': `
+                <div class="form-group">
+                    <label class="form-label">API Token</label>
+                    <input type="password" class="form-input" id="wise-api-token" placeholder="${existingData && existingData.api_token ? 'Leave blank to keep current token' : 'Enter Wise API Token'}" value="">
+                    <span class="form-help">Generate an API token from your Wise Business account settings${existingData && existingData.api_token ? ' — paste a new token to reload profiles' : ''}</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Profile ID</label>
+                    <select class="form-input" id="wise-profile-id" disabled style="cursor: not-allowed;">
+                        <option value="">${existingData && existingData.api_token ? 'Loading profiles…' : '— Paste your API token above to load profiles —'}</option>
+                    </select>
+                    <span class="form-help" id="wise-profile-help">${existingData && existingData.api_token ? 'Fetching your Wise profiles…' : 'Profiles will load automatically once you enter your API token.'}</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">
+                        <input type="checkbox" id="wise-sandbox" ${existingData && existingData.is_sandbox ? 'checked' : ''}> Use Sandbox (testing)
+                    </label>
+                    <span class="form-help">Enable for testing with Wise Sandbox</span>
+                </div>
+                @if(auth()->user()?->hasPermission('view_wise_recipients'))
+                <div class="form-group">
+                    <a href="{{ route('wise-recipients') }}" class="btn-secondary" style="display:inline-flex;text-decoration:none;">Manage recipients &amp; employees</a>
+                    <span class="form-help">Assign Wise recipient IDs to employees on the dedicated page.</span>
+                </div>
+                @endif
+            `,
+            'google-login': `
+                <div class="form-group">
+                    <label class="form-label">Google Client ID</label>
+                    <input type="text" class="form-input" placeholder="Enter Google Client ID" value="1234567890.apps.googleusercontent.com">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Google Client Secret</label>
+                    <input type="password" class="form-input" placeholder="Enter Client Secret" value="••••••••">
+                </div>
+            `,
+            'openai': `
+                <div class="form-group">
+                    <label class="form-label">OpenAI API Key</label>
+                    <input type="password" class="form-input" id="openai-api-key" placeholder="${existingData && existingData.api_key ? 'Leave blank to keep current key' : 'sk-...'}">
+                    <span class="form-help">Get your API key from platform.openai.com. Used by the AI Assistant.</span>
+                </div>
+            `,
+            'calendar': `
+                <p class="form-help" style="margin-bottom: 1rem;">Configure Google Calendar and Microsoft Outlook to allow users to connect their calendars. Add credentials and copy the redirect URLs when creating OAuth apps.</p>
+                <div class="oauth-section" style="margin-bottom: 1.5rem;">
+                    <h4 style="font-size: 0.9375rem; font-weight: 600; margin-bottom: 0.75rem;">Google Calendar</h4>
+                    <details class="oauth-steps" style="background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem;">
+                        <summary style="cursor: pointer; font-size: 0.8125rem; font-weight: 500; color: var(--accent);">How to configure Google Calendar OAuth</summary>
+                        <ol style="margin: 0.75rem 0 0; padding-left: 1.25rem; font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.6;">
+                            <li>Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a></li>
+                            <li>Create or select a project → APIs &amp; Services → Credentials</li>
+                            <li>Create credentials → OAuth 2.0 Client ID (Application type: Web application)</li>
+                            <li>Add Authorized redirect URI: <code id="calendarGoogleRedirectUrl" style="background: var(--bg-card); padding: 0.125rem 0.375rem; border-radius: 4px; font-size: 0.75rem; word-break: break-all;">${(existingData && existingData.redirect_url_google) ? existingData.redirect_url_google : '{{ url("/calendar/connect/google/callback") }}'}</code></li>
+                            <li>Enable Google Calendar API: APIs &amp; Services → Library → search "Google Calendar API" → Enable</li>
+                            <li>Copy the Client ID and Client Secret below</li>
+                        </ol>
+                    </details>
+                    <div class="form-group">
+                        <label class="form-label">Client ID</label>
+                        <input type="text" class="form-input" id="oauth-google-client-id" placeholder="${(existingData && existingData.google_configured) ? '(configured)' : 'xxxxx.apps.googleusercontent.com'}">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Client Secret</label>
+                        <input type="password" class="form-input" id="oauth-google-client-secret" placeholder="${(existingData && existingData.google_configured) ? '(leave blank to keep)' : 'GOCSPX-xxxxx'}">
+                    </div>
+                </div>
+                <div class="oauth-section" style="margin-bottom: 1.5rem;">
+                    <h4 style="font-size: 0.9375rem; font-weight: 600; margin-bottom: 0.75rem;">Microsoft Outlook</h4>
+                    <details class="oauth-steps" style="background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem;">
+                        <summary style="cursor: pointer; font-size: 0.8125rem; font-weight: 500; color: var(--accent);">How to configure Outlook Calendar OAuth</summary>
+                        <ol style="margin: 0.75rem 0 0; padding-left: 1.25rem; font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.6;">
+                            <li>Go to <a href="https://portal.azure.com/" target="_blank" rel="noopener">Azure Portal</a> → Microsoft Entra ID</li>
+                            <li>App registrations → New registration (any org directory + personal accounts)</li>
+                            <li>Add Redirect URI: Platform Web → <code id="calendarOutlookRedirectUrl" style="background: var(--bg-card); padding: 0.125rem 0.375rem; border-radius: 4px; font-size: 0.75rem; word-break: break-all;">${(existingData && existingData.redirect_url_outlook) ? existingData.redirect_url_outlook : '{{ url("/calendar/connect/outlook/callback") }}'}</code></li>
+                            <li>Certificates &amp; secrets → New client secret → copy the value</li>
+                            <li>API permissions → Add: Calendars.Read, User.Read, offline_access</li>
+                            <li>Copy Application (client) ID and client secret below</li>
+                        </ol>
+                    </details>
+                    <div class="form-group">
+                        <label class="form-label">Client ID (Application ID)</label>
+                        <input type="text" class="form-input" id="oauth-microsoft-client-id" placeholder="${(existingData && existingData.outlook_configured) ? '(configured)' : 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'}">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Client Secret</label>
+                        <input type="password" class="form-input" id="oauth-microsoft-client-secret" placeholder="${(existingData && existingData.outlook_configured) ? '(leave blank to keep)' : 'xxxx~xxxxxxxxxxxxxxxxxxxx'}">
+                    </div>
+                </div>
+                <p class="form-help">Leave fields blank to keep existing values. Credentials are stored per company.</p>
+            `,
+            'twilio': `
+                <div class="form-group">
+                    <label class="form-label">TWILIO_SID</label>
+                    <input type="text" class="form-input twilio-sid" id="twilio-sid" placeholder="AC..." value="${existingData ? existingData.account_sid || '' : ''}">
+                    <span class="form-help">Your Twilio Account SID (starts with AC...)</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">TWILIO_AUTH_TOKEN</label>
+                    <input type="password" class="form-input twilio-auth-token" id="twilio-auth-token" placeholder="Enter Auth Token" value="">
+                    <span class="form-help">Your Twilio Auth Token${existingData && existingData.auth_token ? ' (leave blank to keep current value)' : ''}</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">TWILIO_APP_SID</label>
+                    <input type="text" class="form-input twilio-app-sid" id="twilio-app-sid" placeholder="AP..." value="${existingData ? existingData.app_sid || '' : ''}">
+                    <span class="form-help">Your Twilio App SID (starts with AP...) - Required for browser-based calling</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">TWILIO_API_KEY</label>
+                    <input type="text" class="form-input twilio-api-key" id="twilio-api-key" placeholder="SK..." value="${existingData ? existingData.api_key || '' : ''}">
+                    <span class="form-help">Your Twilio API Key (starts with SK...) - Required for browser-based calling</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">TWILIO_API_SECRET</label>
+                    <input type="password" class="form-input twilio-api-secret" id="twilio-api-secret" placeholder="Enter API Secret" value="">
+                    <span class="form-help">Your Twilio API Secret${existingData && existingData.api_secret ? ' (leave blank to keep current value)' : ''} - Required for browser-based calling</span>
+                </div>
+                <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
+                    <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">After saving — Twilio Console setup</strong>
+                    <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
+                        <li>Create a <strong>TwiML App</strong> (for browser calling) and use its App SID above.</li>
+                        <li>Create an <strong>API Key</strong> under Account → API keys & tokens.</li>
+                        <li>For each phone number, set webhooks to <strong>HTTP POST</strong>:
+                            <ul style="margin:0.35rem 0 0;padding-left:1rem;">
+                                <li>Voice: <code style="word-break:break-all;">${TWILIO_SETUP.voiceWebhook}</code></li>
+                                <li>Messaging: <code style="word-break:break-all;">${TWILIO_SETUP.smsWebhook}</code></li>
+                            </ul>
+                        </li>
+                        <li>Or buy numbers from <a href="${TWILIO_SETUP.phoneSystemUrl}">Phone System → Numbers</a> (webhooks set automatically).</li>
+                    </ol>
+                    <p style="margin:0.6rem 0 0;font-size:0.78rem;color:var(--text-secondary);">Each company connects its own Twilio account. Assign numbers to employees before they can call or send SMS.</p>
+                </div>
+            `
+        };
+
+        return configs[integrationId] || '<p>No configuration required.</p>';
+    }
+
+    function setConnectBtnState() {
+        const connectBtn = document.getElementById('modalActionBtn');
+        const profileSelect = document.getElementById('wise-profile-id');
+        if (!connectBtn || !profileSelect) return;
+        const hasProfile = profileSelect.value && profileSelect.value !== '';
+        connectBtn.disabled = !hasProfile;
+        connectBtn.style.opacity = hasProfile ? '' : '0.5';
+        connectBtn.style.cursor = hasProfile ? '' : 'not-allowed';
+    }
+
+    async function loadWiseProfilesIntoSelect(apiToken, isSandbox, preselectId) {
+        const profileSelect = document.getElementById('wise-profile-id');
+        const profileHelp = document.getElementById('wise-profile-help');
+        if (!profileSelect) return;
+
+        profileSelect.disabled = true;
+        profileSelect.style.cursor = 'not-allowed';
+        profileSelect.innerHTML = '<option value="">Loading profiles…</option>';
+        if (profileHelp) profileHelp.textContent = 'Fetching profiles from Wise…';
+        setConnectBtnState();
+
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+            const body = { is_sandbox: isSandbox ? true : false };
+            if (apiToken) body.api_token = apiToken;
+
+            const r = await fetch('/api/integrations/wise/profiles', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': csrfToken
+                },
+                body: JSON.stringify(body)
+            });
+
+            let data = {};
+            try {
+                data = await r.json();
+            } catch (jsonErr) {
+                console.error('Wise profiles: server returned non-JSON (status ' + r.status + '):', jsonErr);
+                if (profileHelp) profileHelp.textContent = 'Server error (HTTP ' + r.status + '). Check console for details.';
+                profileSelect.innerHTML = '<option value="">— Server error —</option>';
+                setConnectBtnState();
+                return;
+            }
+
+            if (r.ok && data.profiles && data.profiles.length) {
+                if (typeof data.resolved_is_sandbox === 'boolean') {
+                    const sandboxCheckbox = document.getElementById('wise-sandbox');
+                    if (sandboxCheckbox) {
+                        sandboxCheckbox.checked = data.resolved_is_sandbox;
+                    }
+                }
+
+                profileSelect.innerHTML = '<option value="">— Select a profile —</option>' +
+                    data.profiles.map(p =>
+                        `<option value="${p.id}">${p.name} (${p.type}) — ID: ${p.id}</option>`
+                    ).join('');
+
+                const target = preselectId || (data.profiles.length === 1 ? String(data.profiles[0].id) : '');
+                if (target) {
+                    const opt = profileSelect.querySelector(`option[value="${target}"]`);
+                    if (opt) {
+                        profileSelect.value = target;
+                    } else {
+                        const extra = document.createElement('option');
+                        extra.value = target;
+                        extra.textContent = `Profile ID: ${target} (current)`;
+                        profileSelect.insertBefore(extra, profileSelect.options[1]);
+                        profileSelect.value = target;
+                    }
+                }
+
+                profileSelect.disabled = false;
+                profileSelect.style.cursor = '';
+                if (profileHelp) {
+                    const baseMessage = data.profiles.length === 1
+                        ? 'Profile loaded and selected.'
+                        : `${data.profiles.length} profiles found. Select one to continue.`;
+                    profileHelp.textContent = data.warning ? `${data.warning} ${baseMessage}` : baseMessage;
+                }
+            } else {
+                profileSelect.innerHTML = '<option value="">— Could not load profiles —</option>';
+                if (profileHelp) profileHelp.textContent = data.error || 'Could not load profiles. Check your API token.';
+            }
+        } catch (e) {
+            console.error(e);
+            profileSelect.innerHTML = '<option value="">— Error loading profiles —</option>';
+            if (profileHelp) profileHelp.textContent = 'Error fetching profiles. Please try again.';
+        }
+
+        setConnectBtnState();
+    }
+
+    async function bindWiseFetchProfiles() {
+        const tokenInput = document.getElementById('wise-api-token');
+        const profileSelect = document.getElementById('wise-profile-id');
+        if (!tokenInput || !profileSelect) return;
+
+        profileSelect.addEventListener('change', setConnectBtnState);
+
+        const existing = window.existingIntegration;
+        if (existing && existing.api_token) {
+            await loadWiseProfilesIntoSelect(null, existing.is_sandbox, existing.profile_id ? String(existing.profile_id) : null);
+        } else {
+            setConnectBtnState();
+        }
+
+        function triggerProfileFetch() {
+            const token = tokenInput.value;
+            const isSandbox = document.getElementById('wise-sandbox')?.checked || false;
+            const preselectId = existing?.profile_id ? String(existing.profile_id) : null;
+
+            if (!token && existing && existing.api_token) {
+                loadWiseProfilesIntoSelect(null, isSandbox, preselectId);
+                return;
+            }
+            if (!token || token.length < 20) return;
+            loadWiseProfilesIntoSelect(token, isSandbox, preselectId);
+        }
+
+        let debounceTimer = null;
+        tokenInput.addEventListener('input', function () {
+            const token = this.value;
+            clearTimeout(debounceTimer);
+
+            if (!token) {
+                if (existing && existing.api_token) {
+                    loadWiseProfilesIntoSelect(null, document.getElementById('wise-sandbox')?.checked, existing.profile_id ? String(existing.profile_id) : null);
+                } else {
+                    profileSelect.innerHTML = '<option value="">— Paste your API token above to load profiles —</option>';
+                    profileSelect.disabled = true;
+                    profileSelect.style.cursor = 'not-allowed';
+                    const profileHelp = document.getElementById('wise-profile-help');
+                    if (profileHelp) profileHelp.textContent = 'Profiles will load automatically once you enter your API token.';
+                    setConnectBtnState();
+                }
+                return;
+            }
+
+            if (token.length < 20) {
+                profileSelect.innerHTML = '<option value="">— Keep typing… —</option>';
+                profileSelect.disabled = true;
+                profileSelect.style.cursor = 'not-allowed';
+                setConnectBtnState();
+                return;
+            }
+
+            profileSelect.innerHTML = '<option value="">Loading profiles…</option>';
+            profileSelect.disabled = true;
+            profileSelect.style.cursor = 'not-allowed';
+            setConnectBtnState();
+
+            debounceTimer = setTimeout(() => {
+                triggerProfileFetch();
+            }, 800);
+        });
+
+        // Re-fetch when sandbox is toggled (sandbox token needs sandbox API URL)
+        const sandboxCheckbox = document.getElementById('wise-sandbox');
+        if (sandboxCheckbox) {
+            sandboxCheckbox.addEventListener('change', function () {
+                clearTimeout(debounceTimer);
+                const token = tokenInput.value;
+                if (token.length >= 20 || (existing && existing.api_token)) {
+                    triggerProfileFetch();
+                }
+            });
+        }
+    }
+
+    async function handleGmailDisconnect() {
+        try {
+            const r = await fetch('/api/integrations/gmail', {
+                method: 'DELETE',
+                headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '' }
+            });
+            if (r.ok) {
+                currentIntegration.status = 'disconnected';
+                alert('Gmail has been disconnected.');
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            } else {
+                alert('Error disconnecting. Please try again.');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error disconnecting Gmail. Please try again.');
+        }
+    }
+
+    async function handleGmailSave() {
+        const email = document.getElementById('gmail-email')?.value?.trim() || '';
+        const appPassword = document.getElementById('gmail-app-password')?.value || '';
+        if (!email) {
+            alert('Please enter your Gmail address.');
+            return;
+        }
+        const hasExisting = window.existingIntegration && window.existingIntegration.email;
+        if (!appPassword && !hasExisting) {
+            alert('Please enter your Gmail App Password.');
+            return;
+        }
+        try {
+            const body = { email };
+            if (appPassword) body.app_password = appPassword;
+            const response = await fetch('/api/integrations/gmail', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                },
+                body: JSON.stringify(body)
+            });
+            const data = await response.json();
+            if (response.ok) {
+                alert('Gmail integration saved successfully. You can now send emails from Quotation Builder and other features.');
+                currentIntegration.status = 'connected';
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            } else {
+                alert(data.error || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Error saving. Please try again.'));
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error saving Gmail integration. Please try again.');
+        }
+    }
+
+    async function handleWiseDisconnect() {
+        try {
+            const r = await fetch('/api/integrations/wise', {
+                method: 'DELETE',
+                headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '' }
+            });
+            if (r.ok) {
+                currentIntegration.status = 'disconnected';
+                alert('Wise has been disconnected.');
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            } else {
+                alert('Error disconnecting. Please try again.');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error disconnecting Wise. Please try again.');
+        }
+    }
+
+    async function handleWiseSave() {
+        const profileId = document.getElementById('wise-profile-id')?.value?.trim() || '';
+        const isSandbox = document.getElementById('wise-sandbox')?.checked || false;
+        const apiToken = document.getElementById('wise-api-token')?.value || '';
+        try {
+            const body = { profile_id: profileId || null, is_sandbox: isSandbox };
+            if (apiToken) body.api_token = apiToken;
+            const response = await fetch('/api/integrations/wise', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                },
+                body: JSON.stringify(body)
+            });
+            const data = await response.json();
+            if (response.ok) {
+                alert('Wise integration saved successfully.');
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            } else {
+                alert(data.error || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Error saving. Please try again.'));
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error saving Wise integration. Please try again.');
+        }
+    }
+
+    async function handleStripeDisconnect() {
+        try {
+            const r = await fetch('/api/integrations/stripe', {
+                method: 'DELETE',
+                headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '' }
+            });
+            if (r.ok) {
+                currentIntegration.status = 'disconnected';
+                alert('Stripe has been disconnected.');
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            } else {
+                alert('Error disconnecting. Please try again.');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error disconnecting Stripe. Please try again.');
+        }
+    }
+
+    async function handleStripeSave() {
+        const publishableKey = document.getElementById('stripe-publishable-key')?.value?.trim() || '';
+        const secretKey = document.getElementById('stripe-secret-key')?.value || '';
+        const webhookSecret = document.getElementById('stripe-webhook-secret')?.value || '';
+        const hasExisting = window.existingIntegration && window.existingIntegration.secret_key;
+        if (!secretKey && !hasExisting) {
+            alert('Please enter your Stripe Secret Key.');
+            return;
+        }
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        if (!csrfToken) {
+            alert('CSRF token missing. Please refresh the page and try again.');
+            return;
+        }
+        try {
+            const body = { publishable_key: publishableKey || null, _token: csrfToken };
+            if (secretKey) body.secret_key = secretKey;
+            if (webhookSecret) body.webhook_secret = webhookSecret;
+            const response = await fetch('{{ route("api.integrations.stripe.store") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify(body)
+            });
+            let data = {};
+            try {
+                const text = await response.text();
+                data = text ? JSON.parse(text) : {};
+            } catch (parseErr) {
+                console.error('Stripe response parse failed. Status:', response.status, 'Body:', text?.substring?.(0, 200));
+                alert('Invalid server response (status ' + response.status + '). Check browser console (F12).');
+                return;
+            }
+            if (response.ok) {
+                alert('Stripe integration saved successfully. You can now generate payment links in Billing.');
+                currentIntegration.status = 'connected';
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            } else {
+                const errMsg = data.error || data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : null);
+                alert(errMsg || ('Request failed (status ' + response.status + ')'));
+                if (!errMsg) console.error('Stripe save failed:', response.status, data);
+            }
+        } catch (e) {
+            console.error('Stripe save error:', e);
+            alert('Error saving Stripe integration: ' + (e.message || 'Please try again.'));
+        }
+    }
+
+    async function handleOpenAiSave() {
+        const apiKey = document.getElementById('openai-api-key')?.value?.trim() || '';
+        const hasExisting = window.existingIntegration && window.existingIntegration.api_key;
+
+        if (!apiKey && !hasExisting) {
+            alert('Please enter your OpenAI API key. Leave blank to keep the current key.');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/integrations/openai', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                },
+                body: JSON.stringify({ api_key: apiKey || null })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                currentIntegration.status = 'connected';
+                alert('OpenAI integration saved successfully. The AI Assistant will use this API key.');
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            } else {
+                alert(data.error || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Error saving. Please try again.'));
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error saving OpenAI integration. Please try again.');
+        }
+    }
+
+    async function handleCalendarOauthSave() {
+        const payload = {
+            google_client_id: document.getElementById('oauth-google-client-id')?.value?.trim() || '',
+            google_client_secret: document.getElementById('oauth-google-client-secret')?.value || '',
+            microsoft_client_id: document.getElementById('oauth-microsoft-client-id')?.value?.trim() || '',
+            microsoft_client_secret: document.getElementById('oauth-microsoft-client-secret')?.value || ''
+        };
+        try {
+            const response = await fetch('{{ route("api.calendar.oauth-settings.store") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (response.ok) {
+                const integration = integrationsData.find(i => i.id === 'calendar');
+                if (integration) integration.status = (data.google_configured || data.outlook_configured) ? 'connected' : 'disconnected';
+                alert(data.message || 'Calendar OAuth settings saved.');
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            } else {
+                alert(data.error || data.message || 'Failed to save settings.');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Failed to save Calendar OAuth settings.');
+        }
+    }
+
+    async function handleOpenAiDisconnect() {
+        try {
+            const response = await fetch('/api/integrations/openai', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                }
+            });
+            if (response.ok) {
+                currentIntegration.status = 'disconnected';
+                alert('OpenAI has been disconnected.');
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            } else {
+                alert('Error disconnecting. Please try again.');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error disconnecting. Please try again.');
+        }
+    }
+
+    async function handleIntegrationAction() {
+        if (!currentIntegration) return;
+
+        if (currentIntegration.status === 'connected' && currentIntegration.id !== 'wise') {
+            if (confirm(`Are you sure you want to disconnect ${currentIntegration.name}?`)) {
+                if (currentIntegration.id === 'wise') {
+                    try {
+                        const response = await fetch('/api/integrations/wise', {
+                            method: 'DELETE',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                            }
+                        });
+                        if (response.ok) {
+                            currentIntegration.status = 'disconnected';
+                            alert(currentIntegration.name + ' has been disconnected.');
+                            closeIntegrationModal();
+                            renderIntegrations(currentCategory);
+                        } else {
+                            alert('Error disconnecting integration. Please try again.');
+                        }
+                    } catch (error) {
+                        console.error('Error:', error);
+                        alert('Error disconnecting integration. Please try again.');
+                    }
+                } else if (currentIntegration.id === 'twilio') {
+                    try {
+                        const response = await fetch('/api/integrations/twilio', {
+                            method: 'DELETE',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                            }
+                        });
+                        
+                        if (response.ok) {
+                            currentIntegration.status = 'disconnected';
+                            alert(`${currentIntegration.name} has been disconnected.`);
+                            closeIntegrationModal();
+                            renderIntegrations(currentCategory);
+                        } else {
+                            alert('Error disconnecting integration. Please try again.');
+                        }
+                    } catch (error) {
+                        console.error('Error:', error);
+                        alert('Error disconnecting integration. Please try again.');
+                    }
+                } else {
+                    currentIntegration.status = 'disconnected';
+                    alert(`${currentIntegration.name} has been disconnected.`);
+                    closeIntegrationModal();
+                    renderIntegrations(currentCategory);
+                }
+            }
+        } else {
+            if (currentIntegration.id === 'stripe') {
+                handleStripeSave();
+                return;
+            }
+            if (currentIntegration.id === 'gmail') {
+                const email = document.getElementById('gmail-email')?.value?.trim() || '';
+                const appPassword = document.getElementById('gmail-app-password')?.value || '';
+                if (!email) {
+                    alert('Please enter your Gmail address.');
+                    return;
+                }
+                if (!appPassword) {
+                    alert('Please enter your Gmail App Password.');
+                    return;
+                }
+                try {
+                    const response = await fetch('/api/integrations/gmail', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                        },
+                        body: JSON.stringify({ email, app_password: appPassword })
+                    });
+                    const data = await response.json();
+                    if (response.ok) {
+                        currentIntegration.status = 'connected';
+                        alert('Gmail has been connected successfully! You can now send emails from Quotation Builder and other features.');
+                        closeIntegrationModal();
+                        renderIntegrations(currentCategory);
+                    } else {
+                        alert(data.error || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Error connecting. Please try again.'));
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Error connecting Gmail. Please try again.');
+                }
+            } else if (currentIntegration.id === 'openai') {
+                handleOpenAiSave();
+            } else if (currentIntegration.id === 'wise') {
+                const apiToken = document.getElementById('wise-api-token')?.value || '';
+                const profileId = document.getElementById('wise-profile-id')?.value || '';
+                const isSandbox = document.getElementById('wise-sandbox')?.checked || false;
+                const hasExisting = window.existingIntegration && window.existingIntegration.api_token;
+
+                if (!apiToken && !hasExisting) {
+                    alert('Please enter your Wise API Token.');
+                    return;
+                }
+
+                try {
+                    const response = await fetch('/api/integrations/wise', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                        },
+                        body: JSON.stringify({
+                            api_token: apiToken,
+                            profile_id: profileId || null,
+                            is_sandbox: isSandbox
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        currentIntegration.status = 'connected';
+                        alert(currentIntegration.name + ' has been connected successfully!');
+                        closeIntegrationModal();
+                        renderIntegrations(currentCategory);
+                    } else {
+                        alert(data.error || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Error connecting integration. Please try again.'));
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Error connecting Wise. Please try again.');
+                }
+            } else if (currentIntegration.id === 'twilio') {
+                // Get form values
+                const twilioSid = document.getElementById('twilio-sid')?.value?.trim() || '';
+                const authToken = document.getElementById('twilio-auth-token')?.value || '';
+                const appSid = document.getElementById('twilio-app-sid')?.value?.trim() || '';
+                const apiKey = document.getElementById('twilio-api-key')?.value?.trim() || '';
+                const apiSecret = document.getElementById('twilio-api-secret')?.value || '';
+                const existingIntegration = window.existingIntegration;
+
+                if (!twilioSid) {
+                    alert('Please enter your Account SID (TWILIO_SID).');
+                    return;
+                }
+                if (!twilioSid.startsWith('AC')) {
+                    alert('Account SID must start with AC.');
+                    return;
+                }
+                if (!authToken && (!existingIntegration || !existingIntegration.auth_token)) {
+                    alert('Please provide your Auth Token (TWILIO_AUTH_TOKEN).');
+                    return;
+                }
+                if (!appSid) {
+                    alert('Please enter your App SID (TWILIO_APP_SID).');
+                    return;
+                }
+                if (!appSid.startsWith('AP')) {
+                    alert('App SID must start with AP.');
+                    return;
+                }
+                if (!apiKey) {
+                    alert('Please enter your API Key (TWILIO_API_KEY).');
+                    return;
+                }
+                if (!apiKey.startsWith('SK')) {
+                    alert('API Key must start with SK.');
+                    return;
+                }
+                if (!apiSecret && (!existingIntegration || !existingIntegration.api_secret)) {
+                    alert('Please provide your API Secret (TWILIO_API_SECRET).');
+                    return;
+                }
+
+                try {
+                    const requestBody = {
+                        account_sid: twilioSid,
+                        auth_token: authToken,
+                        app_sid: appSid,
+                        api_key: apiKey,
+                        api_secret: apiSecret,
+                    };
+
+                    const response = await fetch('/api/integrations/twilio', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                        },
+                        body: JSON.stringify(requestBody)
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        currentIntegration.status = data.status || 'connected';
+                        alert(`${currentIntegration.name} has been connected successfully!`);
+                        closeIntegrationModal();
+                        renderIntegrations(currentCategory);
+                    } else {
+                        const fieldErrors = data.errors ? Object.values(data.errors).flat().join('\n') : '';
+                        alert(data.error || fieldErrors || 'Error connecting integration. Please check your Twilio credentials and try again.');
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Error connecting integration. Please try again.');
+                }
+            } else {
+                // Simulate connection process for other integrations
+                alert(`Connecting to ${currentIntegration.name}...`);
+                currentIntegration.status = 'connected';
+                alert(`${currentIntegration.name} has been connected successfully!`);
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            }
+        }
+    }
+
+    function closeIntegrationModal() {
+        document.getElementById('integrationModal').classList.remove('active');
+        document.body.style.overflow = '';
+        currentIntegration = null;
+    }
+
+    document.getElementById('integrationModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeIntegrationModal();
+        }
+    });
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            closeIntegrationModal();
+        }
+    });
+
+    // Load integration status on page load
+    async function initializeIntegrations() {
+        // Load Gmail integration
+        const gmailIntegration = integrationsData.find(i => i.id === 'gmail');
+        if (gmailIntegration) {
+            try {
+                const response = await fetch('/api/integrations/gmail');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.integration && data.status === 'connected') {
+                        gmailIntegration.status = 'connected';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading Gmail integration on init:', error);
+            }
+        }
+        // Load Wise integration
+        const wiseIntegration = integrationsData.find(i => i.id === 'wise');
+        if (wiseIntegration) {
+            try {
+                const response = await fetch('/api/integrations/wise');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.integration && data.status === 'connected') {
+                        wiseIntegration.status = 'connected';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading Wise integration on init:', error);
+            }
+        }
+        // Load Twilio integration
+        const twilioIntegration = integrationsData.find(i => i.id === 'twilio');
+        if (twilioIntegration) {
+            try {
+                const response = await fetch('/api/integrations/twilio');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.integration) {
+                        twilioIntegration.status = data.status ?? 'disconnected';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading Twilio integration on init:', error);
+            }
+        }
+        // Load Stripe integration
+        const stripeIntegration = integrationsData.find(i => i.id === 'stripe');
+        if (stripeIntegration) {
+            try {
+                const response = await fetch('/api/integrations/stripe');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.integration && data.status === 'connected') {
+                        stripeIntegration.status = 'connected';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading Stripe integration on init:', error);
+            }
+        }
+        // Load OpenAI integration
+        const openaiIntegration = integrationsData.find(i => i.id === 'openai');
+        if (openaiIntegration) {
+            try {
+                const response = await fetch('/api/integrations/openai');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.integration && data.status === 'connected') {
+                        openaiIntegration.status = 'connected';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading OpenAI integration on init:', error);
+            }
+        }
+        // Load Calendar OAuth status
+        const calendarIntegration = integrationsData.find(i => i.id === 'calendar');
+        if (calendarIntegration) {
+            try {
+                const response = await fetch('{{ route("api.calendar.oauth-settings") }}');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.google_configured || data.outlook_configured) {
+                        calendarIntegration.status = 'connected';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading Calendar OAuth status on init:', error);
+            }
+        }
+
+        renderIntegrations();
+    }
+
+    // Initialize
+    initializeIntegrations();
+</script>
+@endpush
+

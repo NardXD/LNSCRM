@@ -1,0 +1,9 @@
+---
+description: Git commit standards for this repository
+alwaysApply: true
+---
+
+# Git commits
+
+- Never add `Co-authored-by: Cursor` or any Cursor agent trailer to commit messages.
+- Commit messages should only reflect the human author; do not attribute commits to Cursor in PRs.

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ItsWorkPlace Recorder</title>
+    <style>
+      :root {
+        font-family: system-ui, sans-serif;
+        color: #0f172a;
+        background: #f8fafc;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+      }
+      h1 {
+        font-size: 1.25rem;
+        margin: 0 0 12px;
+      }
+      h2 {
+        font-size: 0.95rem;
+        margin: 16px 0 8px;
+      }
+      label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 600;
+        margin: 10px 0 4px;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px 10px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        font-size: 0.9rem;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      button {
+        flex: 1;
+        padding: 10px 12px;
+        border-radius: 6px;
+        border: none;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .primary {
+        background: #2563eb;
+        color: #fff;
+      }
+      .secondary {
+        background: #e2e8f0;
+        color: #0f172a;
+      }
+      .danger {
+        background: #dc2626;
+        color: #fff;
+      }
+      #status {
+        margin-top: 12px;
+        padding: 10px;
+        border-radius: 6px;
+        background: #e0f2fe;
+        font-size: 0.85rem;
+        white-space: pre-wrap;
+      }
+      .hint {
+        font-size: 0.75rem;
+        color: #64748b;
+        margin-top: 6px;
+      }
+      .device-box {
+        padding: 10px 12px;
+        border-radius: 6px;
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        font-size: 0.85rem;
+        font-family: ui-monospace, monospace;
+        word-break: break-all;
+      }
+      .panel-hidden {
+        display: none !important;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8rem;
+        margin-top: 6px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 6px 8px;
+        border-bottom: 1px solid #e2e8f0;
+      }
+      th {
+        font-weight: 600;
+        color: #475569;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>ItsWorkPlace Recorder</h1>
+
+    <div id="panelLogin">
+      <p class="hint">
+        Sign in with your company subdomain and CRM credentials. After sign-in, a 30-second screen capture runs immediately, then every hour while this window stays open. Clips upload automatically when you are online.
+      </p>
+
+      <label for="apiBase">API base URL</label>
+      <input id="apiBase" type="text"  autocomplete="url" placeholder="https://manageleadspro.com/" />
+
+      <label for="companySubdomain">Company subdomain</label>
+      <input id="companySubdomain" type="text" placeholder="yourcompany" autocomplete="username" />
+
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="email" />
+
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" />
+
+      <div class="row">
+        <button type="button" class="primary" id="btnLogin">Log in</button>
+      </div>
+    </div>
+
+    <div id="panelApp" class="panel-hidden">
+      <p class="hint">Signed in. Hourly 30-second captures run while this app is open.</p>
+      <label>Next recording in</label>
+      <div class="device-box" id="nextRecordingCountdown">--:--</div>
+      <div class="row">
+        <button type="button" class="primary" id="btnTimeIn">Time in</button>
+        <button type="button" class="secondary panel-hidden" id="btnTimeOut">Time out</button>
+      </div>
+      <div id="timeInDetailsSection" class="panel-hidden">
+        <label>Time in</label>
+        <div class="device-box" id="timeInDetailsDisplay">—</div>
+      </div>
+      <div class="row">
+        <button type="button" class="secondary" id="btnSync">Sync now</button>
+        <button type="button" class="secondary" id="btnSignOutRecorder" title="End recorder session (no time clock)">
+          Sign out
+        </button>
+        <button type="button" class="danger panel-hidden" id="btnLogout">Log out</button>
+      </div>
+
+      <h2>Recordings today</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Duration</th>
+            <th>Status</th>
+            <th>Upload ID</th>
+          </tr>
+        </thead>
+        <tbody id="tbodyServer"></tbody>
+      </table>
+      <div class="row">
+        <button type="button" class="secondary" id="btnServerPrev">Previous</button>
+        <button type="button" class="secondary" id="serverPageInfo" disabled>Page 1 / 1</button>
+        <button type="button" class="secondary" id="btnServerNext">Next</button>
+      </div>
+
+      <h2>Queued on this device</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Duration</th>
+            <th>Retries</th>
+            <th>Upload ID</th>
+          </tr>
+        </thead>
+        <tbody id="tbodyLocal"></tbody>
+      </table>
+      <div class="row">
+        <button type="button" class="secondary" id="btnLocalPrev">Previous</button>
+        <button type="button" class="secondary" id="localPageInfo" disabled>Page 1 / 1</button>
+        <button type="button" class="secondary" id="btnLocalNext">Next</button>
+      </div>
+    </div>
+
+    <div id="status">Ready.</div>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>

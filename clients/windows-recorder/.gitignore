@@ -1,0 +1,4 @@
+node_modules/
+dist/
+installer-output/
+installer-output-electron/
