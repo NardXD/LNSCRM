@@ -719,6 +719,7 @@ class UserManagementController extends Controller
                 'module_slug' => 'inbox',
             ],
             'Viber' => ['view_viber', 'module_slug' => 'viber'],
+            'WhatsApp' => ['view_whatsapp', 'module_slug' => 'whatsapp'],
             'Billing & Payments' => ['view_billing', 'delete_billing', 'module_slug' => 'billing'],
             'Client Management' => ['view_client_management', 'module_slug' => 'client-management'],
             'Tickets & Helpdesk' => ['view_tickets', 'module_slug' => 'tickets'],

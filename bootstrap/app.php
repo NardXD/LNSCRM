@@ -38,6 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'webhooks/stripe/*',
             'webhooks/wise/*',
             'webhooks/viber/*',
+            'webhooks/whatsapp/*',
             'mcp',
         ]);
     })

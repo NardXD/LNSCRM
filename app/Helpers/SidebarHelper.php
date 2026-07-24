@@ -142,6 +142,14 @@ class SidebarHelper
                 'category' => 'main',
             ],
             [
+                'route' => 'whatsapp',
+                'permission' => 'view_whatsapp',
+                'module_slug' => 'whatsapp',
+                'label' => 'WhatsApp',
+                'icon' => 'whatsapp',
+                'category' => 'main',
+            ],
+            [
                 'route' => 'billing',
                 'permission' => 'view_billing',
                 'module_slug' => 'billing',

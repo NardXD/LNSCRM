@@ -201,6 +201,10 @@
         background: #efeaff;
     }
 
+    .integration-icon-wrapper.whatsapp {
+        background: #e8f8ef;
+    }
+
     .integration-status {
         padding: 0.25rem 0.75rem;
         border-radius: 100px;
@@ -579,6 +583,7 @@
         smsWebhook: @json(route('twilio.sms-webhook')),
         phoneSystemUrl: @json(route('twilio.call')),
         viberChatUrl: @json(route('viber')),
+        whatsappChatUrl: @json(route('whatsapp')),
     };
 
     // Integrations Data
@@ -654,6 +659,15 @@
             icon: '💬',
             status: 'disconnected',
             features: ['1:1 chat', 'Images & videos', 'Files & links', 'Welcome message', 'Webhook callbacks', 'Open / call in Viber']
+        },
+        {
+            id: 'whatsapp',
+            name: 'WhatsApp Business',
+            description: 'Connect your WhatsApp Cloud API account to chat with customers, send images and documents, and manage conversations.',
+            category: 'communication',
+            icon: '📱',
+            status: 'disconnected',
+            features: ['1:1 chat', 'Images & videos', 'Documents', 'Webhook callbacks', '24h messaging window', 'Open in WhatsApp']
         },
         {
             id: 'calendar',
@@ -795,6 +809,26 @@
             }
             return null;
         }
+        if (integrationId === 'whatsapp') {
+            try {
+                const response = await fetch('/api/integrations/whatsapp');
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (data.integration) {
+                    const integration = integrationsData.find(i => i.id === 'whatsapp');
+                    if (integration) {
+                        integration.status = data.status ?? 'disconnected';
+                    }
+                    return {
+                        ...data.integration,
+                        status: data.status ?? 'disconnected',
+                    };
+                }
+            } catch (error) {
+                console.error('Error loading WhatsApp integration:', error);
+            }
+            return null;
+        }
         if (integrationId === 'openai') {
             try {
                 const response = await fetch('/api/integrations/openai');
@@ -870,7 +904,7 @@
 
         // Load existing integration data
         let existingIntegration = null;
-        if (integrationId === 'gmail' || integrationId === 'twilio' || integrationId === 'viber' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'calendar' || integrationId === 'outlook') {
+        if (integrationId === 'gmail' || integrationId === 'twilio' || integrationId === 'viber' || integrationId === 'whatsapp' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'calendar' || integrationId === 'outlook') {
             existingIntegration = await loadIntegrationStatus(integrationId);
         }
 
@@ -1267,6 +1301,54 @@
                         <li>Connect here — we verify the token and set your webhook.</li>
                         <li>Share your bot with customers; their first message creates a conversation in <a href="${TWILIO_SETUP.viberChatUrl}">Viber</a>.</li>
                         <li>Reply with text, images, videos, or files. Use Call to open Viber when a phone number is known.</li>
+                    </ol>
+                </div>
+            `,
+            'whatsapp': `
+                <div class="form-group">
+                    <label class="form-label">Phone Number ID</label>
+                    <input type="text" class="form-input" id="whatsapp-phone-number-id" value="${existingData && existingData.phone_number_id ? existingData.phone_number_id : ''}" placeholder="From Meta Developer → WhatsApp → API Setup">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Access Token</label>
+                    <input type="password" class="form-input" id="whatsapp-access-token" placeholder="${existingData && existingData.access_token ? '(leave blank to keep current token)' : 'Permanent or temporary Cloud API token'}">
+                    <span class="form-help">From Meta Developer Console → WhatsApp → API Setup (or a System User token).</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">WhatsApp Business Account ID (optional)</label>
+                    <input type="text" class="form-input" id="whatsapp-waba-id" value="${existingData && existingData.waba_id ? existingData.waba_id : ''}" placeholder="WABA ID">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">App Secret (recommended)</label>
+                    <input type="password" class="form-input" id="whatsapp-app-secret" placeholder="${existingData && existingData.app_secret ? '(leave blank to keep current secret)' : 'Meta App → Settings → Basic → App Secret'}">
+                    <span class="form-help">Used to verify webhook signatures (X-Hub-Signature-256).</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Webhook Verify Token</label>
+                    <input type="text" class="form-input" id="whatsapp-verify-token" value="${existingData && existingData.webhook_verify_token ? existingData.webhook_verify_token : ''}" placeholder="Custom string you will paste into Meta webhook settings">
+                    <span class="form-help">Leave blank to auto-generate one when you connect.</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Welcome Message (optional)</label>
+                    <textarea class="form-input" id="whatsapp-welcome-message" rows="3" placeholder="Hi! Thanks for messaging us. How can we help?">${existingData && existingData.welcome_message ? existingData.welcome_message : ''}</textarea>
+                </div>
+                ${existingData && (existingData.business_name || existingData.display_phone_number) ? `
+                <div class="form-group">
+                    <label class="form-label">Connected number</label>
+                    <div style="font-size:0.9rem;color:var(--text-primary);">${existingData.business_name || ''}${existingData.display_phone_number ? ' · ' + existingData.display_phone_number : ''}</div>
+                </div>` : ''}
+                <div class="form-group">
+                    <label class="form-label">Webhook URL</label>
+                    <code style="display:block;background:var(--bg-primary);padding:0.5rem 0.65rem;border-radius:6px;font-size:0.78rem;word-break:break-all;">${existingData && existingData.webhook_url ? existingData.webhook_url : 'Saved after you connect — must be public HTTPS'}</code>
+                    <span class="form-help">Paste this into Meta Developer → WhatsApp → Configuration → Webhook. Subscribe to <strong>messages</strong>.</span>
+                </div>
+                <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
+                    <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">How it works</strong>
+                    <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
+                        <li>Create a Meta app with WhatsApp product at <a href="https://developers.facebook.com/" target="_blank" rel="noopener">developers.facebook.com</a>.</li>
+                        <li>Copy Phone Number ID + Access Token, then connect here (we verify against Graph API).</li>
+                        <li>In Meta webhook settings, paste the Webhook URL and Verify Token from this form; subscribe to <code>messages</code>.</li>
+                        <li>Customer messages appear in <a href="${TWILIO_SETUP.whatsappChatUrl}">WhatsApp</a>. Reply within the 24-hour customer care window.</li>
                     </ol>
                 </div>
             `
@@ -1796,6 +1878,27 @@
                         console.error('Error:', error);
                         alert('Error disconnecting integration. Please try again.');
                     }
+                } else if (currentIntegration.id === 'whatsapp') {
+                    try {
+                        const response = await fetch('/api/integrations/whatsapp', {
+                            method: 'DELETE',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                            }
+                        });
+                        if (response.ok) {
+                            currentIntegration.status = 'disconnected';
+                            alert(`${currentIntegration.name} has been disconnected.`);
+                            closeIntegrationModal();
+                            renderIntegrations(currentCategory);
+                        } else {
+                            alert('Error disconnecting integration. Please try again.');
+                        }
+                    } catch (error) {
+                        console.error('Error:', error);
+                        alert('Error disconnecting integration. Please try again.');
+                    }
                 } else {
                     currentIntegration.status = 'disconnected';
                     alert(`${currentIntegration.name} has been disconnected.`);
@@ -1999,6 +2102,61 @@
                     console.error('Error:', error);
                     alert('Error connecting Viber. Please try again.');
                 }
+            } else if (currentIntegration.id === 'whatsapp') {
+                const phoneNumberId = document.getElementById('whatsapp-phone-number-id')?.value?.trim() || '';
+                const accessToken = document.getElementById('whatsapp-access-token')?.value || '';
+                const wabaId = document.getElementById('whatsapp-waba-id')?.value?.trim() || '';
+                const appSecret = document.getElementById('whatsapp-app-secret')?.value || '';
+                const verifyToken = document.getElementById('whatsapp-verify-token')?.value?.trim() || '';
+                const welcomeMessage = document.getElementById('whatsapp-welcome-message')?.value || '';
+                const existingIntegration = window.existingIntegration;
+
+                if (!phoneNumberId) {
+                    alert('Please enter your WhatsApp Phone Number ID.');
+                    return;
+                }
+                if (!accessToken && (!existingIntegration || !existingIntegration.access_token)) {
+                    alert('Please paste your WhatsApp access token.');
+                    return;
+                }
+
+                try {
+                    const response = await fetch('/api/integrations/whatsapp', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                        },
+                        body: JSON.stringify({
+                            phone_number_id: phoneNumberId,
+                            access_token: accessToken,
+                            waba_id: wabaId || null,
+                            app_secret: appSecret || null,
+                            webhook_verify_token: verifyToken || null,
+                            welcome_message: welcomeMessage,
+                        })
+                    });
+                    const data = await response.json();
+                    if (response.ok) {
+                        currentIntegration.status = 'connected';
+                        let msg = 'WhatsApp Business has been connected successfully!';
+                        if (data.integration?.webhook_url) {
+                            msg += '\n\nWebhook URL:\n' + data.integration.webhook_url;
+                        }
+                        if (data.integration?.webhook_verify_token) {
+                            msg += '\n\nVerify Token:\n' + data.integration.webhook_verify_token;
+                        }
+                        msg += '\n\nPaste both into Meta webhook settings and subscribe to messages.';
+                        alert(msg);
+                        closeIntegrationModal();
+                        renderIntegrations(currentCategory);
+                    } else {
+                        alert(data.error || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Error connecting WhatsApp.'));
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Error connecting WhatsApp. Please try again.');
+                }
             } else {
                 // Simulate connection process for other integrations
                 alert(`Connecting to ${currentIntegration.name}...`);
@@ -2088,6 +2246,21 @@
                 }
             } catch (error) {
                 console.error('Error loading Viber integration on init:', error);
+            }
+        }
+        // Load WhatsApp integration
+        const whatsappIntegration = integrationsData.find(i => i.id === 'whatsapp');
+        if (whatsappIntegration) {
+            try {
+                const response = await fetch('/api/integrations/whatsapp');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.integration) {
+                        whatsappIntegration.status = data.status ?? 'disconnected';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading WhatsApp integration on init:', error);
             }
         }
         // Load Stripe integration

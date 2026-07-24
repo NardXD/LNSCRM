@@ -473,6 +473,13 @@ class RegisterController extends Controller
                 'description' => 'Access to Viber Business conversations',
                 'category' => 'main',
             ],
+            'whatsapp' => [
+                'name' => 'view_whatsapp',
+                'slug' => 'view_whatsapp',
+                'display_name' => 'WhatsApp',
+                'description' => 'Access to WhatsApp Business conversations',
+                'category' => 'main',
+            ],
             'create_inbox_tags' => [
                 'name' => 'create_inbox_tags',
                 'slug' => 'create_inbox_tags',

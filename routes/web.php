@@ -246,6 +246,10 @@ Route::prefix('twilio')->group(function () {
 Route::post('/webhooks/viber/{webhookKey}', [\App\Http\Controllers\ViberController::class, 'webhook'])
     ->name('webhooks.viber');
 
+// WhatsApp Cloud API webhook (public, CSRF-exempt) — GET verifies, POST receives events
+Route::match(['get', 'post'], '/webhooks/whatsapp/{webhookKey}', [\App\Http\Controllers\WhatsAppController::class, 'webhook'])
+    ->name('webhooks.whatsapp');
+
 // Public contract signing routes (no auth required)
 Route::get('/contracts/sign/{token}', [\App\Http\Controllers\ContractController::class, 'showSigningPage'])->name('contracts.sign');
 Route::post('/contracts/sign/{token}', [\App\Http\Controllers\ContractController::class, 'submitSignature'])->name('contracts.sign.submit');
@@ -557,6 +561,18 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/media', [\App\Http\Controllers\ViberController::class, 'uploadMedia'])->name('api.viber.media.store');
     });
 
+    Route::get('/whatsapp', [\App\Http\Controllers\WhatsAppController::class, 'index'])
+        ->middleware('permission:view_whatsapp')->name('whatsapp');
+
+    Route::prefix('api/whatsapp')->middleware('permission:view_whatsapp')->group(function () {
+        Route::get('/bootstrap', [\App\Http\Controllers\WhatsAppController::class, 'bootstrap'])->name('api.whatsapp.bootstrap');
+        Route::get('/conversations', [\App\Http\Controllers\WhatsAppController::class, 'conversations'])->name('api.whatsapp.conversations');
+        Route::get('/conversations/{conversation}/messages', [\App\Http\Controllers\WhatsAppController::class, 'messages'])->name('api.whatsapp.messages');
+        Route::post('/conversations/{conversation}/messages', [\App\Http\Controllers\WhatsAppController::class, 'sendMessage'])->name('api.whatsapp.messages.store');
+        Route::get('/conversations/{conversation}/call-link', [\App\Http\Controllers\WhatsAppController::class, 'callLink'])->name('api.whatsapp.call-link');
+        Route::post('/media', [\App\Http\Controllers\WhatsAppController::class, 'uploadMedia'])->name('api.whatsapp.media.store');
+    });
+
     Route::prefix('api/messaging')->middleware('permission:view_messaging')->group(function () {
         Route::get('/unread-count', [\App\Http\Controllers\MessagingController::class, 'getUnreadCount'])->name('api.messaging.unread-count');
         Route::get('/conversations', [\App\Http\Controllers\MessagingController::class, 'getConversations'])->name('api.messaging.conversations');
@@ -707,6 +723,9 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/viber', [\App\Http\Controllers\IntegrationController::class, 'getViberIntegration'])->name('api.integrations.viber.get');
         Route::post('/viber', [\App\Http\Controllers\IntegrationController::class, 'storeViberIntegration'])->name('api.integrations.viber.store');
         Route::delete('/viber', [\App\Http\Controllers\IntegrationController::class, 'deleteViberIntegration'])->name('api.integrations.viber.delete');
+        Route::get('/whatsapp', [\App\Http\Controllers\IntegrationController::class, 'getWhatsAppIntegration'])->name('api.integrations.whatsapp.get');
+        Route::post('/whatsapp', [\App\Http\Controllers\IntegrationController::class, 'storeWhatsAppIntegration'])->name('api.integrations.whatsapp.store');
+        Route::delete('/whatsapp', [\App\Http\Controllers\IntegrationController::class, 'deleteWhatsAppIntegration'])->name('api.integrations.whatsapp.delete');
         Route::get('/gmail', [\App\Http\Controllers\IntegrationController::class, 'getGmailIntegration'])->name('api.integrations.gmail.get');
         Route::post('/gmail', [\App\Http\Controllers\IntegrationController::class, 'storeGmailIntegration'])->name('api.integrations.gmail.store');
         Route::delete('/gmail', [\App\Http\Controllers\IntegrationController::class, 'deleteGmailIntegration'])->name('api.integrations.gmail.delete');

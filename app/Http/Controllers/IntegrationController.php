@@ -9,9 +9,11 @@ use App\Models\StripeIntegration;
 use App\Models\TwilioIntegration;
 use App\Models\User;
 use App\Models\ViberIntegration;
+use App\Models\WhatsAppIntegration;
 use App\Models\WiseIntegration;
 use App\Services\TwilioIntegrationValidator;
 use App\Services\ViberBotService;
+use App\Services\WhatsAppCloudService;
 use App\Services\WiseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -335,6 +337,162 @@ class IntegrationController extends Controller
         }
 
         return response()->json(['message' => 'Viber integration deleted successfully']);
+    }
+
+    /**
+     * Get WhatsApp Cloud API integration for the current company.
+     */
+    public function getWhatsAppIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $integration = WhatsAppIntegration::where('company_id', $company->id)->first();
+
+        if ($integration) {
+            return response()->json([
+                'integration' => [
+                    'id' => $integration->id,
+                    'company_id' => $integration->company_id,
+                    'access_token' => $integration->access_token ? '***hidden***' : null,
+                    'app_secret' => $integration->app_secret ? '***hidden***' : null,
+                    'phone_number_id' => $integration->phone_number_id,
+                    'waba_id' => $integration->waba_id,
+                    'webhook_verify_token' => $integration->webhook_verify_token,
+                    'display_phone_number' => $integration->display_phone_number,
+                    'business_name' => $integration->business_name,
+                    'welcome_message' => $integration->welcome_message,
+                    'webhook_url' => $integration->webhookUrl(),
+                    'webhook_set_at' => $integration->webhook_set_at,
+                    'is_active' => $integration->is_active,
+                    'created_at' => $integration->created_at,
+                    'updated_at' => $integration->updated_at,
+                ],
+                'status' => ($integration->is_active && $integration->access_token && $integration->phone_number_id)
+                    ? 'connected'
+                    : 'disconnected',
+            ]);
+        }
+
+        return response()->json([
+            'integration' => null,
+            'status' => 'disconnected',
+        ]);
+    }
+
+    /**
+     * Store or update WhatsApp Cloud API integration for the current company.
+     */
+    public function storeWhatsAppIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'access_token' => ['nullable', 'string', 'min:10'],
+            'phone_number_id' => ['required', 'string', 'max:64'],
+            'waba_id' => ['nullable', 'string', 'max:64'],
+            'app_secret' => ['nullable', 'string', 'max:255'],
+            'webhook_verify_token' => ['nullable', 'string', 'max:128'],
+            'welcome_message' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $existing = WhatsAppIntegration::where('company_id', $company->id)->first();
+        $plainToken = $request->input('access_token');
+        $plainAppSecret = $request->input('app_secret');
+
+        if (! $plainToken && $existing) {
+            $plainToken = $existing->getDecryptedAccessToken();
+        }
+
+        if (! $plainToken) {
+            return response()->json(['error' => 'WhatsApp access token is required.'], 422);
+        }
+
+        if (! $plainAppSecret && $existing) {
+            $plainAppSecret = $existing->getDecryptedAppSecret();
+        }
+
+        $phoneNumberId = (string) $request->input('phone_number_id');
+
+        try {
+            $service = new WhatsAppCloudService($plainToken, $phoneNumberId, $plainAppSecret);
+            $account = $service->getPhoneNumberInfo();
+        } catch (\Throwable $e) {
+            return response()->json([
+                'error' => 'WhatsApp credentials could not be verified.',
+                'details' => $e->getMessage(),
+            ], 422);
+        }
+
+        $webhookKey = $existing?->webhook_key ?: Str::random(40);
+        $verifyToken = $request->input('webhook_verify_token')
+            ?: ($existing?->webhook_verify_token ?: Str::random(32));
+
+        $integration = WhatsAppIntegration::updateOrCreate(
+            ['company_id' => $company->id],
+            [
+                'access_token' => Crypt::encryptString($plainToken),
+                'phone_number_id' => $phoneNumberId,
+                'waba_id' => $request->input('waba_id') ?: ($existing?->waba_id),
+                'app_secret' => $plainAppSecret ? Crypt::encryptString($plainAppSecret) : ($existing?->app_secret),
+                'webhook_verify_token' => $verifyToken,
+                'webhook_key' => $webhookKey,
+                'display_phone_number' => $account['display_phone_number'] ?? ($existing?->display_phone_number),
+                'business_name' => $account['verified_name'] ?? ($existing?->business_name),
+                'welcome_message' => $request->has('welcome_message')
+                    ? $request->input('welcome_message')
+                    : ($existing?->welcome_message),
+                'is_active' => true,
+            ]
+        );
+
+        return response()->json([
+            'message' => 'WhatsApp integration saved successfully',
+            'integration' => [
+                'id' => $integration->id,
+                'phone_number_id' => $integration->phone_number_id,
+                'waba_id' => $integration->waba_id,
+                'display_phone_number' => $integration->display_phone_number,
+                'business_name' => $integration->business_name,
+                'welcome_message' => $integration->welcome_message,
+                'webhook_url' => $integration->webhookUrl(),
+                'webhook_verify_token' => $integration->webhook_verify_token,
+                'webhook_set_at' => $integration->webhook_set_at,
+                'is_active' => $integration->is_active,
+            ],
+            'status' => 'connected',
+        ]);
+    }
+
+    /**
+     * Delete WhatsApp Cloud API integration for the current company.
+     */
+    public function deleteWhatsAppIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $integration = WhatsAppIntegration::where('company_id', $company->id)->first();
+
+        if ($integration) {
+            $integration->delete();
+        }
+
+        return response()->json(['message' => 'WhatsApp integration deleted successfully']);
     }
 
     /**
