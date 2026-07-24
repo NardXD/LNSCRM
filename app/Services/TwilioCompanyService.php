@@ -151,6 +151,10 @@ class TwilioCompanyService
             return $trimmed;
         }
 
+        if (str_starts_with(strtolower($trimmed), 'whatsapp:')) {
+            $trimmed = substr($trimmed, strlen('whatsapp:'));
+        }
+
         $digits = preg_replace('/[^\d+]/', '', $trimmed) ?? $trimmed;
         if ($digits !== '' && ! str_starts_with($digits, '+')) {
             $digits = '+'.$digits;

@@ -159,10 +159,16 @@
             list.innerHTML = items.map(item => {
                 const data = item.data || {};
                 const isMention = !!(data.is_mention || data.type === 'inbox_comment_mention');
-                const title = isMention
-                    ? `${data.author_name || 'Someone'} mentioned you`
-                    : (data.summary || `${data.author_name || 'Someone'} updated a conversation`);
-                const snippet = data.snippet || data.subject || '';
+                const isWhatsApp = data.type === 'whatsapp_message' || data.channel === 'whatsapp';
+                let title;
+                if (isWhatsApp) {
+                    title = data.summary || `New WhatsApp message from ${data.contact_name || 'a contact'}`;
+                } else if (isMention) {
+                    title = `${data.author_name || 'Someone'} mentioned you`;
+                } else {
+                    title = data.summary || `${data.author_name || 'Someone'} updated a conversation`;
+                }
+                const snippet = data.snippet || data.subject || data.contact_name || '';
                 const unread = !item.read_at;
                 return `
                     <button type="button" class="header-notification-item ${unread ? 'unread' : ''}"

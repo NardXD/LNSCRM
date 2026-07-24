@@ -11,11 +11,7 @@ return new class extends Migration
         Schema::create('whatsapp_integrations', function (Blueprint $table) {
             $table->id();
             $table->foreignId('company_id')->constrained()->cascadeOnDelete();
-            $table->text('access_token');
-            $table->string('phone_number_id', 64);
-            $table->string('waba_id', 64)->nullable();
-            $table->text('app_secret')->nullable();
-            $table->string('webhook_verify_token', 128);
+            $table->string('from_number', 32)->nullable();
             $table->string('webhook_key', 64)->unique();
             $table->string('display_phone_number', 32)->nullable();
             $table->string('business_name')->nullable();

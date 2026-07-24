@@ -78,15 +78,15 @@
 </div>
 
 <style>
-.wa-page { height: calc(100vh - 72px); min-height: 520px; }
-.wa-layout { display: grid; grid-template-columns: 320px 1fr; height: 100%; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--bg-card); }
-.wa-sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg-primary); }
-.wa-sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.1rem; border-bottom: 1px solid var(--border); }
+.wa-page { height: calc(100dvh - 140px); max-height: calc(100dvh - 140px); min-height: 420px; min-width: 0; }
+.wa-layout { display: grid; grid-template-columns: 320px 1fr; height: 100%; min-height: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--bg-card); }
+.wa-sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg-primary); min-height: 0; min-width: 0; }
+.wa-sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.1rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .wa-sidebar-header h2 { margin: 0; font-size: 1.15rem; }
 .wa-sub { margin: 0.15rem 0 0; color: var(--text-secondary); font-size: 0.8rem; }
-.wa-search { padding: 0.75rem 1rem; }
+.wa-search { padding: 0.75rem 1rem; flex-shrink: 0; }
 .wa-search input { width: 100%; padding: 0.55rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text-primary); }
-.wa-thread-list { flex: 1; overflow-y: auto; }
+.wa-thread-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .wa-thread { display: flex; gap: 0.75rem; padding: 0.85rem 1rem; cursor: pointer; border-bottom: 1px solid var(--border); }
 .wa-thread:hover, .wa-thread.active { background: var(--bg-card); }
 .wa-thread-body { min-width: 0; flex: 1; }
@@ -96,26 +96,26 @@
 .wa-thread-preview { color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wa-badge { display: inline-flex; min-width: 1.2rem; height: 1.2rem; padding: 0 0.35rem; align-items: center; justify-content: center; border-radius: 999px; background: #25d366; color: #fff; font-size: 0.7rem; font-weight: 700; }
 .wa-avatar { width: 40px; height: 40px; border-radius: 50%; background: #25d366; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; background-size: cover; background-position: center; }
-.wa-main { display: flex; flex-direction: column; min-width: 0; }
-.wa-empty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+.wa-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
+.wa-empty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 2rem; min-height: 0; }
 .wa-empty-card { text-align: center; max-width: 360px; }
 .wa-empty-card h3 { margin: 0 0 0.5rem; }
 .wa-empty-card p { color: var(--text-secondary); margin: 0 0 1rem; }
 .wa-link-btn { display: inline-block; padding: 0.55rem 0.9rem; border-radius: 8px; background: #25d366; color: #fff; text-decoration: none; font-weight: 600; font-size: 0.9rem; }
-.wa-chat { display: flex; flex-direction: column; height: 100%; }
-.wa-chat-header { display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1rem; border-bottom: 1px solid var(--border); }
+.wa-chat { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; height: 100%; overflow: hidden; }
+.wa-chat-header { display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .wa-chat-meta { flex: 1; min-width: 0; }
 .wa-chat-meta h3 { margin: 0; font-size: 1rem; }
 .wa-chat-meta span { color: var(--text-secondary); font-size: 0.78rem; }
 .wa-chat-actions { display: flex; gap: 0.25rem; }
-.wa-messages { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.65rem; background: linear-gradient(180deg, var(--bg-primary), var(--bg-card)); }
-.wa-bubble { max-width: min(72%, 520px); padding: 0.65rem 0.8rem; border-radius: 14px; font-size: 0.92rem; line-height: 1.4; word-break: break-word; }
+.wa-messages { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.65rem; background: linear-gradient(180deg, var(--bg-primary), var(--bg-card)); }
+.wa-bubble { max-width: min(72%, 520px); padding: 0.65rem 0.8rem; border-radius: 14px; font-size: 0.92rem; line-height: 1.4; word-break: break-word; flex-shrink: 0; }
 .wa-bubble.inbound { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
 .wa-bubble.outbound { align-self: flex-end; background: #25d366; color: #fff; border-bottom-right-radius: 4px; }
 .wa-bubble img, .wa-bubble video { display: block; max-width: 100%; border-radius: 8px; margin-top: 0.35rem; }
 .wa-bubble a { color: inherit; text-decoration: underline; }
 .wa-meta { display: block; margin-top: 0.35rem; font-size: 0.7rem; opacity: 0.75; }
-.wa-composer { display: flex; align-items: flex-end; gap: 0.5rem; padding: 0.75rem 1rem; border-top: 1px solid var(--border); background: var(--bg-card); }
+.wa-composer { display: flex; align-items: flex-end; gap: 0.5rem; padding: 0.75rem 1rem; border-top: 1px solid var(--border); background: var(--bg-card); flex-shrink: 0; }
 .wa-attach { display: flex; gap: 0.15rem; }
 .wa-composer textarea { flex: 1; resize: none; min-height: 42px; max-height: 120px; padding: 0.65rem 0.75rem; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-primary); color: var(--text-primary); font: inherit; }
 .wa-send-btn { border: 0; border-radius: 10px; padding: 0.7rem 1rem; background: #25d366; color: #fff; font-weight: 600; cursor: pointer; }
@@ -266,7 +266,7 @@
             }
             if (!connected) {
                 els.emptyTitle.textContent = 'Connect WhatsApp';
-                els.emptyText.textContent = 'Add your WhatsApp Cloud API credentials under Integrations to start chatting.';
+                els.emptyText.textContent = 'Connect Twilio, then add your WhatsApp sender under Integrations to start chatting.';
                 els.connectLink.style.display = '';
             } else {
                 els.connectLink.style.display = 'none';
@@ -303,8 +303,16 @@
 
         const data = await api(`/conversations/${id}/messages`);
         els.messages.innerHTML = (data.data || []).map(renderMessage).join('');
-        els.messages.scrollTop = els.messages.scrollHeight;
+        requestAnimationFrame(() => {
+            els.messages.scrollTop = els.messages.scrollHeight;
+        });
+        els.messages.querySelectorAll('img, video').forEach((media) => {
+            media.addEventListener('load', () => {
+                els.messages.scrollTop = els.messages.scrollHeight;
+            }, { once: true });
+        });
         await loadConversations();
+        window.updateHeaderNotificationsBadge?.();
     }
 
     async function sendText() {
@@ -390,6 +398,11 @@
         await loadBootstrap();
         if (connected) {
             await loadConversations();
+            const params = new URLSearchParams(window.location.search);
+            const openId = Number(params.get('conversation') || 0);
+            if (openId && conversations.some(c => c.id === openId)) {
+                await openConversation(openId);
+            }
             pollTimer = setInterval(() => loadConversations().catch(() => {}), 15000);
         }
     })();

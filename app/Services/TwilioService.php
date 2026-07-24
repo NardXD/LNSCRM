@@ -2,22 +2,28 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Twilio\Rest\Client;
+use Twilio\Security\RequestValidator;
 
 class TwilioService
 {
     protected Client $twilio;
 
+    protected ?string $accountSid;
+
+    protected ?string $authToken;
+
     public function __construct(?string $accountSid = null, ?string $authToken = null)
     {
-        $sid = $accountSid ?? config('services.twilio.sid');
-        $token = $authToken ?? config('services.twilio.token');
+        $this->accountSid = $accountSid ?? config('services.twilio.sid');
+        $this->authToken = $authToken ?? config('services.twilio.token');
 
-        $this->twilio = new Client($sid, $token);
+        $this->twilio = new Client($this->accountSid, $this->authToken);
 
         Log::info('Twilio device ready', [
-            'account_sid' => $sid ? substr($sid, 0, 10).'...' : 'not configured',
+            'account_sid' => $this->accountSid ? substr($this->accountSid, 0, 10).'...' : 'not configured',
         ]);
     }
 
@@ -109,17 +115,123 @@ class TwilioService
 
     public function sendSms(string $from, string $to, string $body, ?string $statusCallback = null): \Twilio\Rest\Api\V2010\Account\MessageInstance
     {
+        return $this->sendMessage($from, $to, $body, $statusCallback);
+    }
+
+    public function sendMessage(
+        string $from,
+        string $to,
+        ?string $body = null,
+        ?string $statusCallback = null,
+        ?string $mediaUrl = null
+    ): \Twilio\Rest\Api\V2010\Account\MessageInstance {
         $params = [
             'from' => $from,
             'to' => $to,
-            'body' => $body,
         ];
+
+        if ($body !== null && $body !== '') {
+            $params['body'] = $body;
+        }
+
+        if ($mediaUrl) {
+            $params['mediaUrl'] = [$mediaUrl];
+        }
 
         if ($statusCallback) {
             $params['statusCallback'] = $statusCallback;
         }
 
         return $this->twilio->messages->create($to, $params);
+    }
+
+    public function sendWhatsApp(
+        string $fromE164,
+        string $toE164,
+        ?string $body = null,
+        ?string $statusCallback = null,
+        ?string $mediaUrl = null
+    ): \Twilio\Rest\Api\V2010\Account\MessageInstance {
+        return $this->sendMessage(
+            $this->whatsappAddress($fromE164),
+            $this->whatsappAddress($toE164),
+            $body,
+            $statusCallback,
+            $mediaUrl
+        );
+    }
+
+    public function sendViber(
+        string $senderId,
+        string $toE164,
+        ?string $body = null,
+        ?string $statusCallback = null,
+        ?string $mediaUrl = null
+    ): \Twilio\Rest\Api\V2010\Account\MessageInstance {
+        return $this->sendMessage(
+            $senderId,
+            $this->normalizeE164($toE164),
+            $body,
+            $statusCallback,
+            $mediaUrl
+        );
+    }
+
+    public function whatsappAddress(string $number): string
+    {
+        $normalized = $this->normalizeE164($number);
+
+        return 'whatsapp:'.$normalized;
+    }
+
+    public function normalizeE164(string $number): string
+    {
+        $trimmed = trim($number);
+        if (str_starts_with(strtolower($trimmed), 'whatsapp:')) {
+            $trimmed = substr($trimmed, strlen('whatsapp:'));
+        }
+
+        $digits = preg_replace('/[^\d+]/', '', $trimmed) ?? $trimmed;
+        if ($digits !== '' && ! str_starts_with($digits, '+')) {
+            $digits = '+'.$digits;
+        }
+
+        return $digits;
+    }
+
+    public function validateRequest(string $signature, string $url, array $params): bool
+    {
+        if (! $this->authToken || $signature === '') {
+            return false;
+        }
+
+        $validator = new RequestValidator($this->authToken);
+
+        if ($validator->validate($signature, $url, $params)) {
+            return true;
+        }
+
+        // ngrok / proxies sometimes leave the app seeing http while Twilio signed https
+        if (str_starts_with($url, 'http://')) {
+            $httpsUrl = 'https://'.substr($url, strlen('http://'));
+
+            return $validator->validate($signature, $httpsUrl, $params);
+        }
+
+        return false;
+    }
+
+    public function downloadMedia(string $mediaUrl): string
+    {
+        $response = Http::withBasicAuth((string) $this->accountSid, (string) $this->authToken)
+            ->timeout(60)
+            ->get($mediaUrl);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException('Failed to download Twilio media (HTTP '.$response->status().').');
+        }
+
+        return $response->body();
     }
 
     /**

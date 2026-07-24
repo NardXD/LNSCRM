@@ -654,20 +654,20 @@
         {
             id: 'viber',
             name: 'Viber Business',
-            description: 'Connect your Viber bot / business account to chat with customers, send images and videos, and open Viber calls.',
+            description: 'Send and receive Viber messages through your Twilio account using a Viber Business Sender.',
             category: 'communication',
             icon: '💬',
             status: 'disconnected',
-            features: ['1:1 chat', 'Images & videos', 'Files & links', 'Welcome message', 'Webhook callbacks', 'Open / call in Viber']
+            features: ['1:1 chat via Twilio', 'Images & files', 'Welcome message', 'Webhook callbacks', 'Open / call in Viber']
         },
         {
             id: 'whatsapp',
             name: 'WhatsApp Business',
-            description: 'Connect your WhatsApp Cloud API account to chat with customers, send images and documents, and manage conversations.',
+            description: 'Send and receive WhatsApp messages through your Twilio account using a WhatsApp-enabled sender number.',
             category: 'communication',
             icon: '📱',
             status: 'disconnected',
-            features: ['1:1 chat', 'Images & videos', 'Documents', 'Webhook callbacks', '24h messaging window', 'Open in WhatsApp']
+            features: ['1:1 chat via Twilio', 'Images & documents', 'Webhook callbacks', '24h messaging window', 'Open in WhatsApp']
         },
         {
             id: 'calendar',
@@ -1243,112 +1243,90 @@
                     <span class="form-help">Your Twilio Auth Token${existingData && existingData.auth_token ? ' (leave blank to keep current value)' : ''}</span>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">TWILIO_APP_SID</label>
+                    <label class="form-label">TWILIO_APP_SID (optional)</label>
                     <input type="text" class="form-input twilio-app-sid" id="twilio-app-sid" placeholder="AP..." value="${existingData ? existingData.app_sid || '' : ''}">
-                    <span class="form-help">Your Twilio App SID (starts with AP...) - Required for browser-based calling</span>
+                    <span class="form-help">Only needed for browser calling — not required for WhatsApp / SMS sandbox testing.</span>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">TWILIO_API_KEY</label>
+                    <label class="form-label">TWILIO_API_KEY (optional)</label>
                     <input type="text" class="form-input twilio-api-key" id="twilio-api-key" placeholder="SK..." value="${existingData ? existingData.api_key || '' : ''}">
-                    <span class="form-help">Your Twilio API Key (starts with SK...) - Required for browser-based calling</span>
+                    <span class="form-help">Only needed for browser calling.</span>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">TWILIO_API_SECRET</label>
+                    <label class="form-label">TWILIO_API_SECRET (optional)</label>
                     <input type="password" class="form-input twilio-api-secret" id="twilio-api-secret" placeholder="Enter API Secret" value="">
-                    <span class="form-help">Your Twilio API Secret${existingData && existingData.api_secret ? ' (leave blank to keep current value)' : ''} - Required for browser-based calling</span>
+                    <span class="form-help">Only needed for browser calling${existingData && existingData.api_secret ? ' (leave blank to keep current value)' : ''}.</span>
                 </div>
                 <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
-                    <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">After saving — Twilio Console setup</strong>
+                    <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">Sandbox / messaging test</strong>
                     <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
-                        <li>Create a <strong>TwiML App</strong> (for browser calling) and use its App SID above.</li>
-                        <li>Create an <strong>API Key</strong> under Account → API keys & tokens.</li>
-                        <li>For each phone number, set webhooks to <strong>HTTP POST</strong>:
-                            <ul style="margin:0.35rem 0 0;padding-left:1rem;">
-                                <li>Voice: <code style="word-break:break-all;">${TWILIO_SETUP.voiceWebhook}</code></li>
-                                <li>Messaging: <code style="word-break:break-all;">${TWILIO_SETUP.smsWebhook}</code></li>
-                            </ul>
-                        </li>
-                        <li>Or buy numbers from <a href="${TWILIO_SETUP.phoneSystemUrl}">Phone System → Numbers</a> (webhooks set automatically).</li>
+                        <li>Paste <strong>Account SID</strong> + <strong>Auth Token</strong> from Twilio Console → Account → API keys & tokens.</li>
+                        <li>Save — then configure WhatsApp under Integrations with your sandbox from-number.</li>
+                        <li>App SID / API Key / Secret are only for browser voice calling later.</li>
                     </ol>
-                    <p style="margin:0.6rem 0 0;font-size:0.78rem;color:var(--text-secondary);">Each company connects its own Twilio account. Assign numbers to employees before they can call or send SMS.</p>
                 </div>
             `,
             'viber': `
                 <div class="form-group">
-                    <label class="form-label">Authentication Token</label>
-                    <input type="password" class="form-input" id="viber-auth-token" placeholder="${existingData && existingData.auth_token ? '(leave blank to keep current token)' : 'Paste token from Viber Admin Panel'}">
-                    <span class="form-help">From your Viber bot / Public Account admin panel (Edit Info).</span>
+                    <label class="form-label">Viber Sender ID</label>
+                    <input type="text" class="form-input" id="viber-sender-id" value="${existingData && existingData.sender_id ? existingData.sender_id : ''}" placeholder="From Twilio Console → Messaging → Senders → Viber">
+                    <span class="form-help">Your Twilio Viber Business Sender ID (not a Meta/Viber bot token).</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Display name (optional)</label>
+                    <input type="text" class="form-input" id="viber-bot-name" value="${existingData && existingData.bot_name ? existingData.bot_name : ''}" placeholder="Support">
                 </div>
                 <div class="form-group">
                     <label class="form-label">Welcome Message (optional)</label>
                     <textarea class="form-input" id="viber-welcome-message" rows="3" placeholder="Hi! Thanks for messaging us. How can we help?">${existingData && existingData.welcome_message ? existingData.welcome_message : ''}</textarea>
-                    <span class="form-help">Sent once when a customer opens a conversation with your bot.</span>
+                    <span class="form-help">Sent once when a customer starts a new conversation.</span>
                 </div>
-                ${existingData && existingData.bot_name ? `
-                <div class="form-group">
-                    <label class="form-label">Connected bot</label>
-                    <div style="font-size:0.9rem;color:var(--text-primary);">${existingData.bot_name}${existingData.bot_uri ? ' · URI: ' + existingData.bot_uri : ''}</div>
-                </div>` : ''}
                 <div class="form-group">
                     <label class="form-label">Webhook URL</label>
                     <code style="display:block;background:var(--bg-primary);padding:0.5rem 0.65rem;border-radius:6px;font-size:0.78rem;word-break:break-all;">${existingData && existingData.webhook_url ? existingData.webhook_url : 'Saved after you connect — must be public HTTPS'}</code>
-                    <span class="form-help">We register this automatically with Viber when you connect. Localhost will not work for inbound messages.</span>
+                    <span class="form-help">Paste this as the inbound webhook URL on your Twilio Viber sender / Messaging Service.</span>
                 </div>
                 <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
                     <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">How it works</strong>
                     <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
-                        <li>Create a Viber bot at <a href="https://partners.viber.com/" target="_blank" rel="noopener">partners.viber.com</a> and copy the auth token.</li>
-                        <li>Connect here — we verify the token and set your webhook.</li>
-                        <li>Share your bot with customers; their first message creates a conversation in <a href="${TWILIO_SETUP.viberChatUrl}">Viber</a>.</li>
-                        <li>Reply with text, images, videos, or files. Use Call to open Viber when a phone number is known.</li>
+                        <li>Connect <strong>Twilio</strong> first under Integrations (same account SID / auth token).</li>
+                        <li>Enable Viber Business Messaging in the Twilio Console and create a Viber sender.</li>
+                        <li>Paste the Sender ID here, then set the Webhook URL above on that sender.</li>
+                        <li>Customer messages appear in <a href="${TWILIO_SETUP.viberChatUrl}">Viber</a>.</li>
                     </ol>
                 </div>
             `,
             'whatsapp': `
                 <div class="form-group">
-                    <label class="form-label">Phone Number ID</label>
-                    <input type="text" class="form-input" id="whatsapp-phone-number-id" value="${existingData && existingData.phone_number_id ? existingData.phone_number_id : ''}" placeholder="From Meta Developer → WhatsApp → API Setup">
+                    <label class="form-label">WhatsApp From Number</label>
+                    <input type="text" class="form-input" id="whatsapp-from-number" value="${existingData && existingData.from_number ? existingData.from_number : ''}" placeholder="+15551234567">
+                    <span class="form-help">E.164 WhatsApp-enabled number from Twilio (Sandbox or approved sender).</span>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Access Token</label>
-                    <input type="password" class="form-input" id="whatsapp-access-token" placeholder="${existingData && existingData.access_token ? '(leave blank to keep current token)' : 'Permanent or temporary Cloud API token'}">
-                    <span class="form-help">From Meta Developer Console → WhatsApp → API Setup (or a System User token).</span>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">WhatsApp Business Account ID (optional)</label>
-                    <input type="text" class="form-input" id="whatsapp-waba-id" value="${existingData && existingData.waba_id ? existingData.waba_id : ''}" placeholder="WABA ID">
-                </div>
-                <div class="form-group">
-                    <label class="form-label">App Secret (recommended)</label>
-                    <input type="password" class="form-input" id="whatsapp-app-secret" placeholder="${existingData && existingData.app_secret ? '(leave blank to keep current secret)' : 'Meta App → Settings → Basic → App Secret'}">
-                    <span class="form-help">Used to verify webhook signatures (X-Hub-Signature-256).</span>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Webhook Verify Token</label>
-                    <input type="text" class="form-input" id="whatsapp-verify-token" value="${existingData && existingData.webhook_verify_token ? existingData.webhook_verify_token : ''}" placeholder="Custom string you will paste into Meta webhook settings">
-                    <span class="form-help">Leave blank to auto-generate one when you connect.</span>
+                    <label class="form-label">Business name (optional)</label>
+                    <input type="text" class="form-input" id="whatsapp-business-name" value="${existingData && existingData.business_name ? existingData.business_name : ''}" placeholder="Acme Support">
                 </div>
                 <div class="form-group">
                     <label class="form-label">Welcome Message (optional)</label>
                     <textarea class="form-input" id="whatsapp-welcome-message" rows="3" placeholder="Hi! Thanks for messaging us. How can we help?">${existingData && existingData.welcome_message ? existingData.welcome_message : ''}</textarea>
                 </div>
-                ${existingData && (existingData.business_name || existingData.display_phone_number) ? `
+                ${existingData && (existingData.business_name || existingData.display_phone_number || existingData.from_number) ? `
                 <div class="form-group">
                     <label class="form-label">Connected number</label>
-                    <div style="font-size:0.9rem;color:var(--text-primary);">${existingData.business_name || ''}${existingData.display_phone_number ? ' · ' + existingData.display_phone_number : ''}</div>
+                    <div style="font-size:0.9rem;color:var(--text-primary);">${existingData.business_name || ''}${(existingData.display_phone_number || existingData.from_number) ? ' · ' + (existingData.display_phone_number || existingData.from_number) : ''}</div>
                 </div>` : ''}
                 <div class="form-group">
                     <label class="form-label">Webhook URL</label>
                     <code style="display:block;background:var(--bg-primary);padding:0.5rem 0.65rem;border-radius:6px;font-size:0.78rem;word-break:break-all;">${existingData && existingData.webhook_url ? existingData.webhook_url : 'Saved after you connect — must be public HTTPS'}</code>
-                    <span class="form-help">Paste this into Meta Developer → WhatsApp → Configuration → Webhook. Subscribe to <strong>messages</strong>.</span>
+                    <span class="form-help">Paste this as the inbound webhook URL on your Twilio WhatsApp sender / Messaging Service. Status callbacks use the shared Twilio SMS status URL.</span>
                 </div>
                 <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
                     <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">How it works</strong>
                     <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
-                        <li>Create a Meta app with WhatsApp product at <a href="https://developers.facebook.com/" target="_blank" rel="noopener">developers.facebook.com</a>.</li>
-                        <li>Copy Phone Number ID + Access Token, then connect here (we verify against Graph API).</li>
-                        <li>In Meta webhook settings, paste the Webhook URL and Verify Token from this form; subscribe to <code>messages</code>.</li>
-                        <li>Customer messages appear in <a href="${TWILIO_SETUP.whatsappChatUrl}">WhatsApp</a>. Reply within the 24-hour customer care window.</li>
+                        <li>Connect <strong>Twilio</strong> first under Integrations.</li>
+                        <li>Enable WhatsApp in the Twilio Console (Sandbox or production sender).</li>
+                        <li>Paste the WhatsApp from number here and point the sender webhook to the URL above.</li>
+                        <li>Customer messages appear in <a href="${TWILIO_SETUP.whatsappChatUrl}">WhatsApp</a>. Free-form replies work within the 24-hour window.</li>
                     </ol>
                 </div>
             `
@@ -2006,24 +1984,17 @@
                     alert('Please provide your Auth Token (TWILIO_AUTH_TOKEN).');
                     return;
                 }
-                if (!appSid) {
-                    alert('Please enter your App SID (TWILIO_APP_SID).');
-                    return;
-                }
-                if (!appSid.startsWith('AP')) {
+                if (appSid && !appSid.startsWith('AP')) {
                     alert('App SID must start with AP.');
                     return;
                 }
-                if (!apiKey) {
-                    alert('Please enter your API Key (TWILIO_API_KEY).');
-                    return;
-                }
-                if (!apiKey.startsWith('SK')) {
+                if (apiKey && !apiKey.startsWith('SK')) {
                     alert('API Key must start with SK.');
                     return;
                 }
-                if (!apiSecret && (!existingIntegration || !existingIntegration.api_secret)) {
-                    alert('Please provide your API Secret (TWILIO_API_SECRET).');
+                if ((apiKey && !apiSecret && !(existingIntegration && existingIntegration.api_secret)) ||
+                    (!apiKey && apiSecret)) {
+                    alert('API Key and API Secret must both be provided together (or left blank).');
                     return;
                 }
 
@@ -2031,9 +2002,9 @@
                     const requestBody = {
                         account_sid: twilioSid,
                         auth_token: authToken,
-                        app_sid: appSid,
-                        api_key: apiKey,
-                        api_secret: apiSecret,
+                        app_sid: appSid || null,
+                        api_key: apiKey || null,
+                        api_secret: apiSecret || null,
                     };
 
                     const response = await fetch('/api/integrations/twilio', {
@@ -2054,19 +2025,19 @@
                         renderIntegrations(currentCategory);
                     } else {
                         const fieldErrors = data.errors ? Object.values(data.errors).flat().join('\n') : '';
-                        alert(data.error || fieldErrors || 'Error connecting integration. Please check your Twilio credentials and try again.');
+                        alert((data.error ? data.error + (fieldErrors ? '\n\n' + fieldErrors : '') : fieldErrors) || 'Error connecting integration. Please check your Twilio credentials and try again.');
                     }
                 } catch (error) {
                     console.error('Error:', error);
                     alert('Error connecting integration. Please try again.');
                 }
             } else if (currentIntegration.id === 'viber') {
-                const authToken = document.getElementById('viber-auth-token')?.value || '';
+                const senderId = document.getElementById('viber-sender-id')?.value?.trim() || '';
+                const botName = document.getElementById('viber-bot-name')?.value?.trim() || '';
                 const welcomeMessage = document.getElementById('viber-welcome-message')?.value || '';
-                const existingIntegration = window.existingIntegration;
 
-                if (!authToken && (!existingIntegration || !existingIntegration.auth_token)) {
-                    alert('Please paste your Viber authentication token.');
+                if (!senderId) {
+                    alert('Please enter your Twilio Viber Sender ID.');
                     return;
                 }
 
@@ -2078,19 +2049,17 @@
                             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
                         },
                         body: JSON.stringify({
-                            auth_token: authToken,
+                            sender_id: senderId,
+                            bot_name: botName || null,
                             welcome_message: welcomeMessage,
-                            set_webhook: true,
                         })
                     });
                     const data = await response.json();
                     if (response.ok) {
                         currentIntegration.status = 'connected';
-                        let msg = 'Viber Business has been connected successfully!';
-                        if (data.webhook_error) {
-                            msg += '\n\nWebhook note: ' + data.webhook_error + '\nMake sure your app URL is public HTTPS, then reconnect.';
-                        } else if (data.webhook_set) {
-                            msg += '\nWebhook registered. Open the Viber page to chat with customers.';
+                        let msg = 'Viber Business has been connected successfully via Twilio!';
+                        if (data.integration?.webhook_url) {
+                            msg += '\n\nPaste this webhook URL on your Twilio Viber sender:\n' + data.integration.webhook_url;
                         }
                         alert(msg);
                         closeIntegrationModal();
@@ -2103,20 +2072,12 @@
                     alert('Error connecting Viber. Please try again.');
                 }
             } else if (currentIntegration.id === 'whatsapp') {
-                const phoneNumberId = document.getElementById('whatsapp-phone-number-id')?.value?.trim() || '';
-                const accessToken = document.getElementById('whatsapp-access-token')?.value || '';
-                const wabaId = document.getElementById('whatsapp-waba-id')?.value?.trim() || '';
-                const appSecret = document.getElementById('whatsapp-app-secret')?.value || '';
-                const verifyToken = document.getElementById('whatsapp-verify-token')?.value?.trim() || '';
+                const fromNumber = document.getElementById('whatsapp-from-number')?.value?.trim() || '';
+                const businessName = document.getElementById('whatsapp-business-name')?.value?.trim() || '';
                 const welcomeMessage = document.getElementById('whatsapp-welcome-message')?.value || '';
-                const existingIntegration = window.existingIntegration;
 
-                if (!phoneNumberId) {
-                    alert('Please enter your WhatsApp Phone Number ID.');
-                    return;
-                }
-                if (!accessToken && (!existingIntegration || !existingIntegration.access_token)) {
-                    alert('Please paste your WhatsApp access token.');
+                if (!fromNumber) {
+                    alert('Please enter your WhatsApp from number (E.164).');
                     return;
                 }
 
@@ -2128,25 +2089,18 @@
                             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
                         },
                         body: JSON.stringify({
-                            phone_number_id: phoneNumberId,
-                            access_token: accessToken,
-                            waba_id: wabaId || null,
-                            app_secret: appSecret || null,
-                            webhook_verify_token: verifyToken || null,
+                            from_number: fromNumber,
+                            business_name: businessName || null,
                             welcome_message: welcomeMessage,
                         })
                     });
                     const data = await response.json();
                     if (response.ok) {
                         currentIntegration.status = 'connected';
-                        let msg = 'WhatsApp Business has been connected successfully!';
+                        let msg = 'WhatsApp Business has been connected successfully via Twilio!';
                         if (data.integration?.webhook_url) {
-                            msg += '\n\nWebhook URL:\n' + data.integration.webhook_url;
+                            msg += '\n\nPaste this webhook URL on your Twilio WhatsApp sender:\n' + data.integration.webhook_url;
                         }
-                        if (data.integration?.webhook_verify_token) {
-                            msg += '\n\nVerify Token:\n' + data.integration.webhook_verify_token;
-                        }
-                        msg += '\n\nPaste both into Meta webhook settings and subscribe to messages.';
                         alert(msg);
                         closeIntegrationModal();
                         renderIntegrations(currentCategory);

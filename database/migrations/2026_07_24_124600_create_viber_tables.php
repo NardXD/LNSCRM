@@ -11,11 +11,9 @@ return new class extends Migration
         Schema::create('viber_integrations', function (Blueprint $table) {
             $table->id();
             $table->foreignId('company_id')->constrained()->cascadeOnDelete();
-            $table->text('auth_token');
+            $table->string('sender_id', 128)->nullable();
             $table->string('webhook_key', 64)->unique();
             $table->string('bot_name')->nullable();
-            $table->string('bot_uri')->nullable();
-            $table->string('bot_avatar', 1024)->nullable();
             $table->text('welcome_message')->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamp('webhook_set_at')->nullable();

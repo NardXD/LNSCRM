@@ -242,12 +242,12 @@ Route::prefix('twilio')->group(function () {
     Route::post('/sms-status', [PhoneSystemController::class, 'smsStatus'])->name('twilio.sms-status');
 });
 
-// Viber Business webhook (public, CSRF-exempt)
+// Viber (Twilio Messaging) inbound webhook (public, CSRF-exempt)
 Route::post('/webhooks/viber/{webhookKey}', [\App\Http\Controllers\ViberController::class, 'webhook'])
     ->name('webhooks.viber');
 
-// WhatsApp Cloud API webhook (public, CSRF-exempt) — GET verifies, POST receives events
-Route::match(['get', 'post'], '/webhooks/whatsapp/{webhookKey}', [\App\Http\Controllers\WhatsAppController::class, 'webhook'])
+// WhatsApp (Twilio Messaging) inbound webhook (public, CSRF-exempt)
+Route::post('/webhooks/whatsapp/{webhookKey}', [\App\Http\Controllers\WhatsAppController::class, 'webhook'])
     ->name('webhooks.whatsapp');
 
 // Public contract signing routes (no auth required)

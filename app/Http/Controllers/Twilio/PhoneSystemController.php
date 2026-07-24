@@ -8,6 +8,8 @@ use App\Models\PhoneContact;
 use App\Models\SmsMessage;
 use App\Models\TwilioPhoneNumber;
 use App\Models\User;
+use App\Models\ViberMessage;
+use App\Models\WhatsAppMessage;
 use App\Services\PhoneCallLogService;
 use App\Services\SmsConversationService;
 use App\Services\TwilioCompanyService;
@@ -479,6 +481,8 @@ class PhoneSystemController extends Controller
 
         if ($messageSid && $status) {
             SmsMessage::query()->where('message_sid', $messageSid)->update(['status' => $status]);
+            WhatsAppMessage::query()->where('wamid', $messageSid)->update(['status' => $status]);
+            ViberMessage::query()->where('message_token', $messageSid)->update(['status' => $status]);
         }
 
         return response('OK', 200);

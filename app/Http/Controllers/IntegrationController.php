@@ -11,9 +11,8 @@ use App\Models\User;
 use App\Models\ViberIntegration;
 use App\Models\WhatsAppIntegration;
 use App\Models\WiseIntegration;
+use App\Services\TwilioCompanyService;
 use App\Services\TwilioIntegrationValidator;
-use App\Services\ViberBotService;
-use App\Services\WhatsAppCloudService;
 use App\Services\WiseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -128,8 +127,10 @@ class IntegrationController extends Controller
                 $errors[$field] = [$message];
             }
 
+            $detail = implode(' ', array_values($validation['errors']));
+
             return response()->json([
-                'error' => 'Twilio credentials could not be verified.',
+                'error' => 'Twilio credentials could not be verified. '.$detail,
                 'errors' => $errors,
             ], 422);
         }
@@ -141,7 +142,9 @@ class IntegrationController extends Controller
                 'auth_token' => Crypt::encryptString($plain['auth_token']),
                 'app_sid' => $plain['app_sid'],
                 'api_key' => $plain['api_key'],
-                'api_secret' => Crypt::encryptString($plain['api_secret']),
+                'api_secret' => $plain['api_secret']
+                    ? Crypt::encryptString($plain['api_secret'])
+                    : null,
                 'is_active' => true,
             ]
         );
@@ -191,35 +194,38 @@ class IntegrationController extends Controller
         }
 
         $integration = ViberIntegration::where('company_id', $company->id)->first();
+        $twilioReady = (bool) app(TwilioCompanyService::class)->getActiveIntegration($company);
 
         if ($integration) {
+            $connected = $integration->is_active && $integration->sender_id && $twilioReady;
+
             return response()->json([
                 'integration' => [
                     'id' => $integration->id,
                     'company_id' => $integration->company_id,
-                    'auth_token' => $integration->auth_token ? '***hidden***' : null,
+                    'sender_id' => $integration->sender_id,
                     'bot_name' => $integration->bot_name,
-                    'bot_uri' => $integration->bot_uri,
-                    'bot_avatar' => $integration->bot_avatar,
                     'welcome_message' => $integration->welcome_message,
                     'webhook_url' => $integration->webhookUrl(),
                     'webhook_set_at' => $integration->webhook_set_at,
                     'is_active' => $integration->is_active,
+                    'twilio_connected' => $twilioReady,
                     'created_at' => $integration->created_at,
                     'updated_at' => $integration->updated_at,
                 ],
-                'status' => ($integration->is_active && $integration->auth_token) ? 'connected' : 'disconnected',
+                'status' => $connected ? 'connected' : 'disconnected',
             ]);
         }
 
         return response()->json([
             'integration' => null,
             'status' => 'disconnected',
+            'twilio_connected' => $twilioReady,
         ]);
     }
 
     /**
-     * Store or update Viber Business integration for the current company.
+     * Store or update Viber (Twilio Messaging) integration for the current company.
      */
     public function storeViberIntegration(Request $request): JsonResponse
     {
@@ -229,10 +235,16 @@ class IntegrationController extends Controller
             return response()->json(['error' => 'Company not found'], 404);
         }
 
+        if (! app(TwilioCompanyService::class)->getActiveIntegration($company)) {
+            return response()->json([
+                'error' => 'Connect Twilio first under Integrations, then configure your Viber sender.',
+            ], 422);
+        }
+
         $validator = Validator::make($request->all(), [
-            'auth_token' => ['nullable', 'string', 'min:10'],
+            'sender_id' => ['required', 'string', 'max:128'],
+            'bot_name' => ['nullable', 'string', 'max:255'],
             'welcome_message' => ['nullable', 'string', 'max:1000'],
-            'set_webhook' => ['nullable', 'boolean'],
         ]);
 
         if ($validator->fails()) {
@@ -240,35 +252,14 @@ class IntegrationController extends Controller
         }
 
         $existing = ViberIntegration::where('company_id', $company->id)->first();
-        $plainToken = $request->input('auth_token');
-
-        if (! $plainToken && $existing) {
-            $plainToken = $existing->getDecryptedAuthToken();
-        }
-
-        if (! $plainToken) {
-            return response()->json(['error' => 'Viber authentication token is required.'], 422);
-        }
-
-        try {
-            $service = new ViberBotService($plainToken);
-            $account = $service->getAccountInfo();
-        } catch (\Throwable $e) {
-            return response()->json([
-                'error' => 'Viber credentials could not be verified.',
-                'details' => $e->getMessage(),
-            ], 422);
-        }
-
         $webhookKey = $existing?->webhook_key ?: Str::random(40);
+
         $integration = ViberIntegration::updateOrCreate(
             ['company_id' => $company->id],
             [
-                'auth_token' => Crypt::encryptString($plainToken),
+                'sender_id' => trim((string) $request->input('sender_id')),
                 'webhook_key' => $webhookKey,
-                'bot_name' => $account['name'] ?? ($existing?->bot_name),
-                'bot_uri' => $account['uri'] ?? ($existing?->bot_uri),
-                'bot_avatar' => $account['icon'] ?? ($existing?->bot_avatar),
+                'bot_name' => $request->input('bot_name') ?: ($existing?->bot_name),
                 'welcome_message' => $request->has('welcome_message')
                     ? $request->input('welcome_message')
                     : ($existing?->welcome_message),
@@ -276,46 +267,23 @@ class IntegrationController extends Controller
             ]
         );
 
-        $webhookSet = false;
-        $webhookError = null;
-        if ($request->boolean('set_webhook', true)) {
-            try {
-                $service->setWebhook($integration->webhookUrl(), [
-                    'delivered',
-                    'seen',
-                    'failed',
-                    'subscribed',
-                    'unsubscribed',
-                    'conversation_started',
-                ]);
-                $integration->webhook_set_at = now();
-                $integration->save();
-                $webhookSet = true;
-            } catch (\Throwable $e) {
-                $webhookError = $e->getMessage();
-            }
-        }
-
         return response()->json([
             'message' => 'Viber integration saved successfully',
             'integration' => [
                 'id' => $integration->id,
+                'sender_id' => $integration->sender_id,
                 'bot_name' => $integration->bot_name,
-                'bot_uri' => $integration->bot_uri,
-                'bot_avatar' => $integration->bot_avatar,
                 'welcome_message' => $integration->welcome_message,
                 'webhook_url' => $integration->webhookUrl(),
                 'webhook_set_at' => $integration->webhook_set_at,
                 'is_active' => $integration->is_active,
             ],
             'status' => 'connected',
-            'webhook_set' => $webhookSet,
-            'webhook_error' => $webhookError,
         ]);
     }
 
     /**
-     * Delete Viber Business integration for the current company.
+     * Delete Viber integration for the current company.
      */
     public function deleteViberIntegration(Request $request): JsonResponse
     {
@@ -328,11 +296,6 @@ class IntegrationController extends Controller
         $integration = ViberIntegration::where('company_id', $company->id)->first();
 
         if ($integration) {
-            try {
-                ViberBotService::forIntegration($integration)->removeWebhook();
-            } catch (\Throwable) {
-                // Best-effort webhook cleanup
-            }
             $integration->delete();
         }
 
@@ -340,7 +303,7 @@ class IntegrationController extends Controller
     }
 
     /**
-     * Get WhatsApp Cloud API integration for the current company.
+     * Get WhatsApp (Twilio Messaging) integration for the current company.
      */
     public function getWhatsAppIntegration(Request $request): JsonResponse
     {
@@ -351,40 +314,39 @@ class IntegrationController extends Controller
         }
 
         $integration = WhatsAppIntegration::where('company_id', $company->id)->first();
+        $twilioReady = (bool) app(TwilioCompanyService::class)->getActiveIntegration($company);
 
         if ($integration) {
+            $connected = $integration->is_active && $integration->from_number && $twilioReady;
+
             return response()->json([
                 'integration' => [
                     'id' => $integration->id,
                     'company_id' => $integration->company_id,
-                    'access_token' => $integration->access_token ? '***hidden***' : null,
-                    'app_secret' => $integration->app_secret ? '***hidden***' : null,
-                    'phone_number_id' => $integration->phone_number_id,
-                    'waba_id' => $integration->waba_id,
-                    'webhook_verify_token' => $integration->webhook_verify_token,
-                    'display_phone_number' => $integration->display_phone_number,
+                    'from_number' => $integration->from_number,
+                    'display_phone_number' => $integration->display_phone_number ?: $integration->from_number,
                     'business_name' => $integration->business_name,
                     'welcome_message' => $integration->welcome_message,
                     'webhook_url' => $integration->webhookUrl(),
                     'webhook_set_at' => $integration->webhook_set_at,
                     'is_active' => $integration->is_active,
+                    'twilio_connected' => $twilioReady,
                     'created_at' => $integration->created_at,
                     'updated_at' => $integration->updated_at,
                 ],
-                'status' => ($integration->is_active && $integration->access_token && $integration->phone_number_id)
-                    ? 'connected'
-                    : 'disconnected',
+                'status' => $connected ? 'connected' : 'disconnected',
             ]);
         }
 
         return response()->json([
             'integration' => null,
             'status' => 'disconnected',
+            'twilio_connected' => $twilioReady,
         ]);
     }
 
     /**
-     * Store or update WhatsApp Cloud API integration for the current company.
+     * Store or update WhatsApp (Twilio Messaging) integration for the current company.
      */
     public function storeWhatsAppIntegration(Request $request): JsonResponse
     {
@@ -394,12 +356,15 @@ class IntegrationController extends Controller
             return response()->json(['error' => 'Company not found'], 404);
         }
 
+        if (! app(TwilioCompanyService::class)->getActiveIntegration($company)) {
+            return response()->json([
+                'error' => 'Connect Twilio first under Integrations, then configure your WhatsApp sender.',
+            ], 422);
+        }
+
         $validator = Validator::make($request->all(), [
-            'access_token' => ['nullable', 'string', 'min:10'],
-            'phone_number_id' => ['required', 'string', 'max:64'],
-            'waba_id' => ['nullable', 'string', 'max:64'],
-            'app_secret' => ['nullable', 'string', 'max:255'],
-            'webhook_verify_token' => ['nullable', 'string', 'max:128'],
+            'from_number' => ['required', 'string', 'max:32'],
+            'business_name' => ['nullable', 'string', 'max:255'],
             'welcome_message' => ['nullable', 'string', 'max:1000'],
         ]);
 
@@ -408,48 +373,16 @@ class IntegrationController extends Controller
         }
 
         $existing = WhatsAppIntegration::where('company_id', $company->id)->first();
-        $plainToken = $request->input('access_token');
-        $plainAppSecret = $request->input('app_secret');
-
-        if (! $plainToken && $existing) {
-            $plainToken = $existing->getDecryptedAccessToken();
-        }
-
-        if (! $plainToken) {
-            return response()->json(['error' => 'WhatsApp access token is required.'], 422);
-        }
-
-        if (! $plainAppSecret && $existing) {
-            $plainAppSecret = $existing->getDecryptedAppSecret();
-        }
-
-        $phoneNumberId = (string) $request->input('phone_number_id');
-
-        try {
-            $service = new WhatsAppCloudService($plainToken, $phoneNumberId, $plainAppSecret);
-            $account = $service->getPhoneNumberInfo();
-        } catch (\Throwable $e) {
-            return response()->json([
-                'error' => 'WhatsApp credentials could not be verified.',
-                'details' => $e->getMessage(),
-            ], 422);
-        }
-
         $webhookKey = $existing?->webhook_key ?: Str::random(40);
-        $verifyToken = $request->input('webhook_verify_token')
-            ?: ($existing?->webhook_verify_token ?: Str::random(32));
+        $fromNumber = app(TwilioCompanyService::class)->normalizePhone((string) $request->input('from_number'));
 
         $integration = WhatsAppIntegration::updateOrCreate(
             ['company_id' => $company->id],
             [
-                'access_token' => Crypt::encryptString($plainToken),
-                'phone_number_id' => $phoneNumberId,
-                'waba_id' => $request->input('waba_id') ?: ($existing?->waba_id),
-                'app_secret' => $plainAppSecret ? Crypt::encryptString($plainAppSecret) : ($existing?->app_secret),
-                'webhook_verify_token' => $verifyToken,
+                'from_number' => $fromNumber,
+                'display_phone_number' => $fromNumber,
                 'webhook_key' => $webhookKey,
-                'display_phone_number' => $account['display_phone_number'] ?? ($existing?->display_phone_number),
-                'business_name' => $account['verified_name'] ?? ($existing?->business_name),
+                'business_name' => $request->input('business_name') ?: ($existing?->business_name),
                 'welcome_message' => $request->has('welcome_message')
                     ? $request->input('welcome_message')
                     : ($existing?->welcome_message),
@@ -461,13 +394,11 @@ class IntegrationController extends Controller
             'message' => 'WhatsApp integration saved successfully',
             'integration' => [
                 'id' => $integration->id,
-                'phone_number_id' => $integration->phone_number_id,
-                'waba_id' => $integration->waba_id,
+                'from_number' => $integration->from_number,
                 'display_phone_number' => $integration->display_phone_number,
                 'business_name' => $integration->business_name,
                 'welcome_message' => $integration->welcome_message,
                 'webhook_url' => $integration->webhookUrl(),
-                'webhook_verify_token' => $integration->webhook_verify_token,
                 'webhook_set_at' => $integration->webhook_set_at,
                 'is_active' => $integration->is_active,
             ],
@@ -476,7 +407,7 @@ class IntegrationController extends Controller
     }
 
     /**
-     * Delete WhatsApp Cloud API integration for the current company.
+     * Delete WhatsApp integration for the current company.
      */
     public function deleteWhatsAppIntegration(Request $request): JsonResponse
     {
@@ -1218,7 +1149,7 @@ class IntegrationController extends Controller
     }
 
     /**
-     * Get company from request.
+     * Get company from request (subdomain) or the authenticated user.
      */
     private function getCompany(Request $request): ?Company
     {
@@ -1230,10 +1161,18 @@ class IntegrationController extends Controller
 
         if (app()->bound('company')) {
             try {
-                return app('company');
+                $bound = app('company');
+                if ($bound instanceof Company) {
+                    return $bound;
+                }
             } catch (\Exception $e) {
-                return null;
+                // fall through to user company
             }
+        }
+
+        $user = $request->user();
+        if ($user?->company_id) {
+            return Company::find($user->company_id);
         }
 
         return null;

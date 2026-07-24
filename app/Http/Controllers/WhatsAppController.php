@@ -2,10 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Company;
+use App\Models\User;
 use App\Models\WhatsAppConversation;
 use App\Models\WhatsAppIntegration;
 use App\Models\WhatsAppMessage;
-use App\Services\WhatsAppCloudService;
+use App\Notifications\WhatsAppMessageNotification;
+use App\Services\TwilioCompanyService;
+use App\Services\TwilioService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -16,17 +20,20 @@ use Symfony\Component\HttpFoundation\Response;
 
 class WhatsAppController extends Controller
 {
+    public function __construct(protected TwilioCompanyService $twilioCompany) {}
+
     public function index()
     {
-        $companyId = Auth::user()?->company_id;
-        $integration = $companyId
-            ? WhatsAppIntegration::where('company_id', $companyId)->where('is_active', true)->first()
-            : null;
+        $user = Auth::user();
+        $integration = $this->channelIntegrationForCompany($user?->company_id);
+        $twilioReady = $user?->company
+            ? (bool) $this->twilioCompany->getActiveIntegration($user->company)
+            : false;
 
         return view('dashboard.whatsapp', [
-            'integrationConnected' => (bool) $integration,
+            'integrationConnected' => (bool) ($integration && $twilioReady),
             'businessName' => $integration?->business_name,
-            'displayPhone' => $integration?->display_phone_number,
+            'displayPhone' => $integration?->display_phone_number ?: $integration?->from_number,
         ]);
     }
 
@@ -34,15 +41,20 @@ class WhatsAppController extends Controller
     {
         $user = Auth::user();
         $integration = WhatsAppIntegration::where('company_id', $user->company_id)->first();
+        $twilioReady = $user->company
+            ? (bool) $this->twilioCompany->getActiveIntegration($user->company)
+            : false;
 
         return response()->json([
-            'connected' => (bool) ($integration && $integration->is_active),
+            'connected' => (bool) ($integration && $integration->is_active && $twilioReady && $integration->from_number),
             'account' => $integration ? [
                 'business_name' => $integration->business_name,
-                'display_phone_number' => $integration->display_phone_number,
-                'phone_number_id' => $integration->phone_number_id,
+                'display_phone_number' => $integration->display_phone_number ?: $integration->from_number,
+                'from_number' => $integration->from_number,
                 'webhook_url' => $integration->webhookUrl(),
                 'webhook_set_at' => $integration->webhook_set_at?->toIso8601String(),
+                'twilio_connected' => $twilioReady,
+                'integrations_url' => route('integrations'),
             ] : null,
         ]);
     }
@@ -67,7 +79,7 @@ class WhatsAppController extends Controller
             });
         }
 
-        $conversations = $query->limit(100)->get()->map(fn (WhatsAppConversation $c) => $this->formatConversation($c));
+        $conversations = $query->limit(500)->get()->map(fn (WhatsAppConversation $c) => $this->formatConversation($c));
 
         return response()->json(['data' => $conversations]);
     }
@@ -80,11 +92,12 @@ class WhatsAppController extends Controller
             ->where('whatsapp_conversation_id', $conversation->id)
             ->orderBy('created_at')
             ->orderBy('id')
-            ->limit(500)
+            ->limit(2000)
             ->get()
             ->map(fn (WhatsAppMessage $m) => $this->formatMessage($m));
 
         $conversation->update(['unread_count' => 0]);
+        $this->markConversationNotificationsRead($conversation);
 
         return response()->json([
             'conversation' => $this->formatConversation($conversation->fresh()),
@@ -106,49 +119,61 @@ class WhatsAppController extends Controller
             'longitude' => ['nullable', 'numeric'],
         ]);
 
-        $integration = $this->requireActiveIntegration();
-        $service = WhatsAppCloudService::forIntegration($integration);
-        $to = $conversation->wa_id;
+        $channel = $this->requireActiveIntegration();
+        $twilio = $this->twilioClientForCompany(Auth::user()->company);
+        $to = $conversation->wa_id ?: $conversation->phone;
+
+        $body = null;
+        $mediaUrl = null;
+        $type = $validated['type'];
+
+        if ($type === 'text') {
+            $body = (string) ($validated['text'] ?? '');
+            if ($body === '') {
+                return response()->json(['message' => 'Message text is required.'], 422);
+            }
+        } elseif ($type === 'location') {
+            $lat = $validated['latitude'] ?? null;
+            $lng = $validated['longitude'] ?? null;
+            if ($lat === null || $lng === null) {
+                return response()->json(['message' => 'Latitude and longitude are required.'], 422);
+            }
+            $body = trim(($validated['text'] ?? '').' Location: '.$lat.', '.$lng);
+        } else {
+            $mediaUrl = $validated['media_url'] ?? null;
+            if (! $mediaUrl) {
+                return response()->json(['message' => 'A media URL is required.'], 422);
+            }
+            $body = $validated['text'] ?? null;
+        }
 
         try {
-            $response = match ($validated['type']) {
-                'text' => $service->sendText($to, (string) ($validated['text'] ?? '')),
-                'image' => $service->sendImage($to, (string) $validated['media_url'], $validated['text'] ?? null),
-                'video' => $service->sendVideo($to, (string) $validated['media_url'], $validated['text'] ?? null),
-                'document' => $service->sendDocument(
-                    $to,
-                    (string) $validated['media_url'],
-                    $validated['file_name'] ?? null,
-                    $validated['text'] ?? null
-                ),
-                'audio' => $service->sendAudio($to, (string) $validated['media_url']),
-                'location' => $service->sendLocation(
-                    $to,
-                    (float) $validated['latitude'],
-                    (float) $validated['longitude']
-                ),
-            };
+            $sent = $twilio->sendWhatsApp(
+                (string) $channel->from_number,
+                (string) $to,
+                $body,
+                $channel->statusCallbackUrl(),
+                $mediaUrl
+            );
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
-
-        $wamid = $response['messages'][0]['id'] ?? null;
 
         $message = WhatsAppMessage::create([
             'company_id' => $conversation->company_id,
             'whatsapp_conversation_id' => $conversation->id,
             'user_id' => Auth::id(),
             'direction' => 'outbound',
-            'wamid' => $wamid ? (string) $wamid : null,
-            'type' => $validated['type'],
-            'text' => $validated['text'] ?? null,
-            'media_url' => $validated['media_url'] ?? null,
+            'wamid' => $sent->sid,
+            'type' => $type,
+            'text' => $validated['text'] ?? ($type === 'location' ? $body : null),
+            'media_url' => $mediaUrl,
             'file_name' => $validated['file_name'] ?? null,
             'file_size' => $validated['file_size'] ?? null,
             'latitude' => $validated['latitude'] ?? null,
             'longitude' => $validated['longitude'] ?? null,
-            'status' => 'sent',
-            'raw_payload' => $response,
+            'status' => $sent->status ?? 'sent',
+            'raw_payload' => ['sid' => $sent->sid, 'status' => $sent->status],
             'sent_at' => now(),
         ]);
 
@@ -160,7 +185,7 @@ class WhatsAppController extends Controller
     public function uploadMedia(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'file' => ['required', 'file', 'max:65536'], // 64MB
+            'file' => ['required', 'file', 'max:65536'],
             'kind' => ['nullable', 'string', 'in:image,video,document,audio'],
         ]);
 
@@ -220,174 +245,186 @@ class WhatsAppController extends Controller
             return response('Not found', 404);
         }
 
-        // Meta webhook verification (GET)
-        if ($request->isMethod('get')) {
-            $mode = $request->query('hub_mode') ?? $request->query('hub.mode');
-            $token = $request->query('hub_verify_token') ?? $request->query('hub.verify_token');
-            $challenge = $request->query('hub_challenge') ?? $request->query('hub.challenge');
-
-            if ($mode === 'subscribe' && hash_equals((string) $integration->webhook_verify_token, (string) $token)) {
-                $integration->webhook_set_at = now();
-                $integration->save();
-
-                return response((string) $challenge, 200)->header('Content-Type', 'text/plain');
-            }
-
-            return response('Forbidden', 403);
-        }
-
-        $raw = $request->getContent();
-        $signature = $request->header('X-Hub-Signature-256');
-
-        try {
-            $service = WhatsAppCloudService::forIntegration($integration);
-            if ($raw !== '' && $integration->getDecryptedAppSecret() && ! $service->verifySignature($raw, $signature)) {
-                Log::warning('WhatsApp webhook signature mismatch', ['company_id' => $integration->company_id]);
-
-                return response('Invalid signature', 403);
-            }
-        } catch (\Throwable $e) {
-            Log::warning('WhatsApp webhook auth error', ['error' => $e->getMessage()]);
-
+        $company = Company::find($integration->company_id);
+        if (! $company) {
             return response('OK', 200);
         }
 
-        $payload = $request->json()->all();
+        $twilioIntegration = $this->twilioCompany->getActiveIntegration($company);
+        if ($twilioIntegration) {
+            $credentials = $this->twilioCompany->getCredentials($twilioIntegration);
+            $signature = (string) $request->header('X-Twilio-Signature', '');
+            if ($credentials && $signature !== '') {
+                $twilio = new TwilioService($credentials['sid'], $credentials['token']);
+                if (! $twilio->validateRequest($signature, $request->fullUrl(), $request->post())) {
+                    Log::warning('WhatsApp Twilio webhook signature mismatch', [
+                        'company_id' => $integration->company_id,
+                    ]);
 
-        try {
-            foreach ($payload['entry'] ?? [] as $entry) {
-                foreach ($entry['changes'] ?? [] as $change) {
-                    if (($change['field'] ?? '') !== 'messages') {
-                        continue;
-                    }
-                    $value = $change['value'] ?? [];
-                    $this->handleInboundMessages($integration, $value);
-                    $this->handleStatusUpdates($integration, $value);
+                    return response('Invalid signature', 403);
                 }
             }
+
+            $accountSid = $request->input('AccountSid');
+            if ($accountSid && $accountSid !== $twilioIntegration->account_sid) {
+                Log::warning('WhatsApp webhook AccountSid mismatch', [
+                    'company_id' => $integration->company_id,
+                ]);
+
+                return response('OK', 200);
+            }
+        }
+
+        try {
+            $this->handleInboundTwilioMessage($integration, $request);
         } catch (\Throwable $e) {
             Log::error('WhatsApp webhook handler error', ['error' => $e->getMessage()]);
+        }
+
+        if (! $integration->webhook_set_at) {
+            $integration->webhook_set_at = now();
+            $integration->save();
         }
 
         return response('OK', 200);
     }
 
-    /**
-     * @param  array<string, mixed>  $value
-     */
-    protected function handleInboundMessages(WhatsAppIntegration $integration, array $value): void
+    protected function handleInboundTwilioMessage(WhatsAppIntegration $integration, Request $request): void
     {
-        $contacts = collect($value['contacts'] ?? [])->keyBy('wa_id');
-        $messages = $value['messages'] ?? [];
-
-        if (empty($messages)) {
+        $messageSid = $request->input('MessageSid');
+        if (! $messageSid) {
             return;
         }
 
-        $service = null;
+        if (WhatsAppMessage::where('wamid', $messageSid)->exists()) {
+            return;
+        }
 
-        foreach ($messages as $message) {
-            $waId = $message['from'] ?? null;
-            $wamid = isset($message['id']) ? (string) $message['id'] : null;
-            if (! $waId) {
-                continue;
-            }
+        $from = $this->twilioCompany->normalizePhone((string) $request->input('From', ''));
+        $profileName = $request->input('ProfileName');
+        $body = $request->input('Body');
+        $numMedia = (int) $request->input('NumMedia', 0);
 
-            if ($wamid && WhatsAppMessage::where('wamid', $wamid)->exists()) {
-                continue;
-            }
+        $conversation = $this->upsertConversation($integration->company_id, $from, $profileName ? (string) $profileName : null);
+        $isNewConversation = $conversation->wasRecentlyCreated
+            || ! WhatsAppMessage::where('whatsapp_conversation_id', $conversation->id)->exists();
 
-            $contact = $contacts->get($waId) ?? [];
-            $profileName = $contact['profile']['name'] ?? null;
+        $conversation->window_expires_at = now()->addHours(24);
+        $conversation->is_subscribed = true;
 
-            $conversation = $this->upsertConversation($integration->company_id, $waId, $profileName);
-            $isNewConversation = $conversation->wasRecentlyCreated
-                || ! WhatsAppMessage::where('whatsapp_conversation_id', $conversation->id)->exists();
-            $conversation->window_expires_at = now()->addHours(24);
-            $conversation->is_subscribed = true;
+        $type = 'text';
+        $mediaUrl = null;
+        $mimeType = null;
+        $fileName = null;
+        $text = is_string($body) ? $body : null;
 
-            $type = $message['type'] ?? 'text';
-            $text = null;
-            $mediaUrl = null;
-            $mediaId = null;
-            $mimeType = null;
-            $fileName = null;
-            $latitude = null;
-            $longitude = null;
-            $contactName = null;
-            $contactPhone = null;
-            $storedType = $type;
+        if ($numMedia > 0) {
+            $mimeType = $request->input('MediaContentType0');
+            $remoteMedia = $request->input('MediaUrl0');
+            $type = $this->guessMediaType($mimeType);
+            $fileName = $request->input('MediaFileName0');
 
-            if ($type === 'text') {
-                $text = $message['text']['body'] ?? null;
-            } elseif (in_array($type, ['image', 'video', 'audio', 'document', 'sticker'], true)) {
-                $media = $message[$type] ?? [];
-                $mediaId = isset($media['id']) ? (string) $media['id'] : null;
-                $mimeType = $media['mime_type'] ?? null;
-                $fileName = $media['filename'] ?? null;
-                $text = $media['caption'] ?? null;
-                $storedType = $type === 'sticker' ? 'sticker' : $type;
-
-                if ($mediaId) {
-                    try {
-                        $service ??= WhatsAppCloudService::forIntegration($integration);
-                        $mediaUrl = $this->storeInboundMedia($service, $integration->company_id, $mediaId, $fileName, $mimeType);
-                    } catch (\Throwable $e) {
-                        Log::warning('WhatsApp inbound media download failed', ['error' => $e->getMessage()]);
-                    }
+            if ($remoteMedia) {
+                try {
+                    $mediaUrl = $this->storeInboundMedia(
+                        $integration,
+                        (string) $remoteMedia,
+                        $mimeType ? (string) $mimeType : null,
+                        $fileName ? (string) $fileName : null,
+                        (string) $messageSid
+                    );
+                } catch (\Throwable $e) {
+                    Log::warning('WhatsApp inbound media download failed', ['error' => $e->getMessage()]);
+                    $mediaUrl = (string) $remoteMedia;
                 }
-            } elseif ($type === 'location') {
-                $latitude = $message['location']['latitude'] ?? null;
-                $longitude = $message['location']['longitude'] ?? null;
-                $text = $message['location']['name'] ?? null;
-            } elseif ($type === 'contacts') {
-                $first = $message['contacts'][0] ?? [];
-                $contactName = $first['name']['formatted_name'] ?? null;
-                $contactPhone = $first['phones'][0]['phone'] ?? null;
-                $storedType = 'contact';
-                if ($contactPhone && ! $conversation->phone) {
-                    $conversation->phone = preg_replace('/\D+/', '', (string) $contactPhone);
-                }
-            } elseif ($type === 'button') {
-                $text = $message['button']['text'] ?? ($message['button']['payload'] ?? null);
-                $storedType = 'text';
-            } elseif ($type === 'interactive') {
-                $interactive = $message['interactive'] ?? [];
-                $text = $interactive['button_reply']['title']
-                    ?? $interactive['list_reply']['title']
-                    ?? null;
-                $storedType = 'text';
-            }
-
-            $record = WhatsAppMessage::create([
-                'company_id' => $integration->company_id,
-                'whatsapp_conversation_id' => $conversation->id,
-                'direction' => 'inbound',
-                'wamid' => $wamid,
-                'type' => $storedType,
-                'text' => $text,
-                'media_url' => $mediaUrl,
-                'media_id' => $mediaId,
-                'mime_type' => $mimeType,
-                'file_name' => $fileName,
-                'latitude' => $latitude,
-                'longitude' => $longitude,
-                'contact_name' => $contactName,
-                'contact_phone' => $contactPhone,
-                'status' => 'received',
-                'raw_payload' => $message,
-                'sent_at' => isset($message['timestamp'])
-                    ? \Carbon\Carbon::createFromTimestamp((int) $message['timestamp'])
-                    : now(),
-            ]);
-
-            $conversation->unread_count = (int) $conversation->unread_count + 1;
-            $this->touchConversation($conversation, $record);
-
-            if ($isNewConversation) {
-                $this->maybeSendWelcome($integration, $conversation);
             }
         }
+
+        $record = WhatsAppMessage::create([
+            'company_id' => $integration->company_id,
+            'whatsapp_conversation_id' => $conversation->id,
+            'direction' => 'inbound',
+            'wamid' => (string) $messageSid,
+            'type' => $type,
+            'text' => $text,
+            'media_url' => $mediaUrl,
+            'mime_type' => $mimeType,
+            'file_name' => $fileName,
+            'status' => $request->input('SmsStatus', 'received'),
+            'raw_payload' => $request->except(['MediaUrl0', 'MediaUrl1']),
+            'sent_at' => now(),
+        ]);
+
+        $conversation->unread_count = (int) $conversation->unread_count + 1;
+        $this->touchConversation($conversation, $record);
+        $this->notifyUnread($conversation, $record);
+
+        if ($isNewConversation) {
+            $this->maybeSendWelcome($integration, $conversation);
+        }
+    }
+
+    protected function notifyUnread(WhatsAppConversation $conversation, WhatsAppMessage $message): void
+    {
+        $recipients = $this->whatsappNotifyRecipients((int) $conversation->company_id);
+
+        foreach ($recipients as $recipient) {
+            try {
+                // Keep one unread notification per conversation per user
+                $existing = $recipient->unreadNotifications()
+                    ->where('type', WhatsAppMessageNotification::class)
+                    ->get()
+                    ->first(function ($notification) use ($conversation) {
+                        return (int) ($notification->data['conversation_id'] ?? 0) === (int) $conversation->id;
+                    });
+
+                if ($existing) {
+                    $existing->delete();
+                }
+
+                $recipient->notify(new WhatsAppMessageNotification($conversation, $message));
+            } catch (\Throwable $e) {
+                Log::warning('Failed to notify WhatsApp unread', [
+                    'conversation_id' => $conversation->id,
+                    'user_id' => $recipient->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, User>
+     */
+    protected function whatsappNotifyRecipients(int $companyId)
+    {
+        return User::query()
+            ->where('company_id', $companyId)
+            ->where(function ($query) {
+                $query->whereHas('role.permissions', function ($q) {
+                    $q->where('slug', 'view_whatsapp');
+                })->orWhereHas('roles.permissions', function ($q) {
+                    $q->where('slug', 'view_whatsapp');
+                });
+            })
+            ->get();
+    }
+
+    protected function markConversationNotificationsRead(WhatsAppConversation $conversation): void
+    {
+        $user = Auth::user();
+        if (! $user) {
+            return;
+        }
+
+        $user->unreadNotifications()
+            ->where('type', WhatsAppMessageNotification::class)
+            ->get()
+            ->each(function ($notification) use ($conversation) {
+                if ((int) ($notification->data['conversation_id'] ?? 0) === (int) $conversation->id) {
+                    $notification->markAsRead();
+                }
+            });
     }
 
     protected function maybeSendWelcome(WhatsAppIntegration $integration, WhatsAppConversation $conversation): void
@@ -397,20 +434,29 @@ class WhatsAppController extends Controller
             return;
         }
 
+        $company = Company::find($integration->company_id);
+        if (! $company) {
+            return;
+        }
+
         try {
-            $service = WhatsAppCloudService::forIntegration($integration);
-            $response = $service->sendText($conversation->wa_id, $welcome);
-            $wamid = $response['messages'][0]['id'] ?? null;
+            $twilio = $this->twilioClientForCompany($company);
+            $sent = $twilio->sendWhatsApp(
+                (string) $integration->from_number,
+                (string) $conversation->wa_id,
+                $welcome,
+                $integration->statusCallbackUrl()
+            );
 
             $message = WhatsAppMessage::create([
                 'company_id' => $integration->company_id,
                 'whatsapp_conversation_id' => $conversation->id,
                 'direction' => 'outbound',
-                'wamid' => $wamid ? (string) $wamid : null,
+                'wamid' => $sent->sid,
                 'type' => 'text',
                 'text' => $welcome,
-                'status' => 'sent',
-                'raw_payload' => $response,
+                'status' => $sent->status ?? 'sent',
+                'raw_payload' => ['sid' => $sent->sid, 'status' => $sent->status],
                 'sent_at' => now(),
             ]);
 
@@ -420,32 +466,16 @@ class WhatsAppController extends Controller
         }
     }
 
-    /**
-     * @param  array<string, mixed>  $value
-     */
-    protected function handleStatusUpdates(WhatsAppIntegration $integration, array $value): void
-    {
-        foreach ($value['statuses'] ?? [] as $status) {
-            $wamid = isset($status['id']) ? (string) $status['id'] : null;
-            if (! $wamid) {
-                continue;
-            }
-
-            WhatsAppMessage::where('company_id', $integration->company_id)
-                ->where('wamid', $wamid)
-                ->update(['status' => $status['status'] ?? null]);
-        }
-    }
-
     protected function storeInboundMedia(
-        WhatsAppCloudService $service,
-        int $companyId,
-        string $mediaId,
+        WhatsAppIntegration $integration,
+        string $remoteUrl,
+        ?string $mimeType,
         ?string $fileName,
-        ?string $mimeType
+        string $messageSid
     ): string {
-        $meta = $service->getMediaUrl($mediaId);
-        $binary = $service->downloadMedia($meta['url']);
+        $company = Company::find($integration->company_id);
+        $twilio = $this->twilioClientForCompany($company);
+        $binary = $twilio->downloadMedia($remoteUrl);
 
         $ext = 'bin';
         if ($fileName && str_contains($fileName, '.')) {
@@ -462,23 +492,37 @@ class WhatsAppController extends Controller
             };
         }
 
-        $path = 'whatsapp/'.$companyId.'/inbound/'.date('Y/m').'/'.$mediaId.'-'.Str::random(6).'.'.$ext;
+        $path = 'whatsapp/'.$integration->company_id.'/inbound/'.date('Y/m').'/'.$messageSid.'-'.Str::random(6).'.'.$ext;
         Storage::disk('public')->put($path, $binary);
 
         return asset('storage/'.$path);
     }
 
+    protected function guessMediaType(?string $mimeType): string
+    {
+        $mime = strtolower((string) $mimeType);
+
+        return match (true) {
+            str_starts_with($mime, 'image/') => 'image',
+            str_starts_with($mime, 'video/') => 'video',
+            str_starts_with($mime, 'audio/') => 'audio',
+            default => 'document',
+        };
+    }
+
     protected function upsertConversation(int $companyId, string $waId, ?string $profileName): WhatsAppConversation
     {
+        $normalized = $this->twilioCompany->normalizePhone($waId);
+
         $conversation = WhatsAppConversation::firstOrNew([
             'company_id' => $companyId,
-            'wa_id' => $waId,
+            'wa_id' => $normalized,
         ]);
 
         $conversation->fill([
-            'name' => $profileName ?: ($conversation->name ?: $waId),
+            'name' => $profileName ?: ($conversation->name ?: $normalized),
             'profile_name' => $profileName ?: $conversation->profile_name,
-            'phone' => $conversation->phone ?: preg_replace('/\D+/', '', $waId),
+            'phone' => $conversation->phone ?: preg_replace('/\D+/', '', $normalized),
             'is_subscribed' => true,
         ]);
         $conversation->save();
@@ -504,13 +548,45 @@ class WhatsAppController extends Controller
         $conversation->save();
     }
 
+    protected function twilioClientForCompany(?Company $company): TwilioService
+    {
+        if (! $company) {
+            throw new \Illuminate\Http\Exceptions\HttpResponseException(
+                response()->json(['message' => 'Twilio is not connected. Configure it under Integrations.'], 422)
+            );
+        }
+
+        $integration = $this->twilioCompany->getActiveIntegration($company);
+        if (! $integration) {
+            throw new \Illuminate\Http\Exceptions\HttpResponseException(
+                response()->json(['message' => 'Twilio is not connected. Configure it under Integrations.'], 422)
+            );
+        }
+
+        $credentials = $this->twilioCompany->getCredentials($integration);
+        if (! $credentials) {
+            throw new \Illuminate\Http\Exceptions\HttpResponseException(
+                response()->json(['message' => 'Invalid Twilio credentials.'], 422)
+            );
+        }
+
+        return new TwilioService($credentials['sid'], $credentials['token']);
+    }
+
+    protected function channelIntegrationForCompany(?int $companyId): ?WhatsAppIntegration
+    {
+        if (! $companyId) {
+            return null;
+        }
+
+        return WhatsAppIntegration::where('company_id', $companyId)->where('is_active', true)->first();
+    }
+
     protected function requireActiveIntegration(): WhatsAppIntegration
     {
-        $integration = WhatsAppIntegration::where('company_id', Auth::user()->company_id)
-            ->where('is_active', true)
-            ->first();
+        $integration = $this->channelIntegrationForCompany(Auth::user()->company_id);
 
-        if (! $integration) {
+        if (! $integration || ! $integration->from_number) {
             throw new \Illuminate\Http\Exceptions\HttpResponseException(
                 response()->json(['message' => 'WhatsApp is not connected. Configure it under Integrations.'], 422)
             );

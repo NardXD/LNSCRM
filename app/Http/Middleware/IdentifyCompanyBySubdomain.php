@@ -39,6 +39,13 @@ class IdentifyCompanyBySubdomain
      */
     private function extractSubdomain(string $host): ?string
     {
+        $host = strtolower($host);
+
+        // Tunnel / preview hosts are not company subdomains
+        if (preg_match('/(^|\.)(ngrok(-free)?\.(dev|app|io)|loca\.lt|trycloudflare\.com)$/i', $host)) {
+            return null;
+        }
+
         // Handle localhost subdomain format: subdomain.localhost
         if (str_contains($host, '.localhost')) {
             return str_replace('.localhost', '', $host);

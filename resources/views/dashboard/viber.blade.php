@@ -31,7 +31,7 @@
             <div class="viber-empty" id="viberEmpty">
                 <div class="viber-empty-card">
                     <h3 id="viberEmptyTitle">Select a conversation</h3>
-                    <p id="viberEmptyText">Customer messages appear here after they message your Viber bot.</p>
+                    <p id="viberEmptyText">Customer messages appear here after they message your Viber sender.</p>
                     <a href="{{ route('integrations') }}" class="viber-link-btn" id="viberConnectLink" style="{{ $integrationConnected ? 'display:none' : '' }}">Connect Viber in Integrations</a>
                 </div>
             </div>
@@ -80,15 +80,15 @@
 </div>
 
 <style>
-.viber-page { height: calc(100vh - 72px); min-height: 520px; }
-.viber-layout { display: grid; grid-template-columns: 320px 1fr; height: 100%; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--bg-card); }
-.viber-sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg-primary); }
-.viber-sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.1rem; border-bottom: 1px solid var(--border); }
+.viber-page { height: calc(100dvh - 140px); max-height: calc(100dvh - 140px); min-height: 420px; min-width: 0; }
+.viber-layout { display: grid; grid-template-columns: 320px 1fr; height: 100%; min-height: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--bg-card); }
+.viber-sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg-primary); min-height: 0; min-width: 0; }
+.viber-sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.1rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .viber-sidebar-header h2 { margin: 0; font-size: 1.15rem; }
 .viber-sub { margin: 0.15rem 0 0; color: var(--text-secondary); font-size: 0.8rem; }
-.viber-search { padding: 0.75rem 1rem; }
+.viber-search { padding: 0.75rem 1rem; flex-shrink: 0; }
 .viber-search input { width: 100%; padding: 0.55rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text-primary); }
-.viber-thread-list { flex: 1; overflow-y: auto; }
+.viber-thread-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .viber-thread { display: flex; gap: 0.75rem; padding: 0.85rem 1rem; cursor: pointer; border-bottom: 1px solid var(--border); }
 .viber-thread:hover, .viber-thread.active { background: var(--bg-card); }
 .viber-thread-body { min-width: 0; flex: 1; }
@@ -98,26 +98,26 @@
 .viber-thread-preview { color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .viber-badge { display: inline-flex; min-width: 1.2rem; height: 1.2rem; padding: 0 0.35rem; align-items: center; justify-content: center; border-radius: 999px; background: #7360f2; color: #fff; font-size: 0.7rem; font-weight: 700; }
 .viber-avatar { width: 40px; height: 40px; border-radius: 50%; background: #7360f2; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; background-size: cover; background-position: center; }
-.viber-main { display: flex; flex-direction: column; min-width: 0; }
-.viber-empty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+.viber-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
+.viber-empty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 2rem; min-height: 0; }
 .viber-empty-card { text-align: center; max-width: 360px; }
 .viber-empty-card h3 { margin: 0 0 0.5rem; }
 .viber-empty-card p { color: var(--text-secondary); margin: 0 0 1rem; }
 .viber-link-btn { display: inline-block; padding: 0.55rem 0.9rem; border-radius: 8px; background: #7360f2; color: #fff; text-decoration: none; font-weight: 600; font-size: 0.9rem; }
-.viber-chat { display: flex; flex-direction: column; height: 100%; }
-.viber-chat-header { display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1rem; border-bottom: 1px solid var(--border); }
+.viber-chat { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; height: 100%; overflow: hidden; }
+.viber-chat-header { display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .viber-chat-meta { flex: 1; min-width: 0; }
 .viber-chat-meta h3 { margin: 0; font-size: 1rem; }
 .viber-chat-meta span { color: var(--text-secondary); font-size: 0.78rem; }
 .viber-chat-actions { display: flex; gap: 0.25rem; }
-.viber-messages { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.65rem; background: linear-gradient(180deg, var(--bg-primary), var(--bg-card)); }
-.viber-bubble { max-width: min(72%, 520px); padding: 0.65rem 0.8rem; border-radius: 14px; font-size: 0.92rem; line-height: 1.4; word-break: break-word; }
+.viber-messages { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.65rem; background: linear-gradient(180deg, var(--bg-primary), var(--bg-card)); }
+.viber-bubble { max-width: min(72%, 520px); padding: 0.65rem 0.8rem; border-radius: 14px; font-size: 0.92rem; line-height: 1.4; word-break: break-word; flex-shrink: 0; }
 .viber-bubble.inbound { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
 .viber-bubble.outbound { align-self: flex-end; background: #7360f2; color: #fff; border-bottom-right-radius: 4px; }
 .viber-bubble img, .viber-bubble video { display: block; max-width: 100%; border-radius: 8px; margin-top: 0.35rem; }
 .viber-bubble a { color: inherit; text-decoration: underline; }
 .viber-meta { display: block; margin-top: 0.35rem; font-size: 0.7rem; opacity: 0.75; }
-.viber-composer { display: flex; align-items: flex-end; gap: 0.5rem; padding: 0.75rem 1rem; border-top: 1px solid var(--border); background: var(--bg-card); }
+.viber-composer { display: flex; align-items: flex-end; gap: 0.5rem; padding: 0.75rem 1rem; border-top: 1px solid var(--border); background: var(--bg-card); flex-shrink: 0; }
 .viber-attach { display: flex; gap: 0.15rem; }
 .viber-composer textarea { flex: 1; resize: none; min-height: 42px; max-height: 120px; padding: 0.65rem 0.75rem; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-primary); color: var(--text-primary); font: inherit; }
 .viber-send-btn { border: 0; border-radius: 10px; padding: 0.7rem 1rem; background: #7360f2; color: #fff; font-weight: 600; cursor: pointer; }
@@ -271,7 +271,7 @@
             if (data.bot?.name) els.botLabel.textContent = data.bot.name;
             if (!connected) {
                 els.emptyTitle.textContent = 'Connect Viber';
-                els.emptyText.textContent = 'Add your Viber Business auth token under Integrations to start chatting.';
+                els.emptyText.textContent = 'Connect Twilio, then add your Viber sender under Integrations to start chatting.';
                 els.connectLink.style.display = '';
             } else {
                 els.connectLink.style.display = 'none';
@@ -306,7 +306,14 @@
 
         const data = await api(`/conversations/${id}/messages`);
         els.messages.innerHTML = (data.data || []).map(renderMessage).join('');
-        els.messages.scrollTop = els.messages.scrollHeight;
+        requestAnimationFrame(() => {
+            els.messages.scrollTop = els.messages.scrollHeight;
+        });
+        els.messages.querySelectorAll('img, video').forEach((media) => {
+            media.addEventListener('load', () => {
+                els.messages.scrollTop = els.messages.scrollHeight;
+            }, { once: true });
+        });
         await loadConversations();
     }
 
