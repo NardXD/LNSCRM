@@ -711,6 +711,13 @@ class UserManagementController extends Controller
                 'module_slug' => 'team-management',
             ],
             'Messaging' => ['view_messaging', 'module_slug' => 'messaging'],
+            'Inbox' => [
+                'view_inbox',
+                'create_inbox_tags',
+                'create_inbox_templates',
+                'create_inbox_rules',
+                'module_slug' => 'inbox',
+            ],
             'Billing & Payments' => ['view_billing', 'delete_billing', 'module_slug' => 'billing'],
             'Client Management' => ['view_client_management', 'module_slug' => 'client-management'],
             'Tickets & Helpdesk' => ['view_tickets', 'module_slug' => 'tickets'],

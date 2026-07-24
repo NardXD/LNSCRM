@@ -86,6 +86,13 @@ class SidebarPermissionsSeeder extends Seeder
                 'description' => 'Access to messaging module',
                 'category' => 'main',
             ],
+            'inbox' => [
+                'name' => 'view_inbox',
+                'slug' => 'view_inbox',
+                'display_name' => 'Inbox',
+                'description' => 'Access to personal and shared Outlook inboxes',
+                'category' => 'main',
+            ],
             'billing' => [
                 'name' => 'view_billing',
                 'slug' => 'view_billing',

@@ -9,3 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('live-view:cleanup')->everyFiveMinutes();
+Schedule::command('inbox:process-reopens')->everyFiveMinutes();

@@ -58,7 +58,7 @@ class OutlookCalendarService
             return $integration;
         }
 
-        $tenant = config('services.microsoft.tenant', 'common');
+        $tenant = $this->oauthSettings->getMicrosoftTenant($integration->user?->company_id);
         $response = Http::asForm()->post(
             "https://login.microsoftonline.com/{$tenant}/oauth2/v2.0/token",
             [

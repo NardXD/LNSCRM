@@ -558,6 +558,53 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/attachments/discard', [\App\Http\Controllers\MessagingController::class, 'discardAttachment'])->name('api.messaging.attachments.discard');
     });
 
+    // Shared / personal Outlook inbox (Front-style)
+    Route::get('/inbox', [\App\Http\Controllers\InboxController::class, 'index'])
+        ->middleware('permission:view_inbox')
+        ->name('inbox');
+    Route::get('/inbox/connect/outlook', [\App\Http\Controllers\InboxController::class, 'redirectOutlook'])
+        ->middleware('permission:view_inbox')
+        ->name('inbox.connect.outlook');
+    Route::get('/inbox/connect/outlook/callback', [\App\Http\Controllers\InboxController::class, 'callbackOutlook'])
+        ->middleware('permission:view_inbox')
+        ->name('inbox.connect.outlook.callback');
+
+    Route::prefix('api/inbox')->middleware('permission:view_inbox')->group(function () {
+        Route::get('/bootstrap', [\App\Http\Controllers\InboxController::class, 'bootstrap'])->name('api.inbox.bootstrap');
+        Route::post('/disconnect', [\App\Http\Controllers\InboxController::class, 'disconnectMail'])->name('api.inbox.disconnect');
+        Route::post('/sync', [\App\Http\Controllers\InboxController::class, 'sync'])->name('api.inbox.sync');
+        Route::post('/sync-totals', [\App\Http\Controllers\InboxController::class, 'syncTotals'])->name('api.inbox.sync-totals');
+        Route::get('/conversations', [\App\Http\Controllers\InboxController::class, 'listConversations'])->name('api.inbox.conversations');
+        Route::get('/email-suggestions', [\App\Http\Controllers\InboxController::class, 'suggestEmails'])->name('api.inbox.email-suggestions');
+        Route::get('/conversations/{conversation}', [\App\Http\Controllers\InboxController::class, 'showConversation'])->name('api.inbox.conversations.show');
+        Route::post('/conversations/{conversation}/assign', [\App\Http\Controllers\InboxController::class, 'assign'])->name('api.inbox.conversations.assign');
+        Route::patch('/conversations/{conversation}/status', [\App\Http\Controllers\InboxController::class, 'updateStatus'])->name('api.inbox.conversations.status');
+        Route::post('/conversations/{conversation}/tags', [\App\Http\Controllers\InboxController::class, 'syncTags'])->name('api.inbox.conversations.tags');
+        Route::post('/conversations/{conversation}/reply', [\App\Http\Controllers\InboxController::class, 'reply'])->name('api.inbox.conversations.reply');
+        Route::post('/conversations/{conversation}/comments', [\App\Http\Controllers\InboxController::class, 'storeComment'])->name('api.inbox.conversations.comments.store');
+        Route::get('/conversations/{conversation}/comments/{comment}/attachments/{index}', [\App\Http\Controllers\InboxController::class, 'downloadCommentAttachment'])->name('api.inbox.conversations.comments.attachments');
+        Route::post('/compose', [\App\Http\Controllers\InboxController::class, 'compose'])->name('api.inbox.compose');
+        Route::post('/inboxes', [\App\Http\Controllers\InboxController::class, 'storeInbox'])->name('api.inbox.inboxes.store');
+        Route::put('/inboxes/{sharedInbox}/members', [\App\Http\Controllers\InboxController::class, 'updateInboxMembers'])->name('api.inbox.inboxes.members');
+        Route::post('/tags', [\App\Http\Controllers\InboxController::class, 'storeTag'])->name('api.inbox.tags.store');
+        Route::delete('/tags/{tag}', [\App\Http\Controllers\InboxController::class, 'destroyTag'])->name('api.inbox.tags.destroy');
+        Route::put('/pinned-tags', [\App\Http\Controllers\InboxController::class, 'syncPinnedTags'])->name('api.inbox.pinned-tags');
+        Route::post('/templates', [\App\Http\Controllers\InboxController::class, 'storeTemplate'])->name('api.inbox.templates.store');
+        Route::put('/templates/{template}', [\App\Http\Controllers\InboxController::class, 'updateTemplate'])->name('api.inbox.templates.update');
+        Route::delete('/templates/{template}', [\App\Http\Controllers\InboxController::class, 'destroyTemplate'])->name('api.inbox.templates.destroy');
+        Route::post('/templates/import', [\App\Http\Controllers\InboxController::class, 'importTemplates'])->name('api.inbox.templates.import');
+        Route::post('/rules', [\App\Http\Controllers\InboxController::class, 'storeRule'])->name('api.inbox.rules.store');
+        Route::patch('/rules/{rule}', [\App\Http\Controllers\InboxController::class, 'updateRule'])->name('api.inbox.rules.update');
+        Route::delete('/rules/{rule}', [\App\Http\Controllers\InboxController::class, 'destroyRule'])->name('api.inbox.rules.destroy');
+    });
+
+    Route::prefix('api/notifications')->group(function () {
+        Route::get('/unread-count', [\App\Http\Controllers\NotificationController::class, 'unreadCount'])->name('api.notifications.unread-count');
+        Route::get('/', [\App\Http\Controllers\NotificationController::class, 'index'])->name('api.notifications.index');
+        Route::post('/read-all', [\App\Http\Controllers\NotificationController::class, 'markAllRead'])->name('api.notifications.read-all');
+        Route::post('/{id}/read', [\App\Http\Controllers\NotificationController::class, 'markRead'])->name('api.notifications.read');
+    });
+
     Route::get('/billing', [\App\Http\Controllers\BillingInvoiceController::class, 'page'])
         ->middleware('permission:view_billing')->name('billing');
 

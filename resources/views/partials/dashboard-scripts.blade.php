@@ -125,5 +125,137 @@
         setInterval(window.updateHeaderMessagingBadge, 30000);
     }
 
+    // App notifications (inbox mentions, etc.)
+    (function () {
+        const btn = document.getElementById('headerNotificationsBtn');
+        const badge = document.getElementById('headerNotificationsBadge');
+        const dropdown = document.getElementById('headerNotificationsDropdown');
+        const list = document.getElementById('headerNotificationsList');
+        const markAll = document.getElementById('headerNotificationsMarkAll');
+        if (!btn || !dropdown || !list) return;
+
+        const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+        function escapeHtml(str) {
+            return String(str ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+        }
+
+        function setBadge(total) {
+            if (!badge) return;
+            if (total > 0) {
+                badge.textContent = total > 99 ? '99+' : String(total);
+                badge.style.display = '';
+            } else {
+                badge.style.display = 'none';
+                badge.textContent = '';
+            }
+        }
+
+        function renderItems(items) {
+            if (!items.length) {
+                list.innerHTML = '<div class="header-notifications-empty">No notifications yet</div>';
+                return;
+            }
+            list.innerHTML = items.map(item => {
+                const data = item.data || {};
+                const isMention = !!(data.is_mention || data.type === 'inbox_comment_mention');
+                const title = isMention
+                    ? `${data.author_name || 'Someone'} mentioned you`
+                    : (data.summary || `${data.author_name || 'Someone'} updated a conversation`);
+                const snippet = data.snippet || data.subject || '';
+                const unread = !item.read_at;
+                return `
+                    <button type="button" class="header-notification-item ${unread ? 'unread' : ''}"
+                        data-notification-id="${escapeHtml(item.id)}"
+                        data-notification-url="${escapeHtml(data.url || '')}">
+                        <span class="header-notification-title">${escapeHtml(title)}</span>
+                        <span class="header-notification-snippet">${escapeHtml(snippet)}</span>
+                        <span class="header-notification-time">${escapeHtml(item.created_at_human || '')}</span>
+                    </button>
+                `;
+            }).join('');
+        }
+
+        window.updateHeaderNotificationsBadge = function () {
+            fetch('{{ url("api/notifications/unread-count") }}', {
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.data) setBadge(Number(data.data.total || 0));
+                    else setBadge(0);
+                })
+                .catch(() => setBadge(0));
+        };
+
+        async function loadNotifications() {
+            list.innerHTML = '<div class="header-notifications-empty">Loading…</div>';
+            try {
+                const res = await fetch('{{ url("api/notifications") }}', {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+                });
+                const data = await res.json();
+                const items = data?.data?.notifications || [];
+                renderItems(items);
+                setBadge(Number(data?.data?.unread_count || 0));
+            } catch (_) {
+                list.innerHTML = '<div class="header-notifications-empty">Could not load notifications</div>';
+            }
+        }
+
+        function closeDropdown() {
+            dropdown.hidden = true;
+            btn.setAttribute('aria-expanded', 'false');
+        }
+
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const open = dropdown.hidden;
+            dropdown.hidden = !open;
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+            if (open) loadNotifications();
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#headerNotifications')) closeDropdown();
+        });
+
+        markAll?.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            await fetch('{{ url("api/notifications/read-all") }}', {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': csrf(),
+                },
+            });
+            setBadge(0);
+            loadNotifications();
+        });
+
+        list.addEventListener('click', async (e) => {
+            const item = e.target.closest('[data-notification-id]');
+            if (!item) return;
+            const id = item.dataset.notificationId;
+            const url = item.dataset.notificationUrl;
+            try {
+                await fetch(`{{ url("api/notifications") }}/${encodeURIComponent(id)}/read`, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': csrf(),
+                    },
+                });
+            } catch (_) {}
+            closeDropdown();
+            window.updateHeaderNotificationsBadge?.();
+            if (url) window.location = url;
+        });
+
+        window.updateHeaderNotificationsBadge();
+        setInterval(window.updateHeaderNotificationsBadge, 30000);
+    })();
 </script>
 

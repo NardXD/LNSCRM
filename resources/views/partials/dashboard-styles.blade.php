@@ -559,6 +559,81 @@
         border-radius: 50%;
     }
 
+    .header-notifications {
+        position: relative;
+    }
+    .header-notifications-dropdown {
+        position: absolute;
+        top: calc(100% + 0.45rem);
+        right: 0;
+        width: min(360px, calc(100vw - 1.5rem));
+        background: var(--bg-card, #fff);
+        border: 1px solid var(--border-color, #e5e7eb);
+        border-radius: 12px;
+        box-shadow: 0 16px 40px rgba(15, 23, 42, 0.14);
+        z-index: 120;
+        overflow: hidden;
+    }
+    .header-notifications-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.75rem 0.9rem;
+        border-bottom: 1px solid var(--border-color, #e5e7eb);
+        font-size: 0.84rem;
+    }
+    .header-notifications-markall {
+        border: none;
+        background: transparent;
+        color: var(--accent, #2563eb);
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 0;
+    }
+    .header-notifications-list {
+        max-height: 360px;
+        overflow: auto;
+    }
+    .header-notifications-empty {
+        padding: 1.25rem 1rem;
+        text-align: center;
+        color: #94a3b8;
+        font-size: 0.84rem;
+    }
+    .header-notification-item {
+        display: grid;
+        gap: 0.15rem;
+        width: 100%;
+        text-align: left;
+        border: none;
+        border-bottom: 1px solid var(--border-color, #eef2f7);
+        background: #fff;
+        padding: 0.75rem 0.9rem;
+        cursor: pointer;
+        font: inherit;
+        color: inherit;
+    }
+    .header-notification-item:hover { background: #f8fafc; }
+    .header-notification-item.unread { background: #eff6ff; }
+    .header-notification-title {
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #0f172a;
+    }
+    .header-notification-snippet {
+        font-size: 0.76rem;
+        color: #64748b;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .header-notification-time {
+        font-size: 0.7rem;
+        color: #94a3b8;
+    }
+
     /* User Dropdown Styles */
     .user-menu {
         position: relative;

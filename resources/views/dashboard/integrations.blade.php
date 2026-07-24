@@ -189,6 +189,10 @@
         background: #f0f7ff;
     }
 
+    .integration-icon-wrapper.outlook {
+        background: #e8f1fb;
+    }
+
     .integration-icon-wrapper.twilio {
         background: #e6f3ff;
     }
@@ -639,12 +643,21 @@
         },
         {
             id: 'calendar',
-            name: 'Calendar',
-            description: 'Configure OAuth for Google Calendar and Microsoft Outlook. Users connect their personal accounts from the Calendar page.',
+            name: 'Google Calendar',
+            description: 'Configure Google Calendar OAuth so users can connect their calendars from the Calendar page.',
             category: 'productivity',
             icon: '📅',
             status: 'disconnected',
-            features: ['Google Calendar sync', 'Outlook Calendar sync', 'Per-company OAuth credentials', 'Personal account connection']
+            features: ['Google Calendar sync', 'Per-company OAuth credentials', 'Connect from Calendar page']
+        },
+        {
+            id: 'outlook',
+            name: 'Microsoft Outlook',
+            description: 'Configure Microsoft Outlook OAuth for calendar sync and Inbox mail (personal & shared mailboxes).',
+            category: 'productivity',
+            icon: '📧',
+            status: 'disconnected',
+            features: ['Outlook Calendar sync', 'Outlook Inbox / shared mail', 'Per-company OAuth credentials', 'Personal & shared mailbox connection']
         }
     ];
 
@@ -788,11 +801,26 @@
                 const data = await response.json();
                 const integration = integrationsData.find(i => i.id === 'calendar');
                 if (integration) {
-                    integration.status = (data.google_configured || data.outlook_configured) ? 'connected' : 'disconnected';
+                    integration.status = data.google_configured ? 'connected' : 'disconnected';
                 }
                 return data;
             } catch (error) {
-                console.error('Error loading Calendar OAuth settings:', error);
+                console.error('Error loading Google Calendar OAuth settings:', error);
+            }
+            return null;
+        }
+        if (integrationId === 'outlook') {
+            try {
+                const response = await fetch('{{ route("api.calendar.oauth-settings") }}');
+                if (!response.ok) return null;
+                const data = await response.json();
+                const integration = integrationsData.find(i => i.id === 'outlook');
+                if (integration) {
+                    integration.status = data.outlook_configured ? 'connected' : 'disconnected';
+                }
+                return data;
+            } catch (error) {
+                console.error('Error loading Outlook OAuth settings:', error);
             }
             return null;
         }
@@ -808,7 +836,7 @@
 
         // Load existing integration data
         let existingIntegration = null;
-        if (integrationId === 'gmail' || integrationId === 'twilio' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'calendar') {
+        if (integrationId === 'gmail' || integrationId === 'twilio' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'calendar' || integrationId === 'outlook') {
             existingIntegration = await loadIntegrationStatus(integrationId);
         }
 
@@ -939,12 +967,17 @@
         } else if (integrationId === 'calendar') {
             actionBtn.textContent = 'Save settings';
             actionBtn.className = 'btn-primary';
-            actionBtn.onclick = () => handleCalendarOauthSave();
+            actionBtn.onclick = () => handleCalendarOauthSave('google');
+            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
+        } else if (integrationId === 'outlook') {
+            actionBtn.textContent = 'Save settings';
+            actionBtn.className = 'btn-primary';
+            actionBtn.onclick = () => handleCalendarOauthSave('outlook');
             footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
         } else {
             footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
         }
-        if (integrationId === 'calendar') {
+        if (integrationId === 'calendar' || integrationId === 'outlook') {
             // Handled above - Save settings button
         } else if (integration.status === 'connected' && integrationId !== 'wise' && integrationId !== 'gmail' && integrationId !== 'stripe' && integrationId !== 'openai') {
             actionBtn.textContent = 'Disconnect';
@@ -1070,7 +1103,7 @@
                 </div>
             `,
             'calendar': `
-                <p class="form-help" style="margin-bottom: 1rem;">Configure Google Calendar and Microsoft Outlook to allow users to connect their calendars. Add credentials and copy the redirect URLs when creating OAuth apps.</p>
+                <p class="form-help" style="margin-bottom: 1rem;">Configure Google Calendar OAuth so users can connect their calendars. Add credentials and copy the redirect URL when creating the OAuth app.</p>
                 <div class="oauth-section" style="margin-bottom: 1.5rem;">
                     <h4 style="font-size: 0.9375rem; font-weight: 600; margin-bottom: 0.75rem;">Google Calendar</h4>
                     <details class="oauth-steps" style="background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem;">
@@ -1093,17 +1126,25 @@
                         <input type="password" class="form-input" id="oauth-google-client-secret" placeholder="${(existingData && existingData.google_configured) ? '(leave blank to keep)' : 'GOCSPX-xxxxx'}">
                     </div>
                 </div>
+                <p class="form-help">Leave fields blank to keep existing values. Credentials are stored per company.</p>
+            `,
+            'outlook': `
+                <p class="form-help" style="margin-bottom: 1rem;">Configure Microsoft Outlook OAuth for calendar sync and Inbox mail. Users connect calendars from Calendar and mailboxes from Inbox.</p>
                 <div class="oauth-section" style="margin-bottom: 1.5rem;">
                     <h4 style="font-size: 0.9375rem; font-weight: 600; margin-bottom: 0.75rem;">Microsoft Outlook</h4>
                     <details class="oauth-steps" style="background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem;">
-                        <summary style="cursor: pointer; font-size: 0.8125rem; font-weight: 500; color: var(--accent);">How to configure Outlook Calendar OAuth</summary>
+                        <summary style="cursor: pointer; font-size: 0.8125rem; font-weight: 500; color: var(--accent);">How to configure Outlook (Calendar + Inbox)</summary>
                         <ol style="margin: 0.75rem 0 0; padding-left: 1.25rem; font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.6;">
                             <li>Go to <a href="https://portal.azure.com/" target="_blank" rel="noopener">Azure Portal</a> → Microsoft Entra ID</li>
-                            <li>App registrations → New registration (any org directory + personal accounts)</li>
-                            <li>Add Redirect URI: Platform Web → <code id="calendarOutlookRedirectUrl" style="background: var(--bg-card); padding: 0.125rem 0.375rem; border-radius: 4px; font-size: 0.75rem; word-break: break-all;">${(existingData && existingData.redirect_url_outlook) ? existingData.redirect_url_outlook : '{{ url("/calendar/connect/outlook/callback") }}'}</code></li>
+                            <li>App registrations → New registration. For single-tenant apps, also copy the <strong>Directory (tenant) ID</strong>.</li>
+                            <li>Add Redirect URIs (Platform Web):
+                                <div style="margin-top:0.35rem;">Calendar: <code id="calendarOutlookRedirectUrl" style="background: var(--bg-card); padding: 0.125rem 0.375rem; border-radius: 4px; font-size: 0.75rem; word-break: break-all;">${(existingData && existingData.redirect_url_outlook) ? existingData.redirect_url_outlook : '{{ url("/calendar/connect/outlook/callback") }}'}</code></div>
+                                <div style="margin-top:0.25rem;">Inbox: <code id="inboxOutlookRedirectUrl" style="background: var(--bg-card); padding: 0.125rem 0.375rem; border-radius: 4px; font-size: 0.75rem; word-break: break-all;">${(existingData && existingData.redirect_url_outlook_mail) ? existingData.redirect_url_outlook_mail : '{{ url("/inbox/connect/outlook/callback") }}'}</code></div>
+                            </li>
                             <li>Certificates &amp; secrets → New client secret → copy the value</li>
-                            <li>API permissions → Add: Calendars.Read, User.Read, offline_access</li>
-                            <li>Copy Application (client) ID and client secret below</li>
+                            <li>API permissions → Add: Calendars.Read, User.Read, Mail.ReadWrite, Mail.Send, Mail.ReadWrite.Shared, offline_access</li>
+                            <li>Copy Application (client) ID and client secret below. If the app is <strong>single-tenant</strong>, paste the Directory (tenant) ID too (required — using /common will fail with AADSTS50194).</li>
+                            <li>Users connect calendars from <strong>Calendar</strong> and personal/shared mail from <strong>Inbox</strong></li>
                         </ol>
                     </details>
                     <div class="form-group">
@@ -1113,6 +1154,11 @@
                     <div class="form-group">
                         <label class="form-label">Client Secret</label>
                         <input type="password" class="form-input" id="oauth-microsoft-client-secret" placeholder="${(existingData && existingData.outlook_configured) ? '(leave blank to keep)' : 'xxxx~xxxxxxxxxxxxxxxxxxxx'}">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Tenant ID (required for single-tenant apps)</label>
+                        <input type="text" class="form-input" id="oauth-microsoft-tenant-id" value="${(existingData && existingData.microsoft_tenant_id) ? existingData.microsoft_tenant_id : ''}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx or leave blank for multi-tenant (/common)">
+                        <span class="form-help">Azure Portal → Microsoft Entra ID → Overview → Directory (tenant) ID</span>
                     </div>
                 </div>
                 <p class="form-help">Leave fields blank to keep existing values. Credentials are stored per company.</p>
@@ -1552,13 +1598,18 @@
         }
     }
 
-    async function handleCalendarOauthSave() {
-        const payload = {
-            google_client_id: document.getElementById('oauth-google-client-id')?.value?.trim() || '',
-            google_client_secret: document.getElementById('oauth-google-client-secret')?.value || '',
-            microsoft_client_id: document.getElementById('oauth-microsoft-client-id')?.value?.trim() || '',
-            microsoft_client_secret: document.getElementById('oauth-microsoft-client-secret')?.value || ''
-        };
+    async function handleCalendarOauthSave(provider = 'google') {
+        const payload = provider === 'outlook'
+            ? {
+                microsoft_client_id: document.getElementById('oauth-microsoft-client-id')?.value?.trim() || '',
+                microsoft_client_secret: document.getElementById('oauth-microsoft-client-secret')?.value || '',
+                microsoft_tenant_id: document.getElementById('oauth-microsoft-tenant-id')?.value?.trim() || '',
+            }
+            : {
+                google_client_id: document.getElementById('oauth-google-client-id')?.value?.trim() || '',
+                google_client_secret: document.getElementById('oauth-google-client-secret')?.value || '',
+            };
+        const label = provider === 'outlook' ? 'Microsoft Outlook' : 'Google Calendar';
         try {
             const response = await fetch('{{ route("api.calendar.oauth-settings.store") }}', {
                 method: 'POST',
@@ -1572,9 +1623,11 @@
             });
             const data = await response.json();
             if (response.ok) {
-                const integration = integrationsData.find(i => i.id === 'calendar');
-                if (integration) integration.status = (data.google_configured || data.outlook_configured) ? 'connected' : 'disconnected';
-                alert(data.message || 'Calendar OAuth settings saved.');
+                const googleCard = integrationsData.find(i => i.id === 'calendar');
+                const outlookCard = integrationsData.find(i => i.id === 'outlook');
+                if (googleCard) googleCard.status = data.google_configured ? 'connected' : 'disconnected';
+                if (outlookCard) outlookCard.status = data.outlook_configured ? 'connected' : 'disconnected';
+                alert(data.message || `${label} OAuth settings saved.`);
                 closeIntegrationModal();
                 renderIntegrations(currentCategory);
             } else {
@@ -1582,7 +1635,7 @@
             }
         } catch (e) {
             console.error(e);
-            alert('Failed to save Calendar OAuth settings.');
+            alert(`Failed to save ${label} OAuth settings.`);
         }
     }
 
@@ -1924,20 +1977,22 @@
                 console.error('Error loading OpenAI integration on init:', error);
             }
         }
-        // Load Calendar OAuth status
-        const calendarIntegration = integrationsData.find(i => i.id === 'calendar');
-        if (calendarIntegration) {
-            try {
-                const response = await fetch('{{ route("api.calendar.oauth-settings") }}');
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.google_configured || data.outlook_configured) {
-                        calendarIntegration.status = 'connected';
-                    }
+        // Load Google Calendar + Outlook OAuth status
+        try {
+            const response = await fetch('{{ route("api.calendar.oauth-settings") }}');
+            if (response.ok) {
+                const data = await response.json();
+                const calendarIntegration = integrationsData.find(i => i.id === 'calendar');
+                const outlookIntegration = integrationsData.find(i => i.id === 'outlook');
+                if (calendarIntegration) {
+                    calendarIntegration.status = data.google_configured ? 'connected' : 'disconnected';
                 }
-            } catch (error) {
-                console.error('Error loading Calendar OAuth status on init:', error);
+                if (outlookIntegration) {
+                    outlookIntegration.status = data.outlook_configured ? 'connected' : 'disconnected';
+                }
             }
+        } catch (error) {
+            console.error('Error loading Calendar/Outlook OAuth status on init:', error);
         }
 
         renderIntegrations();

@@ -86,7 +86,7 @@ class CalendarController extends Controller
         $creds = $this->getOutlookCredentials();
         $this->ensureConfigured('outlook', $creds);
 
-        $tenant = config('services.microsoft.tenant', 'common');
+        $tenant = $this->oauthSettings->getMicrosoftTenant(auth()->user()?->company_id);
         $clientId = $creds['client_id'];
         $redirectUri = $creds['redirect'];
         $scope = urlencode('openid profile email Calendars.Read User.Read offline_access');
@@ -125,7 +125,7 @@ class CalendarController extends Controller
             return redirect()->route('calendar')->with('error', 'Missing authorization code.');
         }
 
-        $tenant = config('services.microsoft.tenant', 'common');
+        $tenant = $this->oauthSettings->getMicrosoftTenant(auth()->user()?->company_id);
         $response = \Illuminate\Support\Facades\Http::asForm()->post(
             "https://login.microsoftonline.com/{$tenant}/oauth2/v2.0/token",
             [
@@ -259,8 +259,12 @@ class CalendarController extends Controller
         return response()->json([
             'google_configured' => $this->oauthSettings->isConfigured('google', $companyId),
             'outlook_configured' => $this->oauthSettings->isConfigured('outlook', $companyId),
+            'microsoft_tenant_id' => $this->oauthSettings->getMicrosoftTenant($companyId) === 'common'
+                ? ''
+                : $this->oauthSettings->getMicrosoftTenant($companyId),
             'redirect_url_google' => rtrim(config('app.url'), '/').'/calendar/connect/google/callback',
             'redirect_url_outlook' => rtrim(config('app.url'), '/').'/calendar/connect/outlook/callback',
+            'redirect_url_outlook_mail' => rtrim(config('app.url'), '/').'/inbox/connect/outlook/callback',
         ]);
     }
 
@@ -276,17 +280,18 @@ class CalendarController extends Controller
             'google_client_secret' => ['nullable', 'string', 'max:500'],
             'microsoft_client_id' => ['nullable', 'string', 'max:500'],
             'microsoft_client_secret' => ['nullable', 'string', 'max:500'],
+            'microsoft_tenant_id' => ['nullable', 'string', 'max:100'],
         ]);
 
         if (! empty($validated['google_client_id']) || ! empty($validated['google_client_secret'])) {
             $this->oauthSettings->storeCredentials('google', $companyId, $validated);
         }
-        if (! empty($validated['microsoft_client_id']) || ! empty($validated['microsoft_client_secret'])) {
+        if (! empty($validated['microsoft_client_id']) || ! empty($validated['microsoft_client_secret']) || ! empty($validated['microsoft_tenant_id'])) {
             $this->oauthSettings->storeCredentials('outlook', $companyId, $validated);
         }
 
         return response()->json([
-            'message' => 'Calendar OAuth settings saved.',
+            'message' => 'OAuth settings saved.',
             'google_configured' => $this->oauthSettings->isConfigured('google', $companyId),
             'outlook_configured' => $this->oauthSettings->isConfigured('outlook', $companyId),
         ]);

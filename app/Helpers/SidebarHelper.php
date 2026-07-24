@@ -126,6 +126,14 @@ class SidebarHelper
                 'category' => 'main',
             ],
             [
+                'route' => 'inbox',
+                'permission' => 'view_inbox',
+                'module_slug' => 'inbox',
+                'label' => 'Inbox',
+                'icon' => 'inbox',
+                'category' => 'main',
+            ],
+            [
                 'route' => 'billing',
                 'permission' => 'view_billing',
                 'module_slug' => 'billing',

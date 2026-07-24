@@ -24,6 +24,7 @@ class ModuleSeeder extends Seeder
             ['slug' => 'team-management', 'name' => 'Team Management', 'description' => 'Manage teams and members', 'route' => 'team-management', 'sort_order' => 8],
             ['slug' => 'leave-management', 'name' => 'Leave Management', 'description' => 'Leave requests and credits', 'route' => 'leave-management', 'sort_order' => 9],
             ['slug' => 'messaging', 'name' => 'Messaging', 'description' => 'Internal messaging system', 'route' => 'messaging', 'sort_order' => 10],
+            ['slug' => 'inbox', 'name' => 'Inbox', 'description' => 'Personal and shared Outlook inboxes with assignment, tags, and rules', 'route' => 'inbox', 'sort_order' => 10],
             ['slug' => 'billing', 'name' => 'Billing & Payments', 'description' => 'Invoice and payment management', 'route' => 'billing', 'sort_order' => 11],
             ['slug' => 'client-management', 'name' => 'Client Management', 'description' => 'CRM and client database', 'route' => 'client-management', 'sort_order' => 12],
             ['slug' => 'tickets', 'name' => 'Tickets & Helpdesk', 'description' => 'Support ticket system', 'route' => 'tickets', 'sort_order' => 13],
