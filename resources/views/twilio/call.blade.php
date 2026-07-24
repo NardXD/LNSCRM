@@ -117,7 +117,7 @@
                 </div>
             </div>
 
-            <!-- Phone system panel (tabs: Live, History, Contacts, SMS, Numbers) -->
+            <!-- Phone system panel (tabs: Live, History, Contacts, Numbers) -->
             @include('twilio.partials.phone-panel')
         </div>
     </div>

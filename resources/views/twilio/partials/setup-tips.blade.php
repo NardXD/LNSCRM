@@ -2,6 +2,7 @@
     $voiceWebhook = route('twilio.voice');
     $smsWebhook = route('twilio.sms-webhook');
     $integrationsUrl = route('integrations');
+    $smsPageUrl = route('sms');
 @endphp
 <details class="phone-setup-tips">
     <summary class="phone-setup-tips-summary">
@@ -31,6 +32,10 @@
                     <li>SMS URL: <code class="phone-setup-code">{{ $smsWebhook }}</code></li>
                 </ul>
                 Set both to <strong>HTTP POST</strong>. Numbers purchased in-app are configured automatically.
+            </li>
+            <li>
+                <strong>SMS conversations</strong> are on the dedicated
+                <a href="{{ $smsPageUrl }}">SMS</a> page in the sidebar (alongside Viber and WhatsApp).
             </li>
             <li>
                 <strong>Employees</strong> need an assigned Twilio number before outbound calls or SMS will work.

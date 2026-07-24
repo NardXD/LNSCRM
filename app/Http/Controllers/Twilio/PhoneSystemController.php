@@ -9,6 +9,7 @@ use App\Models\SmsMessage;
 use App\Models\TwilioPhoneNumber;
 use App\Models\User;
 use App\Services\PhoneCallLogService;
+use App\Services\SmsConversationService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioNumberAssignmentService;
 use App\Services\TwilioService;
@@ -23,7 +24,8 @@ class PhoneSystemController extends Controller
     public function __construct(
         protected TwilioCompanyService $twilioCompany,
         protected PhoneCallLogService $callLogService,
-        protected TwilioNumberAssignmentService $numberAssignment
+        protected TwilioNumberAssignmentService $numberAssignment,
+        protected SmsConversationService $smsConversations
     ) {}
 
     public function callHistory(Request $request): JsonResponse
@@ -395,8 +397,15 @@ class PhoneSystemController extends Controller
 
         $sent = $twilio->sendSms($from, $to, $validated['body'], route('twilio.sms-status'));
 
+        $conversation = $this->smsConversations->upsert(
+            (int) $user->company_id,
+            $to,
+            $from
+        );
+
         $record = SmsMessage::query()->create([
             'company_id' => $user->company_id,
+            'sms_conversation_id' => $conversation->id,
             'user_id' => $user->id,
             'message_sid' => $sent->sid,
             'direction' => 'outbound',
@@ -406,6 +415,8 @@ class PhoneSystemController extends Controller
             'status' => $sent->status,
             'sent_at' => now(),
         ]);
+
+        $this->smsConversations->touch($conversation, $record);
 
         return response()->json([
             'success' => true,
@@ -434,10 +445,17 @@ class PhoneSystemController extends Controller
 
         $user = $this->twilioCompany->resolveUserFromNumbers($to, $from, 'inbound');
 
-        SmsMessage::query()->updateOrCreate(
+        $conversation = $this->smsConversations->upsert(
+            (int) $company->id,
+            (string) $from,
+            (string) $to
+        );
+
+        $record = SmsMessage::query()->updateOrCreate(
             ['message_sid' => $messageSid],
             [
                 'company_id' => $company->id,
+                'sms_conversation_id' => $conversation->id,
                 'user_id' => $user?->id,
                 'direction' => 'inbound',
                 'from_number' => $from,
@@ -447,6 +465,8 @@ class PhoneSystemController extends Controller
                 'sent_at' => now(),
             ]
         );
+
+        $this->smsConversations->touch($conversation, $record, $record->wasRecentlyCreated);
 
         return response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', 200)
             ->header('Content-Type', 'text/xml');

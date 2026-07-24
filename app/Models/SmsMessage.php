@@ -9,6 +9,7 @@ class SmsMessage extends Model
 {
     protected $fillable = [
         'company_id',
+        'sms_conversation_id',
         'user_id',
         'message_sid',
         'direction',
@@ -29,6 +30,11 @@ class SmsMessage extends Model
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    public function conversation(): BelongsTo
+    {
+        return $this->belongsTo(SmsConversation::class, 'sms_conversation_id');
     }
 
     public function user(): BelongsTo

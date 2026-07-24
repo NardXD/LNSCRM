@@ -573,6 +573,22 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/media', [\App\Http\Controllers\WhatsAppController::class, 'uploadMedia'])->name('api.whatsapp.media.store');
     });
 
+    Route::get('/sms', [\App\Http\Controllers\SmsController::class, 'index'])
+        ->middleware('permission:view_sms')->name('sms');
+
+    Route::prefix('api/sms')->middleware('permission:view_sms')->group(function () {
+        Route::get('/bootstrap', [\App\Http\Controllers\SmsController::class, 'bootstrap'])->name('api.sms.bootstrap');
+        Route::get('/conversations', [\App\Http\Controllers\SmsController::class, 'conversations'])->name('api.sms.conversations');
+        Route::post('/conversations', [\App\Http\Controllers\SmsController::class, 'startConversation'])
+            ->middleware('permission:send_sms')
+            ->name('api.sms.conversations.store');
+        Route::get('/conversations/{conversation}/messages', [\App\Http\Controllers\SmsController::class, 'messages'])->name('api.sms.messages');
+        Route::post('/conversations/{conversation}/messages', [\App\Http\Controllers\SmsController::class, 'sendMessage'])
+            ->middleware('permission:send_sms')
+            ->name('api.sms.messages.store');
+        Route::get('/conversations/{conversation}/call-link', [\App\Http\Controllers\SmsController::class, 'callLink'])->name('api.sms.call-link');
+    });
+
     Route::prefix('api/messaging')->middleware('permission:view_messaging')->group(function () {
         Route::get('/unread-count', [\App\Http\Controllers\MessagingController::class, 'getUnreadCount'])->name('api.messaging.unread-count');
         Route::get('/conversations', [\App\Http\Controllers\MessagingController::class, 'getConversations'])->name('api.messaging.conversations');

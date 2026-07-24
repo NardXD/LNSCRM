@@ -7,9 +7,6 @@
         contactsStore: @json(route('twilio.contacts.store')),
         contactsUpdate: @json(url('/twilio/contacts/__ID__')),
         contactsDelete: @json(url('/twilio/contacts/__ID__')),
-        smsThreads: @json(route('twilio.sms.threads')),
-        smsMessages: @json(route('twilio.sms.messages')),
-        smsSend: @json(route('twilio.sms.send')),
         numbers: @json(route('twilio.numbers')),
         numbersSearch: @json(route('twilio.numbers.search')),
         numbersPurchase: @json(route('twilio.numbers.purchase')),
@@ -22,12 +19,8 @@
     const flags = {
         history: @json(auth()->user()?->hasPermission('view_call_history') ?? false),
         contacts: @json(!empty($canManageContacts) && $canManageContacts),
-        sms: @json((!empty($canSendSms) && $canSendSms) || (!empty($canViewSms) && $canViewSms)),
-        canSendSms: @json(!empty($canSendSms) && $canSendSms),
         numbers: @json(!empty($canManageNumbers) && $canManageNumbers),
     };
-
-    let activeSmsPeer = null;
 
     function apiFetch(url, options = {}) {
         return fetch(url, {
@@ -74,7 +67,6 @@
 
             if (tab === 'history' && flags.history) loadCallHistory();
             if (tab === 'contacts' && flags.contacts) loadContacts();
-            if (tab === 'sms' && flags.sms) loadSmsThreads();
             if (tab === 'numbers' && flags.numbers) loadNumbersPanel();
         });
     });
@@ -203,62 +195,6 @@
         }
         document.getElementById('contactForm').style.display = 'none';
         loadContacts();
-    });
-
-    // SMS
-    async function loadSmsThreads() {
-        const list = document.getElementById('smsThreadsList');
-        if (!list) return;
-        try {
-            const res = await apiFetch(routes.smsThreads);
-            const rows = res.data || [];
-            if (!rows.length) {
-                list.innerHTML = '<p class="phone-empty-msg">No conversations.</p>';
-                return;
-            }
-            list.innerHTML = rows.map((t) => `
-                <div class="phone-sms-thread-item${activeSmsPeer === t.peer ? ' active' : ''}" data-peer="${escapeHtml(t.peer)}">
-                    <strong>${escapeHtml(t.peer)}</strong>
-                    <div style="font-size:0.72rem;color:var(--text-secondary);margin-top:2px;">${escapeHtml((t.last_message || '').slice(0, 40))}</div>
-                </div>
-            `).join('');
-            list.querySelectorAll('.phone-sms-thread-item').forEach((el) => {
-                el.addEventListener('click', () => {
-                    activeSmsPeer = el.getAttribute('data-peer');
-                    document.getElementById('smsPeerNumber').value = activeSmsPeer;
-                    loadSmsMessages(activeSmsPeer);
-                    list.querySelectorAll('.phone-sms-thread-item').forEach((x) => x.classList.remove('active'));
-                    el.classList.add('active');
-                });
-            });
-        } catch (e) {
-            list.innerHTML = `<p class="phone-empty-msg">${escapeHtml(e.message)}</p>`;
-        }
-    }
-
-    async function loadSmsMessages(peer) {
-        const box = document.getElementById('smsMessagesList');
-        if (!box || !peer) return;
-        const res = await apiFetch(routes.smsMessages + '?peer=' + encodeURIComponent(peer));
-        const rows = (res.data || []).reverse();
-        box.innerHTML = rows.map((m) => `
-            <div class="phone-sms-bubble ${m.direction === 'outbound' ? 'outbound' : 'inbound'}">${escapeHtml(m.body)}</div>
-        `).join('');
-        box.scrollTop = box.scrollHeight;
-    }
-
-    document.getElementById('sendSmsBtn')?.addEventListener('click', async () => {
-        const to = document.getElementById('smsPeerNumber').value;
-        const body = document.getElementById('smsBody').value;
-        await apiFetch(routes.smsSend, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ to, body }),
-        });
-        document.getElementById('smsBody').value = '';
-        activeSmsPeer = to;
-        loadSmsThreads();
-        loadSmsMessages(to);
     });
 
     // Numbers

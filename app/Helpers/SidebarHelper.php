@@ -150,6 +150,14 @@ class SidebarHelper
                 'category' => 'main',
             ],
             [
+                'route' => 'sms',
+                'permission' => 'view_sms',
+                'module_slug' => 'sms',
+                'label' => 'SMS',
+                'icon' => 'sms',
+                'category' => 'main',
+            ],
+            [
                 'route' => 'billing',
                 'permission' => 'view_billing',
                 'module_slug' => 'billing',

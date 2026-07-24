@@ -1,4 +1,4 @@
-{{-- Phone system right panel: tabbed Live / History / Contacts / SMS / Numbers --}}
+{{-- Phone system right panel: tabbed Live / History / Contacts / Numbers --}}
 <div class="call-card phone-panel-card">
     <div class="call-card-header phone-panel-header">
         <div class="phone-panel-tabs" role="tablist">
@@ -8,9 +8,6 @@
             @endif
             @if(!empty($canManageContacts) && $canManageContacts)
                 <button type="button" class="phone-tab-btn" data-phone-tab="contacts" role="tab">Contacts</button>
-            @endif
-            @if((!empty($canSendSms) && $canSendSms) || (!empty($canViewSms) && $canViewSms))
-                <button type="button" class="phone-tab-btn" data-phone-tab="sms" role="tab">SMS</button>
             @endif
             @if(!empty($canManageNumbers) && $canManageNumbers)
                 <button type="button" class="phone-tab-btn" data-phone-tab="numbers" role="tab">Numbers</button>
@@ -30,6 +27,12 @@
                     <span class="log-timestamp">{{ now()->format('H:i:s') }}</span>
                 </div>
             </div>
+            @if((!empty($canSendSms) && $canSendSms) || (!empty($canViewSms) && $canViewSms))
+                <p class="phone-sms-page-hint">
+                    Text messaging lives on the dedicated
+                    <a href="{{ route('sms') }}">SMS</a> page (same as Viber / WhatsApp).
+                </p>
+            @endif
         </div>
 
         @if(auth()->user()?->hasPermission('view_call_history'))
@@ -66,24 +69,6 @@
                 <div class="phone-form-actions">
                     <button type="button" class="btn-primary btn-sm" id="saveContactBtn">Save</button>
                     <button type="button" class="btn-secondary btn-sm" id="cancelContactBtn">Cancel</button>
-                </div>
-            </div>
-        </div>
-        @endif
-
-        @if((!empty($canSendSms) && $canSendSms) || (!empty($canViewSms) && $canViewSms))
-        <div class="phone-tab-panel" id="phoneTabSms" data-phone-panel="sms">
-            <div class="phone-sms-layout">
-                <div class="phone-sms-threads" id="smsThreadsList">
-                    <p class="phone-empty-msg">No conversations.</p>
-                </div>
-                <div class="phone-sms-chat">
-                    <div class="phone-sms-messages" id="smsMessagesList"></div>
-                    <div class="phone-sms-compose" @if(empty($canSendSms) || !$canSendSms) style="display:none;" @endif>
-                        <input type="text" id="smsPeerNumber" class="form-input" placeholder="To: +1234567890">
-                        <textarea id="smsBody" class="form-input" rows="2" placeholder="Type a message…"></textarea>
-                        <button type="button" class="btn-primary btn-sm" id="sendSmsBtn">Send</button>
-                    </div>
                 </div>
             </div>
         </div>
@@ -148,29 +133,21 @@
     .phone-form-actions { display: flex; gap: 0.5rem; }
     .phone-subsection-title { font-size: 0.9rem; font-weight: 600; margin: 0.75rem 0 0.5rem; color: var(--text-primary); }
     .phone-assign-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.5rem; align-items: end; }
-    .phone-sms-layout { display: grid; grid-template-columns: 140px 1fr; gap: 0.75rem; min-height: 320px; }
-    .phone-sms-threads { border-right: 1px solid var(--border); overflow-y: auto; max-height: 360px; }
-    .phone-sms-thread-item {
-        padding: 0.5rem;
-        cursor: pointer;
-        border-radius: 6px;
-        font-size: 0.8rem;
-        border: 1px solid transparent;
+    .phone-sms-page-hint {
+        margin: 0.85rem 0 0;
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border);
+        font-size: 0.82rem;
+        color: var(--text-secondary);
     }
-    .phone-sms-thread-item.active, .phone-sms-thread-item:hover { background: var(--bg-primary); border-color: var(--border); }
-    .phone-sms-messages { flex: 1; overflow-y: auto; max-height: 240px; display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.5rem; }
-    .phone-sms-bubble { padding: 0.45rem 0.65rem; border-radius: 8px; max-width: 85%; font-size: 0.82rem; }
-    .phone-sms-bubble.outbound { align-self: flex-end; background: #6366f1; color: #fff; }
-    .phone-sms-bubble.inbound { align-self: flex-start; background: var(--bg-primary); border: 1px solid var(--border); }
-    .phone-sms-compose { display: flex; flex-direction: column; gap: 0.35rem; }
+    .phone-sms-page-hint a { color: #0ea5e9; font-weight: 600; text-decoration: none; }
+    .phone-sms-page-hint a:hover { text-decoration: underline; }
     .btn-sm { padding: 0.35rem 0.65rem; font-size: 0.8rem; }
     .status-badge { display: inline-block; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.72rem; text-transform: capitalize; }
     .status-badge.completed { background: #dcfce7; color: #166534; }
     .status-badge.failed, .status-badge.busy, .status-badge.no-answer { background: #fee2e2; color: #991b1b; }
     .status-badge.ringing, .status-badge.initiated { background: #fef9c3; color: #854d0e; }
     @media (max-width: 900px) {
-        .phone-sms-layout { grid-template-columns: 1fr; }
-        .phone-sms-threads { border-right: none; border-bottom: 1px solid var(--border); max-height: 100px; }
         .phone-assign-row { grid-template-columns: 1fr; }
     }
 </style>
