@@ -197,6 +197,10 @@
         background: #e6f3ff;
     }
 
+    .integration-icon-wrapper.viber {
+        background: #efeaff;
+    }
+
     .integration-status {
         padding: 0.25rem 0.75rem;
         border-radius: 100px;
@@ -574,6 +578,7 @@
         voiceWebhook: @json(route('twilio.voice')),
         smsWebhook: @json(route('twilio.sms-webhook')),
         phoneSystemUrl: @json(route('twilio.call')),
+        viberChatUrl: @json(route('viber')),
     };
 
     // Integrations Data
@@ -640,6 +645,15 @@
             icon: '📞',
             status: 'disconnected',
             features: ['SMS sending', 'Voice calls', 'Video calls', 'Call recording', 'Phone number management']
+        },
+        {
+            id: 'viber',
+            name: 'Viber Business',
+            description: 'Connect your Viber bot / business account to chat with customers, send images and videos, and open Viber calls.',
+            category: 'communication',
+            icon: '💬',
+            status: 'disconnected',
+            features: ['1:1 chat', 'Images & videos', 'Files & links', 'Welcome message', 'Webhook callbacks', 'Open / call in Viber']
         },
         {
             id: 'calendar',
@@ -761,6 +775,26 @@
                 console.error('Error loading Twilio integration:', error);
             }
         }
+        if (integrationId === 'viber') {
+            try {
+                const response = await fetch('/api/integrations/viber');
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (data.integration) {
+                    const integration = integrationsData.find(i => i.id === 'viber');
+                    if (integration) {
+                        integration.status = data.status ?? 'disconnected';
+                    }
+                    return {
+                        ...data.integration,
+                        status: data.status ?? 'disconnected',
+                    };
+                }
+            } catch (error) {
+                console.error('Error loading Viber integration:', error);
+            }
+            return null;
+        }
         if (integrationId === 'openai') {
             try {
                 const response = await fetch('/api/integrations/openai');
@@ -836,7 +870,7 @@
 
         // Load existing integration data
         let existingIntegration = null;
-        if (integrationId === 'gmail' || integrationId === 'twilio' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'calendar' || integrationId === 'outlook') {
+        if (integrationId === 'gmail' || integrationId === 'twilio' || integrationId === 'viber' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'calendar' || integrationId === 'outlook') {
             existingIntegration = await loadIntegrationStatus(integrationId);
         }
 
@@ -1203,6 +1237,37 @@
                         <li>Or buy numbers from <a href="${TWILIO_SETUP.phoneSystemUrl}">Phone System → Numbers</a> (webhooks set automatically).</li>
                     </ol>
                     <p style="margin:0.6rem 0 0;font-size:0.78rem;color:var(--text-secondary);">Each company connects its own Twilio account. Assign numbers to employees before they can call or send SMS.</p>
+                </div>
+            `,
+            'viber': `
+                <div class="form-group">
+                    <label class="form-label">Authentication Token</label>
+                    <input type="password" class="form-input" id="viber-auth-token" placeholder="${existingData && existingData.auth_token ? '(leave blank to keep current token)' : 'Paste token from Viber Admin Panel'}">
+                    <span class="form-help">From your Viber bot / Public Account admin panel (Edit Info).</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Welcome Message (optional)</label>
+                    <textarea class="form-input" id="viber-welcome-message" rows="3" placeholder="Hi! Thanks for messaging us. How can we help?">${existingData && existingData.welcome_message ? existingData.welcome_message : ''}</textarea>
+                    <span class="form-help">Sent once when a customer opens a conversation with your bot.</span>
+                </div>
+                ${existingData && existingData.bot_name ? `
+                <div class="form-group">
+                    <label class="form-label">Connected bot</label>
+                    <div style="font-size:0.9rem;color:var(--text-primary);">${existingData.bot_name}${existingData.bot_uri ? ' · URI: ' + existingData.bot_uri : ''}</div>
+                </div>` : ''}
+                <div class="form-group">
+                    <label class="form-label">Webhook URL</label>
+                    <code style="display:block;background:var(--bg-primary);padding:0.5rem 0.65rem;border-radius:6px;font-size:0.78rem;word-break:break-all;">${existingData && existingData.webhook_url ? existingData.webhook_url : 'Saved after you connect — must be public HTTPS'}</code>
+                    <span class="form-help">We register this automatically with Viber when you connect. Localhost will not work for inbound messages.</span>
+                </div>
+                <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
+                    <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">How it works</strong>
+                    <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
+                        <li>Create a Viber bot at <a href="https://partners.viber.com/" target="_blank" rel="noopener">partners.viber.com</a> and copy the auth token.</li>
+                        <li>Connect here — we verify the token and set your webhook.</li>
+                        <li>Share your bot with customers; their first message creates a conversation in <a href="${TWILIO_SETUP.viberChatUrl}">Viber</a>.</li>
+                        <li>Reply with text, images, videos, or files. Use Call to open Viber when a phone number is known.</li>
+                    </ol>
                 </div>
             `
         };
@@ -1710,6 +1775,27 @@
                         console.error('Error:', error);
                         alert('Error disconnecting integration. Please try again.');
                     }
+                } else if (currentIntegration.id === 'viber') {
+                    try {
+                        const response = await fetch('/api/integrations/viber', {
+                            method: 'DELETE',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                            }
+                        });
+                        if (response.ok) {
+                            currentIntegration.status = 'disconnected';
+                            alert(`${currentIntegration.name} has been disconnected.`);
+                            closeIntegrationModal();
+                            renderIntegrations(currentCategory);
+                        } else {
+                            alert('Error disconnecting integration. Please try again.');
+                        }
+                    } catch (error) {
+                        console.error('Error:', error);
+                        alert('Error disconnecting integration. Please try again.');
+                    }
                 } else {
                     currentIntegration.status = 'disconnected';
                     alert(`${currentIntegration.name} has been disconnected.`);
@@ -1871,6 +1957,48 @@
                     console.error('Error:', error);
                     alert('Error connecting integration. Please try again.');
                 }
+            } else if (currentIntegration.id === 'viber') {
+                const authToken = document.getElementById('viber-auth-token')?.value || '';
+                const welcomeMessage = document.getElementById('viber-welcome-message')?.value || '';
+                const existingIntegration = window.existingIntegration;
+
+                if (!authToken && (!existingIntegration || !existingIntegration.auth_token)) {
+                    alert('Please paste your Viber authentication token.');
+                    return;
+                }
+
+                try {
+                    const response = await fetch('/api/integrations/viber', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                        },
+                        body: JSON.stringify({
+                            auth_token: authToken,
+                            welcome_message: welcomeMessage,
+                            set_webhook: true,
+                        })
+                    });
+                    const data = await response.json();
+                    if (response.ok) {
+                        currentIntegration.status = 'connected';
+                        let msg = 'Viber Business has been connected successfully!';
+                        if (data.webhook_error) {
+                            msg += '\n\nWebhook note: ' + data.webhook_error + '\nMake sure your app URL is public HTTPS, then reconnect.';
+                        } else if (data.webhook_set) {
+                            msg += '\nWebhook registered. Open the Viber page to chat with customers.';
+                        }
+                        alert(msg);
+                        closeIntegrationModal();
+                        renderIntegrations(currentCategory);
+                    } else {
+                        alert(data.error || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Error connecting Viber.'));
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Error connecting Viber. Please try again.');
+                }
             } else {
                 // Simulate connection process for other integrations
                 alert(`Connecting to ${currentIntegration.name}...`);
@@ -1945,6 +2073,21 @@
                 }
             } catch (error) {
                 console.error('Error loading Twilio integration on init:', error);
+            }
+        }
+        // Load Viber integration
+        const viberIntegration = integrationsData.find(i => i.id === 'viber');
+        if (viberIntegration) {
+            try {
+                const response = await fetch('/api/integrations/viber');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.integration) {
+                        viberIntegration.status = data.status ?? 'disconnected';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading Viber integration on init:', error);
             }
         }
         // Load Stripe integration

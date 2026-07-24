@@ -8,13 +8,16 @@ use App\Models\OpenAIIntegration;
 use App\Models\StripeIntegration;
 use App\Models\TwilioIntegration;
 use App\Models\User;
+use App\Models\ViberIntegration;
 use App\Models\WiseIntegration;
 use App\Services\TwilioIntegrationValidator;
+use App\Services\ViberBotService;
 use App\Services\WiseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class IntegrationController extends Controller
 {
@@ -172,6 +175,166 @@ class IntegrationController extends Controller
         }
 
         return response()->json(['message' => 'Twilio integration deleted successfully']);
+    }
+
+    /**
+     * Get Viber Business integration for the current company.
+     */
+    public function getViberIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $integration = ViberIntegration::where('company_id', $company->id)->first();
+
+        if ($integration) {
+            return response()->json([
+                'integration' => [
+                    'id' => $integration->id,
+                    'company_id' => $integration->company_id,
+                    'auth_token' => $integration->auth_token ? '***hidden***' : null,
+                    'bot_name' => $integration->bot_name,
+                    'bot_uri' => $integration->bot_uri,
+                    'bot_avatar' => $integration->bot_avatar,
+                    'welcome_message' => $integration->welcome_message,
+                    'webhook_url' => $integration->webhookUrl(),
+                    'webhook_set_at' => $integration->webhook_set_at,
+                    'is_active' => $integration->is_active,
+                    'created_at' => $integration->created_at,
+                    'updated_at' => $integration->updated_at,
+                ],
+                'status' => ($integration->is_active && $integration->auth_token) ? 'connected' : 'disconnected',
+            ]);
+        }
+
+        return response()->json([
+            'integration' => null,
+            'status' => 'disconnected',
+        ]);
+    }
+
+    /**
+     * Store or update Viber Business integration for the current company.
+     */
+    public function storeViberIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'auth_token' => ['nullable', 'string', 'min:10'],
+            'welcome_message' => ['nullable', 'string', 'max:1000'],
+            'set_webhook' => ['nullable', 'boolean'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $existing = ViberIntegration::where('company_id', $company->id)->first();
+        $plainToken = $request->input('auth_token');
+
+        if (! $plainToken && $existing) {
+            $plainToken = $existing->getDecryptedAuthToken();
+        }
+
+        if (! $plainToken) {
+            return response()->json(['error' => 'Viber authentication token is required.'], 422);
+        }
+
+        try {
+            $service = new ViberBotService($plainToken);
+            $account = $service->getAccountInfo();
+        } catch (\Throwable $e) {
+            return response()->json([
+                'error' => 'Viber credentials could not be verified.',
+                'details' => $e->getMessage(),
+            ], 422);
+        }
+
+        $webhookKey = $existing?->webhook_key ?: Str::random(40);
+        $integration = ViberIntegration::updateOrCreate(
+            ['company_id' => $company->id],
+            [
+                'auth_token' => Crypt::encryptString($plainToken),
+                'webhook_key' => $webhookKey,
+                'bot_name' => $account['name'] ?? ($existing?->bot_name),
+                'bot_uri' => $account['uri'] ?? ($existing?->bot_uri),
+                'bot_avatar' => $account['icon'] ?? ($existing?->bot_avatar),
+                'welcome_message' => $request->has('welcome_message')
+                    ? $request->input('welcome_message')
+                    : ($existing?->welcome_message),
+                'is_active' => true,
+            ]
+        );
+
+        $webhookSet = false;
+        $webhookError = null;
+        if ($request->boolean('set_webhook', true)) {
+            try {
+                $service->setWebhook($integration->webhookUrl(), [
+                    'delivered',
+                    'seen',
+                    'failed',
+                    'subscribed',
+                    'unsubscribed',
+                    'conversation_started',
+                ]);
+                $integration->webhook_set_at = now();
+                $integration->save();
+                $webhookSet = true;
+            } catch (\Throwable $e) {
+                $webhookError = $e->getMessage();
+            }
+        }
+
+        return response()->json([
+            'message' => 'Viber integration saved successfully',
+            'integration' => [
+                'id' => $integration->id,
+                'bot_name' => $integration->bot_name,
+                'bot_uri' => $integration->bot_uri,
+                'bot_avatar' => $integration->bot_avatar,
+                'welcome_message' => $integration->welcome_message,
+                'webhook_url' => $integration->webhookUrl(),
+                'webhook_set_at' => $integration->webhook_set_at,
+                'is_active' => $integration->is_active,
+            ],
+            'status' => 'connected',
+            'webhook_set' => $webhookSet,
+            'webhook_error' => $webhookError,
+        ]);
+    }
+
+    /**
+     * Delete Viber Business integration for the current company.
+     */
+    public function deleteViberIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $integration = ViberIntegration::where('company_id', $company->id)->first();
+
+        if ($integration) {
+            try {
+                ViberBotService::forIntegration($integration)->removeWebhook();
+            } catch (\Throwable) {
+                // Best-effort webhook cleanup
+            }
+            $integration->delete();
+        }
+
+        return response()->json(['message' => 'Viber integration deleted successfully']);
     }
 
     /**

@@ -93,6 +93,13 @@ class SidebarPermissionsSeeder extends Seeder
                 'description' => 'Access to personal and shared Outlook inboxes',
                 'category' => 'main',
             ],
+            'viber' => [
+                'name' => 'view_viber',
+                'slug' => 'view_viber',
+                'display_name' => 'Viber',
+                'description' => 'Access to Viber Business conversations',
+                'category' => 'main',
+            ],
             'billing' => [
                 'name' => 'view_billing',
                 'slug' => 'view_billing',

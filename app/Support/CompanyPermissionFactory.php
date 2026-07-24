@@ -82,6 +82,7 @@ class CompanyPermissionFactory
             'delete_project_management' => ['name' => 'delete_project_management', 'slug' => 'delete_project_management', 'display_name' => 'Delete Projects & Tasks', 'description' => 'Delete projects and tasks in project management', 'category' => 'settings'],
             'messaging' => ['name' => 'view_messaging', 'slug' => 'view_messaging', 'display_name' => 'Messaging', 'description' => 'Access to messaging module', 'category' => 'main'],
             'inbox' => ['name' => 'view_inbox', 'slug' => 'view_inbox', 'display_name' => 'Inbox', 'description' => 'Access to personal and shared Outlook inboxes', 'category' => 'main'],
+            'viber' => ['name' => 'view_viber', 'slug' => 'view_viber', 'display_name' => 'Viber', 'description' => 'Access to Viber Business conversations', 'category' => 'main'],
             'create_inbox_tags' => ['name' => 'create_inbox_tags', 'slug' => 'create_inbox_tags', 'display_name' => 'Add Tags', 'description' => 'Create and delete inbox tags', 'category' => 'main'],
             'create_inbox_templates' => ['name' => 'create_inbox_templates', 'slug' => 'create_inbox_templates', 'display_name' => 'Add Templates', 'description' => 'Create, edit, and delete shared inbox templates', 'category' => 'main'],
             'create_inbox_rules' => ['name' => 'create_inbox_rules', 'slug' => 'create_inbox_rules', 'display_name' => 'Add Rules', 'description' => 'Create, edit, and delete inbox automation rules', 'category' => 'main'],

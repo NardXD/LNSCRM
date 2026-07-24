@@ -466,6 +466,13 @@ class RegisterController extends Controller
                 'description' => 'Access to personal and shared Outlook inboxes',
                 'category' => 'main',
             ],
+            'viber' => [
+                'name' => 'view_viber',
+                'slug' => 'view_viber',
+                'display_name' => 'Viber',
+                'description' => 'Access to Viber Business conversations',
+                'category' => 'main',
+            ],
             'create_inbox_tags' => [
                 'name' => 'create_inbox_tags',
                 'slug' => 'create_inbox_tags',

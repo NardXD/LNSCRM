@@ -134,6 +134,14 @@ class SidebarHelper
                 'category' => 'main',
             ],
             [
+                'route' => 'viber',
+                'permission' => 'view_viber',
+                'module_slug' => 'viber',
+                'label' => 'Viber',
+                'icon' => 'viber',
+                'category' => 'main',
+            ],
+            [
                 'route' => 'billing',
                 'permission' => 'view_billing',
                 'module_slug' => 'billing',

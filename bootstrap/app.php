@@ -37,6 +37,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'twilio/sms-status',
             'webhooks/stripe/*',
             'webhooks/wise/*',
+            'webhooks/viber/*',
             'mcp',
         ]);
     })

@@ -242,6 +242,10 @@ Route::prefix('twilio')->group(function () {
     Route::post('/sms-status', [PhoneSystemController::class, 'smsStatus'])->name('twilio.sms-status');
 });
 
+// Viber Business webhook (public, CSRF-exempt)
+Route::post('/webhooks/viber/{webhookKey}', [\App\Http\Controllers\ViberController::class, 'webhook'])
+    ->name('webhooks.viber');
+
 // Public contract signing routes (no auth required)
 Route::get('/contracts/sign/{token}', [\App\Http\Controllers\ContractController::class, 'showSigningPage'])->name('contracts.sign');
 Route::post('/contracts/sign/{token}', [\App\Http\Controllers\ContractController::class, 'submitSignature'])->name('contracts.sign.submit');
@@ -541,6 +545,18 @@ Route::middleware(['auth', 'company.active'])->group(function () {
     Route::get('/messaging', [\App\Http\Controllers\MessagingController::class, 'index'])
         ->middleware('permission:view_messaging')->name('messaging');
 
+    Route::get('/viber', [\App\Http\Controllers\ViberController::class, 'index'])
+        ->middleware('permission:view_viber')->name('viber');
+
+    Route::prefix('api/viber')->middleware('permission:view_viber')->group(function () {
+        Route::get('/bootstrap', [\App\Http\Controllers\ViberController::class, 'bootstrap'])->name('api.viber.bootstrap');
+        Route::get('/conversations', [\App\Http\Controllers\ViberController::class, 'conversations'])->name('api.viber.conversations');
+        Route::get('/conversations/{conversation}/messages', [\App\Http\Controllers\ViberController::class, 'messages'])->name('api.viber.messages');
+        Route::post('/conversations/{conversation}/messages', [\App\Http\Controllers\ViberController::class, 'sendMessage'])->name('api.viber.messages.store');
+        Route::get('/conversations/{conversation}/call-link', [\App\Http\Controllers\ViberController::class, 'callLink'])->name('api.viber.call-link');
+        Route::post('/media', [\App\Http\Controllers\ViberController::class, 'uploadMedia'])->name('api.viber.media.store');
+    });
+
     Route::prefix('api/messaging')->middleware('permission:view_messaging')->group(function () {
         Route::get('/unread-count', [\App\Http\Controllers\MessagingController::class, 'getUnreadCount'])->name('api.messaging.unread-count');
         Route::get('/conversations', [\App\Http\Controllers\MessagingController::class, 'getConversations'])->name('api.messaging.conversations');
@@ -688,6 +704,9 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/twilio', [\App\Http\Controllers\IntegrationController::class, 'getTwilioIntegration'])->name('api.integrations.twilio.get');
         Route::post('/twilio', [\App\Http\Controllers\IntegrationController::class, 'storeTwilioIntegration'])->name('api.integrations.twilio.store');
         Route::delete('/twilio', [\App\Http\Controllers\IntegrationController::class, 'deleteTwilioIntegration'])->name('api.integrations.twilio.delete');
+        Route::get('/viber', [\App\Http\Controllers\IntegrationController::class, 'getViberIntegration'])->name('api.integrations.viber.get');
+        Route::post('/viber', [\App\Http\Controllers\IntegrationController::class, 'storeViberIntegration'])->name('api.integrations.viber.store');
+        Route::delete('/viber', [\App\Http\Controllers\IntegrationController::class, 'deleteViberIntegration'])->name('api.integrations.viber.delete');
         Route::get('/gmail', [\App\Http\Controllers\IntegrationController::class, 'getGmailIntegration'])->name('api.integrations.gmail.get');
         Route::post('/gmail', [\App\Http\Controllers\IntegrationController::class, 'storeGmailIntegration'])->name('api.integrations.gmail.store');
         Route::delete('/gmail', [\App\Http\Controllers\IntegrationController::class, 'deleteGmailIntegration'])->name('api.integrations.gmail.delete');

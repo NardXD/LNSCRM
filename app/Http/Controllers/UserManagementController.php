@@ -718,6 +718,7 @@ class UserManagementController extends Controller
                 'create_inbox_rules',
                 'module_slug' => 'inbox',
             ],
+            'Viber' => ['view_viber', 'module_slug' => 'viber'],
             'Billing & Payments' => ['view_billing', 'delete_billing', 'module_slug' => 'billing'],
             'Client Management' => ['view_client_management', 'module_slug' => 'client-management'],
             'Tickets & Helpdesk' => ['view_tickets', 'module_slug' => 'tickets'],
