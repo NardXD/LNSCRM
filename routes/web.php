@@ -250,6 +250,10 @@ Route::post('/webhooks/viber/{webhookKey}', [\App\Http\Controllers\ViberControll
 Route::post('/webhooks/whatsapp/{webhookKey}', [\App\Http\Controllers\WhatsAppController::class, 'webhook'])
     ->name('webhooks.whatsapp');
 
+// Facebook / Instagram Messenger webhooks (public, CSRF-exempt; GET = verify, POST = events)
+Route::match(['get', 'post'], '/webhooks/facebook/{webhookKey}', [\App\Http\Controllers\FacebookController::class, 'webhook'])
+    ->name('webhooks.facebook');
+
 // Public contract signing routes (no auth required)
 Route::get('/contracts/sign/{token}', [\App\Http\Controllers\ContractController::class, 'showSigningPage'])->name('contracts.sign');
 Route::post('/contracts/sign/{token}', [\App\Http\Controllers\ContractController::class, 'submitSignature'])->name('contracts.sign.submit');
@@ -573,6 +577,17 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/media', [\App\Http\Controllers\WhatsAppController::class, 'uploadMedia'])->name('api.whatsapp.media.store');
     });
 
+    Route::get('/facebook', [\App\Http\Controllers\FacebookController::class, 'index'])
+        ->middleware('permission:view_facebook')->name('facebook');
+
+    Route::prefix('api/facebook')->middleware('permission:view_facebook')->group(function () {
+        Route::get('/bootstrap', [\App\Http\Controllers\FacebookController::class, 'bootstrap'])->name('api.facebook.bootstrap');
+        Route::get('/conversations', [\App\Http\Controllers\FacebookController::class, 'conversations'])->name('api.facebook.conversations');
+        Route::get('/conversations/{conversation}/messages', [\App\Http\Controllers\FacebookController::class, 'messages'])->name('api.facebook.messages');
+        Route::post('/conversations/{conversation}/messages', [\App\Http\Controllers\FacebookController::class, 'sendMessage'])->name('api.facebook.messages.store');
+        Route::post('/media', [\App\Http\Controllers\FacebookController::class, 'uploadMedia'])->name('api.facebook.media.store');
+    });
+
     Route::get('/sms', [\App\Http\Controllers\SmsController::class, 'index'])
         ->middleware('permission:view_sms')->name('sms');
 
@@ -742,6 +757,9 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/whatsapp', [\App\Http\Controllers\IntegrationController::class, 'getWhatsAppIntegration'])->name('api.integrations.whatsapp.get');
         Route::post('/whatsapp', [\App\Http\Controllers\IntegrationController::class, 'storeWhatsAppIntegration'])->name('api.integrations.whatsapp.store');
         Route::delete('/whatsapp', [\App\Http\Controllers\IntegrationController::class, 'deleteWhatsAppIntegration'])->name('api.integrations.whatsapp.delete');
+        Route::get('/facebook', [\App\Http\Controllers\IntegrationController::class, 'getFacebookIntegration'])->name('api.integrations.facebook.get');
+        Route::post('/facebook', [\App\Http\Controllers\IntegrationController::class, 'storeFacebookIntegration'])->name('api.integrations.facebook.store');
+        Route::delete('/facebook', [\App\Http\Controllers\IntegrationController::class, 'deleteFacebookIntegration'])->name('api.integrations.facebook.delete');
         Route::get('/gmail', [\App\Http\Controllers\IntegrationController::class, 'getGmailIntegration'])->name('api.integrations.gmail.get');
         Route::post('/gmail', [\App\Http\Controllers\IntegrationController::class, 'storeGmailIntegration'])->name('api.integrations.gmail.store');
         Route::delete('/gmail', [\App\Http\Controllers\IntegrationController::class, 'deleteGmailIntegration'])->name('api.integrations.gmail.delete');

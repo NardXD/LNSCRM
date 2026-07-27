@@ -107,6 +107,13 @@ class SidebarPermissionsSeeder extends Seeder
                 'description' => 'Access to WhatsApp Business conversations',
                 'category' => 'main',
             ],
+            'facebook' => [
+                'name' => 'view_facebook',
+                'slug' => 'view_facebook',
+                'display_name' => 'Facebook & Instagram',
+                'description' => 'Access to Facebook Messenger and Instagram Direct conversations',
+                'category' => 'main',
+            ],
             'billing' => [
                 'name' => 'view_billing',
                 'slug' => 'view_billing',

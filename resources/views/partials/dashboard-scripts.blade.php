@@ -160,9 +160,12 @@
                 const data = item.data || {};
                 const isMention = !!(data.is_mention || data.type === 'inbox_comment_mention');
                 const isWhatsApp = data.type === 'whatsapp_message' || data.channel === 'whatsapp';
+                const isFacebook = data.type === 'facebook_message' || data.channel === 'messenger' || data.channel === 'instagram';
                 let title;
                 if (isWhatsApp) {
                     title = data.summary || `New WhatsApp message from ${data.contact_name || 'a contact'}`;
+                } else if (isFacebook) {
+                    title = data.summary || `New message from ${data.contact_name || 'a contact'}`;
                 } else if (isMention) {
                     title = `${data.author_name || 'Someone'} mentioned you`;
                 } else {

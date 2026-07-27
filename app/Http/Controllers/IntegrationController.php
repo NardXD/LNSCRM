@@ -9,8 +9,10 @@ use App\Models\StripeIntegration;
 use App\Models\TwilioIntegration;
 use App\Models\User;
 use App\Models\ViberIntegration;
+use App\Models\FacebookIntegration;
 use App\Models\WhatsAppIntegration;
 use App\Models\WiseIntegration;
+use App\Services\FacebookGraphService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioIntegrationValidator;
 use App\Services\WiseService;
@@ -424,6 +426,162 @@ class IntegrationController extends Controller
         }
 
         return response()->json(['message' => 'WhatsApp integration deleted successfully']);
+    }
+
+    /**
+     * Get Facebook / Instagram messaging integration for the current company.
+     */
+    public function getFacebookIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $integration = FacebookIntegration::where('company_id', $company->id)->first();
+
+        if ($integration) {
+            $connected = $integration->is_active && $integration->page_id && $integration->getDecryptedPageAccessToken();
+
+            return response()->json([
+                'integration' => [
+                    'id' => $integration->id,
+                    'company_id' => $integration->company_id,
+                    'page_id' => $integration->page_id,
+                    'app_id' => $integration->app_id,
+                    'page_name' => $integration->page_name,
+                    'instagram_business_account_id' => $integration->instagram_business_account_id,
+                    'instagram_username' => $integration->instagram_username,
+                    'welcome_message' => $integration->welcome_message,
+                    'webhook_url' => $integration->webhookUrl(),
+                    'webhook_verify_token' => $integration->webhook_verify_token,
+                    'webhook_set_at' => $integration->webhook_set_at,
+                    'is_active' => $integration->is_active,
+                    'has_page_access_token' => (bool) $integration->getDecryptedPageAccessToken(),
+                    'has_app_secret' => (bool) $integration->getDecryptedAppSecret(),
+                    'created_at' => $integration->created_at,
+                    'updated_at' => $integration->updated_at,
+                ],
+                'status' => $connected ? 'connected' : 'disconnected',
+            ]);
+        }
+
+        return response()->json([
+            'integration' => null,
+            'status' => 'disconnected',
+        ]);
+    }
+
+    /**
+     * Store or update Facebook / Instagram messaging integration.
+     */
+    public function storeFacebookIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $existing = FacebookIntegration::where('company_id', $company->id)->first();
+
+        $validator = Validator::make($request->all(), [
+            'page_id' => ['required', 'string', 'max:64'],
+            'page_access_token' => [$existing ? 'nullable' : 'required', 'string', 'max:4000'],
+            'app_id' => ['nullable', 'string', 'max:64'],
+            'app_secret' => ['nullable', 'string', 'max:255'],
+            'webhook_verify_token' => ['nullable', 'string', 'max:128'],
+            'welcome_message' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $pageAccessToken = $request->filled('page_access_token')
+            ? (string) $request->input('page_access_token')
+            : $existing?->getDecryptedPageAccessToken();
+
+        if (! $pageAccessToken) {
+            return response()->json(['error' => 'Page access token is required.'], 422);
+        }
+
+        $appSecret = $request->filled('app_secret')
+            ? (string) $request->input('app_secret')
+            : $existing?->getDecryptedAppSecret();
+
+        $pageId = trim((string) $request->input('page_id'));
+
+        try {
+            $graph = new FacebookGraphService($pageAccessToken, $pageId, $appSecret);
+            $pageInfo = $graph->getPageInfo();
+        } catch (\Throwable $e) {
+            return response()->json(['error' => $e->getMessage()], 422);
+        }
+
+        $ig = $pageInfo['instagram_business_account'] ?? null;
+        $webhookKey = $existing?->webhook_key ?: Str::random(40);
+        $verifyToken = trim((string) ($request->input('webhook_verify_token') ?: $existing?->webhook_verify_token ?: Str::random(32)));
+
+        $integration = FacebookIntegration::updateOrCreate(
+            ['company_id' => $company->id],
+            [
+                'page_id' => (string) ($pageInfo['id'] ?? $pageId),
+                'page_access_token' => Crypt::encryptString($pageAccessToken),
+                'app_id' => $request->input('app_id') ?: $existing?->app_id,
+                'app_secret' => $appSecret ? Crypt::encryptString($appSecret) : null,
+                'webhook_verify_token' => $verifyToken,
+                'webhook_key' => $webhookKey,
+                'page_name' => $pageInfo['name'] ?? $existing?->page_name,
+                'instagram_business_account_id' => is_array($ig) ? ($ig['id'] ?? null) : null,
+                'instagram_username' => is_array($ig) ? ($ig['username'] ?? null) : null,
+                'welcome_message' => $request->has('welcome_message')
+                    ? $request->input('welcome_message')
+                    : ($existing?->welcome_message),
+                'is_active' => true,
+            ]
+        );
+
+        return response()->json([
+            'message' => 'Facebook & Instagram messaging connected successfully',
+            'integration' => [
+                'id' => $integration->id,
+                'page_id' => $integration->page_id,
+                'app_id' => $integration->app_id,
+                'page_name' => $integration->page_name,
+                'instagram_business_account_id' => $integration->instagram_business_account_id,
+                'instagram_username' => $integration->instagram_username,
+                'welcome_message' => $integration->welcome_message,
+                'webhook_url' => $integration->webhookUrl(),
+                'webhook_verify_token' => $integration->webhook_verify_token,
+                'webhook_set_at' => $integration->webhook_set_at,
+                'is_active' => $integration->is_active,
+                'has_page_access_token' => true,
+                'has_app_secret' => (bool) $integration->getDecryptedAppSecret(),
+            ],
+            'status' => 'connected',
+        ]);
+    }
+
+    /**
+     * Delete Facebook / Instagram messaging integration.
+     */
+    public function deleteFacebookIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $integration = FacebookIntegration::where('company_id', $company->id)->first();
+
+        if ($integration) {
+            $integration->delete();
+        }
+
+        return response()->json(['message' => 'Facebook integration deleted successfully']);
     }
 
     /**

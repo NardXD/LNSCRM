@@ -205,6 +205,10 @@
         background: #e8f8ef;
     }
 
+    .integration-icon-wrapper.facebook {
+        background: #e8f1ff;
+    }
+
     .integration-status {
         padding: 0.25rem 0.75rem;
         border-radius: 100px;
@@ -584,6 +588,7 @@
         phoneSystemUrl: @json(route('twilio.call')),
         viberChatUrl: @json(route('viber')),
         whatsappChatUrl: @json(route('whatsapp')),
+        facebookChatUrl: @json(route('facebook')),
     };
 
     // Integrations Data
@@ -668,6 +673,15 @@
             icon: '📱',
             status: 'disconnected',
             features: ['1:1 chat via Twilio', 'Images & documents', 'Webhook callbacks', '24h messaging window', 'Open in WhatsApp']
+        },
+        {
+            id: 'facebook',
+            name: 'Facebook & Instagram',
+            description: 'Connect a Facebook Page to receive Messenger and Instagram Direct messages in one inbox.',
+            category: 'communication',
+            icon: '📘',
+            status: 'disconnected',
+            features: ['Page Messenger', 'Instagram Direct', 'Images & files', 'Webhook verify', 'Welcome message']
         },
         {
             id: 'calendar',
@@ -829,6 +843,26 @@
             }
             return null;
         }
+        if (integrationId === 'facebook') {
+            try {
+                const response = await fetch('/api/integrations/facebook');
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (data.integration) {
+                    const integration = integrationsData.find(i => i.id === 'facebook');
+                    if (integration) {
+                        integration.status = data.status ?? 'disconnected';
+                    }
+                    return {
+                        ...data.integration,
+                        status: data.status ?? 'disconnected',
+                    };
+                }
+            } catch (error) {
+                console.error('Error loading Facebook integration:', error);
+            }
+            return null;
+        }
         if (integrationId === 'openai') {
             try {
                 const response = await fetch('/api/integrations/openai');
@@ -904,7 +938,7 @@
 
         // Load existing integration data
         let existingIntegration = null;
-        if (integrationId === 'gmail' || integrationId === 'twilio' || integrationId === 'viber' || integrationId === 'whatsapp' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'calendar' || integrationId === 'outlook') {
+        if (integrationId === 'gmail' || integrationId === 'twilio' || integrationId === 'viber' || integrationId === 'whatsapp' || integrationId === 'facebook' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'calendar' || integrationId === 'outlook') {
             existingIntegration = await loadIntegrationStatus(integrationId);
         }
 
@@ -1327,6 +1361,56 @@
                         <li>Enable WhatsApp in the Twilio Console (Sandbox or production sender).</li>
                         <li>Paste the WhatsApp from number here and point the sender webhook to the URL above.</li>
                         <li>Customer messages appear in <a href="${TWILIO_SETUP.whatsappChatUrl}">WhatsApp</a>. Free-form replies work within the 24-hour window.</li>
+                    </ol>
+                </div>
+            `,
+            'facebook': `
+                <div class="form-group">
+                    <label class="form-label">Facebook Page ID</label>
+                    <input type="text" class="form-input" id="facebook-page-id" value="${existingData && existingData.page_id ? existingData.page_id : ''}" placeholder="123456789012345">
+                    <span class="form-help">From Meta Business Suite → Page settings, or Graph API <code>/me?fields=id</code> with a Page token.</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Page Access Token</label>
+                    <input type="password" class="form-input" id="facebook-page-access-token" value="" placeholder="${existingData && existingData.has_page_access_token ? '•••••••• (leave blank to keep)' : 'EAAB…'}">
+                    <span class="form-help">Long-lived Page token with <code>pages_messaging</code> and (for IG) <code>instagram_manage_messages</code>.</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Meta App ID (optional)</label>
+                    <input type="text" class="form-input" id="facebook-app-id" value="${existingData && existingData.app_id ? existingData.app_id : ''}" placeholder="Your Meta App ID">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Meta App Secret</label>
+                    <input type="password" class="form-input" id="facebook-app-secret" value="" placeholder="${existingData && existingData.has_app_secret ? '•••••••• (leave blank to keep)' : 'App secret for webhook signature'}">
+                    <span class="form-help">Required to verify webhook signatures from Meta.</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Webhook Verify Token</label>
+                    <input type="text" class="form-input" id="facebook-webhook-verify-token" value="${existingData && existingData.webhook_verify_token ? existingData.webhook_verify_token : ''}" placeholder="Auto-generated if empty">
+                    <span class="form-help">Must match the verify token you enter in Meta App → Webhooks.</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Welcome Message (optional)</label>
+                    <textarea class="form-input" id="facebook-welcome-message" rows="3" placeholder="Hi! Thanks for messaging us. How can we help?">${existingData && existingData.welcome_message ? existingData.welcome_message : ''}</textarea>
+                </div>
+                ${existingData && (existingData.page_name || existingData.instagram_username) ? `
+                <div class="form-group">
+                    <label class="form-label">Connected accounts</label>
+                    <div style="font-size:0.9rem;color:var(--text-primary);">${existingData.page_name || 'Page'}${existingData.instagram_username ? ' · @' + existingData.instagram_username : ''}</div>
+                </div>` : ''}
+                <div class="form-group">
+                    <label class="form-label">Webhook URL</label>
+                    <code style="display:block;background:var(--bg-primary);padding:0.5rem 0.65rem;border-radius:6px;font-size:0.78rem;word-break:break-all;">${existingData && existingData.webhook_url ? existingData.webhook_url : 'Saved after you connect — must be public HTTPS'}</code>
+                    <span class="form-help">Subscribe this callback URL to <strong>page</strong> and <strong>instagram</strong> objects (messages field) in your Meta App.</span>
+                </div>
+                <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
+                    <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">How it works</strong>
+                    <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
+                        <li>Create a Meta App and add Messenger (+ Instagram if needed).</li>
+                        <li>Generate a Page access token and paste Page ID + token here.</li>
+                        <li>In Webhooks, paste the URL and verify token above; subscribe to messages.</li>
+                        <li>Link your Instagram professional account to the Page for Instagram DMs.</li>
+                        <li>Chats appear in <a href="${TWILIO_SETUP.facebookChatUrl}">Facebook</a>.</li>
                     </ol>
                 </div>
             `
@@ -1877,6 +1961,27 @@
                         console.error('Error:', error);
                         alert('Error disconnecting integration. Please try again.');
                     }
+                } else if (currentIntegration.id === 'facebook') {
+                    try {
+                        const response = await fetch('/api/integrations/facebook', {
+                            method: 'DELETE',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                            }
+                        });
+                        if (response.ok) {
+                            currentIntegration.status = 'disconnected';
+                            alert(`${currentIntegration.name} has been disconnected.`);
+                            closeIntegrationModal();
+                            renderIntegrations(currentCategory);
+                        } else {
+                            alert('Error disconnecting integration. Please try again.');
+                        }
+                    } catch (error) {
+                        console.error('Error:', error);
+                        alert('Error disconnecting integration. Please try again.');
+                    }
                 } else {
                     currentIntegration.status = 'disconnected';
                     alert(`${currentIntegration.name} has been disconnected.`);
@@ -2111,6 +2216,67 @@
                     console.error('Error:', error);
                     alert('Error connecting WhatsApp. Please try again.');
                 }
+            } else if (currentIntegration.id === 'facebook') {
+                const pageId = document.getElementById('facebook-page-id')?.value?.trim() || '';
+                const pageAccessToken = document.getElementById('facebook-page-access-token')?.value?.trim() || '';
+                const appId = document.getElementById('facebook-app-id')?.value?.trim() || '';
+                const appSecret = document.getElementById('facebook-app-secret')?.value?.trim() || '';
+                const verifyToken = document.getElementById('facebook-webhook-verify-token')?.value?.trim() || '';
+                const welcomeMessage = document.getElementById('facebook-welcome-message')?.value || '';
+
+                if (!pageId) {
+                    alert('Please enter your Facebook Page ID.');
+                    return;
+                }
+                if (!pageAccessToken && !(window.existingIntegration && window.existingIntegration.has_page_access_token)) {
+                    alert('Please enter a Page access token.');
+                    return;
+                }
+
+                try {
+                    const payload = {
+                        page_id: pageId,
+                        app_id: appId || null,
+                        webhook_verify_token: verifyToken || null,
+                        welcome_message: welcomeMessage,
+                    };
+                    if (pageAccessToken) payload.page_access_token = pageAccessToken;
+                    if (appSecret) payload.app_secret = appSecret;
+
+                    const response = await fetch('/api/integrations/facebook', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                        },
+                        body: JSON.stringify(payload)
+                    });
+                    const data = await response.json();
+                    if (response.ok) {
+                        currentIntegration.status = 'connected';
+                        let msg = 'Facebook & Instagram messaging connected!';
+                        if (data.integration?.page_name) {
+                            msg += '\n\nPage: ' + data.integration.page_name;
+                        }
+                        if (data.integration?.instagram_username) {
+                            msg += '\nInstagram: @' + data.integration.instagram_username;
+                        }
+                        if (data.integration?.webhook_url) {
+                            msg += '\n\nWebhook URL:\n' + data.integration.webhook_url;
+                        }
+                        if (data.integration?.webhook_verify_token) {
+                            msg += '\n\nVerify token:\n' + data.integration.webhook_verify_token;
+                        }
+                        alert(msg);
+                        closeIntegrationModal();
+                        renderIntegrations(currentCategory);
+                    } else {
+                        alert(data.error || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Error connecting Facebook.'));
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Error connecting Facebook. Please try again.');
+                }
             } else {
                 // Simulate connection process for other integrations
                 alert(`Connecting to ${currentIntegration.name}...`);
@@ -2215,6 +2381,21 @@
                 }
             } catch (error) {
                 console.error('Error loading WhatsApp integration on init:', error);
+            }
+        }
+        // Load Facebook integration
+        const facebookIntegration = integrationsData.find(i => i.id === 'facebook');
+        if (facebookIntegration) {
+            try {
+                const response = await fetch('/api/integrations/facebook');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.integration) {
+                        facebookIntegration.status = data.status ?? 'disconnected';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading Facebook integration on init:', error);
             }
         }
         // Load Stripe integration

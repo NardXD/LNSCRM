@@ -150,6 +150,14 @@ class SidebarHelper
                 'category' => 'main',
             ],
             [
+                'route' => 'facebook',
+                'permission' => 'view_facebook',
+                'module_slug' => 'facebook',
+                'label' => 'Facebook',
+                'icon' => 'facebook',
+                'category' => 'main',
+            ],
+            [
                 'route' => 'sms',
                 'permission' => 'view_sms',
                 'module_slug' => 'sms',

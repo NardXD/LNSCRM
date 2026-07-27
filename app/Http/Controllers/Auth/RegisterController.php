@@ -480,6 +480,13 @@ class RegisterController extends Controller
                 'description' => 'Access to WhatsApp Business conversations',
                 'category' => 'main',
             ],
+            'facebook' => [
+                'name' => 'view_facebook',
+                'slug' => 'view_facebook',
+                'display_name' => 'Facebook & Instagram',
+                'description' => 'Access to Facebook Messenger and Instagram Direct conversations',
+                'category' => 'main',
+            ],
             'create_inbox_tags' => [
                 'name' => 'create_inbox_tags',
                 'slug' => 'create_inbox_tags',
