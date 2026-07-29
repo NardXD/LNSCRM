@@ -1378,11 +1378,12 @@
                 <div class="form-group">
                     <label class="form-label">Meta App ID (optional)</label>
                     <input type="text" class="form-input" id="facebook-app-id" value="${existingData && existingData.app_id ? existingData.app_id : ''}" placeholder="Your Meta App ID">
+                    <span class="form-help">From <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener noreferrer">Meta App Dashboard</a> → your app → <strong>Settings → Basic → App ID</strong>.</span>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Meta App Secret</label>
                     <input type="password" class="form-input" id="facebook-app-secret" value="" placeholder="${existingData && existingData.has_app_secret ? '•••••••• (leave blank to keep)' : 'App secret for webhook signature'}">
-                    <span class="form-help">Required to verify webhook signatures from Meta.</span>
+                    <span class="form-help">Required to verify webhook signatures from Meta. Same place: <strong>Settings → Basic → App Secret</strong> → click <strong>Show</strong>. See steps below.</span>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Webhook Verify Token</label>
@@ -1406,11 +1407,37 @@
                 <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
                     <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">How it works</strong>
                     <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
-                        <li>Create a Meta App and add Messenger (+ Instagram if needed).</li>
-                        <li>Generate a Page access token and paste Page ID + token here.</li>
-                        <li>In Webhooks, paste the URL and verify token above; subscribe to messages.</li>
-                        <li>Link your Instagram professional account to the Page for Instagram DMs.</li>
-                        <li>Chats appear in <a href="${TWILIO_SETUP.facebookChatUrl}">Facebook</a>.</li>
+                        <li>Create (or open) a Meta App at
+                            <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener noreferrer">developers.facebook.com/apps</a>
+                            and add the <strong>Messenger</strong> product (+ <strong>Instagram</strong> if you need DMs).
+                            Guide:
+                            <a href="https://developers.facebook.com/docs/development/create-an-app" target="_blank" rel="noopener noreferrer">Create an App</a>.</li>
+                        <li><strong>Get Meta App ID &amp; App Secret:</strong>
+                            <ol style="margin:0.35rem 0 0;padding-left:1.1rem;">
+                                <li>Open your app in the
+                                    <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener noreferrer">App Dashboard</a>.</li>
+                                <li>Go to <strong>Settings → Basic</strong>
+                                    (<a href="https://developers.facebook.com/docs/development/create-an-app#app-settings" target="_blank" rel="noopener noreferrer">(App settings)</a>.</li>
+                                <li>Copy <strong>App ID</strong> into the field above.</li>
+                                <li>Next to <strong>App Secret</strong>, click <strong>Show</strong>, re-authenticate if asked, then copy the secret here.
+                                    Keep it private — never commit it to git or share it publicly.
+                                    Docs:
+                                    <a href="https://developers.facebook.com/docs/facebook-login/guides/access-tokens#appsecret" target="_blank" rel="noopener noreferrer">App Secret</a>.</li>
+                            </ol>
+                        </li>
+                        <li>Generate a long-lived <strong>Page access token</strong> (Graph API Explorer or Business settings) with
+                            <code>pages_messaging</code>
+                            <a href="https://developers.facebook.com/docs/messenger-platform/get-started" target="_blank" rel="noopener noreferrer">Messenger get started</a>
+                            — and for Instagram,
+                            <code>instagram_manage_messages</code>
+                            <a href="https://developers.facebook.com/docs/messenger-platform/instagram" target="_blank" rel="noopener noreferrer">Instagram Messaging</a>.
+                            Paste Page ID + token above.</li>
+                        <li>In the app’s <strong>Webhooks</strong> settings, paste the Webhook URL and Verify Token from this form; subscribe to the <strong>messages</strong> field on <strong>page</strong> (and <strong>instagram</strong> if needed).
+                            Docs:
+                            <a href="https://developers.facebook.com/docs/graph-api/webhooks/getting-started" target="_blank" rel="noopener noreferrer">Webhooks getting started</a>.</li>
+                        <li>Link your Instagram professional account to the Facebook Page for Instagram DMs.</li>
+                        <li>Customer chats appear in
+                            <a href="${TWILIO_SETUP.facebookChatUrl}">Facebook &amp; Instagram</a>.</li>
                     </ol>
                 </div>
             `
