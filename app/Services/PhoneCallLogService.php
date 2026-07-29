@@ -82,4 +82,53 @@ class PhoneCallLogService
             ]
         );
     }
+
+    /**
+     * Attach Twilio call recording metadata from recordingStatusCallback.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function applyRecordingFromWebhook(array $payload): ?PhoneCallLog
+    {
+        $callSid = $payload['CallSid'] ?? null;
+        $recordingSid = $payload['RecordingSid'] ?? null;
+        if (! $callSid || ! $recordingSid) {
+            return null;
+        }
+
+        $accountSid = $payload['AccountSid'] ?? null;
+        $recordingUrl = $payload['RecordingUrl'] ?? null;
+        $recordingStatus = $payload['RecordingStatus'] ?? null;
+        $recordingDuration = isset($payload['RecordingDuration'])
+            ? (int) $payload['RecordingDuration']
+            : null;
+
+        $log = PhoneCallLog::query()->firstOrNew(['call_sid' => $callSid]);
+
+        if (! $log->exists) {
+            $company = $this->twilioCompany->resolveCompanyFromWebhook(
+                $accountSid,
+                $payload['To'] ?? null,
+                $payload['From'] ?? null
+            );
+            if (! $company) {
+                return null;
+            }
+            $log->company_id = $company->id;
+            $log->from_number = $payload['From'] ?? null;
+            $log->to_number = $payload['To'] ?? null;
+            $log->direction = $payload['Direction'] ?? null;
+            $log->status = $log->status ?: 'completed';
+        }
+
+        $log->recording_sid = $recordingSid;
+        $log->recording_url = $recordingUrl;
+        $log->recording_status = $recordingStatus;
+        if ($recordingDuration !== null && $recordingDuration > 0) {
+            $log->recording_duration = $recordingDuration;
+        }
+        $log->save();
+
+        return $log;
+    }
 }

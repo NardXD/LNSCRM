@@ -36,6 +36,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'twilio/voice',
             'twilio/status-callback',
+            'twilio/recording-callback',
             'twilio/sms-webhook',
             'twilio/sms-status',
             'webhooks/stripe/*',

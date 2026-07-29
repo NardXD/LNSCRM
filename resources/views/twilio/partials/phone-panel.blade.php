@@ -18,6 +18,7 @@
     <div class="call-card-body phone-panel-body">
         {{-- Live session log --}}
         <div class="phone-tab-panel active" id="phoneTabLive" data-phone-panel="live">
+            <p class="phone-recording-notice">Calls are recorded automatically. Play them back from Call History after the call ends.</p>
             <div class="call-log-area" id="callLogArea">
                 <div class="call-log-entry">
                     <svg class="call-log-icon check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -129,6 +130,21 @@
     .phone-list-item-meta { color: var(--text-secondary); font-size: 0.78rem; margin-top: 0.25rem; }
     .phone-list-item-actions { display: flex; gap: 0.35rem; margin-top: 0.5rem; flex-wrap: wrap; }
     .phone-empty-msg { color: var(--text-secondary); font-size: 0.85rem; text-align: center; padding: 1rem; }
+    .phone-recording-notice {
+        margin: 0 0 0.75rem;
+        padding: 0.5rem 0.65rem;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        background: var(--bg-secondary, #f8fafc);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+    }
+    .phone-call-recording {
+        display: block;
+        width: 100%;
+        margin-top: 0.5rem;
+        height: 32px;
+    }
     .phone-inline-form { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
     .phone-form-actions { display: flex; gap: 0.5rem; }
     .phone-subsection-title { font-size: 0.9rem; font-weight: 600; margin: 0.75rem 0 0.5rem; color: var(--text-primary); }

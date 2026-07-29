@@ -56,6 +56,61 @@ class PhoneSystemController extends Controller
         return response()->json(['success' => true, 'data' => $logs]);
     }
 
+    public function streamRecording(PhoneCallLog $phoneCallLog)
+    {
+        $user = Auth::user();
+
+        if ((int) $phoneCallLog->company_id !== (int) $user->company_id) {
+            abort(404);
+        }
+
+        if (! $user->hasPermission('manage_twilio_numbers') && (int) $phoneCallLog->user_id !== (int) $user->id) {
+            abort(403, 'You do not have access to this recording.');
+        }
+
+        if (! $phoneCallLog->hasRecording()) {
+            abort(404, 'Recording not available.');
+        }
+
+        $company = $user->company;
+        $integration = $this->twilioCompany->getActiveIntegration($company);
+        $credentials = $integration ? $this->twilioCompany->getCredentials($integration) : null;
+        if (! $credentials) {
+            abort(500, 'Twilio not configured.');
+        }
+
+        $recordingUrl = $phoneCallLog->recording_url;
+        if ($phoneCallLog->recording_sid && $credentials['sid']) {
+            $recordingUrl = sprintf(
+                'https://api.twilio.com/2010-04-01/Accounts/%s/Recordings/%s.mp3',
+                $credentials['sid'],
+                $phoneCallLog->recording_sid
+            );
+        } elseif ($recordingUrl && ! str_ends_with(strtolower($recordingUrl), '.mp3')) {
+            $recordingUrl .= '.mp3';
+        }
+
+        $response = \Illuminate\Support\Facades\Http::withBasicAuth($credentials['sid'], $credentials['token'])
+            ->timeout(60)
+            ->withHeaders(['Accept' => 'audio/mpeg, audio/*, */*'])
+            ->get($recordingUrl);
+
+        if (! $response->successful()) {
+            Log::warning('Failed to fetch Twilio call recording', [
+                'call_log_id' => $phoneCallLog->id,
+                'recording_sid' => $phoneCallLog->recording_sid,
+                'status' => $response->status(),
+            ]);
+            abort(502, 'Unable to load recording from Twilio.');
+        }
+
+        return response($response->body(), 200, [
+            'Content-Type' => $response->header('Content-Type') ?: 'audio/mpeg',
+            'Content-Disposition' => 'inline; filename="call-'.$phoneCallLog->id.'.mp3"',
+            'Cache-Control' => 'private, max-age=3600',
+        ]);
+    }
+
     public function contacts(Request $request): JsonResponse
     {
         $user = Auth::user();
@@ -529,6 +584,8 @@ class PhoneSystemController extends Controller
 
     private function formatCallLog(PhoneCallLog $log): array
     {
+        $hasRecording = $log->hasRecording() && $log->recording_status !== 'absent';
+
         return [
             'id' => $log->id,
             'call_sid' => $log->call_sid,
@@ -540,6 +597,12 @@ class PhoneSystemController extends Controller
             'started_at' => $log->started_at?->toIso8601String(),
             'ended_at' => $log->ended_at?->toIso8601String(),
             'created_at' => $log->created_at?->toIso8601String(),
+            'has_recording' => $hasRecording,
+            'recording_status' => $log->recording_status,
+            'recording_duration' => $log->recording_duration,
+            'recording_url' => $hasRecording
+                ? route('twilio.call-recording', $log)
+                : null,
         ];
     }
 

@@ -38,6 +38,9 @@
                 <a href="{{ $smsPageUrl }}">SMS</a> page in the sidebar (alongside Viber and WhatsApp).
             </li>
             <li>
+                <strong>Call recording</strong> — Calls are recorded automatically. Listen from <strong>Call History</strong> after a call completes. Inbound callers hear a short “may be recorded” notice.
+            </li>
+            <li>
                 <strong>Employees</strong> need an assigned Twilio number before outbound calls or SMS will work.
             </li>
         </ol>

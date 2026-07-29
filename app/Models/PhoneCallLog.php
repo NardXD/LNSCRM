@@ -18,6 +18,10 @@ class PhoneCallLog extends Model
         'duration',
         'started_at',
         'ended_at',
+        'recording_sid',
+        'recording_url',
+        'recording_status',
+        'recording_duration',
     ];
 
     protected function casts(): array
@@ -26,7 +30,13 @@ class PhoneCallLog extends Model
             'started_at' => 'datetime',
             'ended_at' => 'datetime',
             'duration' => 'integer',
+            'recording_duration' => 'integer',
         ];
+    }
+
+    public function hasRecording(): bool
+    {
+        return filled($this->recording_sid) || filled($this->recording_url);
     }
 
     public function company(): BelongsTo

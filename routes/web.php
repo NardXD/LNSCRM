@@ -109,6 +109,9 @@ Route::prefix('twilio')->group(function () {
         // Check if this is a browser-based OUTBOUND call (has FromClient or From is a user ID)
         $isBrowserCall = $request->has('FromClient') || (is_numeric($fromClient) && strlen($fromClient) < 10);
 
+        $recordingCallback = htmlspecialchars(route('twilio.recording-callback'), ENT_XML1);
+        $dialRecordAttrs = 'record="record-from-answer" recordingStatusCallback="'.$recordingCallback.'" recordingStatusCallbackEvent="completed" recordingTrack="both"';
+
         // Build TwiML response
         $twiml = '<?xml version="1.0" encoding="UTF-8"?>'."\n";
         $twiml .= '<Response>'."\n";
@@ -147,8 +150,10 @@ Route::prefix('twilio')->group(function () {
                     ]);
 
                     if ($users->count() > 0) {
+                        // Brief notice for compliance before connecting the agent
+                        $twiml .= '    <Say voice="alice">This call may be recorded.</Say>'."\n";
                         // Dial only the user(s) with matching twilio_number
-                        $twiml .= '    <Dial timeout="30" answerOnMedia="true" action="'.route('twilio.status-callback').'">'."\n";
+                        $twiml .= '    <Dial timeout="30" answerOnMedia="true" '.$dialRecordAttrs.' action="'.route('twilio.status-callback').'">'."\n";
 
                         foreach ($users as $user) {
                             // Dial each user as a Client (browser client identity is user ID)
@@ -182,7 +187,8 @@ Route::prefix('twilio')->group(function () {
                     ]);
 
                     if ($users->count() > 0) {
-                        $twiml .= '    <Dial timeout="30" answerOnMedia="true" action="'.route('twilio.status-callback').'">'."\n";
+                        $twiml .= '    <Say voice="alice">This call may be recorded.</Say>'."\n";
+                        $twiml .= '    <Dial timeout="30" answerOnMedia="true" '.$dialRecordAttrs.' action="'.route('twilio.status-callback').'">'."\n";
                         foreach ($users as $user) {
                             $twiml .= '        <Client>'.htmlspecialchars((string) $user->id, ENT_XML1).'</Client>'."\n";
                             \Illuminate\Support\Facades\Log::info('Dialing client (fallback)', [
@@ -209,12 +215,12 @@ Route::prefix('twilio')->group(function () {
         } elseif ($isBrowserCall && $called) {
             // Browser-based OUTBOUND call: dial the destination number
             // The browser client is already connected, just need to dial the destination
-            $twiml .= '    <Dial timeout="60" answerOnMedia="true" callerId="'.htmlspecialchars($caller, ENT_XML1).'">'."\n";
+            $twiml .= '    <Dial timeout="60" answerOnMedia="true" '.$dialRecordAttrs.' callerId="'.htmlspecialchars($caller, ENT_XML1).'">'."\n";
             $twiml .= '        <Number>'.htmlspecialchars($called, ENT_XML1).'</Number>'."\n";
             $twiml .= '    </Dial>'."\n";
         } elseif ($called) {
             // API-based OUTBOUND call: dial the destination number to establish audio bridge
-            $twiml .= '    <Dial timeout="60" answerOnMedia="true">'."\n";
+            $twiml .= '    <Dial timeout="60" answerOnMedia="true" '.$dialRecordAttrs.'>'."\n";
             $twiml .= '        <Number>'.htmlspecialchars($called, ENT_XML1).'</Number>'."\n";
             $twiml .= '    </Dial>'."\n";
         } else {
@@ -238,6 +244,7 @@ Route::prefix('twilio')->group(function () {
 
     // Status callback endpoint - receives call status updates from Twilio
     Route::post('/status-callback', [CallController::class, 'statusCallback'])->name('twilio.status-callback');
+    Route::match(['get', 'post'], '/recording-callback', [CallController::class, 'recordingStatusCallback'])->name('twilio.recording-callback');
     Route::post('/sms-webhook', [PhoneSystemController::class, 'smsWebhook'])->name('twilio.sms-webhook');
     Route::post('/sms-status', [PhoneSystemController::class, 'smsStatus'])->name('twilio.sms-status');
 });
@@ -399,6 +406,9 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/call-history', [PhoneSystemController::class, 'callHistory'])
             ->middleware('permission:view_call_history')
             ->name('twilio.call-history');
+        Route::get('/call-history/{phoneCallLog}/recording', [PhoneSystemController::class, 'streamRecording'])
+            ->middleware('permission:view_call_history')
+            ->name('twilio.call-recording');
 
         Route::middleware('permission:manage_phone_contacts')->group(function () {
             Route::get('/contacts', [PhoneSystemController::class, 'contacts'])->name('twilio.contacts');

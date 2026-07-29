@@ -314,6 +314,24 @@ class CallController extends Controller
         return response('OK', 200);
     }
 
+    /**
+     * Twilio recordingStatusCallback — stores recording metadata on the call log.
+     */
+    public function recordingStatusCallback(Request $request, PhoneCallLogService $callLogService)
+    {
+        Log::info('Twilio recording status callback', [
+            'call_sid' => $request->input('CallSid'),
+            'recording_sid' => $request->input('RecordingSid'),
+            'recording_status' => $request->input('RecordingStatus'),
+            'recording_duration' => $request->input('RecordingDuration'),
+            'recording_url' => $request->input('RecordingUrl'),
+        ]);
+
+        $callLogService->applyRecordingFromWebhook($request->all());
+
+        return response('OK', 200);
+    }
+
     public function hangup(Request $request)
     {
         $callSid = $request->input('call_sid');

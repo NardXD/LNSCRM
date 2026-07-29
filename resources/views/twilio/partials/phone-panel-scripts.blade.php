@@ -94,8 +94,12 @@
                     <div class="phone-list-item-meta">
                         ${escapeHtml(row.from)} → ${escapeHtml(row.to)}
                         ${row.duration ? ' · ' + row.duration + 's' : ''}
+                        ${row.has_recording ? ' · Recorded' : ''}
                     </div>
                     <div class="phone-list-item-meta">${escapeHtml(row.created_at ? new Date(row.created_at).toLocaleString() : '')}</div>
+                    ${row.has_recording && row.recording_url ? `
+                        <audio class="phone-call-recording" controls preload="none" src="${escapeHtml(row.recording_url)}"></audio>
+                    ` : ''}
                     <div class="phone-list-item-actions">
                         <button type="button" class="btn-secondary btn-sm" data-dial="${escapeHtml(row.direction?.includes('inbound') ? row.from : row.to)}">Call back</button>
                     </div>
