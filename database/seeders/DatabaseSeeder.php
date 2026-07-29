@@ -47,5 +47,6 @@ class DatabaseSeeder extends Seeder
         $this->call(CompanySeeder::class);
 
         $this->call(AddLiveViewPermissionsSeeder::class);
+        $this->call(AddSmsModuleSeeder::class);
     }
 }
