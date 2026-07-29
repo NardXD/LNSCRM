@@ -2031,7 +2031,11 @@
                         word-wrap: break-word;
                         overflow-wrap: anywhere;
                     }
-                    .email-root img { max-width: 100%; height: auto; }
+                    .email-root img {
+                        max-width: 100% !important;
+                        height: auto !important;
+                        display: inline-block;
+                    }
                     .email-root table { max-width: 100%; border-collapse: collapse; }
                     .email-root a { color: #2563eb; }
                 `;
@@ -3564,7 +3568,13 @@
             .map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
 
         const timeline = [
-            ...(c.messages || []).map(m => ({
+            ...(c.messages || []).map(m => {
+                const attachments = (m.attachments || []).map(a => `
+                    <a class="inbox-msg-attach" href="${escapeHtml(a.download_url)}" target="_blank" rel="noopener">
+                        ${escapeHtml(a.name || 'Attachment')}
+                    </a>
+                `).join('');
+                return {
                 type: 'email',
                 message: m,
                 sort: m.sent_at || '',
@@ -3575,8 +3585,10 @@
                     <span>${m.sent_at ? new Date(m.sent_at).toLocaleString() : ''}</span>
                 </div>
                 <div class="inbox-msg-body" data-email-body="${escapeHtml(String(m.id))}"></div>
+                ${attachments ? `<div class="inbox-msg-attachments">${attachments}</div>` : ''}
             </div>`,
-            })),
+            };
+            }),
             ...(c.comments || []).map(comment => {
                 const attachments = (comment.attachments || []).map(a => `
                     <a class="inbox-msg-attach" href="${escapeHtml(a.download_url)}" target="_blank" rel="noopener">

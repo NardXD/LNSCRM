@@ -566,6 +566,213 @@ class OutlookMailService
             }
             $message->save();
         }
+
+        $this->hydrateConversationAttachments($inbox, $conversation, $account, $mailboxPath);
+    }
+
+    /**
+     * Fetch file-attachment metadata from Graph for messages not yet hydrated.
+     * null attachments = not fetched; [] = none; list = downloadable files.
+     * Also embeds cid: inline images into body_html as data URIs so they render in the UI.
+     *
+     * @param  OutlookMailAccount|null  $account  Pre-refreshed account when called from hydrateConversationBodies
+     */
+    public function hydrateConversationAttachments(
+        SharedInbox $inbox,
+        InboxConversation $conversation,
+        ?OutlookMailAccount $account = null,
+        ?string $mailboxPath = null
+    ): void {
+        $account = $account ?: $inbox->account;
+        if (! $account) {
+            return;
+        }
+
+        $account = $this->refreshTokenIfNeeded($account);
+        $mailboxPath = $mailboxPath ?: $this->mailboxPath($inbox->loadMissing('account'));
+
+        $messages = $conversation->messages()
+            ->whereNotNull('external_message_id')
+            ->where('external_message_id', 'not like', 'local-%')
+            ->get()
+            ->filter(fn (InboxMessage $message) => $this->needsAttachmentHydration($message));
+
+        foreach ($messages as $message) {
+            $messageId = rawurlencode((string) $message->external_message_id);
+            $response = Http::withToken($account->access_token)
+                ->timeout(120)
+                // Do not $select contentId/contentBytes — those exist only on fileAttachment
+                // and selecting them on the base attachment type returns HTTP 400.
+                // Unselected responses include them for file attachments.
+                ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/{$messageId}/attachments", [
+                    '$top' => 50,
+                ]);
+
+            if (! $response->successful()) {
+                Log::warning('Outlook message attachments hydrate failed', [
+                    'message_id' => $message->external_message_id,
+                    'status' => $response->status(),
+                ]);
+                // Retry later on transient errors; mark empty on permanent failures.
+                if ($response->status() >= 500 || $response->status() === 429) {
+                    continue;
+                }
+                $message->attachments = [];
+                $message->save();
+                continue;
+            }
+
+            $items = $response->json('value') ?? [];
+            $files = [];
+            foreach ($items as $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $type = (string) ($item['@odata.type'] ?? '');
+                if ($type !== '' && $type !== '#microsoft.graph.fileAttachment') {
+                    continue;
+                }
+                $externalId = (string) ($item['id'] ?? '');
+                $name = trim((string) ($item['name'] ?? ''));
+                if ($externalId === '' || $name === '') {
+                    continue;
+                }
+                $contentId = trim((string) ($item['contentId'] ?? ''), "<> \t\r\n");
+                $files[] = [
+                    'id' => $externalId,
+                    'name' => $name,
+                    'content_type' => (string) ($item['contentType'] ?? 'application/octet-stream'),
+                    'size' => isset($item['size']) ? (int) $item['size'] : null,
+                    'is_inline' => ! empty($item['isInline']),
+                    'content_id' => $contentId !== '' ? $contentId : null,
+                ];
+            }
+
+            $message->attachments = $files;
+
+            $html = (string) ($message->body_html ?? '');
+            if ($html !== '' && preg_match('/cid:/i', $html)) {
+                $message->body_html = $this->embedCidImages($html, is_array($items) ? $items : []);
+            }
+
+            $message->save();
+        }
+    }
+
+    /**
+     * Whether attachment metadata (and cid image embedding) still needs to be fetched.
+     */
+    private function needsAttachmentHydration(InboxMessage $message): bool
+    {
+        if ($message->attachments === null) {
+            return true;
+        }
+
+        $html = (string) ($message->body_html ?? '');
+        if ($html === '' || ! preg_match('/cid:/i', $html)) {
+            return false;
+        }
+
+        // Body still has unresolved cid: refs, or we never stored content_id maps.
+        if (preg_match('/src=["\']cid:/i', $html)) {
+            return true;
+        }
+
+        return ! collect($message->attachments)->contains(
+            fn ($a) => is_array($a) && ! empty($a['content_id'])
+        );
+    }
+
+    /**
+     * Replace cid:… image refs with data URIs from Graph fileAttachment contentBytes.
+     *
+     * @param  array<int, mixed>  $graphAttachments
+     */
+    private function embedCidImages(string $html, array $graphAttachments): string
+    {
+        foreach ($graphAttachments as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $cid = trim((string) ($item['contentId'] ?? ''), "<> \t\r\n");
+            $bytes = $item['contentBytes'] ?? null;
+            if ($cid === '' || ! is_string($bytes) || $bytes === '') {
+                continue;
+            }
+
+            $contentType = (string) ($item['contentType'] ?? 'application/octet-stream');
+            if ($contentType === '') {
+                $contentType = 'application/octet-stream';
+            }
+            $dataUri = 'data:'.$contentType.';base64,'.$bytes;
+            $quoted = preg_quote($cid, '/');
+
+            // src="cid:foo" / src='cid:foo' / src="cid:foo@bar"
+            $html = preg_replace(
+                '/(src\s*=\s*["\'])cid:'.$quoted.'(?:@[^"\']*)?(["\'])/i',
+                '$1'.$dataUri.'$2',
+                $html
+            ) ?? $html;
+
+            // url(cid:foo) in CSS
+            $html = preg_replace(
+                '/(url\(\s*[\'"]?)cid:'.$quoted.'(?:@[^\'"\)]*)?([\'"]?\s*\))/i',
+                '$1'.$dataUri.'$2',
+                $html
+            ) ?? $html;
+        }
+
+        return $html;
+    }
+
+    /**
+     * Download a file attachment binary from Graph.
+     *
+     * @return array{name: string, content_type: string, content: string}|null
+     */
+    public function downloadMessageAttachment(
+        SharedInbox $inbox,
+        InboxMessage $message,
+        string $attachmentId
+    ): ?array {
+        $account = $inbox->account;
+        if (! $account || ! $message->external_message_id) {
+            return null;
+        }
+        if (str_starts_with((string) $message->external_message_id, 'local-')) {
+            return null;
+        }
+
+        $meta = collect($message->attachments ?? [])->firstWhere('id', $attachmentId);
+        if (! $meta) {
+            return null;
+        }
+
+        $account = $this->refreshTokenIfNeeded($account);
+        $mailboxPath = $this->mailboxPath($inbox->loadMissing('account'));
+        $messageId = rawurlencode((string) $message->external_message_id);
+        $attachId = rawurlencode($attachmentId);
+
+        $response = Http::withToken($account->access_token)
+            ->timeout(120)
+            ->withHeaders(['Accept' => '*/*'])
+            ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/{$messageId}/attachments/{$attachId}/\$value");
+
+        if (! $response->successful()) {
+            Log::warning('Outlook attachment download failed', [
+                'message_id' => $message->external_message_id,
+                'attachment_id' => $attachmentId,
+                'status' => $response->status(),
+            ]);
+
+            return null;
+        }
+
+        return [
+            'name' => (string) ($meta['name'] ?? 'attachment'),
+            'content_type' => (string) ($meta['content_type'] ?? 'application/octet-stream'),
+            'content' => $response->body(),
+        ];
     }
 
     /**

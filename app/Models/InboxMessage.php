@@ -18,11 +18,13 @@ class InboxMessage extends Model
         'subject',
         'body_html',
         'body_text',
+        'attachments',
         'is_read',
         'sent_at',
     ];
 
     protected $casts = [
+        'attachments' => 'array',
         'is_read' => 'boolean',
         'sent_at' => 'datetime',
     ];

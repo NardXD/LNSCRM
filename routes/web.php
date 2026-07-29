@@ -646,6 +646,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/conversations/{conversation}/reply', [\App\Http\Controllers\InboxController::class, 'reply'])->name('api.inbox.conversations.reply');
         Route::post('/conversations/{conversation}/comments', [\App\Http\Controllers\InboxController::class, 'storeComment'])->name('api.inbox.conversations.comments.store');
         Route::get('/conversations/{conversation}/comments/{comment}/attachments/{index}', [\App\Http\Controllers\InboxController::class, 'downloadCommentAttachment'])->name('api.inbox.conversations.comments.attachments');
+        Route::get('/conversations/{conversation}/messages/{message}/attachments/{index}', [\App\Http\Controllers\InboxController::class, 'downloadMessageAttachment'])->name('api.inbox.conversations.messages.attachments')->whereNumber('index');
         Route::post('/compose', [\App\Http\Controllers\InboxController::class, 'compose'])->name('api.inbox.compose');
         Route::post('/inboxes', [\App\Http\Controllers\InboxController::class, 'storeInbox'])->name('api.inbox.inboxes.store');
         Route::put('/inboxes/{sharedInbox}/members', [\App\Http\Controllers\InboxController::class, 'updateInboxMembers'])->name('api.inbox.inboxes.members');

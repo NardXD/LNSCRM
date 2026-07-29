@@ -21,12 +21,14 @@ use App\Services\OutlookMailService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class InboxController extends Controller
@@ -627,12 +629,16 @@ class InboxController extends Controller
             'activities.user:id,name,email',
             'assignee:id,name,email',
             'tags',
-            'inbox:id,name,type,color,email',
+            // Need full inbox (incl. outlook_mail_account_id / external_mailbox)
+            // so hydrate can load the Graph account and fetch the full HTML body.
+            // A constrained select like inbox:id,name,... omits the FK and silently
+            // skips hydration — leaving only Graph bodyPreview (~255 chars).
+            'inbox.account',
         ]);
 
         if ($conversation->inbox) {
             $this->mailService->hydrateConversationBodies(
-                $conversation->inbox->loadMissing('account'),
+                $conversation->inbox,
                 $conversation
             );
             $conversation->load('messages');
@@ -644,6 +650,47 @@ class InboxController extends Controller
 
         return response()->json([
             'conversation' => $this->formatConversation($conversation, true),
+        ]);
+    }
+
+    public function downloadMessageAttachment(
+        Request $request,
+        InboxConversation $conversation,
+        InboxMessage $message,
+        int $index
+    ): Response|JsonResponse {
+        $this->authorizeConversation($request->user(), $conversation);
+        if ((int) $message->inbox_conversation_id !== (int) $conversation->id) {
+            return response()->json(['message' => 'Message not found.'], 404);
+        }
+
+        $meta = collect($message->attachments ?? [])->values()->get($index);
+        if (! is_array($meta) || empty($meta['id'])) {
+            return response()->json(['message' => 'Attachment not found.'], 404);
+        }
+
+        $inbox = $conversation->inbox()->with('account')->first();
+        if (! $inbox?->account) {
+            return response()->json(['message' => 'This inbox is not connected to Outlook.'], 422);
+        }
+
+        $file = $this->mailService->downloadMessageAttachment($inbox, $message, (string) $meta['id']);
+        if (! $file) {
+            return response()->json(['message' => 'Attachment not found.'], 404);
+        }
+
+        $name = $file['name'];
+        $contentType = $file['content_type'] ?: 'application/octet-stream';
+
+        return response($file['content'], 200, [
+            'Content-Type' => $contentType,
+            'Content-Disposition' => HeaderUtils::makeDisposition(
+                HeaderUtils::DISPOSITION_INLINE,
+                $name,
+                preg_replace('/[^\x20-\x7E]/', '_', $name) ?: 'attachment'
+            ),
+            'Content-Length' => (string) strlen($file['content']),
+            'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 
@@ -1970,6 +2017,31 @@ class InboxController extends Controller
 
     private function formatMessage(InboxMessage $m): array
     {
+        $allAttachments = collect($m->attachments ?? [])->values();
+
+        $attachments = $allAttachments
+            ->map(function ($file, $index) use ($m) {
+                if (! is_array($file) || empty($file['id']) || empty($file['name'])) {
+                    return null;
+                }
+                // Inline/cid images are shown inside the HTML body, not as chips.
+                if (! empty($file['is_inline'])) {
+                    return null;
+                }
+
+                return [
+                    'id' => $file['id'],
+                    'name' => $file['name'] ?? 'file',
+                    'content_type' => $file['content_type'] ?? 'application/octet-stream',
+                    'size' => $file['size'] ?? null,
+                    'index' => $index,
+                    'download_url' => url('/api/inbox/conversations/'.$m->inbox_conversation_id.'/messages/'.$m->id.'/attachments/'.$index),
+                ];
+            })
+            ->filter()
+            ->values()
+            ->all();
+
         return [
             'id' => $m->id,
             'direction' => $m->direction,
@@ -1977,10 +2049,47 @@ class InboxController extends Controller
             'from_email' => $m->from_email,
             'to_emails' => $m->to_emails,
             'subject' => $m->subject,
-            'body_html' => $m->body_html,
+            'body_html' => $this->rewriteCidImagesForClient((string) ($m->body_html ?? ''), $m, $allAttachments),
             'body_text' => $m->body_text,
+            'attachments' => $attachments,
             'sent_at' => $m->sent_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * Fallback: map any remaining cid: refs to authenticated attachment URLs for display.
+     *
+     * @param  \Illuminate\Support\Collection<int, mixed>  $allAttachments
+     */
+    private function rewriteCidImagesForClient(string $html, InboxMessage $m, Collection $allAttachments): string
+    {
+        if ($html === '' || ! preg_match('/cid:/i', $html)) {
+            return $html;
+        }
+
+        foreach ($allAttachments as $index => $file) {
+            if (! is_array($file)) {
+                continue;
+            }
+            $cid = trim((string) ($file['content_id'] ?? ''), "<> \t\r\n");
+            if ($cid === '') {
+                continue;
+            }
+            $url = url('/api/inbox/conversations/'.$m->inbox_conversation_id.'/messages/'.$m->id.'/attachments/'.$index);
+            $quoted = preg_quote($cid, '/');
+            $html = preg_replace(
+                '/(src\s*=\s*["\'])cid:'.$quoted.'(?:@[^"\']*)?(["\'])/i',
+                '$1'.$url.'$2',
+                $html
+            ) ?? $html;
+            $html = preg_replace(
+                '/(url\(\s*[\'"]?)cid:'.$quoted.'(?:@[^\'"\)]*)?([\'"]?\s*\))/i',
+                '$1'.$url.'$2',
+                $html
+            ) ?? $html;
+        }
+
+        return $html;
     }
 
     private function formatComment(InboxConversationComment $comment): array
