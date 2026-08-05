@@ -610,6 +610,13 @@ Route::middleware(['auth', 'company.active'])->group(function () {
     Route::get('/sms', [\App\Http\Controllers\SmsController::class, 'index'])
         ->middleware('permission:view_sms')->name('sms');
 
+    Route::get('/contact-history', [\App\Http\Controllers\ContactHistoryController::class, 'index'])
+        ->middleware('permission:view_whatsapp|view_viber|view_sms|view_facebook|view_inbox|view_phone_system|view_client_management')
+        ->name('contact-history');
+    Route::get('/api/crm/contact-history', [\App\Http\Controllers\ContactHistoryController::class, 'search'])
+        ->middleware('permission:view_whatsapp|view_viber|view_sms|view_facebook|view_inbox|view_phone_system|view_client_management')
+        ->name('api.crm.contact-history');
+
     Route::prefix('api/sms')->middleware('permission:view_sms')->group(function () {
         Route::get('/bootstrap', [\App\Http\Controllers\SmsController::class, 'bootstrap'])->name('api.sms.bootstrap');
         Route::get('/conversations', [\App\Http\Controllers\SmsController::class, 'conversations'])->name('api.sms.conversations');

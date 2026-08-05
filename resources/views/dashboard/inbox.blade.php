@@ -246,8 +246,17 @@
                 <div id="propContact" class="inbox-prop-value"></div>
             </div>
             <div class="inbox-props-block">
-                <div class="inbox-props-label">History</div>
+                <div class="inbox-props-label">Thread activity</div>
                 <div id="conversationHistory" class="inbox-history-list"></div>
+            </div>
+            <div class="inbox-props-block">
+                <div class="inbox-props-label">Contact history (all channels)</div>
+                <div id="inboxContactHistory" class="chp-panel chp-visible" style="width:100%;max-width:none;border:0;background:transparent;height:auto;display:block;"
+                     data-api="{{ url('/api/crm/contact-history') }}">
+                    <div class="chp-body" id="inboxContactHistoryBody" style="padding:0;overflow:visible;">
+                        <p class="chp-empty">Select a conversation to see cross-channel history.</p>
+                    </div>
+                </div>
             </div>
         </aside>
     </div>
@@ -3648,6 +3657,13 @@
                 </div>
             `).join('')
             : '<div style="color:var(--inbox-muted);font-size:0.8rem;">No history yet</div>';
+
+        window.LnsContactHistory?.load('#inboxContactHistory', {
+            email: c.from_email || '',
+            name: c.from_name || '',
+            excludeChannel: 'inbox',
+            excludeId: c.id,
+        });
     }
 
     function escapeHtml(str) {

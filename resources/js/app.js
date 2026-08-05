@@ -14,4 +14,7 @@ console.log('📦 app.js: About to import twilio-call...');
 import './twilio-call';
 console.log('📦 app.js: twilio-call import statement completed');
 
+import './contact-history-panel';
+console.log('📦 app.js: contact-history-panel imported');
+
 console.log('📦📦📦 app.js COMPLETED 📦📦📦');

@@ -69,6 +69,7 @@
                 </footer>
             </div>
         </main>
+        @include('partials.contact-history-panel', ['panelId' => 'smsContactHistory'])
     </div>
 
     <div class="sms-modal" id="smsNewModal" hidden>
@@ -90,6 +91,7 @@
 <style>
 .sms-page { height: calc(100vh - 72px); min-height: 520px; position: relative; }
 .sms-layout { display: grid; grid-template-columns: 320px 1fr; height: 100%; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--bg-card); }
+.sms-layout.with-history { grid-template-columns: 320px 1fr 300px; }
 .sms-sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg-primary); }
 .sms-sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.1rem; border-bottom: 1px solid var(--border); }
 .sms-sidebar-header h2 { margin: 0; font-size: 1.15rem; }
@@ -305,6 +307,14 @@
         els.messages.innerHTML = (data.data || []).map(renderMessage).join('');
         els.messages.scrollTop = els.messages.scrollHeight;
         await loadConversations();
+
+        document.querySelector('.sms-layout')?.classList.add('with-history');
+        window.LnsContactHistory?.load('#smsContactHistory', {
+            phone: conv.peer_phone || '',
+            name: conv.name || '',
+            excludeChannel: 'sms',
+            excludeId: conv.id,
+        });
     }
 
     async function sendText() {

@@ -74,12 +74,14 @@
                 </footer>
             </div>
         </main>
+        @include('partials.contact-history-panel', ['panelId' => 'waContactHistory'])
     </div>
 </div>
 
 <style>
 .wa-page { height: calc(100dvh - 140px); max-height: calc(100dvh - 140px); min-height: 420px; min-width: 0; }
 .wa-layout { display: grid; grid-template-columns: 320px 1fr; height: 100%; min-height: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--bg-card); }
+.wa-layout.with-history { grid-template-columns: 320px 1fr 300px; }
 .wa-sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg-primary); min-height: 0; min-width: 0; }
 .wa-sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.1rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .wa-sidebar-header h2 { margin: 0; font-size: 1.15rem; }
@@ -313,6 +315,14 @@
         });
         await loadConversations();
         window.updateHeaderNotificationsBadge?.();
+
+        const layout = document.querySelector('.wa-layout');
+        layout?.classList.add('with-history');
+        window.LnsContactHistory?.load('#waContactHistory', {
+            phone: conv.phone || conv.wa_id || '',
+            excludeChannel: 'whatsapp',
+            excludeId: conv.id,
+        });
     }
 
     async function sendText() {

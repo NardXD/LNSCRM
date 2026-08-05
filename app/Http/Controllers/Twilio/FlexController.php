@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Twilio;
 
 use App\Http\Controllers\Controller;
 use App\Models\TwilioFlexIntegration;
+use App\Services\ContactConversationHistoryService;
 use App\Services\FlexCrmLookupService;
 use App\Services\FlexEventService;
 use Illuminate\Http\JsonResponse;
@@ -16,7 +17,8 @@ class FlexController extends Controller
 {
     public function __construct(
         protected FlexCrmLookupService $lookup,
-        protected FlexEventService $events
+        protected FlexEventService $events,
+        protected ContactConversationHistoryService $history
     ) {}
 
     /**
@@ -26,12 +28,24 @@ class FlexController extends Controller
     {
         $companyId = (int) $request->attributes->get('flex_company_id');
         $phone = (string) ($request->query('phone') ?? $request->input('phone') ?? '');
+        $email = (string) ($request->query('email') ?? $request->input('email') ?? '');
 
-        if ($phone === '') {
-            return response()->json(['error' => 'phone is required'], 422);
+        if ($phone === '' && $email === '') {
+            return response()->json(['error' => 'phone or email is required'], 422);
         }
 
-        return response()->json($this->lookup->lookup($companyId, $phone));
+        $payload = $phone !== ''
+            ? $this->lookup->lookup($companyId, $phone)
+            : ['found' => false, 'client' => null, 'phone_contact' => null, 'display_name' => null, 'recent_calls' => [], 'phone' => null];
+
+        $payload['history'] = $this->history->history(
+            $companyId,
+            $phone !== '' ? $phone : null,
+            $email !== '' ? $email : null,
+            40
+        );
+
+        return response()->json($payload);
     }
 
     /**
@@ -49,6 +63,8 @@ class FlexController extends Controller
         }
 
         $phone = (string) ($request->query('phone') ?? '');
+        $email = (string) ($request->query('email') ?? '');
+
         $data = $phone !== ''
             ? $this->lookup->lookup($integration->company_id, $phone)
             : [
@@ -60,8 +76,18 @@ class FlexController extends Controller
                 'display_name' => 'No active task',
             ];
 
+        $history = ($phone !== '' || $email !== '')
+            ? $this->history->history(
+                $integration->company_id,
+                $phone !== '' ? $phone : null,
+                $email !== '' ? $email : null,
+                30
+            )
+            : null;
+
         return view('twilio.flex-screen-pop', [
             'data' => $data,
+            'history' => $history,
             'company' => $integration->company,
         ]);
     }

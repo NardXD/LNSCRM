@@ -76,12 +76,14 @@
                 </footer>
             </div>
         </main>
+        @include('partials.contact-history-panel', ['panelId' => 'viberContactHistory'])
     </div>
 </div>
 
 <style>
 .viber-page { height: calc(100dvh - 140px); max-height: calc(100dvh - 140px); min-height: 420px; min-width: 0; }
 .viber-layout { display: grid; grid-template-columns: 320px 1fr; height: 100%; min-height: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--bg-card); }
+.viber-layout.with-history { grid-template-columns: 320px 1fr 300px; }
 .viber-sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg-primary); min-height: 0; min-width: 0; }
 .viber-sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.1rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .viber-sidebar-header h2 { margin: 0; font-size: 1.15rem; }
@@ -315,6 +317,14 @@
             }, { once: true });
         });
         await loadConversations();
+
+        document.querySelector('.viber-layout')?.classList.add('with-history');
+        window.LnsContactHistory?.load('#viberContactHistory', {
+            phone: conv.phone || conv.viber_user_id || '',
+            name: conv.name || '',
+            excludeChannel: 'viber',
+            excludeId: conv.id,
+        });
     }
 
     async function sendText() {

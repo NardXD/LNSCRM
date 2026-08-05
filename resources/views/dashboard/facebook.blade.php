@@ -81,12 +81,14 @@
                 </footer>
             </div>
         </main>
+        @include('partials.contact-history-panel', ['panelId' => 'fbContactHistory'])
     </div>
 </div>
 
 <style>
 .fb-page { height: calc(100dvh - 140px); max-height: calc(100dvh - 140px); min-height: 420px; min-width: 0; }
 .fb-layout { display: grid; grid-template-columns: 320px 1fr; height: 100%; min-height: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--bg-card); }
+.fb-layout.with-history { grid-template-columns: 320px 1fr 300px; }
 .fb-sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg-primary); min-height: 0; min-width: 0; }
 .fb-sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.1rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .fb-sidebar-header h2 { margin: 0; font-size: 1.05rem; }
@@ -329,6 +331,13 @@
         });
         await loadConversations();
         window.updateHeaderNotificationsBadge?.();
+
+        document.querySelector('.fb-layout')?.classList.add('with-history');
+        window.LnsContactHistory?.load('#fbContactHistory', {
+            name: conv.name || conv.username || '',
+            excludeChannel: 'facebook',
+            excludeId: conv.id,
+        });
     }
 
     async function sendText() {

@@ -149,6 +149,33 @@
             </div>
         @endif
 
+        @if (!empty($history['threads']))
+            <div class="calls">
+                <h2>All channels</h2>
+                @foreach ($history['threads'] as $thread)
+                    <div class="call">
+                        <strong>{{ $thread['label'] ?? $thread['channel'] }}</strong>
+                        — {{ $thread['title'] ?? '' }}
+                        @if (!empty($thread['preview']))
+                            <div>{{ \Illuminate\Support\Str::limit($thread['preview'], 80) }}</div>
+                        @endif
+                        @if (!empty($thread['deep_link']))
+                            <div><a href="{{ $thread['deep_link'] }}" target="_blank" rel="noopener">Open</a></div>
+                        @endif
+                    </div>
+                @endforeach
+            </div>
+        @endif
+
+        @php
+            $historyUrl = url('/contact-history');
+            $hq = [];
+            if (!empty($data['phone'])) { $hq['phone'] = $data['phone']; }
+            if (!empty($history['query']['email'])) { $hq['email'] = $history['query']['email']; }
+            if ($hq !== []) { $historyUrl .= '?'.http_build_query($hq); }
+        @endphp
+        <a class="cta" href="{{ $historyUrl }}" target="_blank" rel="noopener" style="margin-top:0.75rem;">Full contact history</a>
+
         <p class="brand">{{ $company->name ?? 'LNSCRM' }} · Twilio Flex screen pop</p>
     </div>
 </body>
