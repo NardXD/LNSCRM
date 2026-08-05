@@ -141,11 +141,19 @@ class Company extends Model
     }
 
     /**
-     * Get the Twilio integration for the company.
+     * Get the Twilio Flex integration (account credentials + Flex settings) for the company.
+     */
+    public function twilioFlexIntegration()
+    {
+        return $this->hasOne(TwilioFlexIntegration::class);
+    }
+
+    /**
+     * Alias for callers that historically used twilioIntegration().
      */
     public function twilioIntegration()
     {
-        return $this->hasOne(TwilioIntegration::class);
+        return $this->twilioFlexIntegration();
     }
 
     /**

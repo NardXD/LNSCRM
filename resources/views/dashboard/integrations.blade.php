@@ -197,6 +197,10 @@
         background: #e6f3ff;
     }
 
+    .integration-icon-wrapper.flex {
+        background: #e8eef8;
+    }
+
     .integration-icon-wrapper.viber {
         background: #efeaff;
     }
@@ -648,18 +652,18 @@
             features: ['Chat assistance', 'Content generation', 'Smart suggestions', 'Text analysis']
         },
         {
-            id: 'twilio',
-            name: 'Twilio',
-            description: 'Connect your Twilio account for SMS, voice calls, and video communication capabilities.',
+            id: 'flex',
+            name: 'Twilio Flex',
+            description: 'Connect your Twilio account with Flex for phone, WhatsApp, Viber, SMS, and CRM screen-pop.',
             category: 'communication',
-            icon: '📞',
+            icon: '🎧',
             status: 'disconnected',
-            features: ['SMS sending', 'Voice calls', 'Video calls', 'Call recording', 'Phone number management']
+            features: ['Phone system', 'WhatsApp & Viber messaging', 'SMS', 'Flex agent desktop', 'CRM screen-pop', 'Call logging']
         },
         {
             id: 'viber',
             name: 'Viber Business',
-            description: 'Send and receive Viber messages through your Twilio account using a Viber Business Sender.',
+            description: 'Send and receive Viber messages through your Twilio Flex account using a Viber Business Sender.',
             category: 'communication',
             icon: '💬',
             status: 'disconnected',
@@ -668,7 +672,7 @@
         {
             id: 'whatsapp',
             name: 'WhatsApp Business',
-            description: 'Send and receive WhatsApp messages through your Twilio account using a WhatsApp-enabled sender number.',
+            description: 'Send and receive WhatsApp messages through your Twilio Flex account using a WhatsApp-enabled sender number.',
             category: 'communication',
             icon: '📱',
             status: 'disconnected',
@@ -677,7 +681,7 @@
         {
             id: 'facebook',
             name: 'Facebook & Instagram',
-            description: 'Connect a Facebook Page to receive Messenger and Instagram Direct messages in one inbox.',
+            description: 'Connect a Facebook Page (Meta) for Messenger and Instagram Direct in the CRM inbox. Independent of Twilio Flex.',
             category: 'communication',
             icon: '📘',
             status: 'disconnected',
@@ -782,26 +786,38 @@
             return null;
         }
         if (integrationId === 'twilio') {
+            // Legacy card removed — credentials live under Twilio Flex
+            return null;
+        }
+        if (integrationId === 'flex') {
             try {
-                const response = await fetch('/api/integrations/twilio');
+                const response = await fetch('/api/integrations/flex');
                 if (!response.ok) {
                     return null;
                 }
                 const data = await response.json();
-                if (data.integration) {
-                    const integration = integrationsData.find(i => i.id === 'twilio');
-                    if (integration) {
-                        integration.status = data.status ?? 'disconnected';
-                        return {
-                            ...data.integration,
-                            status: data.status ?? 'disconnected',
-                            missing_fields: data.missing_fields || [],
-                        };
-                    }
+                const integration = integrationsData.find(i => i.id === 'flex');
+                if (integration) {
+                    integration.status = data.status ?? 'disconnected';
                 }
+                if (data.integration) {
+                    return {
+                        ...data.integration,
+                        status: data.status ?? 'disconnected',
+                        missing_fields: data.missing_fields || [],
+                        urls: data.urls,
+                        api_key: data.api_key || null,
+                    };
+                }
+                return {
+                    status: data.status ?? 'disconnected',
+                    missing_fields: data.missing_fields || [],
+                    urls: data.urls,
+                };
             } catch (error) {
-                console.error('Error loading Twilio integration:', error);
+                console.error('Error loading Flex integration:', error);
             }
+            return null;
         }
         if (integrationId === 'viber') {
             try {
@@ -938,7 +954,7 @@
 
         // Load existing integration data
         let existingIntegration = null;
-        if (integrationId === 'gmail' || integrationId === 'twilio' || integrationId === 'viber' || integrationId === 'whatsapp' || integrationId === 'facebook' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'calendar' || integrationId === 'outlook') {
+        if (integrationId === 'gmail' || integrationId === 'flex' || integrationId === 'viber' || integrationId === 'whatsapp' || integrationId === 'facebook' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'calendar' || integrationId === 'outlook') {
             existingIntegration = await loadIntegrationStatus(integrationId);
         }
 
@@ -983,15 +999,15 @@
 
         // Update configuration
         let configHtml = '';
-        const twilioFieldLabels = {
+        const flexFieldLabels = {
             account_sid: 'Account SID',
             auth_token: 'Auth Token',
             app_sid: 'App SID',
             api_key: 'API Key',
             api_secret: 'API Secret',
         };
-        const missingTwilioFields = integration.id === 'twilio' && existingIntegration?.missing_fields?.length
-            ? existingIntegration.missing_fields.map(field => twilioFieldLabels[field] || field)
+        const missingFlexFields = integration.id === 'flex' && existingIntegration?.missing_fields?.length
+            ? existingIntegration.missing_fields.map(field => flexFieldLabels[field] || field)
             : [];
 
         if (integration.status === 'connected') {
@@ -1004,11 +1020,11 @@
                     ${getIntegrationConfig(integration.id, existingIntegration)}
                 </div>
             `;
-        } else if (integration.id === 'twilio' && existingIntegration?.account_sid) {
+        } else if (integration.id === 'flex' && existingIntegration?.account_sid) {
             configHtml = `
                 <div class="connected-info" style="background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.35);">
-                    <div class="connected-info-title" style="color: #b45309;">Incomplete Twilio configuration</div>
-                    <div class="connected-info-text">Saved settings are missing required values${missingTwilioFields.length ? ': ' + missingTwilioFields.join(', ') : ''}. Fill in all fields and save to verify with Twilio.</div>
+                    <div class="connected-info-title" style="color: #b45309;">Incomplete Twilio Flex configuration</div>
+                    <div class="connected-info-text">Saved settings are missing required values${missingFlexFields.length ? ': ' + missingFlexFields.join(', ') : ''}. Fill in all fields and save to verify with Twilio.</div>
                 </div>
                 <div class="config-form">
                     ${getIntegrationConfig(integration.id, existingIntegration)}
@@ -1066,26 +1082,39 @@
                 d.onclick = () => { if (confirm('Disconnect OpenAI?')) handleOpenAiDisconnect(); };
                 footer.insertBefore(d, actionBtn);
             }
+        } else if (integration.status === 'connected' && integrationId === 'flex') {
+            actionBtn.textContent = 'Save';
+            actionBtn.className = 'btn-primary';
+            actionBtn.onclick = () => handleFlexSave();
+            const disconnectBtn = footer?.querySelector('.flex-disconnect-btn');
+            if (disconnectBtn) disconnectBtn.style.display = '';
+            if (footer && !footer.querySelector('.flex-disconnect-btn')) {
+                const d = document.createElement('button');
+                d.className = 'btn-secondary btn-danger flex-disconnect-btn';
+                d.textContent = 'Disconnect';
+                d.onclick = () => { if (confirm('Disconnect Twilio Flex?')) handleFlexDisconnect(); };
+                footer.insertBefore(d, actionBtn);
+            }
         } else if (integrationId === 'calendar') {
             actionBtn.textContent = 'Save settings';
             actionBtn.className = 'btn-primary';
             actionBtn.onclick = () => handleCalendarOauthSave('google');
-            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
+            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .flex-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
         } else if (integrationId === 'outlook') {
             actionBtn.textContent = 'Save settings';
             actionBtn.className = 'btn-primary';
             actionBtn.onclick = () => handleCalendarOauthSave('outlook');
-            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
+            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .flex-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
         } else {
-            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
+            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .flex-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
         }
         if (integrationId === 'calendar' || integrationId === 'outlook') {
             // Handled above - Save settings button
-        } else if (integration.status === 'connected' && integrationId !== 'wise' && integrationId !== 'gmail' && integrationId !== 'stripe' && integrationId !== 'openai') {
+        } else if (integration.status === 'connected' && integrationId !== 'wise' && integrationId !== 'gmail' && integrationId !== 'stripe' && integrationId !== 'openai' && integrationId !== 'flex') {
             actionBtn.textContent = 'Disconnect';
             actionBtn.className = 'btn-primary btn-danger';
             actionBtn.onclick = () => handleIntegrationAction();
-        } else if (integration.status !== 'connected' || (integrationId !== 'wise' && integrationId !== 'stripe' && integrationId !== 'openai')) {
+        } else if (integration.status !== 'connected' || (integrationId !== 'wise' && integrationId !== 'stripe' && integrationId !== 'openai' && integrationId !== 'flex')) {
             actionBtn.textContent = 'Connect';
             actionBtn.className = 'btn-primary';
             actionBtn.onclick = () => handleIntegrationAction();
@@ -1265,38 +1294,71 @@
                 </div>
                 <p class="form-help">Leave fields blank to keep existing values. Credentials are stored per company.</p>
             `,
-            'twilio': `
+            'flex': `
                 <div class="form-group">
-                    <label class="form-label">TWILIO_SID</label>
-                    <input type="text" class="form-input twilio-sid" id="twilio-sid" placeholder="AC..." value="${existingData ? existingData.account_sid || '' : ''}">
-                    <span class="form-help">Your Twilio Account SID (starts with AC...)</span>
+                    <label class="form-label">Account SID</label>
+                    <input type="text" class="form-input" id="flex-account-sid" placeholder="AC..." value="${existingData ? existingData.account_sid || '' : ''}">
+                    <span class="form-help">Twilio Console → Account → API keys & tokens (starts with AC).</span>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">TWILIO_AUTH_TOKEN</label>
-                    <input type="password" class="form-input twilio-auth-token" id="twilio-auth-token" placeholder="Enter Auth Token" value="">
-                    <span class="form-help">Your Twilio Auth Token${existingData && existingData.auth_token ? ' (leave blank to keep current value)' : ''}</span>
+                    <label class="form-label">Auth Token</label>
+                    <input type="password" class="form-input" id="flex-auth-token" placeholder="Enter Auth Token" value="">
+                    <span class="form-help">Live Auth Token${existingData && existingData.auth_token ? ' (leave blank to keep current)' : ''}.</span>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">TWILIO_APP_SID (optional)</label>
-                    <input type="text" class="form-input twilio-app-sid" id="twilio-app-sid" placeholder="AP..." value="${existingData ? existingData.app_sid || '' : ''}">
-                    <span class="form-help">Only needed for browser calling — not required for WhatsApp / SMS sandbox testing.</span>
+                    <label class="form-label">App SID (optional — CRM browser calling)</label>
+                    <input type="text" class="form-input" id="flex-app-sid" placeholder="AP..." value="${existingData ? existingData.app_sid || '' : ''}">
                 </div>
                 <div class="form-group">
-                    <label class="form-label">TWILIO_API_KEY (optional)</label>
-                    <input type="text" class="form-input twilio-api-key" id="twilio-api-key" placeholder="SK..." value="${existingData ? existingData.api_key || '' : ''}">
-                    <span class="form-help">Only needed for browser calling.</span>
+                    <label class="form-label">API Key (optional — CRM browser calling)</label>
+                    <input type="text" class="form-input" id="flex-api-key" placeholder="SK..." value="${existingData ? existingData.api_key || '' : ''}">
                 </div>
                 <div class="form-group">
-                    <label class="form-label">TWILIO_API_SECRET (optional)</label>
-                    <input type="password" class="form-input twilio-api-secret" id="twilio-api-secret" placeholder="Enter API Secret" value="">
-                    <span class="form-help">Only needed for browser calling${existingData && existingData.api_secret ? ' (leave blank to keep current value)' : ''}.</span>
+                    <label class="form-label">API Secret (optional — CRM browser calling)</label>
+                    <input type="password" class="form-input" id="flex-api-secret" placeholder="Enter API Secret" value="">
+                    <span class="form-help">${existingData && existingData.api_secret ? 'Leave blank to keep current.' : ''}</span>
                 </div>
+                <div class="form-group">
+                    <label class="form-label">Flex Workspace SID (optional)</label>
+                    <input type="text" class="form-input" id="flex-workspace-sid" value="${existingData && existingData.workspace_sid ? existingData.workspace_sid : ''}" placeholder="WS...">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Default Workflow SID (optional)</label>
+                    <input type="text" class="form-input" id="flex-workflow-sid" value="${existingData && existingData.workflow_sid ? existingData.workflow_sid : ''}" placeholder="WW...">
+                </div>
+                ${existingData && existingData.urls ? `
+                <div class="form-group">
+                    <label class="form-label">Screen-pop URL (CRMContainer)</label>
+                    <code style="display:block;background:var(--bg-primary);padding:0.5rem 0.65rem;border-radius:6px;font-size:0.78rem;word-break:break-all;">${existingData.urls.screen_pop_base}?phone=+E164</code>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">TaskRouter event webhook</label>
+                    <code style="display:block;background:var(--bg-primary);padding:0.5rem 0.65rem;border-radius:6px;font-size:0.78rem;word-break:break-all;">${existingData.urls.events_webhook}</code>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">CRM lookup API</label>
+                    <code style="display:block;background:var(--bg-primary);padding:0.5rem 0.65rem;border-radius:6px;font-size:0.78rem;word-break:break-all;">${existingData.urls.lookup_api}?phone=+E164</code>
+                    <span class="form-help">Header <code>X-API-Key</code> = Flex plugin API key.</span>
+                </div>` : ''}
+                ${existingData && existingData.has_api_key ? `
+                <div class="form-group">
+                    <label class="form-label">Plugin API key</label>
+                    <div style="font-size:0.9rem;color:var(--text-primary);">Saved · prefix <code>${existingData.api_key_prefix || 'flex_…'}</code></div>
+                    <label style="display:flex;align-items:center;gap:0.5rem;margin-top:0.5rem;font-size:0.85rem;color:var(--text-secondary);">
+                        <input type="checkbox" id="flex-regenerate-api-key"> Regenerate plugin API key on save
+                    </label>
+                </div>` : `
+                <div class="form-group">
+                    <label class="form-label">Plugin API key</label>
+                    <span class="form-help">Generated on connect for the Flex CRM plugin.</span>
+                </div>`}
                 <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
-                    <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">Sandbox / messaging test</strong>
+                    <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">Powers the phone system & messaging</strong>
                     <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
-                        <li>Paste <strong>Account SID</strong> + <strong>Auth Token</strong> from Twilio Console → Account → API keys & tokens.</li>
-                        <li>Save — then configure WhatsApp under Integrations with your sandbox from-number.</li>
-                        <li>App SID / API Key / Secret are only for browser voice calling later.</li>
+                        <li>Paste live <strong>Account SID</strong> + <strong>Auth Token</strong> (required for WhatsApp, Viber, SMS, phone).</li>
+                        <li>Enable <strong>Flex</strong> on this Twilio account for the agent desktop.</li>
+                        <li>Then configure WhatsApp / Viber senders under their own cards.</li>
+                        <li>Facebook Messenger in CRM still uses Meta (separate card).</li>
                     </ol>
                 </div>
             `,
@@ -1323,7 +1385,7 @@
                 <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
                     <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">How it works</strong>
                     <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
-                        <li>Connect <strong>Twilio</strong> first under Integrations (same account SID / auth token).</li>
+                        <li>Connect <strong>Twilio Flex</strong> first under Integrations (Account SID / Auth Token).</li>
                         <li>Enable Viber Business Messaging in the Twilio Console and create a Viber sender.</li>
                         <li>Paste the Sender ID here, then set the Webhook URL above on that sender.</li>
                         <li>Customer messages appear in <a href="${TWILIO_SETUP.viberChatUrl}">Viber</a>.</li>
@@ -1357,7 +1419,7 @@
                 <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
                     <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">How it works</strong>
                     <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
-                        <li>Connect <strong>Twilio</strong> first under Integrations.</li>
+                        <li>Connect <strong>Twilio Flex</strong> first under Integrations.</li>
                         <li>Enable WhatsApp in the Twilio Console (Sandbox or production sender).</li>
                         <li>Paste the WhatsApp from number here and point the sender webhook to the URL above.</li>
                         <li>Customer messages appear in <a href="${TWILIO_SETUP.whatsappChatUrl}">WhatsApp</a>. Free-form replies work within the 24-hour window.</li>
@@ -1636,6 +1698,115 @@
         } catch (e) {
             console.error(e);
             alert('Error disconnecting Gmail. Please try again.');
+        }
+    }
+
+    async function handleFlexSave() {
+        const accountSid = document.getElementById('flex-account-sid')?.value?.trim() || '';
+        const authToken = document.getElementById('flex-auth-token')?.value || '';
+        const appSid = document.getElementById('flex-app-sid')?.value?.trim() || '';
+        const apiKey = document.getElementById('flex-api-key')?.value?.trim() || '';
+        const apiSecret = document.getElementById('flex-api-secret')?.value || '';
+        const workspaceSid = document.getElementById('flex-workspace-sid')?.value?.trim() || '';
+        const workflowSid = document.getElementById('flex-workflow-sid')?.value?.trim() || '';
+        const regenerate = document.getElementById('flex-regenerate-api-key')?.checked || false;
+        const existing = window.existingIntegration;
+
+        if (!accountSid) {
+            alert('Please enter your Account SID.');
+            return;
+        }
+        if (!accountSid.startsWith('AC')) {
+            alert('Account SID must start with AC.');
+            return;
+        }
+        if (!authToken && !(existing && existing.auth_token)) {
+            alert('Please provide your Auth Token.');
+            return;
+        }
+        if (appSid && !appSid.startsWith('AP')) {
+            alert('App SID must start with AP.');
+            return;
+        }
+        if (apiKey && !apiKey.startsWith('SK')) {
+            alert('API Key must start with SK.');
+            return;
+        }
+        if ((apiKey && !apiSecret && !(existing && existing.api_secret)) || (!apiKey && apiSecret)) {
+            alert('API Key and API Secret must both be provided together (or left blank).');
+            return;
+        }
+        if (workspaceSid && !workspaceSid.startsWith('WS')) {
+            alert('Workspace SID must start with WS.');
+            return;
+        }
+        if (workflowSid && !workflowSid.startsWith('WW')) {
+            alert('Workflow SID must start with WW.');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/integrations/flex', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                },
+                body: JSON.stringify({
+                    account_sid: accountSid,
+                    auth_token: authToken,
+                    app_sid: appSid || null,
+                    api_key: apiKey || null,
+                    api_secret: apiSecret || null,
+                    workspace_sid: workspaceSid || null,
+                    workflow_sid: workflowSid || null,
+                    regenerate_api_key: regenerate,
+                })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                currentIntegration.status = 'connected';
+                let msg = 'Twilio Flex connected successfully.';
+                if (data.api_key) {
+                    msg += '\n\nPlugin API key (copy now — shown once):\n' + data.api_key;
+                    try {
+                        await navigator.clipboard.writeText(data.api_key);
+                        msg += '\n\n(Copied to clipboard)';
+                    } catch (_) { /* ignore */ }
+                }
+                alert(msg);
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            } else {
+                const fieldErrors = data.errors ? Object.values(data.errors).flat().join('\n') : '';
+                alert((data.error ? data.error + (fieldErrors ? '\n\n' + fieldErrors : '') : fieldErrors) || 'Error saving Flex integration.');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error saving Flex integration. Please try again.');
+        }
+    }
+
+    async function handleFlexDisconnect() {
+        try {
+            const response = await fetch('/api/integrations/flex', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                }
+            });
+            if (response.ok) {
+                if (currentIntegration) currentIntegration.status = 'disconnected';
+                alert('Twilio Flex has been disconnected.');
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            } else {
+                alert('Error disconnecting Flex. Please try again.');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error disconnecting Flex. Please try again.');
         }
     }
 
@@ -1924,28 +2095,8 @@
                         console.error('Error:', error);
                         alert('Error disconnecting integration. Please try again.');
                     }
-                } else if (currentIntegration.id === 'twilio') {
-                    try {
-                        const response = await fetch('/api/integrations/twilio', {
-                            method: 'DELETE',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
-                            }
-                        });
-                        
-                        if (response.ok) {
-                            currentIntegration.status = 'disconnected';
-                            alert(`${currentIntegration.name} has been disconnected.`);
-                            closeIntegrationModal();
-                            renderIntegrations(currentCategory);
-                        } else {
-                            alert('Error disconnecting integration. Please try again.');
-                        }
-                    } catch (error) {
-                        console.error('Error:', error);
-                        alert('Error disconnecting integration. Please try again.');
-                    }
+                } else if (currentIntegration.id === 'flex') {
+                    await handleFlexDisconnect();
                 } else if (currentIntegration.id === 'viber') {
                     try {
                         const response = await fetch('/api/integrations/viber', {
@@ -2095,74 +2246,8 @@
                     console.error('Error:', error);
                     alert('Error connecting Wise. Please try again.');
                 }
-            } else if (currentIntegration.id === 'twilio') {
-                // Get form values
-                const twilioSid = document.getElementById('twilio-sid')?.value?.trim() || '';
-                const authToken = document.getElementById('twilio-auth-token')?.value || '';
-                const appSid = document.getElementById('twilio-app-sid')?.value?.trim() || '';
-                const apiKey = document.getElementById('twilio-api-key')?.value?.trim() || '';
-                const apiSecret = document.getElementById('twilio-api-secret')?.value || '';
-                const existingIntegration = window.existingIntegration;
-
-                if (!twilioSid) {
-                    alert('Please enter your Account SID (TWILIO_SID).');
-                    return;
-                }
-                if (!twilioSid.startsWith('AC')) {
-                    alert('Account SID must start with AC.');
-                    return;
-                }
-                if (!authToken && (!existingIntegration || !existingIntegration.auth_token)) {
-                    alert('Please provide your Auth Token (TWILIO_AUTH_TOKEN).');
-                    return;
-                }
-                if (appSid && !appSid.startsWith('AP')) {
-                    alert('App SID must start with AP.');
-                    return;
-                }
-                if (apiKey && !apiKey.startsWith('SK')) {
-                    alert('API Key must start with SK.');
-                    return;
-                }
-                if ((apiKey && !apiSecret && !(existingIntegration && existingIntegration.api_secret)) ||
-                    (!apiKey && apiSecret)) {
-                    alert('API Key and API Secret must both be provided together (or left blank).');
-                    return;
-                }
-
-                try {
-                    const requestBody = {
-                        account_sid: twilioSid,
-                        auth_token: authToken,
-                        app_sid: appSid || null,
-                        api_key: apiKey || null,
-                        api_secret: apiSecret || null,
-                    };
-
-                    const response = await fetch('/api/integrations/twilio', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
-                        },
-                        body: JSON.stringify(requestBody)
-                    });
-
-                    const data = await response.json();
-
-                    if (response.ok) {
-                        currentIntegration.status = data.status || 'connected';
-                        alert(`${currentIntegration.name} has been connected successfully!`);
-                        closeIntegrationModal();
-                        renderIntegrations(currentCategory);
-                    } else {
-                        const fieldErrors = data.errors ? Object.values(data.errors).flat().join('\n') : '';
-                        alert((data.error ? data.error + (fieldErrors ? '\n\n' + fieldErrors : '') : fieldErrors) || 'Error connecting integration. Please check your Twilio credentials and try again.');
-                    }
-                } catch (error) {
-                    console.error('Error:', error);
-                    alert('Error connecting integration. Please try again.');
-                }
+            } else if (currentIntegration.id === 'flex') {
+                await handleFlexSave();
             } else if (currentIntegration.id === 'viber') {
                 const senderId = document.getElementById('viber-sender-id')?.value?.trim() || '';
                 const botName = document.getElementById('viber-bot-name')?.value?.trim() || '';
@@ -2365,19 +2450,17 @@
                 console.error('Error loading Wise integration on init:', error);
             }
         }
-        // Load Twilio integration
-        const twilioIntegration = integrationsData.find(i => i.id === 'twilio');
-        if (twilioIntegration) {
+        // Load Flex integration (replaces legacy Twilio card)
+        const flexIntegration = integrationsData.find(i => i.id === 'flex');
+        if (flexIntegration) {
             try {
-                const response = await fetch('/api/integrations/twilio');
+                const response = await fetch('/api/integrations/flex');
                 if (response.ok) {
                     const data = await response.json();
-                    if (data.integration) {
-                        twilioIntegration.status = data.status ?? 'disconnected';
-                    }
+                    flexIntegration.status = data.status ?? 'disconnected';
                 }
             } catch (error) {
-                console.error('Error loading Twilio integration on init:', error);
+                console.error('Error loading Flex integration on init:', error);
             }
         }
         // Load Viber integration

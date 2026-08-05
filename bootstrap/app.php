@@ -25,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'client.company.active' => \App\Http\Middleware\EnsureClientCompanyNotSuspended::class,
             'mcp.api_key' => \App\Http\Middleware\McpApiKeyAuth::class,
             'recorder.token' => \App\Http\Middleware\RecorderTokenAuth::class,
+            'flex.api_key' => \App\Http\Middleware\FlexApiKeyAuth::class,
         ]);
         $middleware->web(prepend: [
             \App\Http\Middleware\IdentifyCompanyBySubdomain::class,
@@ -44,6 +45,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'webhooks/viber/*',
             'webhooks/whatsapp/*',
             'webhooks/facebook/*',
+            'webhooks/flex/*',
+            'api/flex/*',
+            'flex/screen-pop/*',
             'mcp',
         ]);
     })

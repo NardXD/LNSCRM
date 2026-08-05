@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use App\Models\Company;
-use App\Models\TwilioIntegration;
+use App\Models\TwilioFlexIntegration;
 use App\Models\TwilioPhoneNumber;
 use App\Models\User;
 use Illuminate\Support\Facades\Crypt;
@@ -12,9 +12,9 @@ use Twilio\Rest\Client;
 
 class TwilioCompanyService
 {
-    public function getActiveIntegration(Company $company): ?TwilioIntegration
+    public function getActiveIntegration(Company $company): ?TwilioFlexIntegration
     {
-        $integration = TwilioIntegration::query()
+        $integration = TwilioFlexIntegration::query()
             ->where('company_id', $company->id)
             ->where('is_active', true)
             ->first();
@@ -26,13 +26,13 @@ class TwilioCompanyService
         return $integration;
     }
 
-    public function getIntegrationByAccountSid(?string $accountSid): ?TwilioIntegration
+    public function getIntegrationByAccountSid(?string $accountSid): ?TwilioFlexIntegration
     {
         if (! $accountSid) {
             return null;
         }
 
-        $integration = TwilioIntegration::query()
+        $integration = TwilioFlexIntegration::query()
             ->where('account_sid', $accountSid)
             ->where('is_active', true)
             ->first();
@@ -47,7 +47,7 @@ class TwilioCompanyService
     /**
      * @return array{sid: string, token: string}|null
      */
-    public function getCredentials(TwilioIntegration $integration): ?array
+    public function getCredentials(TwilioFlexIntegration $integration): ?array
     {
         try {
             $sid = $integration->account_sid;
@@ -59,7 +59,7 @@ class TwilioCompanyService
 
             return ['sid' => $sid, 'token' => $token];
         } catch (\Exception $e) {
-            Log::error('Twilio credential decryption failed', [
+            Log::error('Twilio Flex credential decryption failed', [
                 'integration_id' => $integration->id,
                 'error' => $e->getMessage(),
             ]);
@@ -83,7 +83,7 @@ class TwilioCompanyService
         return (new TwilioService($credentials['sid'], $credentials['token']))->getTwilioClient();
     }
 
-    public function getClientForIntegration(TwilioIntegration $integration): ?Client
+    public function getClientForIntegration(TwilioFlexIntegration $integration): ?Client
     {
         $credentials = $this->getCredentials($integration);
         if (! $credentials) {

@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Twilio;
 
 use App\Http\Controllers\Controller;
 use App\Models\Company;
-use App\Models\TwilioIntegration;
+use App\Models\TwilioFlexIntegration;
 use App\Services\PhoneCallLogService;
 use App\Services\TwilioService;
 use Illuminate\Http\Request;
@@ -27,7 +27,7 @@ class CallController extends Controller
             $integrationError = null;
 
             if ($company) {
-                $integration = TwilioIntegration::where('company_id', $company->id)
+                $integration = TwilioFlexIntegration::where('company_id', $company->id)
                     ->where('is_active', true)
                     ->first();
 
@@ -35,11 +35,11 @@ class CallController extends Controller
                     $hasIntegration = true;
                 } else {
                     // Check if there's an inactive integration
-                    $anyIntegration = TwilioIntegration::where('company_id', $company->id)->first();
+                    $anyIntegration = TwilioFlexIntegration::where('company_id', $company->id)->first();
                     if ($anyIntegration) {
-                        $integrationError = 'Twilio integration is inactive. Please activate it in the Integrations page.';
+                        $integrationError = 'Twilio Flex integration is inactive. Please activate it in the Integrations page.';
                     } else {
-                        $integrationError = 'Twilio integration not configured. Please configure your Twilio credentials in the Integrations page.';
+                        $integrationError = 'Twilio Flex not configured. Please connect Twilio Flex under Integrations.';
                     }
                 }
             } else {
@@ -103,13 +103,13 @@ class CallController extends Controller
                 ], 500);
             }
 
-            $integration = TwilioIntegration::where('company_id', $company->id)
+            $integration = TwilioFlexIntegration::where('company_id', $company->id)
                 ->where('is_active', true)
                 ->first();
 
             if (! $integration) {
                 // Check if there's any integration record (inactive or active)
-                $anyIntegration = TwilioIntegration::where('company_id', $company->id)->first();
+                $anyIntegration = TwilioFlexIntegration::where('company_id', $company->id)->first();
 
                 Log::error('Twilio call failed: No active integration record found in database', [
                     'company_id' => $company->id,
@@ -125,7 +125,7 @@ class CallController extends Controller
 
                 return response()->json([
                     'success' => false,
-                    'message' => 'Twilio integration not configured. Please configure your Twilio credentials in the Integrations page.',
+                    'message' => 'Twilio Flex not configured. Please connect Twilio Flex under Integrations.',
                     'call_sid' => null,
                 ], 500);
             }
@@ -367,7 +367,7 @@ class CallController extends Controller
                 ], 500);
             }
 
-            $integration = TwilioIntegration::where('company_id', $company->id)
+            $integration = TwilioFlexIntegration::where('company_id', $company->id)
                 ->where('is_active', true)
                 ->first();
 
@@ -503,7 +503,7 @@ class CallController extends Controller
                 ], 500);
             }
 
-            $integration = TwilioIntegration::where('company_id', $company->id)
+            $integration = TwilioFlexIntegration::where('company_id', $company->id)
                 ->where('is_active', true)
                 ->first();
 
@@ -595,13 +595,13 @@ class CallController extends Controller
                 ], 500);
             }
 
-            $integration = TwilioIntegration::where('company_id', $company->id)
+            $integration = TwilioFlexIntegration::where('company_id', $company->id)
                 ->where('is_active', true)
                 ->first();
 
             if (! $integration) {
                 // Check if there's any integration record (inactive or active)
-                $anyIntegration = TwilioIntegration::where('company_id', $company->id)->first();
+                $anyIntegration = TwilioFlexIntegration::where('company_id', $company->id)->first();
 
                 Log::error('Twilio call status failed: No active integration record found in database', [
                     'company_id' => $company->id,
@@ -741,7 +741,7 @@ class CallController extends Controller
                 ], 404);
             }
 
-            $integration = TwilioIntegration::where('company_id', $company->id)
+            $integration = TwilioFlexIntegration::where('company_id', $company->id)
                 ->where('is_active', true)
                 ->first();
 

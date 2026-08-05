@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\SmsConversation;
 use App\Models\SmsMessage;
-use App\Models\TwilioIntegration;
 use App\Services\SmsConversationService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
@@ -37,7 +36,6 @@ class SmsController extends Controller
     public function bootstrap(): JsonResponse
     {
         $user = Auth::user();
-        $integration = TwilioIntegration::where('company_id', $user->company_id)->first();
         $active = $user->company
             ? $this->twilioCompany->getActiveIntegration($user->company)
             : null;

@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\TwilioIntegration;
+use App\Models\TwilioFlexIntegration;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
 use Twilio\Exceptions\RestException;
@@ -10,25 +10,25 @@ use Twilio\Rest\Client;
 
 class TwilioIntegrationValidator
 {
-    /** Required for SMS / WhatsApp / Viber messaging. */
+    /** Required for SMS / WhatsApp / Viber messaging and Flex. */
     public const REQUIRED_FIELDS = [
         'account_sid' => 'Account SID',
         'auth_token' => 'Auth Token',
     ];
 
-    /** Optional — only needed for browser-based calling. */
+    /** Optional — only needed for CRM browser-based calling (Voice SDK). */
     public const VOICE_FIELDS = [
         'app_sid' => 'App SID',
         'api_key' => 'API Key',
         'api_secret' => 'API Secret',
     ];
 
-    public function isComplete(TwilioIntegration $integration): bool
+    public function isComplete(TwilioFlexIntegration $integration): bool
     {
         return $this->missingFields($integration) === [];
     }
 
-    public function isVoiceReady(TwilioIntegration $integration): bool
+    public function isVoiceReady(TwilioFlexIntegration $integration): bool
     {
         return $this->missingVoiceFields($integration) === [];
     }
@@ -36,7 +36,7 @@ class TwilioIntegrationValidator
     /**
      * @return array<int, string>
      */
-    public function missingFields(TwilioIntegration $integration): array
+    public function missingFields(TwilioFlexIntegration $integration): array
     {
         $missing = [];
 
@@ -52,7 +52,7 @@ class TwilioIntegrationValidator
     /**
      * @return array<int, string>
      */
-    public function missingVoiceFields(TwilioIntegration $integration): array
+    public function missingVoiceFields(TwilioFlexIntegration $integration): array
     {
         $missing = [];
 
@@ -91,7 +91,7 @@ class TwilioIntegrationValidator
      * }
      */
     public function resolvePlainCredentials(
-        ?TwilioIntegration $existing,
+        ?TwilioFlexIntegration $existing,
         string $accountSid,
         ?string $authTokenInput,
         ?string $appSidInput,

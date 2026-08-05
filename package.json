@@ -16,7 +16,7 @@
         "vite": "^7.0.7"
     },
     "dependencies": {
-        "@twilio/voice-sdk": "^2.18.0",
+        "@twilio/voice-sdk": "^2.18.3",
         "laravel-echo": "^2.3.7",
         "pusher-js": "^8.5.0"
     }

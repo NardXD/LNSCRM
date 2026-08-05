@@ -22,7 +22,7 @@ use App\Http\Controllers\TimeTrackingController;
 use App\Http\Controllers\Twilio\CallController;
 use App\Http\Controllers\Twilio\PhoneSystemController;
 use App\Models\Company;
-use App\Models\TwilioIntegration;
+use App\Models\TwilioFlexIntegration;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -127,9 +127,9 @@ Route::prefix('twilio')->group(function () {
                     $query->where('twilio_number', $called);
                 })->first();
 
-                // If not found, try to get from TwilioIntegration
+                // If not found, try active Flex account credentials
                 if (! $company) {
-                    $integration = TwilioIntegration::where('is_active', true)->first();
+                    $integration = TwilioFlexIntegration::where('is_active', true)->first();
                     $company = $integration ? $integration->company : null;
                 }
 
@@ -260,6 +260,15 @@ Route::post('/webhooks/whatsapp/{webhookKey}', [\App\Http\Controllers\WhatsAppCo
 // Facebook / Instagram Messenger webhooks (public, CSRF-exempt; GET = verify, POST = events)
 Route::match(['get', 'post'], '/webhooks/facebook/{webhookKey}', [\App\Http\Controllers\FacebookController::class, 'webhook'])
     ->name('webhooks.facebook');
+
+// Twilio Flex — CRM screen-pop + TaskRouter event callbacks (public, CSRF-exempt)
+Route::get('/flex/screen-pop/{webhookKey}', [\App\Http\Controllers\Twilio\FlexController::class, 'screenPop'])
+    ->name('flex.screen-pop');
+Route::post('/webhooks/flex/{webhookKey}/events', [\App\Http\Controllers\Twilio\FlexController::class, 'events'])
+    ->name('webhooks.flex.events');
+Route::middleware('flex.api_key')->prefix('api/flex')->group(function () {
+    Route::get('/crm/lookup', [\App\Http\Controllers\Twilio\FlexController::class, 'lookup'])->name('api.flex.crm.lookup');
+});
 
 // Public contract signing routes (no auth required)
 Route::get('/contracts/sign/{token}', [\App\Http\Controllers\ContractController::class, 'showSigningPage'])->name('contracts.sign');
@@ -762,6 +771,9 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/twilio', [\App\Http\Controllers\IntegrationController::class, 'getTwilioIntegration'])->name('api.integrations.twilio.get');
         Route::post('/twilio', [\App\Http\Controllers\IntegrationController::class, 'storeTwilioIntegration'])->name('api.integrations.twilio.store');
         Route::delete('/twilio', [\App\Http\Controllers\IntegrationController::class, 'deleteTwilioIntegration'])->name('api.integrations.twilio.delete');
+        Route::get('/flex', [\App\Http\Controllers\IntegrationController::class, 'getFlexIntegration'])->name('api.integrations.flex.get');
+        Route::post('/flex', [\App\Http\Controllers\IntegrationController::class, 'storeFlexIntegration'])->name('api.integrations.flex.store');
+        Route::delete('/flex', [\App\Http\Controllers\IntegrationController::class, 'deleteFlexIntegration'])->name('api.integrations.flex.delete');
         Route::get('/viber', [\App\Http\Controllers\IntegrationController::class, 'getViberIntegration'])->name('api.integrations.viber.get');
         Route::post('/viber', [\App\Http\Controllers\IntegrationController::class, 'storeViberIntegration'])->name('api.integrations.viber.store');
         Route::delete('/viber', [\App\Http\Controllers\IntegrationController::class, 'deleteViberIntegration'])->name('api.integrations.viber.delete');
