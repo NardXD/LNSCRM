@@ -19,13 +19,8 @@ use App\Http\Controllers\ClientManagementController;
 use App\Http\Controllers\EmployeeMonitoringController;
 use App\Http\Controllers\PayrollController;
 use App\Http\Controllers\TimeTrackingController;
-use App\Http\Controllers\Twilio\CallController;
-use App\Http\Controllers\Twilio\PhoneSystemController;
-use App\Models\Company;
-use App\Models\TwilioIntegration;
-use App\Models\User;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
+use App\Http\Controllers\Infobip\CallController;
+use App\Http\Controllers\Infobip\PhoneSystemController;
 use Illuminate\Support\Facades\Route;
 
 // MCP Server (Model Context Protocol) - for Claude AI integration
@@ -68,185 +63,30 @@ Route::post('/forgot-password', function () {
 Route::post('/webhooks/stripe/company/{company}', [\App\Http\Controllers\StripeWebhookController::class, 'handleWebhook'])->name('webhooks.stripe');
 Route::post('/webhooks/wise/company/{company}', [\App\Http\Controllers\WiseWebhookController::class, 'handle'])->name('webhooks.wise')->where('company', '[0-9]+');
 
-// Twilio Webhook Routes (Public - no authentication required)
-// These routes must be accessible to Twilio's servers without authentication
+// Infobip Webhook Routes (Public - no authentication required)
 // CSRF protection is excluded in bootstrap/app.php
+Route::prefix('infobip')->group(function () {
+    Route::match(['get', 'post'], '/voice', [CallController::class, 'voiceWebhook'])->name('infobip.voice');
+    Route::post('/calls-event', [CallController::class, 'callsEvent'])->name('infobip.calls-event');
+    Route::post('/status-callback', [CallController::class, 'statusCallback'])->name('infobip.status-callback');
+    Route::post('/sms-webhook', [PhoneSystemController::class, 'smsWebhook'])->name('infobip.sms-webhook');
+    Route::post('/sms-status', [PhoneSystemController::class, 'smsStatus'])->name('infobip.sms-status');
+    Route::post('/message-status', [PhoneSystemController::class, 'smsStatus'])->name('infobip.message-status');
+});
+
+// Legacy Twilio webhook paths map to Infobip handlers
 Route::prefix('twilio')->group(function () {
-    // TwiML webhook endpoint - returns XML instructions for Twilio calls
-    // Twilio can call this with either GET or POST, so we handle both
-    Route::match(['get', 'post'], '/voice', function (Request $request) {
-        // Log immediately to verify webhook is being called
-        try {
-            \Illuminate\Support\Facades\Log::info('=== TWILIO VOICE WEBHOOK HIT ===', [
-                'method' => $request->method(),
-                'url' => $request->fullUrl(),
-                'ip' => $request->ip(),
-                'user_agent' => $request->userAgent(),
-            ]);
-        } catch (\Exception $e) {
-            // Even if logging fails, continue
-        }
-
-        // Log all incoming parameters for debugging
-        \Illuminate\Support\Facades\Log::info('Twilio voice webhook received', [
-            'all_params' => $request->all(),
-            'To' => $request->input('To'),
-            'From' => $request->input('From'),
-            'CallSid' => $request->input('CallSid'),
-            'Called' => $request->input('Called'),
-            'Caller' => $request->input('Caller'),
-            'Direction' => $request->input('Direction'),
-        ]);
-
-        $called = $request->input('Called') ?: $request->input('To');
-        $caller = $request->input('Caller') ?: $request->input('From');
-        $direction = $request->input('Direction', 'outbound-api');
-        $fromClient = $request->input('From'); // For browser calls, this will be the client identifier
-
-        // Check if this is an INBOUND call (someone calling your Twilio number)
-        $isInbound = $direction === 'inbound';
-
-        // Check if this is a browser-based OUTBOUND call (has FromClient or From is a user ID)
-        $isBrowserCall = $request->has('FromClient') || (is_numeric($fromClient) && strlen($fromClient) < 10);
-
-        // Build TwiML response
-        $twiml = '<?xml version="1.0" encoding="UTF-8"?>'."\n";
-        $twiml .= '<Response>'."\n";
-
-        if ($isInbound) {
-            // INBOUND CALL: Someone is calling your Twilio phone number
-            // Route to all registered browser clients (users) in the company
-            // Get company from the called number or use a default approach
-
-            try {
-                // Try to find company by phone number
-                $company = Company::whereHas('users', function ($query) use ($called) {
-                    $query->where('twilio_number', $called);
-                })->first();
-
-                // If not found, try to get from TwilioIntegration
-                if (! $company) {
-                    $integration = TwilioIntegration::where('is_active', true)->first();
-                    $company = $integration ? $integration->company : null;
-                }
-
-                if ($company) {
-                    // Get ONLY the user(s) whose twilio_number matches the called number
-                    // This ensures only the specific user assigned to that number receives the call
-                    $users = $company->users()
-                        ->where('twilio_number', $called)
-                        ->get();
-
-                    \Illuminate\Support\Facades\Log::info('Inbound call - routing to specific user(s)', [
-                        'company_id' => $company->id,
-                        'called' => $called,
-                        'caller' => $caller,
-                        'user_count' => $users->count(),
-                        'user_ids' => $users->pluck('id')->toArray(),
-                        'user_emails' => $users->pluck('email')->toArray(),
-                    ]);
-
-                    if ($users->count() > 0) {
-                        // Dial only the user(s) with matching twilio_number
-                        $twiml .= '    <Dial timeout="30" answerOnMedia="true" action="'.route('twilio.status-callback').'">'."\n";
-
-                        foreach ($users as $user) {
-                            // Dial each user as a Client (browser client identity is user ID)
-                            // IMPORTANT: The identity in the capability token MUST match the user ID
-                            $twiml .= '        <Client>'.htmlspecialchars((string) $user->id, ENT_XML1).'</Client>'."\n";
-                            \Illuminate\Support\Facades\Log::info('Dialing client', [
-                                'user_id' => $user->id,
-                                'user_email' => $user->email,
-                                'twilio_number' => $user->twilio_number,
-                                'called_number' => $called,
-                            ]);
-                        }
-
-                        $twiml .= '    </Dial>'."\n";
-                    } else {
-                        // No user found with matching twilio_number
-                        \Illuminate\Support\Facades\Log::warning('Inbound call - no user found with matching twilio_number', [
-                            'called' => $called,
-                            'company_id' => $company->id,
-                        ]);
-                        $twiml .= '    <Say voice="alice">No agent is available for this number. Please try again later.</Say>'."\n";
-                    }
-                } else {
-                    // Company not found - try to find user by twilio_number directly (fallback)
-                    $users = \App\Models\User::where('twilio_number', $called)->get();
-
-                    \Illuminate\Support\Facades\Log::info('Inbound call - company not found, searching by twilio_number directly', [
-                        'called' => $called,
-                        'user_count' => $users->count(),
-                        'user_ids' => $users->pluck('id')->toArray(),
-                    ]);
-
-                    if ($users->count() > 0) {
-                        $twiml .= '    <Dial timeout="30" answerOnMedia="true" action="'.route('twilio.status-callback').'">'."\n";
-                        foreach ($users as $user) {
-                            $twiml .= '        <Client>'.htmlspecialchars((string) $user->id, ENT_XML1).'</Client>'."\n";
-                            \Illuminate\Support\Facades\Log::info('Dialing client (fallback)', [
-                                'user_id' => $user->id,
-                                'user_email' => $user->email,
-                                'twilio_number' => $user->twilio_number,
-                            ]);
-                        }
-                        $twiml .= '    </Dial>'."\n";
-                    } else {
-                        \Illuminate\Support\Facades\Log::warning('Inbound call - no user found with matching twilio_number (fallback)', [
-                            'called' => $called,
-                        ]);
-                        $twiml .= '    <Say voice="alice">No agent is available for this number. Please try again later.</Say>'."\n";
-                    }
-                }
-            } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error('Error handling inbound call', [
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
-                ]);
-                $twiml .= '    <Say voice="alice">An error occurred. Please try again later.</Say>'."\n";
-            }
-        } elseif ($isBrowserCall && $called) {
-            // Browser-based OUTBOUND call: dial the destination number
-            // The browser client is already connected, just need to dial the destination
-            $twiml .= '    <Dial timeout="60" answerOnMedia="true" callerId="'.htmlspecialchars($caller, ENT_XML1).'">'."\n";
-            $twiml .= '        <Number>'.htmlspecialchars($called, ENT_XML1).'</Number>'."\n";
-            $twiml .= '    </Dial>'."\n";
-        } elseif ($called) {
-            // API-based OUTBOUND call: dial the destination number to establish audio bridge
-            $twiml .= '    <Dial timeout="60" answerOnMedia="true">'."\n";
-            $twiml .= '        <Number>'.htmlspecialchars($called, ENT_XML1).'</Number>'."\n";
-            $twiml .= '    </Dial>'."\n";
-        } else {
-            // Fallback if no number provided
-            $twiml .= '    <Say voice="alice">Call connected.</Say>'."\n";
-        }
-
-        $twiml .= '</Response>';
-
-        \Illuminate\Support\Facades\Log::info('Twilio voice webhook response', [
-            'twiml' => $twiml,
-            'called' => $called,
-            'caller' => $caller,
-            'direction' => $direction,
-            'is_inbound' => $isInbound,
-        ]);
-
-        return response($twiml, 200)
-            ->header('Content-Type', 'text/xml');
-    })->name('twilio.voice');
-
-    // Status callback endpoint - receives call status updates from Twilio
+    Route::match(['get', 'post'], '/voice', [CallController::class, 'voiceWebhook'])->name('twilio.voice');
     Route::post('/status-callback', [CallController::class, 'statusCallback'])->name('twilio.status-callback');
     Route::post('/sms-webhook', [PhoneSystemController::class, 'smsWebhook'])->name('twilio.sms-webhook');
     Route::post('/sms-status', [PhoneSystemController::class, 'smsStatus'])->name('twilio.sms-status');
 });
 
-// Viber (Twilio Messaging) inbound webhook (public, CSRF-exempt)
+// Viber inbound webhook (public, CSRF-exempt)
 Route::post('/webhooks/viber/{webhookKey}', [\App\Http\Controllers\ViberController::class, 'webhook'])
     ->name('webhooks.viber');
 
-// WhatsApp (Twilio Messaging) inbound webhook (public, CSRF-exempt)
+// WhatsApp inbound webhook (public, CSRF-exempt)
 Route::post('/webhooks/whatsapp/{webhookKey}', [\App\Http\Controllers\WhatsAppController::class, 'webhook'])
     ->name('webhooks.whatsapp');
 
@@ -300,7 +140,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
     // User Management API Routes
     Route::prefix('api/user-management')->group(function () {
         Route::get('/employees', [\App\Http\Controllers\UserManagementController::class, 'getEmployees'])->name('api.user-management.employees');
-        Route::get('/twilio-number-options', [\App\Http\Controllers\UserManagementController::class, 'getTwilioNumberOptions'])->name('api.user-management.twilio-number-options');
+        Route::get('/phone-number-options', [\App\Http\Controllers\UserManagementController::class, 'getPhoneNumberOptions'])->name('api.user-management.phone-number-options');
         Route::get('/employees/{employee}/clients', [\App\Http\Controllers\UserManagementController::class, 'getEmployeeClients'])->name('api.user-management.employees.clients');
         Route::get('/clients', [\App\Http\Controllers\UserManagementController::class, 'getClientsList'])->name('api.user-management.clients');
         Route::post('/employees', [\App\Http\Controllers\UserManagementController::class, 'storeEmployee'])->name('api.user-management.employees.store');
@@ -387,10 +227,10 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::delete('/recordings', [EmployeeMonitoringController::class, 'deleteRecordings'])->name('api.employee-monitoring.delete-recordings');
     });
 
-    // Twilio Call Routes (Protected - require auth)
+    // Phone system (Infobip) — keep /twilio/* paths for existing frontend URLs
     Route::prefix('twilio')->middleware('permission:view_phone_system')->group(function () {
         Route::get('/test-call', [CallController::class, 'call'])->name('twilio.test-call');
-        Route::get('/call', [CallController::class, 'index'])->name('twilio.call');
+        Route::get('/call', [CallController::class, 'index'])->name('phone.call');
         Route::get('/call-status', [CallController::class, 'callStatus'])->name('twilio.call-status');
         Route::post('/hangup', [CallController::class, 'hangup'])->name('twilio.hangup');
         Route::post('/send-digits', [CallController::class, 'sendDigits'])->name('twilio.send-digits');
@@ -422,8 +262,8 @@ Route::middleware(['auth', 'company.active'])->group(function () {
             Route::get('/employees', [PhoneSystemController::class, 'employeesForAssignment'])->name('twilio.numbers.employees');
             Route::post('/purchase', [PhoneSystemController::class, 'purchaseNumber'])->name('twilio.numbers.purchase');
             Route::post('/sync', [PhoneSystemController::class, 'syncNumbers'])->name('twilio.numbers.sync');
-            Route::post('/{twilioPhoneNumber}/assign', [PhoneSystemController::class, 'assignNumber'])->name('twilio.numbers.assign');
-            Route::post('/{twilioPhoneNumber}/unassign', [PhoneSystemController::class, 'unassignNumber'])->name('twilio.numbers.unassign');
+            Route::post('/{infobipPhoneNumber}/assign', [PhoneSystemController::class, 'assignNumber'])->name('twilio.numbers.assign');
+            Route::post('/{infobipPhoneNumber}/unassign', [PhoneSystemController::class, 'unassignNumber'])->name('twilio.numbers.unassign');
         });
     });
 
@@ -748,9 +588,9 @@ Route::middleware(['auth', 'company.active'])->group(function () {
 
     // Integration API Routes
     Route::prefix('api/integrations')->group(function () {
-        Route::get('/twilio', [\App\Http\Controllers\IntegrationController::class, 'getTwilioIntegration'])->name('api.integrations.twilio.get');
-        Route::post('/twilio', [\App\Http\Controllers\IntegrationController::class, 'storeTwilioIntegration'])->name('api.integrations.twilio.store');
-        Route::delete('/twilio', [\App\Http\Controllers\IntegrationController::class, 'deleteTwilioIntegration'])->name('api.integrations.twilio.delete');
+        Route::get('/infobip', [\App\Http\Controllers\IntegrationController::class, 'getInfobipIntegration'])->name('api.integrations.infobip.get');
+        Route::post('/infobip', [\App\Http\Controllers\IntegrationController::class, 'storeInfobipIntegration'])->name('api.integrations.infobip.store');
+        Route::delete('/infobip', [\App\Http\Controllers\IntegrationController::class, 'deleteInfobipIntegration'])->name('api.integrations.infobip.delete');
         Route::get('/viber', [\App\Http\Controllers\IntegrationController::class, 'getViberIntegration'])->name('api.integrations.viber.get');
         Route::post('/viber', [\App\Http\Controllers\IntegrationController::class, 'storeViberIntegration'])->name('api.integrations.viber.store');
         Route::delete('/viber', [\App\Http\Controllers\IntegrationController::class, 'deleteViberIntegration'])->name('api.integrations.viber.delete');

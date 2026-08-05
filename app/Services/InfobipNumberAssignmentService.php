@@ -2,14 +2,14 @@
 
 namespace App\Services;
 
-use App\Models\TwilioPhoneNumber;
+use App\Models\InfobipPhoneNumber;
 use App\Models\User;
 use Illuminate\Validation\ValidationException;
 
-class TwilioNumberAssignmentService
+class InfobipNumberAssignmentService
 {
     public function __construct(
-        protected TwilioCompanyService $twilioCompany
+        protected InfobipCompanyService $infobipCompany
     ) {}
 
     /**
@@ -17,15 +17,15 @@ class TwilioNumberAssignmentService
      */
     public function optionsForCompany(int $companyId, ?int $forEmployeeId = null): array
     {
-        return TwilioPhoneNumber::query()
+        return InfobipPhoneNumber::query()
             ->where('company_id', $companyId)
             ->with('assignedUser:id,name')
             ->orderBy('phone_number')
             ->get()
-            ->filter(function (TwilioPhoneNumber $number) use ($forEmployeeId) {
+            ->filter(function (InfobipPhoneNumber $number) use ($forEmployeeId) {
                 return $number->assigned_user_id === null || $number->assigned_user_id === $forEmployeeId;
             })
-            ->map(fn (TwilioPhoneNumber $number) => [
+            ->map(fn (InfobipPhoneNumber $number) => [
                 'phone_number' => $number->phone_number,
                 'friendly_name' => $number->friendly_name,
                 'assigned_user_id' => $number->assigned_user_id,
@@ -44,22 +44,22 @@ class TwilioNumberAssignmentService
             return null;
         }
 
-        $normalized = $this->twilioCompany->normalizePhone($rawNumber);
+        $normalized = $this->infobipCompany->normalizePhone($rawNumber);
 
-        $record = TwilioPhoneNumber::query()
+        $record = InfobipPhoneNumber::query()
             ->where('company_id', $companyId)
             ->where('phone_number', $normalized)
             ->first();
 
         if (! $record) {
             throw ValidationException::withMessages([
-                'twilio_number' => 'Select a Twilio number from your company inventory (Phone System → Numbers).',
+                'phone_system_number' => 'Select a phone number from your company inventory (Phone System → Numbers).',
             ]);
         }
 
         if ($record->assigned_user_id && $record->assigned_user_id !== $forUserId) {
             throw ValidationException::withMessages([
-                'twilio_number' => 'This Twilio number is already assigned to another employee.',
+                'phone_system_number' => 'This phone number is already assigned to another employee.',
             ]);
         }
 
@@ -71,18 +71,18 @@ class TwilioNumberAssignmentService
         $companyId = (int) $user->company_id;
         $normalized = $this->validateAssignable($rawNumber, $companyId, $user->id);
 
-        TwilioPhoneNumber::query()
+        InfobipPhoneNumber::query()
             ->where('company_id', $companyId)
             ->where('assigned_user_id', $user->id)
             ->update(['assigned_user_id' => null]);
 
         if (! $normalized) {
-            $user->update(['twilio_number' => null]);
+            $user->update(['phone_system_number' => null]);
 
             return;
         }
 
-        $record = TwilioPhoneNumber::query()
+        $record = InfobipPhoneNumber::query()
             ->where('company_id', $companyId)
             ->where('phone_number', $normalized)
             ->first();
@@ -90,54 +90,54 @@ class TwilioNumberAssignmentService
         if ($record && $record->assigned_user_id && $record->assigned_user_id !== $user->id) {
             User::query()
                 ->where('id', $record->assigned_user_id)
-                ->where('twilio_number', $normalized)
-                ->update(['twilio_number' => null]);
+                ->where('phone_system_number', $normalized)
+                ->update(['phone_system_number' => null]);
         }
 
         $record?->update(['assigned_user_id' => $user->id]);
-        $user->update(['twilio_number' => $normalized]);
+        $user->update(['phone_system_number' => $normalized]);
     }
 
-    public function assignInventoryRecord(TwilioPhoneNumber $twilioPhoneNumber, User $employee): void
+    public function assignInventoryRecord(InfobipPhoneNumber $phoneNumber, User $employee): void
     {
-        if ((int) $twilioPhoneNumber->company_id !== (int) $employee->company_id) {
+        if ((int) $phoneNumber->company_id !== (int) $employee->company_id) {
             throw ValidationException::withMessages([
                 'user_id' => 'Employee not found.',
             ]);
         }
 
-        $alreadyAssigned = TwilioPhoneNumber::query()
+        $alreadyAssigned = InfobipPhoneNumber::query()
             ->where('company_id', $employee->company_id)
             ->where('assigned_user_id', $employee->id)
-            ->where('id', '!=', $twilioPhoneNumber->id)
+            ->where('id', '!=', $phoneNumber->id)
             ->exists();
 
         if ($alreadyAssigned) {
             throw ValidationException::withMessages([
-                'user_id' => 'Employee already has a Twilio number assigned. Unassign it first.',
+                'user_id' => 'Employee already has a phone number assigned. Unassign it first.',
             ]);
         }
 
-        if ($twilioPhoneNumber->assigned_user_id && $twilioPhoneNumber->assigned_user_id !== $employee->id) {
+        if ($phoneNumber->assigned_user_id && $phoneNumber->assigned_user_id !== $employee->id) {
             User::query()
-                ->where('id', $twilioPhoneNumber->assigned_user_id)
-                ->where('twilio_number', $twilioPhoneNumber->phone_number)
-                ->update(['twilio_number' => null]);
+                ->where('id', $phoneNumber->assigned_user_id)
+                ->where('phone_system_number', $phoneNumber->phone_number)
+                ->update(['phone_system_number' => null]);
         }
 
-        $twilioPhoneNumber->update(['assigned_user_id' => $employee->id]);
-        $employee->update(['twilio_number' => $twilioPhoneNumber->phone_number]);
+        $phoneNumber->update(['assigned_user_id' => $employee->id]);
+        $employee->update(['phone_system_number' => $phoneNumber->phone_number]);
     }
 
-    public function unassignInventoryRecord(TwilioPhoneNumber $twilioPhoneNumber): void
+    public function unassignInventoryRecord(InfobipPhoneNumber $phoneNumber): void
     {
-        if ($twilioPhoneNumber->assigned_user_id) {
+        if ($phoneNumber->assigned_user_id) {
             User::query()
-                ->where('id', $twilioPhoneNumber->assigned_user_id)
-                ->where('twilio_number', $twilioPhoneNumber->phone_number)
-                ->update(['twilio_number' => null]);
+                ->where('id', $phoneNumber->assigned_user_id)
+                ->where('phone_system_number', $phoneNumber->phone_number)
+                ->update(['phone_system_number' => null]);
         }
 
-        $twilioPhoneNumber->update(['assigned_user_id' => null]);
+        $phoneNumber->update(['assigned_user_id' => null]);
     }
 }

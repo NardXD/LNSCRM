@@ -5,15 +5,15 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class TwilioIntegration extends Model
+class InfobipIntegration extends Model
 {
     protected $fillable = [
         'company_id',
-        'account_sid',
-        'auth_token',
-        'app_sid',
+        'base_url',
         'api_key',
-        'api_secret',
+        'application_id',
+        'default_from_number',
+        'webhook_secret',
         'is_active',
     ];
 
@@ -21,9 +21,6 @@ class TwilioIntegration extends Model
         'is_active' => 'boolean',
     ];
 
-    /**
-     * Get the company that owns the Twilio integration.
-     */
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);

@@ -140,7 +140,7 @@
     <!-- DEBUG: Verify Vite bundle loaded -->
     {{-- <script>
         console.log('📦 Layout: Vite bundle should be loaded now');
-        console.log('🔍 Checking if twilio-global functions exist...');
+        console.log('Checking if Infobip softphone functions exist...');
         
         // Check immediately
         console.log('🔍 IMMEDIATE - window.handleIncomingCall exists?', typeof window.handleIncomingCall);

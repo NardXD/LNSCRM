@@ -5,12 +5,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class TwilioPhoneNumber extends Model
+class InfobipPhoneNumber extends Model
 {
     protected $fillable = [
         'company_id',
         'phone_number',
-        'twilio_sid',
+        'infobip_number_id',
         'friendly_name',
         'capabilities',
         'assigned_user_id',

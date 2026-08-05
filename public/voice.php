@@ -1,7 +1,7 @@
 <?php
 /**
- * @deprecated Legacy entry point — forwards to Laravel /twilio/voice.
- * Update Twilio Console to use: https://your-domain/twilio/voice
+ * @deprecated Legacy entry point — forwards to Laravel /infobip/voice.
+ * Update Infobip portal to use: https://your-domain/infobip/voice
  */
 
 declare(strict_types=1);
@@ -16,7 +16,7 @@ $app = require_once __DIR__.'/../bootstrap/app.php';
 
 $kernel = $app->make(Illuminate\Contracts\Http\Kernel::class);
 
-$uri = '/twilio/voice';
+$uri = '/infobip/voice';
 if (! empty($_SERVER['QUERY_STRING'])) {
     $uri .= '?'.$_SERVER['QUERY_STRING'];
 }

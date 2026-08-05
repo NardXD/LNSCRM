@@ -1,6 +1,10 @@
 @php
-    $voiceWebhook = route('twilio.voice');
-    $smsWebhook = route('twilio.sms-webhook');
+    $voiceWebhook = \Illuminate\Support\Facades\Route::has('infobip.voice')
+        ? route('infobip.voice')
+        : (\Illuminate\Support\Facades\Route::has('twilio.voice') ? route('twilio.voice') : url('/infobip/voice'));
+    $smsWebhook = \Illuminate\Support\Facades\Route::has('infobip.sms-webhook')
+        ? route('infobip.sms-webhook')
+        : (\Illuminate\Support\Facades\Route::has('twilio.sms-webhook') ? route('twilio.sms-webhook') : url('/infobip/sms-webhook'));
     $integrationsUrl = route('integrations');
     $smsPageUrl = route('sms');
 @endphp
@@ -10,23 +14,23 @@
             <circle cx="12" cy="12" r="10"/>
             <path d="M12 16v-4M12 8h.01"/>
         </svg>
-        Setup checklist — connect Twilio to use Phone System
+        Setup checklist — connect Infobip to use Phone System
     </summary>
     <div class="phone-setup-tips-body">
         <ol class="phone-setup-steps">
             <li>
-                <strong>Connect your company Twilio account</strong> in
+                <strong>Connect your company Infobip account</strong> in
                 <a href="{{ $integrationsUrl }}">Integrations</a>:
-                Account SID, Auth Token, and (for browser calling) App SID, API Key, and API Secret.
+                Base URL, API Key, and (for browser calling) Application ID.
             </li>
             <li>
-                <strong>Phone numbers</strong> — Company admins with <em>Manage Twilio Numbers</em> can search and buy numbers on the <strong>Numbers</strong> tab, or buy in the Twilio Console and click <strong>Sync</strong>.
+                <strong>Phone numbers</strong> — Company admins with <em>Manage Phone Numbers</em> can search and buy numbers on the <strong>Numbers</strong> tab, or add numbers in Infobip and click <strong>Sync</strong>.
             </li>
             <li>
                 <strong>Assign a number</strong> to each employee who will make calls or send SMS (Numbers tab → Assign, or User Management).
             </li>
             <li>
-                <strong>Twilio Console webhooks</strong> (required for inbound calls, call history, and SMS if numbers were not bought in-app):
+                <strong>Infobip webhooks</strong> (required for inbound calls, call history, and SMS if numbers were not bought in-app):
                 <ul>
                     <li>Voice URL: <code class="phone-setup-code">{{ $voiceWebhook }}</code></li>
                     <li>SMS URL: <code class="phone-setup-code">{{ $smsWebhook }}</code></li>
@@ -38,10 +42,10 @@
                 <a href="{{ $smsPageUrl }}">SMS</a> page in the sidebar (alongside Viber and WhatsApp).
             </li>
             <li>
-                <strong>Employees</strong> need an assigned Twilio number before outbound calls or SMS will work.
+                <strong>Employees</strong> need an assigned phone number before outbound calls or SMS will work.
             </li>
         </ol>
-        <p class="phone-setup-note">Each company uses its own Twilio account. Trial accounts may need verified caller IDs and upgraded accounts for purchasing numbers.</p>
+        <p class="phone-setup-note">Each company uses its own Infobip account. Ensure your account has voice and SMS enabled for the numbers you assign.</p>
     </div>
 </details>
 

@@ -1,20 +1,20 @@
 <?php
 
-namespace App\Http\Controllers\Twilio;
+namespace App\Http\Controllers\Infobip;
 
 use App\Http\Controllers\Controller;
+use App\Models\InfobipPhoneNumber;
 use App\Models\PhoneCallLog;
 use App\Models\PhoneContact;
 use App\Models\SmsMessage;
-use App\Models\TwilioPhoneNumber;
 use App\Models\User;
 use App\Models\ViberMessage;
 use App\Models\WhatsAppMessage;
+use App\Services\InfobipCompanyService;
+use App\Services\InfobipNumberAssignmentService;
+use App\Services\InfobipService;
 use App\Services\PhoneCallLogService;
 use App\Services\SmsConversationService;
-use App\Services\TwilioCompanyService;
-use App\Services\TwilioNumberAssignmentService;
-use App\Services\TwilioService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -24,9 +24,9 @@ use Illuminate\Validation\Rule;
 class PhoneSystemController extends Controller
 {
     public function __construct(
-        protected TwilioCompanyService $twilioCompany,
+        protected InfobipCompanyService $infobipCompany,
         protected PhoneCallLogService $callLogService,
-        protected TwilioNumberAssignmentService $numberAssignment,
+        protected InfobipNumberAssignmentService $numberAssignment,
         protected SmsConversationService $smsConversations
     ) {}
 
@@ -82,7 +82,7 @@ class PhoneSystemController extends Controller
             'company_id' => $user->company_id,
             'user_id' => $user->id,
             'name' => $validated['name'],
-            'phone' => $this->twilioCompany->normalizePhone($validated['phone']),
+            'phone' => $this->infobipCompany->normalizePhone($validated['phone']),
             'email' => $validated['email'] ?? null,
             'notes' => $validated['notes'] ?? null,
         ]);
@@ -106,7 +106,7 @@ class PhoneSystemController extends Controller
 
         $phoneContact->update([
             'name' => $validated['name'],
-            'phone' => $this->twilioCompany->normalizePhone($validated['phone']),
+            'phone' => $this->infobipCompany->normalizePhone($validated['phone']),
             'email' => $validated['email'] ?? null,
             'notes' => $validated['notes'] ?? null,
         ]);
@@ -128,30 +128,26 @@ class PhoneSystemController extends Controller
     public function numbers(Request $request): JsonResponse
     {
         $user = Auth::user();
-        $numbers = TwilioPhoneNumber::query()
+        $numbers = InfobipPhoneNumber::query()
             ->where('company_id', $user->company_id)
             ->with('assignedUser:id,name,email')
             ->orderBy('phone_number')
             ->get()
-            ->map(fn (TwilioPhoneNumber $n) => $this->formatNumber($n));
+            ->map(fn (InfobipPhoneNumber $n) => $this->formatNumber($n));
 
         return response()->json(['success' => true, 'data' => $numbers]);
     }
 
     public function searchAvailableNumbers(Request $request): JsonResponse
     {
-        $client = $this->clientOrFail();
+        $infobip = $this->serviceOrFail();
 
         $validated = $request->validate([
             'country' => ['nullable', 'string', 'size:2'],
             'area_code' => ['nullable', 'string', 'max:10'],
         ]);
 
-        $twilio = new TwilioService(
-            ...array_values($this->credentialsOrFail())
-        );
-
-        $numbers = $twilio->searchAvailableNumbers(
+        $numbers = $infobip->searchAvailableNumbers(
             $validated['country'] ?? 'US',
             $validated['area_code'] ?? null,
             15
@@ -167,9 +163,9 @@ class PhoneSystemController extends Controller
             'phone_number' => ['required', 'string', 'max:20'],
         ]);
 
-        $normalized = $this->twilioCompany->normalizePhone($validated['phone_number']);
+        $normalized = $this->infobipCompany->normalizePhone($validated['phone_number']);
 
-        $exists = TwilioPhoneNumber::query()
+        $exists = InfobipPhoneNumber::query()
             ->where('company_id', $user->company_id)
             ->where('phone_number', $normalized)
             ->exists();
@@ -177,24 +173,15 @@ class PhoneSystemController extends Controller
             return response()->json(['success' => false, 'message' => 'Number already in inventory.'], 422);
         }
 
-        $credentials = $this->credentialsOrFail();
-        $twilio = new TwilioService($credentials['sid'], $credentials['token']);
+        $infobip = $this->serviceOrFail();
+        $purchased = $infobip->purchaseNumber($normalized);
 
-        $purchased = $twilio->purchaseNumber(
-            $normalized,
-            route('twilio.voice'),
-            route('twilio.sms-webhook')
-        );
-
-        $record = TwilioPhoneNumber::query()->create([
+        $record = InfobipPhoneNumber::query()->create([
             'company_id' => $user->company_id,
-            'phone_number' => $purchased->phoneNumber,
-            'twilio_sid' => $purchased->sid,
-            'friendly_name' => $purchased->friendlyName,
-            'capabilities' => [
-                'voice' => (bool) ($purchased->capabilities->voice ?? true),
-                'sms' => (bool) ($purchased->capabilities->sms ?? false),
-            ],
+            'phone_number' => $purchased['phone_number'],
+            'infobip_number_id' => $purchased['sid'],
+            'friendly_name' => $purchased['friendly_name'],
+            'capabilities' => $purchased['capabilities'],
         ]);
 
         return response()->json([
@@ -207,45 +194,38 @@ class PhoneSystemController extends Controller
     public function syncNumbers(Request $request): JsonResponse
     {
         $user = Auth::user();
-        $credentials = $this->credentialsOrFail();
-        $twilio = new TwilioService($credentials['sid'], $credentials['token']);
-        $owned = $twilio->listOwnedNumbers();
+        $infobip = $this->serviceOrFail();
+        $owned = $infobip->listOwnedNumbers();
 
         $synced = 0;
-        $voiceUrl = route('twilio.voice');
-        $smsUrl = route('twilio.sms-webhook');
 
         foreach ($owned as $item) {
-            $normalized = $this->twilioCompany->normalizePhone($item['phone_number']);
-            TwilioPhoneNumber::query()->updateOrCreate(
+            $normalized = $this->infobipCompany->normalizePhone($item['phone_number']);
+            InfobipPhoneNumber::query()->updateOrCreate(
                 [
                     'company_id' => $user->company_id,
                     'phone_number' => $normalized,
                 ],
                 [
-                    'twilio_sid' => $item['sid'],
+                    'infobip_number_id' => $item['sid'],
                     'friendly_name' => $item['friendly_name'],
                     'capabilities' => $item['capabilities'],
                 ]
             );
-
-            if (! empty($item['sid'])) {
-                $twilio->updateNumberWebhooks($item['sid'], $voiceUrl, $smsUrl);
-            }
 
             $synced++;
         }
 
         return response()->json([
             'success' => true,
-            'message' => "Synced {$synced} number(s) from Twilio and updated webhooks.",
+            'message' => "Synced {$synced} number(s) from Infobip.",
         ]);
     }
 
-    public function assignNumber(Request $request, TwilioPhoneNumber $twilioPhoneNumber): JsonResponse
+    public function assignNumber(Request $request, InfobipPhoneNumber $infobipPhoneNumber): JsonResponse
     {
         $user = Auth::user();
-        if ((int) $twilioPhoneNumber->company_id !== (int) $user->company_id) {
+        if ((int) $infobipPhoneNumber->company_id !== (int) $user->company_id) {
             return response()->json(['success' => false, 'message' => 'Number not found.'], 404);
         }
 
@@ -267,7 +247,7 @@ class PhoneSystemController extends Controller
         }
 
         try {
-            $this->numberAssignment->assignInventoryRecord($twilioPhoneNumber, $employee);
+            $this->numberAssignment->assignInventoryRecord($infobipPhoneNumber, $employee);
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'success' => false,
@@ -278,22 +258,22 @@ class PhoneSystemController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatNumber($twilioPhoneNumber->fresh('assignedUser')),
+            'data' => $this->formatNumber($infobipPhoneNumber->fresh('assignedUser')),
         ]);
     }
 
-    public function unassignNumber(TwilioPhoneNumber $twilioPhoneNumber): JsonResponse
+    public function unassignNumber(InfobipPhoneNumber $infobipPhoneNumber): JsonResponse
     {
         $user = Auth::user();
-        if ((int) $twilioPhoneNumber->company_id !== (int) $user->company_id) {
+        if ((int) $infobipPhoneNumber->company_id !== (int) $user->company_id) {
             return response()->json(['success' => false, 'message' => 'Number not found.'], 404);
         }
 
-        $this->numberAssignment->unassignInventoryRecord($twilioPhoneNumber);
+        $this->numberAssignment->unassignInventoryRecord($infobipPhoneNumber);
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatNumber($twilioPhoneNumber->fresh()),
+            'data' => $this->formatNumber($infobipPhoneNumber->fresh()),
         ]);
     }
 
@@ -303,12 +283,14 @@ class PhoneSystemController extends Controller
         $employees = User::query()
             ->where('company_id', $user->company_id)
             ->orderBy('name')
-            ->get(['id', 'name', 'email', 'twilio_number'])
+            ->get(['id', 'name', 'email', 'phone_system_number'])
             ->map(fn (User $e) => [
                 'id' => $e->id,
                 'name' => $e->name,
                 'email' => $e->email,
-                'twilio_number' => $e->twilio_number,
+                'phone_system_number' => $e->phone_system_number,
+                // Keep legacy key so existing phone-panel UI keeps working
+                'twilio_number' => $e->phone_system_number,
             ]);
 
         return response()->json(['success' => true, 'data' => $employees]);
@@ -318,14 +300,14 @@ class PhoneSystemController extends Controller
     {
         $user = Auth::user();
         $companyId = (int) $user->company_id;
-        $myNumber = $user->twilio_number;
+        $myNumber = $user->phone_system_number;
 
         $query = SmsMessage::query()
             ->where('company_id', $companyId)
             ->orderByDesc('created_at');
 
         if ($request->filled('peer') && $myNumber) {
-            $peer = $this->twilioCompany->normalizePhone($request->peer);
+            $peer = $this->infobipCompany->normalizePhone($request->peer);
             $query->where(function ($q) use ($myNumber, $peer) {
                 $q->where(function ($inner) use ($myNumber, $peer) {
                     $inner->where('from_number', $myNumber)->where('to_number', $peer);
@@ -343,7 +325,7 @@ class PhoneSystemController extends Controller
     public function smsThreads(Request $request): JsonResponse
     {
         $user = Auth::user();
-        $myNumber = $user->twilio_number;
+        $myNumber = $user->phone_system_number;
         if (! $myNumber) {
             return response()->json(['success' => true, 'data' => []]);
         }
@@ -379,10 +361,10 @@ class PhoneSystemController extends Controller
     public function sendSms(Request $request): JsonResponse
     {
         $user = Auth::user();
-        if (! $user->twilio_number) {
+        if (! $user->phone_system_number) {
             return response()->json([
                 'success' => false,
-                'message' => 'You need an assigned Twilio number to send SMS.',
+                'message' => 'You need an assigned phone number to send SMS.',
             ], 422);
         }
 
@@ -391,13 +373,11 @@ class PhoneSystemController extends Controller
             'body' => ['required', 'string', 'max:1600'],
         ]);
 
-        $to = $this->twilioCompany->normalizePhone($validated['to']);
-        $from = $this->twilioCompany->normalizePhone($user->twilio_number);
+        $to = $this->infobipCompany->normalizePhone($validated['to']);
+        $from = $this->infobipCompany->normalizePhone($user->phone_system_number);
 
-        $credentials = $this->credentialsOrFail();
-        $twilio = new TwilioService($credentials['sid'], $credentials['token']);
-
-        $sent = $twilio->sendSms($from, $to, $validated['body'], route('twilio.sms-status'));
+        $infobip = $this->serviceOrFail();
+        $sent = $infobip->sendSms($from, $to, $validated['body'], route('infobip.sms-status'));
 
         $conversation = $this->smsConversations->upsert(
             (int) $user->company_id,
@@ -409,12 +389,12 @@ class PhoneSystemController extends Controller
             'company_id' => $user->company_id,
             'sms_conversation_id' => $conversation->id,
             'user_id' => $user->id,
-            'message_sid' => $sent->sid,
+            'message_sid' => $sent['messageId'],
             'direction' => 'outbound',
             'from_number' => $from,
             'to_number' => $to,
             'body' => $validated['body'],
-            'status' => $sent->status,
+            'status' => $sent['status'] ?? 'pending',
             'sent_at' => now(),
         ]);
 
@@ -428,64 +408,134 @@ class PhoneSystemController extends Controller
 
     public function smsWebhook(Request $request)
     {
-        $from = $request->input('From');
-        $to = $request->input('To');
-        $body = $request->input('Body') ?? '';
-        $messageSid = $request->input('MessageSid');
-        $accountSid = $request->input('AccountSid');
+        $results = $request->input('results');
 
-        if (! $messageSid) {
+        if (is_array($results) && count($results) > 0) {
+            foreach ($results as $result) {
+                if (! is_array($result)) {
+                    continue;
+                }
+
+                $this->storeInboundSms(
+                    messageId: $result['messageId'] ?? $result['message_id'] ?? null,
+                    from: $result['from'] ?? null,
+                    to: $result['to'] ?? null,
+                    body: (string) ($result['text'] ?? $result['cleanText'] ?? ''),
+                    status: is_array($result['status'] ?? null)
+                        ? strtolower((string) ($result['status']['name'] ?? $result['status']['groupName'] ?? 'received'))
+                        : (string) ($result['status'] ?? 'received')
+                );
+            }
+
             return response('OK', 200);
         }
 
-        $company = $this->twilioCompany->resolveCompanyFromWebhook($accountSid, $to, $from);
+        // Form-field / Twilio-shaped fallback
+        $this->storeInboundSms(
+            messageId: $request->input('messageId')
+                ?? $request->input('MessageSid')
+                ?? $request->input('message_id'),
+            from: $request->input('from') ?? $request->input('From'),
+            to: $request->input('to') ?? $request->input('To'),
+            body: (string) ($request->input('text') ?? $request->input('Body') ?? ''),
+            status: (string) ($request->input('status') ?? $request->input('SmsStatus') ?? 'received')
+        );
+
+        return response('OK', 200);
+    }
+
+    public function smsStatus(Request $request)
+    {
+        $results = $request->input('results');
+
+        if (is_array($results) && count($results) > 0) {
+            foreach ($results as $result) {
+                if (! is_array($result)) {
+                    continue;
+                }
+
+                $messageId = $result['messageId'] ?? $result['message_id'] ?? null;
+                $status = null;
+                if (is_array($result['status'] ?? null)) {
+                    $status = $result['status']['name'] ?? $result['status']['groupName'] ?? null;
+                } else {
+                    $status = $result['status'] ?? null;
+                }
+
+                $this->applyDeliveryStatus($messageId, $status);
+            }
+
+            return response('OK', 200);
+        }
+
+        $messageId = $request->input('messageId')
+            ?? $request->input('MessageSid')
+            ?? $request->input('message_id');
+        $status = $request->input('status')
+            ?? $request->input('MessageStatus');
+
+        if (is_array($status)) {
+            $status = $status['name'] ?? $status['groupName'] ?? null;
+        }
+
+        $this->applyDeliveryStatus($messageId, $status);
+
+        return response('OK', 200);
+    }
+
+    private function storeInboundSms(?string $messageId, ?string $from, ?string $to, string $body, string $status): void
+    {
+        if (! $messageId) {
+            return;
+        }
+
+        $fromNormalized = $from ? $this->infobipCompany->normalizePhone($from) : null;
+        $toNormalized = $to ? $this->infobipCompany->normalizePhone($to) : null;
+
+        $company = $this->infobipCompany->resolveCompanyFromNumber($toNormalized, $fromNormalized);
         if (! $company) {
             Log::warning('SMS webhook: company not resolved', ['to' => $to, 'from' => $from]);
 
-            return response('OK', 200);
+            return;
         }
 
-        $user = $this->twilioCompany->resolveUserFromNumbers($to, $from, 'inbound');
+        $user = $this->infobipCompany->resolveUserFromNumbers($toNormalized, $fromNormalized, 'inbound');
 
         $conversation = $this->smsConversations->upsert(
             (int) $company->id,
-            (string) $from,
-            (string) $to
+            (string) ($fromNormalized ?? $from),
+            (string) ($toNormalized ?? $to)
         );
 
         $record = SmsMessage::query()->updateOrCreate(
-            ['message_sid' => $messageSid],
+            ['message_sid' => $messageId],
             [
                 'company_id' => $company->id,
                 'sms_conversation_id' => $conversation->id,
                 'user_id' => $user?->id,
                 'direction' => 'inbound',
-                'from_number' => $from,
-                'to_number' => $to,
+                'from_number' => $fromNormalized ?? $from,
+                'to_number' => $toNormalized ?? $to,
                 'body' => $body,
-                'status' => $request->input('SmsStatus', 'received'),
+                'status' => strtolower($status) ?: 'received',
                 'sent_at' => now(),
             ]
         );
 
         $this->smsConversations->touch($conversation, $record, $record->wasRecentlyCreated);
-
-        return response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', 200)
-            ->header('Content-Type', 'text/xml');
     }
 
-    public function smsStatus(Request $request)
+    private function applyDeliveryStatus(?string $messageId, mixed $status): void
     {
-        $messageSid = $request->input('MessageSid');
-        $status = $request->input('MessageStatus');
-
-        if ($messageSid && $status) {
-            SmsMessage::query()->where('message_sid', $messageSid)->update(['status' => $status]);
-            WhatsAppMessage::query()->where('wamid', $messageSid)->update(['status' => $status]);
-            ViberMessage::query()->where('message_token', $messageSid)->update(['status' => $status]);
+        if (! $messageId || ! $status) {
+            return;
         }
 
-        return response('OK', 200);
+        $normalized = strtolower((string) $status);
+
+        SmsMessage::query()->where('message_sid', $messageId)->update(['status' => $normalized]);
+        WhatsAppMessage::query()->where('wamid', $messageId)->update(['status' => $normalized]);
+        ViberMessage::query()->where('message_token', $messageId)->update(['status' => $normalized]);
     }
 
     private function authorizeContact(PhoneContact $contact): void
@@ -496,35 +546,15 @@ class PhoneSystemController extends Controller
         }
     }
 
-    /**
-     * @return array{sid: string, token: string}
-     */
-    private function credentialsOrFail(): array
+    private function serviceOrFail(): InfobipService
     {
         $user = Auth::user();
-        $company = $user->company;
-        $integration = $this->twilioCompany->getActiveIntegration($company);
-        if (! $integration) {
-            abort(response()->json(['success' => false, 'message' => 'Twilio not configured.'], 500));
+        $service = $this->infobipCompany->getServiceForCompany($user->company);
+        if (! $service) {
+            abort(response()->json(['success' => false, 'message' => 'Infobip not configured.'], 500));
         }
 
-        $credentials = $this->twilioCompany->getCredentials($integration);
-        if (! $credentials) {
-            abort(response()->json(['success' => false, 'message' => 'Invalid Twilio credentials.'], 500));
-        }
-
-        return $credentials;
-    }
-
-    private function clientOrFail(): \Twilio\Rest\Client
-    {
-        $user = Auth::user();
-        $client = $this->twilioCompany->getClientForCompany($user->company);
-        if (! $client) {
-            abort(response()->json(['success' => false, 'message' => 'Twilio not configured.'], 500));
-        }
-
-        return $client;
+        return $service;
     }
 
     private function formatCallLog(PhoneCallLog $log): array
@@ -554,7 +584,7 @@ class PhoneSystemController extends Controller
         ];
     }
 
-    private function formatNumber(TwilioPhoneNumber $number): array
+    private function formatNumber(InfobipPhoneNumber $number): array
     {
         return [
             'id' => $number->id,

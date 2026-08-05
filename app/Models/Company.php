@@ -141,11 +141,11 @@ class Company extends Model
     }
 
     /**
-     * Get the Twilio integration for the company.
+     * Get the Infobip integration for the company.
      */
-    public function twilioIntegration()
+    public function infobipIntegration()
     {
-        return $this->hasOne(TwilioIntegration::class);
+        return $this->hasOne(InfobipIntegration::class);
     }
 
     /**

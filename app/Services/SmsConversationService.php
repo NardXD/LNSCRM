@@ -10,7 +10,7 @@ use Illuminate\Support\Str;
 class SmsConversationService
 {
     public function __construct(
-        protected TwilioCompanyService $twilioCompany
+        protected InfobipCompanyService $infobipCompany
     ) {}
 
     public function upsert(
@@ -19,8 +19,8 @@ class SmsConversationService
         ?string $ourNumber = null,
         ?string $name = null
     ): SmsConversation {
-        $peer = $this->twilioCompany->normalizePhone($peerPhone);
-        $our = $ourNumber ? $this->twilioCompany->normalizePhone($ourNumber) : null;
+        $peer = $this->infobipCompany->normalizePhone($peerPhone);
+        $our = $ourNumber ? $this->infobipCompany->normalizePhone($ourNumber) : null;
 
         $conversation = SmsConversation::firstOrNew([
             'company_id' => $companyId,
@@ -58,7 +58,7 @@ class SmsConversationService
 
     public function resolveContactName(int $companyId, string $peerPhone): ?string
     {
-        $normalized = $this->twilioCompany->normalizePhone($peerPhone);
+        $normalized = $this->infobipCompany->normalizePhone($peerPhone);
 
         $contact = PhoneContact::query()
             ->where('company_id', $companyId)

@@ -212,7 +212,7 @@
             const employees = empRes.data || [];
 
             if (!numbers.length) {
-                list.innerHTML = '<p class="phone-empty-msg">No numbers in inventory. Search and purchase or sync from Twilio.</p>';
+                list.innerHTML = '<p class="phone-empty-msg">No numbers in inventory. Search and purchase or sync from Infobip.</p>';
             } else {
                 list.innerHTML = numbers.map((n) => `
                     <div class="phone-list-item">
@@ -239,7 +239,7 @@
             }
             if (empSelect) {
                 empSelect.innerHTML = '<option value="">Select employee</option>' +
-                    employees.filter((e) => !e.twilio_number).map((e) =>
+                    employees.filter((e) => !e.phone_system_number && !e.twilio_number).map((e) =>
                         `<option value="${e.id}">${escapeHtml(e.name)}</option>`
                     ).join('');
             }

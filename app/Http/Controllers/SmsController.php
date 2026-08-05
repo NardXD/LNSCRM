@@ -2,20 +2,21 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\InfobipIntegration;
 use App\Models\SmsConversation;
 use App\Models\SmsMessage;
-use App\Models\TwilioIntegration;
+use App\Services\InfobipCompanyService;
+use App\Services\InfobipService;
 use App\Services\SmsConversationService;
-use App\Services\TwilioCompanyService;
-use App\Services\TwilioService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Route;
 
 class SmsController extends Controller
 {
     public function __construct(
-        protected TwilioCompanyService $twilioCompany,
+        protected InfobipCompanyService $infobipCompany,
         protected SmsConversationService $conversations
     ) {}
 
@@ -24,12 +25,12 @@ class SmsController extends Controller
         $user = Auth::user();
         $company = $user?->company;
         $integration = $company
-            ? $this->twilioCompany->getActiveIntegration($company)
+            ? $this->infobipCompany->getActiveIntegration($company)
             : null;
 
         return view('dashboard.sms', [
             'integrationConnected' => (bool) $integration,
-            'twilioNumber' => $user?->twilio_number,
+            'phoneSystemNumber' => $user?->phone_system_number,
             'canSendSms' => (bool) $user?->hasPermission('send_sms'),
         ]);
     }
@@ -37,20 +38,20 @@ class SmsController extends Controller
     public function bootstrap(): JsonResponse
     {
         $user = Auth::user();
-        $integration = TwilioIntegration::where('company_id', $user->company_id)->first();
+        $integration = InfobipIntegration::where('company_id', $user->company_id)->first();
         $active = $user->company
-            ? $this->twilioCompany->getActiveIntegration($user->company)
+            ? $this->infobipCompany->getActiveIntegration($user->company)
             : null;
 
         return response()->json([
             'connected' => (bool) $active,
             'can_send' => $user->hasPermission('send_sms'),
             'account' => [
-                'twilio_number' => $user->twilio_number,
-                'has_number' => (bool) $user->twilio_number,
+                'phone_system_number' => $user->phone_system_number,
+                'has_number' => (bool) $user->phone_system_number,
                 'is_active' => (bool) ($integration && $integration->is_active),
                 'integrations_url' => route('integrations'),
-                'phone_system_url' => route('twilio.call'),
+                'phone_system_url' => $this->phoneSystemUrl(),
             ],
         ]);
     }
@@ -73,13 +74,13 @@ class SmsController extends Controller
             });
         }
 
-        // Non-admins only see threads involving their assigned Twilio number
-        if (! $user->hasPermission('manage_twilio_numbers') && $user->twilio_number) {
-            $mine = $this->twilioCompany->normalizePhone($user->twilio_number);
+        // Non-admins only see threads involving their assigned phone number
+        if (! $user->hasPermission('manage_twilio_numbers') && $user->phone_system_number) {
+            $mine = $this->infobipCompany->normalizePhone($user->phone_system_number);
             $query->where(function ($builder) use ($mine) {
                 $builder->where('our_number', $mine)->orWhereNull('our_number');
             });
-        } elseif (! $user->hasPermission('manage_twilio_numbers') && ! $user->twilio_number) {
+        } elseif (! $user->hasPermission('manage_twilio_numbers') && ! $user->phone_system_number) {
             return response()->json(['data' => []]);
         }
 
@@ -116,9 +117,9 @@ class SmsController extends Controller
             return response()->json(['message' => 'You do not have permission to send SMS.'], 403);
         }
 
-        if (! $user->twilio_number) {
+        if (! $user->phone_system_number) {
             return response()->json([
-                'message' => 'You need an assigned Twilio number to start an SMS conversation.',
+                'message' => 'You need an assigned phone number to start an SMS conversation.',
             ], 422);
         }
 
@@ -127,8 +128,8 @@ class SmsController extends Controller
             'name' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $peer = $this->twilioCompany->normalizePhone($validated['to']);
-        $from = $this->twilioCompany->normalizePhone($user->twilio_number);
+        $peer = $this->infobipCompany->normalizePhone($validated['to']);
+        $from = $this->infobipCompany->normalizePhone($user->phone_system_number);
 
         $conversation = $this->conversations->upsert(
             (int) $user->company_id,
@@ -149,9 +150,9 @@ class SmsController extends Controller
             return response()->json(['message' => 'You do not have permission to send SMS.'], 403);
         }
 
-        if (! $user->twilio_number) {
+        if (! $user->phone_system_number) {
             return response()->json([
-                'message' => 'You need an assigned Twilio number to send SMS.',
+                'message' => 'You need an assigned phone number to send SMS.',
             ], 422);
         }
 
@@ -160,22 +161,25 @@ class SmsController extends Controller
         ]);
 
         $to = $conversation->peer_phone;
-        $from = $this->twilioCompany->normalizePhone($user->twilio_number);
+        $from = $this->infobipCompany->normalizePhone($user->phone_system_number);
 
         $company = $user->company;
-        $integration = $company ? $this->twilioCompany->getActiveIntegration($company) : null;
+        $integration = $company ? $this->infobipCompany->getActiveIntegration($company) : null;
         if (! $integration) {
-            return response()->json(['message' => 'Twilio is not connected. Configure it under Integrations.'], 422);
+            return response()->json(['message' => 'Infobip is not connected. Configure it under Integrations.'], 422);
         }
 
-        $credentials = $this->twilioCompany->getCredentials($integration);
+        $credentials = $this->infobipCompany->getCredentials($integration);
         if (! $credentials) {
-            return response()->json(['message' => 'Invalid Twilio credentials.'], 422);
+            return response()->json(['message' => 'Invalid Infobip credentials.'], 422);
         }
 
         try {
-            $twilio = new TwilioService($credentials['sid'], $credentials['token']);
-            $sent = $twilio->sendSms($from, $to, $validated['body'], route('twilio.sms-status'));
+            $infobip = new InfobipService($credentials['base_url'], $credentials['api_key']);
+            $statusUrl = Route::has('infobip.sms-status')
+                ? route('infobip.sms-status')
+                : (Route::has('twilio.sms-status') ? route('twilio.sms-status') : url('/infobip/sms-status'));
+            $sent = $infobip->sendSms($from, $to, $validated['body'], $statusUrl);
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
@@ -187,12 +191,12 @@ class SmsController extends Controller
             'company_id' => $conversation->company_id,
             'sms_conversation_id' => $conversation->id,
             'user_id' => $user->id,
-            'message_sid' => $sent->sid,
+            'message_sid' => $sent['messageId'] ?? null,
             'direction' => 'outbound',
             'from_number' => $from,
             'to_number' => $to,
             'body' => $validated['body'],
-            'status' => $sent->status,
+            'status' => $sent['status'] ?? 'pending',
             'sent_at' => now(),
         ]);
 
@@ -213,6 +217,15 @@ class SmsController extends Controller
                 'has_phone' => (bool) $phone,
             ],
         ]);
+    }
+
+    protected function phoneSystemUrl(): string
+    {
+        if (Route::has('phone.call')) {
+            return route('phone.call');
+        }
+
+        return url('/twilio/call');
     }
 
     protected function assertCompanyConversation(SmsConversation $conversation): void

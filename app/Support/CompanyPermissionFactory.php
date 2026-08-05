@@ -57,9 +57,10 @@ class CompanyPermissionFactory
             'phone-system' => ['name' => 'view_phone_system', 'slug' => 'view_phone_system', 'display_name' => 'Phone System', 'description' => 'Access to phone system module', 'category' => 'main'],
             'view_call_history' => ['name' => 'view_call_history', 'slug' => 'view_call_history', 'display_name' => 'View Call History', 'description' => 'View persisted phone call history', 'category' => 'phone'],
             'manage_phone_contacts' => ['name' => 'manage_phone_contacts', 'slug' => 'manage_phone_contacts', 'display_name' => 'Manage Phone Contacts', 'description' => 'Create and manage phone system contacts', 'category' => 'phone'],
-            'view_sms' => ['name' => 'view_sms', 'slug' => 'view_sms', 'display_name' => 'View SMS', 'description' => 'View SMS conversations via Twilio', 'category' => 'main'],
-            'send_sms' => ['name' => 'send_sms', 'slug' => 'send_sms', 'display_name' => 'Send SMS', 'description' => 'Send SMS messages via Twilio', 'category' => 'main'],
-            'manage_twilio_numbers' => ['name' => 'manage_twilio_numbers', 'slug' => 'manage_twilio_numbers', 'display_name' => 'Manage Twilio Numbers', 'description' => 'Purchase and assign Twilio phone numbers', 'category' => 'phone'],
+            'view_sms' => ['name' => 'view_sms', 'slug' => 'view_sms', 'display_name' => 'View SMS', 'description' => 'View SMS conversations via Infobip', 'category' => 'main'],
+            'send_sms' => ['name' => 'send_sms', 'slug' => 'send_sms', 'display_name' => 'Send SMS', 'description' => 'Send SMS messages via Infobip', 'category' => 'main'],
+            // Slug kept as manage_twilio_numbers for existing DB/role compatibility
+            'manage_twilio_numbers' => ['name' => 'manage_twilio_numbers', 'slug' => 'manage_twilio_numbers', 'display_name' => 'Manage Phone Numbers', 'description' => 'Purchase and assign Infobip phone numbers', 'category' => 'phone'],
             'payroll' => ['name' => 'view_payroll', 'slug' => 'view_payroll', 'display_name' => 'Payroll', 'description' => 'Access to payroll module', 'category' => 'main'],
             'view_time_in_out' => ['name' => 'view_time_in_out', 'slug' => 'view_time_in_out', 'display_name' => 'View Time In/Out', 'description' => 'Access to time in/out tracking module', 'category' => 'payroll'],
             'edit_time_in_out' => ['name' => 'edit_time_in_out', 'slug' => 'edit_time_in_out', 'display_name' => 'Edit Time In/Out', 'description' => 'Edit time in/out records', 'category' => 'payroll'],

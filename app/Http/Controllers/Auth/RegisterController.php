@@ -332,8 +332,8 @@ class RegisterController extends Controller
             'manage_twilio_numbers' => [
                 'name' => 'manage_twilio_numbers',
                 'slug' => 'manage_twilio_numbers',
-                'display_name' => 'Manage Twilio Numbers',
-                'description' => 'Purchase and assign Twilio phone numbers',
+                'display_name' => 'Manage Phone Numbers',
+                'description' => 'Purchase and assign Infobip phone numbers',
                 'category' => 'phone',
             ],
             'payroll' => [

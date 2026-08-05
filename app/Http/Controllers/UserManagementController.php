@@ -10,7 +10,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SalesRep;
 use App\Models\User;
-use App\Services\TwilioNumberAssignmentService;
+use App\Services\InfobipNumberAssignmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -116,16 +116,16 @@ class UserManagementController extends Controller
     }
 
     /**
-     * API: Twilio numbers available for employee assignment
+     * API: Phone numbers available for employee assignment
      */
-    public function getTwilioNumberOptions(Request $request)
+    public function getPhoneNumberOptions(Request $request)
     {
         $user = Auth::user();
         $forEmployeeId = $request->integer('employee_id') ?: null;
 
         return response()->json([
             'success' => true,
-            'data' => app(TwilioNumberAssignmentService::class)->optionsForCompany(
+            'data' => app(InfobipNumberAssignmentService::class)->optionsForCompany(
                 (int) $user->company_id,
                 $forEmployeeId
             ),
@@ -186,7 +186,7 @@ class UserManagementController extends Controller
                     'salary' => $user->salary,
                     'allowances' => $user->allowances ?? 0,
                     'client_invoice_amount' => $user->client_invoice_amount,
-                    'twilio_number' => $user->twilio_number,
+                    'phone_system_number' => $user->phone_system_number,
                     'wise_account' => $user->wise_account,
                     'wise_currency' => $user->wise_currency,
                     'required_work_hours' => $user->required_work_hours,
@@ -1012,7 +1012,7 @@ class UserManagementController extends Controller
             'salary' => 'required|numeric|min:0',
             'allowances' => 'required|numeric|min:0',
             'client_invoice_amount' => 'required|numeric|min:0',
-            'twilio_number' => 'nullable|string|max:255',
+            'phone_system_number' => 'nullable|string|max:255',
             'wise_account' => 'nullable|string|max:255',
             'required_work_hours' => 'required|numeric|min:0|max:999',
             'recording_duration_minutes' => 'nullable|numeric|min:0.1|max:120',
@@ -1086,7 +1086,7 @@ class UserManagementController extends Controller
         $employee->clients()->sync($validated['client_ids'] ?? []);
 
         try {
-            app(TwilioNumberAssignmentService::class)->assignToUser($employee, $request->input('twilio_number'));
+            app(InfobipNumberAssignmentService::class)->assignToUser($employee, $request->input('phone_system_number'));
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'success' => false,
@@ -1171,7 +1171,7 @@ class UserManagementController extends Controller
             'salary' => 'required|numeric|min:0',
             'allowances' => 'required|numeric|min:0',
             'client_invoice_amount' => 'required|numeric|min:0',
-            'twilio_number' => 'nullable|string|max:255',
+            'phone_system_number' => 'nullable|string|max:255',
             'wise_account' => 'nullable|string|max:255',
             'required_work_hours' => 'required|numeric|min:0|max:999',
             'recording_duration_minutes' => 'nullable|numeric|min:0.1|max:120',
@@ -1273,9 +1273,9 @@ class UserManagementController extends Controller
             $employee->clients()->sync($validated['client_ids'] ?? []);
         }
 
-        if ($request->has('twilio_number')) {
+        if ($request->has('phone_system_number')) {
             try {
-                app(TwilioNumberAssignmentService::class)->assignToUser($employee, $request->input('twilio_number'));
+                app(InfobipNumberAssignmentService::class)->assignToUser($employee, $request->input('phone_system_number'));
             } catch (\Illuminate\Validation\ValidationException $e) {
                 return response()->json([
                     'success' => false,

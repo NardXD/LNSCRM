@@ -3,20 +3,25 @@
 @section('title', 'SMS')
 
 @section('content')
+@php
+    $phoneSystemUrl = \Illuminate\Support\Facades\Route::has('phone.call')
+        ? route('phone.call')
+        : (\Illuminate\Support\Facades\Route::has('infobip.call') ? route('infobip.call') : route('twilio.call'));
+@endphp
 <div class="sms-page" id="smsApp"
      data-api-base="{{ url('api/sms') }}"
      data-csrf="{{ csrf_token() }}"
      data-connected="{{ $integrationConnected ? '1' : '0' }}"
      data-can-send="{{ !empty($canSendSms) && $canSendSms ? '1' : '0' }}"
-     data-twilio-number="{{ $twilioNumber ?: '' }}"
+     data-phone-system-number="{{ $phoneSystemNumber ?: '' }}"
      data-integrations-url="{{ route('integrations') }}"
-     data-phone-url="{{ route('twilio.call') }}">
+     data-phone-url="{{ $phoneSystemUrl }}">
     <div class="sms-layout">
         <aside class="sms-sidebar">
             <div class="sms-sidebar-header">
                 <div>
                     <h2>SMS</h2>
-                    <p class="sms-sub" id="smsAccountLabel">{{ $twilioNumber ?: 'Twilio text messages' }}</p>
+                    <p class="sms-sub" id="smsAccountLabel">{{ $phoneSystemNumber ?: 'SMS messages' }}</p>
                 </div>
                 <div class="sms-header-actions">
                     @if(!empty($canSendSms) && $canSendSms)
@@ -39,8 +44,8 @@
             <div class="sms-empty" id="smsEmpty">
                 <div class="sms-empty-card">
                     <h3 id="smsEmptyTitle">Select a conversation</h3>
-                    <p id="smsEmptyText">SMS messages sent and received through your Twilio numbers appear here.</p>
-                    <a href="{{ route('integrations') }}" class="sms-link-btn" id="smsConnectLink" style="{{ $integrationConnected ? 'display:none' : '' }}">Connect Twilio in Integrations</a>
+                    <p id="smsEmptyText">SMS messages sent and received through your phone numbers appear here.</p>
+                    <a href="{{ route('integrations') }}" class="sms-link-btn" id="smsConnectLink" style="{{ $integrationConnected ? 'display:none' : '' }}">Connect Infobip in Integrations</a>
                 </div>
             </div>
 
@@ -257,16 +262,16 @@
         try {
             const data = await api('/bootstrap');
             connected = !!data.connected;
-            if (data.account?.twilio_number) {
-                els.accountLabel.textContent = data.account.twilio_number;
+            if (data.account?.phone_system_number) {
+                els.accountLabel.textContent = data.account.phone_system_number;
             }
             if (!connected) {
-                els.emptyTitle.textContent = 'Connect Twilio';
-                els.emptyText.textContent = 'Add your Twilio credentials under Integrations, then assign a number to start texting.';
+                els.emptyTitle.textContent = 'Connect Infobip';
+                els.emptyText.textContent = 'Add your Infobip credentials under Integrations, then assign a number to start texting.';
                 els.connectLink.style.display = '';
             } else if (!data.account?.has_number) {
-                els.emptyTitle.textContent = 'Assign a Twilio number';
-                els.emptyText.textContent = 'Your account needs an assigned Twilio number before you can send or receive SMS.';
+                els.emptyTitle.textContent = 'Assign a phone number';
+                els.emptyText.textContent = 'Your account needs an assigned phone number before you can send or receive SMS.';
                 els.connectLink.href = root.dataset.phoneUrl;
                 els.connectLink.textContent = 'Open Phone System';
                 els.connectLink.style.display = '';

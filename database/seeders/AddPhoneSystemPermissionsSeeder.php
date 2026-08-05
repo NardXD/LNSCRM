@@ -51,8 +51,8 @@ class AddPhoneSystemPermissionsSeeder extends Seeder
             [
                 'name' => 'manage_twilio_numbers',
                 'slug' => 'manage_twilio_numbers',
-                'display_name' => 'Manage Twilio Numbers',
-                'description' => 'Purchase and assign Twilio phone numbers (admin only)',
+                'display_name' => 'Manage Phone Numbers',
+                'description' => 'Purchase and assign Infobip phone numbers (admin only)',
                 'category' => 'phone',
             ],
         ];

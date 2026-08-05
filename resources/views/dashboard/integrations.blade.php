@@ -193,8 +193,8 @@
         background: #e8f1fb;
     }
 
-    .integration-icon-wrapper.twilio {
-        background: #e6f3ff;
+    .integration-icon-wrapper.infobip {
+        background: #e0f7f5;
     }
 
     .integration-icon-wrapper.viber {
@@ -582,10 +582,11 @@
 
 @push('scripts')
 <script>
-    const TWILIO_SETUP = {
-        voiceWebhook: @json(route('twilio.voice')),
-        smsWebhook: @json(route('twilio.sms-webhook')),
-        phoneSystemUrl: @json(route('twilio.call')),
+    const INFOBIP_SETUP = {
+        voiceWebhook: @json(route('infobip.voice')),
+        smsWebhook: @json(route('infobip.sms-webhook')),
+        smsStatus: @json(route('infobip.sms-status')),
+        phoneSystemUrl: @json(route('phone.call')),
         viberChatUrl: @json(route('viber')),
         whatsappChatUrl: @json(route('whatsapp')),
         facebookChatUrl: @json(route('facebook')),
@@ -648,31 +649,31 @@
             features: ['Chat assistance', 'Content generation', 'Smart suggestions', 'Text analysis']
         },
         {
-            id: 'twilio',
-            name: 'Twilio',
-            description: 'Connect your Twilio account for SMS, voice calls, and video communication capabilities.',
+            id: 'infobip',
+            name: 'Infobip',
+            description: 'Connect your Infobip account for SMS, voice calls, WhatsApp, and Viber messaging.',
             category: 'communication',
             icon: '📞',
             status: 'disconnected',
-            features: ['SMS sending', 'Voice calls', 'Video calls', 'Call recording', 'Phone number management']
+            features: ['SMS sending', 'Voice calls', 'WhatsApp', 'Viber', 'Phone number management']
         },
         {
             id: 'viber',
             name: 'Viber Business',
-            description: 'Send and receive Viber messages through your Twilio account using a Viber Business Sender.',
+            description: 'Send and receive Viber messages through your Infobip account using a Viber Business Sender.',
             category: 'communication',
             icon: '💬',
             status: 'disconnected',
-            features: ['1:1 chat via Twilio', 'Images & files', 'Welcome message', 'Webhook callbacks', 'Open / call in Viber']
+            features: ['1:1 chat via Infobip', 'Images & files', 'Welcome message', 'Webhook callbacks', 'Open / call in Viber']
         },
         {
             id: 'whatsapp',
             name: 'WhatsApp Business',
-            description: 'Send and receive WhatsApp messages through your Twilio account using a WhatsApp-enabled sender number.',
+            description: 'Send and receive WhatsApp messages through your Infobip account using a WhatsApp-enabled sender number.',
             category: 'communication',
             icon: '📱',
             status: 'disconnected',
-            features: ['1:1 chat via Twilio', 'Images & documents', 'Webhook callbacks', '24h messaging window', 'Open in WhatsApp']
+            features: ['1:1 chat via Infobip', 'Images & documents', 'Webhook callbacks', '24h messaging window', 'Open in WhatsApp']
         },
         {
             id: 'facebook',
@@ -781,15 +782,15 @@
             }
             return null;
         }
-        if (integrationId === 'twilio') {
+        if (integrationId === 'infobip') {
             try {
-                const response = await fetch('/api/integrations/twilio');
+                const response = await fetch('/api/integrations/infobip');
                 if (!response.ok) {
                     return null;
                 }
                 const data = await response.json();
                 if (data.integration) {
-                    const integration = integrationsData.find(i => i.id === 'twilio');
+                    const integration = integrationsData.find(i => i.id === 'infobip');
                     if (integration) {
                         integration.status = data.status ?? 'disconnected';
                         return {
@@ -800,7 +801,7 @@
                     }
                 }
             } catch (error) {
-                console.error('Error loading Twilio integration:', error);
+                console.error('Error loading Infobip integration:', error);
             }
         }
         if (integrationId === 'viber') {
@@ -938,7 +939,7 @@
 
         // Load existing integration data
         let existingIntegration = null;
-        if (integrationId === 'gmail' || integrationId === 'twilio' || integrationId === 'viber' || integrationId === 'whatsapp' || integrationId === 'facebook' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'calendar' || integrationId === 'outlook') {
+        if (integrationId === 'gmail' || integrationId === 'infobip' || integrationId === 'viber' || integrationId === 'whatsapp' || integrationId === 'facebook' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'calendar' || integrationId === 'outlook') {
             existingIntegration = await loadIntegrationStatus(integrationId);
         }
 
@@ -983,15 +984,12 @@
 
         // Update configuration
         let configHtml = '';
-        const twilioFieldLabels = {
-            account_sid: 'Account SID',
-            auth_token: 'Auth Token',
-            app_sid: 'App SID',
+        const infobipFieldLabels = {
+            base_url: 'Base URL',
             api_key: 'API Key',
-            api_secret: 'API Secret',
         };
-        const missingTwilioFields = integration.id === 'twilio' && existingIntegration?.missing_fields?.length
-            ? existingIntegration.missing_fields.map(field => twilioFieldLabels[field] || field)
+        const missingInfobipFields = integration.id === 'infobip' && existingIntegration?.missing_fields?.length
+            ? existingIntegration.missing_fields.map(field => infobipFieldLabels[field] || field)
             : [];
 
         if (integration.status === 'connected') {
@@ -1004,11 +1002,11 @@
                     ${getIntegrationConfig(integration.id, existingIntegration)}
                 </div>
             `;
-        } else if (integration.id === 'twilio' && existingIntegration?.account_sid) {
+        } else if (integration.id === 'infobip' && existingIntegration?.base_url) {
             configHtml = `
                 <div class="connected-info" style="background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.35);">
-                    <div class="connected-info-title" style="color: #b45309;">Incomplete Twilio configuration</div>
-                    <div class="connected-info-text">Saved settings are missing required values${missingTwilioFields.length ? ': ' + missingTwilioFields.join(', ') : ''}. Fill in all fields and save to verify with Twilio.</div>
+                    <div class="connected-info-title" style="color: #b45309;">Incomplete Infobip configuration</div>
+                    <div class="connected-info-text">Saved settings are missing required values${missingInfobipFields.length ? ': ' + missingInfobipFields.join(', ') : ''}. Fill in all fields and save to verify with Infobip.</div>
                 </div>
                 <div class="config-form">
                     ${getIntegrationConfig(integration.id, existingIntegration)}
@@ -1265,46 +1263,52 @@
                 </div>
                 <p class="form-help">Leave fields blank to keep existing values. Credentials are stored per company.</p>
             `,
-            'twilio': `
+            'infobip': `
                 <div class="form-group">
-                    <label class="form-label">TWILIO_SID</label>
-                    <input type="text" class="form-input twilio-sid" id="twilio-sid" placeholder="AC..." value="${existingData ? existingData.account_sid || '' : ''}">
-                    <span class="form-help">Your Twilio Account SID (starts with AC...)</span>
+                    <label class="form-label">Base URL</label>
+                    <input type="text" class="form-input" id="infobip-base-url" placeholder="https://xxxxx.api.infobip.com" value="${existingData ? existingData.base_url || '' : ''}" required>
+                    <span class="form-help">Your Infobip API base URL (e.g. https://xxxxx.api.infobip.com)</span>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">TWILIO_AUTH_TOKEN</label>
-                    <input type="password" class="form-input twilio-auth-token" id="twilio-auth-token" placeholder="Enter Auth Token" value="">
-                    <span class="form-help">Your Twilio Auth Token${existingData && existingData.auth_token ? ' (leave blank to keep current value)' : ''}</span>
+                    <label class="form-label">API Key</label>
+                    <input type="password" class="form-input" id="infobip-api-key" placeholder="Enter API Key" value="">
+                    <span class="form-help">Your Infobip API key${existingData && existingData.api_key ? ' (leave blank to keep current value)' : ''}</span>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">TWILIO_APP_SID (optional)</label>
-                    <input type="text" class="form-input twilio-app-sid" id="twilio-app-sid" placeholder="AP..." value="${existingData ? existingData.app_sid || '' : ''}">
-                    <span class="form-help">Only needed for browser calling — not required for WhatsApp / SMS sandbox testing.</span>
+                    <label class="form-label">Application ID (optional)</label>
+                    <input type="text" class="form-input" id="infobip-application-id" placeholder="WebRTC application ID" value="${existingData ? existingData.application_id || '' : ''}">
+                    <span class="form-help">Only needed for WebRTC softphone / browser calling.</span>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">TWILIO_API_KEY (optional)</label>
-                    <input type="text" class="form-input twilio-api-key" id="twilio-api-key" placeholder="SK..." value="${existingData ? existingData.api_key || '' : ''}">
-                    <span class="form-help">Only needed for browser calling.</span>
+                    <label class="form-label">Default From Number (optional)</label>
+                    <input type="text" class="form-input" id="infobip-default-from" placeholder="+15551234567" value="${existingData ? existingData.default_from_number || '' : ''}">
+                    <span class="form-help">Default E.164 sender number for outbound SMS / calls.</span>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">TWILIO_API_SECRET (optional)</label>
-                    <input type="password" class="form-input twilio-api-secret" id="twilio-api-secret" placeholder="Enter API Secret" value="">
-                    <span class="form-help">Only needed for browser calling${existingData && existingData.api_secret ? ' (leave blank to keep current value)' : ''}.</span>
+                    <label class="form-label">Webhook Secret (optional)</label>
+                    <input type="password" class="form-input" id="infobip-webhook-secret" placeholder="Enter webhook secret" value="">
+                    <span class="form-help">Optional secret for verifying Infobip webhook signatures${existingData && existingData.webhook_secret ? ' (leave blank to keep current value)' : ''}.</span>
                 </div>
                 <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
-                    <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">Sandbox / messaging test</strong>
-                    <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
-                        <li>Paste <strong>Account SID</strong> + <strong>Auth Token</strong> from Twilio Console → Account → API keys & tokens.</li>
-                        <li>Save — then configure WhatsApp under Integrations with your sandbox from-number.</li>
-                        <li>App SID / API Key / Secret are only for browser voice calling later.</li>
+                    <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">Webhook URLs</strong>
+                    <ul style="margin:0;padding-left:1.2rem;color:var(--text-secondary);word-break:break-all;">
+                        <li><strong>Voice:</strong> ${INFOBIP_SETUP.voiceWebhook}</li>
+                        <li><strong>SMS inbound:</strong> ${INFOBIP_SETUP.smsWebhook}</li>
+                        <li><strong>SMS status:</strong> ${INFOBIP_SETUP.smsStatus}</li>
+                        <li><strong>Phone system:</strong> <a href="${INFOBIP_SETUP.phoneSystemUrl}">${INFOBIP_SETUP.phoneSystemUrl}</a></li>
+                    </ul>
+                    <ol style="margin:0.75rem 0 0;padding-left:1.2rem;color:var(--text-secondary);">
+                        <li>Paste <strong>Base URL</strong> + <strong>API Key</strong> from the Infobip portal → API Keys.</li>
+                        <li>Save — then configure WhatsApp / Viber under Integrations with your sender.</li>
+                        <li>Application ID is only for WebRTC softphone later.</li>
                     </ol>
                 </div>
             `,
             'viber': `
                 <div class="form-group">
                     <label class="form-label">Viber Sender ID</label>
-                    <input type="text" class="form-input" id="viber-sender-id" value="${existingData && existingData.sender_id ? existingData.sender_id : ''}" placeholder="From Twilio Console → Messaging → Senders → Viber">
-                    <span class="form-help">Your Twilio Viber Business Sender ID (not a Meta/Viber bot token).</span>
+                    <input type="text" class="form-input" id="viber-sender-id" value="${existingData && existingData.sender_id ? existingData.sender_id : ''}" placeholder="From Infobip portal → Channels → Viber">
+                    <span class="form-help">Your Infobip Viber Business Sender ID (not a Meta/Viber bot token).</span>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Display name (optional)</label>
@@ -1318,15 +1322,15 @@
                 <div class="form-group">
                     <label class="form-label">Webhook URL</label>
                     <code style="display:block;background:var(--bg-primary);padding:0.5rem 0.65rem;border-radius:6px;font-size:0.78rem;word-break:break-all;">${existingData && existingData.webhook_url ? existingData.webhook_url : 'Saved after you connect — must be public HTTPS'}</code>
-                    <span class="form-help">Paste this as the inbound webhook URL on your Twilio Viber sender / Messaging Service.</span>
+                    <span class="form-help">Paste this as the inbound webhook URL on your Infobip Viber sender.</span>
                 </div>
                 <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
                     <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">How it works</strong>
                     <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
-                        <li>Connect <strong>Twilio</strong> first under Integrations (same account SID / auth token).</li>
-                        <li>Enable Viber Business Messaging in the Twilio Console and create a Viber sender.</li>
+                        <li>Connect <strong>Infobip</strong> first under Integrations.</li>
+                        <li>Enable Viber Business Messaging in the Infobip portal and create a Viber sender.</li>
                         <li>Paste the Sender ID here, then set the Webhook URL above on that sender.</li>
-                        <li>Customer messages appear in <a href="${TWILIO_SETUP.viberChatUrl}">Viber</a>.</li>
+                        <li>Customer messages appear in <a href="${INFOBIP_SETUP.viberChatUrl}">Viber</a>.</li>
                     </ol>
                 </div>
             `,
@@ -1334,7 +1338,7 @@
                 <div class="form-group">
                     <label class="form-label">WhatsApp From Number</label>
                     <input type="text" class="form-input" id="whatsapp-from-number" value="${existingData && existingData.from_number ? existingData.from_number : ''}" placeholder="+15551234567">
-                    <span class="form-help">E.164 WhatsApp-enabled number from Twilio (Sandbox or approved sender).</span>
+                    <span class="form-help">E.164 WhatsApp-enabled number from Infobip (Sandbox or approved sender).</span>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Business name (optional)</label>
@@ -1352,15 +1356,15 @@
                 <div class="form-group">
                     <label class="form-label">Webhook URL</label>
                     <code style="display:block;background:var(--bg-primary);padding:0.5rem 0.65rem;border-radius:6px;font-size:0.78rem;word-break:break-all;">${existingData && existingData.webhook_url ? existingData.webhook_url : 'Saved after you connect — must be public HTTPS'}</code>
-                    <span class="form-help">Paste this as the inbound webhook URL on your Twilio WhatsApp sender / Messaging Service. Status callbacks use the shared Twilio SMS status URL.</span>
+                    <span class="form-help">Paste this as the inbound webhook URL on your Infobip WhatsApp sender. Status callbacks use the shared Infobip SMS status URL.</span>
                 </div>
                 <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
                     <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">How it works</strong>
                     <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
-                        <li>Connect <strong>Twilio</strong> first under Integrations.</li>
-                        <li>Enable WhatsApp in the Twilio Console (Sandbox or production sender).</li>
+                        <li>Connect <strong>Infobip</strong> first under Integrations.</li>
+                        <li>Enable WhatsApp in the Infobip portal (Sandbox or production sender).</li>
                         <li>Paste the WhatsApp from number here and point the sender webhook to the URL above.</li>
-                        <li>Customer messages appear in <a href="${TWILIO_SETUP.whatsappChatUrl}">WhatsApp</a>. Free-form replies work within the 24-hour window.</li>
+                        <li>Customer messages appear in <a href="${INFOBIP_SETUP.whatsappChatUrl}">WhatsApp</a>. Free-form replies work within the 24-hour window.</li>
                     </ol>
                 </div>
             `,
@@ -1410,7 +1414,7 @@
                         <li>Generate a Page access token and paste Page ID + token here.</li>
                         <li>In Webhooks, paste the URL and verify token above; subscribe to messages.</li>
                         <li>Link your Instagram professional account to the Page for Instagram DMs.</li>
-                        <li>Chats appear in <a href="${TWILIO_SETUP.facebookChatUrl}">Facebook</a>.</li>
+                        <li>Chats appear in <a href="${INFOBIP_SETUP.facebookChatUrl}">Facebook</a>.</li>
                     </ol>
                 </div>
             `
@@ -1897,9 +1901,9 @@
                         console.error('Error:', error);
                         alert('Error disconnecting integration. Please try again.');
                     }
-                } else if (currentIntegration.id === 'twilio') {
+                } else if (currentIntegration.id === 'infobip') {
                     try {
-                        const response = await fetch('/api/integrations/twilio', {
+                        const response = await fetch('/api/integrations/infobip', {
                             method: 'DELETE',
                             headers: {
                                 'Content-Type': 'application/json',
@@ -2068,51 +2072,34 @@
                     console.error('Error:', error);
                     alert('Error connecting Wise. Please try again.');
                 }
-            } else if (currentIntegration.id === 'twilio') {
+            } else if (currentIntegration.id === 'infobip') {
                 // Get form values
-                const twilioSid = document.getElementById('twilio-sid')?.value?.trim() || '';
-                const authToken = document.getElementById('twilio-auth-token')?.value || '';
-                const appSid = document.getElementById('twilio-app-sid')?.value?.trim() || '';
-                const apiKey = document.getElementById('twilio-api-key')?.value?.trim() || '';
-                const apiSecret = document.getElementById('twilio-api-secret')?.value || '';
+                const baseUrl = document.getElementById('infobip-base-url')?.value?.trim() || '';
+                const apiKey = document.getElementById('infobip-api-key')?.value || '';
+                const applicationId = document.getElementById('infobip-application-id')?.value?.trim() || '';
+                const defaultFrom = document.getElementById('infobip-default-from')?.value?.trim() || '';
+                const webhookSecret = document.getElementById('infobip-webhook-secret')?.value || '';
                 const existingIntegration = window.existingIntegration;
 
-                if (!twilioSid) {
-                    alert('Please enter your Account SID (TWILIO_SID).');
+                if (!baseUrl) {
+                    alert('Please enter your Infobip Base URL.');
                     return;
                 }
-                if (!twilioSid.startsWith('AC')) {
-                    alert('Account SID must start with AC.');
-                    return;
-                }
-                if (!authToken && (!existingIntegration || !existingIntegration.auth_token)) {
-                    alert('Please provide your Auth Token (TWILIO_AUTH_TOKEN).');
-                    return;
-                }
-                if (appSid && !appSid.startsWith('AP')) {
-                    alert('App SID must start with AP.');
-                    return;
-                }
-                if (apiKey && !apiKey.startsWith('SK')) {
-                    alert('API Key must start with SK.');
-                    return;
-                }
-                if ((apiKey && !apiSecret && !(existingIntegration && existingIntegration.api_secret)) ||
-                    (!apiKey && apiSecret)) {
-                    alert('API Key and API Secret must both be provided together (or left blank).');
+                if (!apiKey && (!existingIntegration || !existingIntegration.api_key)) {
+                    alert('Please provide your Infobip API Key.');
                     return;
                 }
 
                 try {
                     const requestBody = {
-                        account_sid: twilioSid,
-                        auth_token: authToken,
-                        app_sid: appSid || null,
+                        base_url: baseUrl,
                         api_key: apiKey || null,
-                        api_secret: apiSecret || null,
+                        application_id: applicationId || null,
+                        default_from_number: defaultFrom || null,
+                        webhook_secret: webhookSecret || null,
                     };
 
-                    const response = await fetch('/api/integrations/twilio', {
+                    const response = await fetch('/api/integrations/infobip', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -2130,7 +2117,7 @@
                         renderIntegrations(currentCategory);
                     } else {
                         const fieldErrors = data.errors ? Object.values(data.errors).flat().join('\n') : '';
-                        alert((data.error ? data.error + (fieldErrors ? '\n\n' + fieldErrors : '') : fieldErrors) || 'Error connecting integration. Please check your Twilio credentials and try again.');
+                        alert((data.error ? data.error + (fieldErrors ? '\n\n' + fieldErrors : '') : fieldErrors) || 'Error connecting integration. Please check your Infobip credentials and try again.');
                     }
                 } catch (error) {
                     console.error('Error:', error);
@@ -2142,7 +2129,7 @@
                 const welcomeMessage = document.getElementById('viber-welcome-message')?.value || '';
 
                 if (!senderId) {
-                    alert('Please enter your Twilio Viber Sender ID.');
+                    alert('Please enter your Infobip Viber Sender ID.');
                     return;
                 }
 
@@ -2162,9 +2149,9 @@
                     const data = await response.json();
                     if (response.ok) {
                         currentIntegration.status = 'connected';
-                        let msg = 'Viber Business has been connected successfully via Twilio!';
+                        let msg = 'Viber Business has been connected successfully via Infobip!';
                         if (data.integration?.webhook_url) {
-                            msg += '\n\nPaste this webhook URL on your Twilio Viber sender:\n' + data.integration.webhook_url;
+                            msg += '\n\nPaste this webhook URL on your Infobip Viber sender:\n' + data.integration.webhook_url;
                         }
                         alert(msg);
                         closeIntegrationModal();
@@ -2202,9 +2189,9 @@
                     const data = await response.json();
                     if (response.ok) {
                         currentIntegration.status = 'connected';
-                        let msg = 'WhatsApp Business has been connected successfully via Twilio!';
+                        let msg = 'WhatsApp Business has been connected successfully via Infobip!';
                         if (data.integration?.webhook_url) {
-                            msg += '\n\nPaste this webhook URL on your Twilio WhatsApp sender:\n' + data.integration.webhook_url;
+                            msg += '\n\nPaste this webhook URL on your Infobip WhatsApp sender:\n' + data.integration.webhook_url;
                         }
                         alert(msg);
                         closeIntegrationModal();
@@ -2338,19 +2325,19 @@
                 console.error('Error loading Wise integration on init:', error);
             }
         }
-        // Load Twilio integration
-        const twilioIntegration = integrationsData.find(i => i.id === 'twilio');
-        if (twilioIntegration) {
+        // Load Infobip integration
+        const infobipIntegration = integrationsData.find(i => i.id === 'infobip');
+        if (infobipIntegration) {
             try {
-                const response = await fetch('/api/integrations/twilio');
+                const response = await fetch('/api/integrations/infobip');
                 if (response.ok) {
                     const data = await response.json();
                     if (data.integration) {
-                        twilioIntegration.status = data.status ?? 'disconnected';
+                        infobipIntegration.status = data.status ?? 'disconnected';
                     }
                 }
             } catch (error) {
-                console.error('Error loading Twilio integration on init:', error);
+                console.error('Error loading Infobip integration on init:', error);
             }
         }
         // Load Viber integration

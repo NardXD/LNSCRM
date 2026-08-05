@@ -744,9 +744,9 @@
                                 <small class="form-help">Length of each screen recording clip. Default is 0.5 (30 seconds). <span id="employeeRecordingSecondsHint"></span></small>
                             </div>
                             <div class="form-group">
-                                <label for="employeeTwilioNumber" class="form-label">Twilio Number</label>
-                                <select id="employeeTwilioNumber" name="twilio_number" class="form-input">
-                                    <option value="">No Twilio number</option>
+                                <label for="employeePhoneSystemNumber" class="form-label">Phone Number</label>
+                                <select id="employeePhoneSystemNumber" name="phone_system_number" class="form-input">
+                                    <option value="">No phone number</option>
                                 </select>
                                 <small class="form-help">Numbers come from Phone System → Numbers. Sync or buy numbers there first.</small>
                             </div>
@@ -2785,8 +2785,8 @@
         hint.style.color = 'var(--accent)';
     }
 
-    async function loadTwilioNumberOptions(employeeId = null, selectedNumber = '') {
-        const select = document.getElementById('employeeTwilioNumber');
+    async function loadPhoneNumberOptions(employeeId = null, selectedNumber = '') {
+        const select = document.getElementById('employeePhoneSystemNumber');
         if (!select) return;
 
         const params = new URLSearchParams();
@@ -2795,9 +2795,9 @@
         }
 
         try {
-            const response = await fetch(`{{ route('api.user-management.twilio-number-options') }}?${params}`);
+            const response = await fetch(`{{ route('api.user-management.phone-number-options') }}?${params}`);
             const result = await response.json();
-            select.innerHTML = '<option value="">No Twilio number</option>';
+            select.innerHTML = '<option value="">No phone number</option>';
 
             if (result.success && result.data) {
                 result.data.forEach(number => {
@@ -2815,7 +2815,7 @@
                 select.value = selectedNumber;
             }
         } catch (error) {
-            console.error('Error loading Twilio numbers:', error);
+            console.error('Error loading phone numbers:', error);
         }
     }
 
@@ -2896,7 +2896,7 @@
                     document.getElementById('employeeRequiredWorkHours').value = emp.required_work_hours ?? '';
                     document.getElementById('employeeRecordingDuration').value = emp.recording_duration_minutes ?? '0.5';
                     updateEmployeeRecordingSecondsHint();
-                    await loadTwilioNumberOptions(employeeId, emp.twilio_number || '');
+                    await loadPhoneNumberOptions(employeeId, emp.phone_system_number || '');
                     document.getElementById('employeeWiseAccount').value = emp.wise_account || '';
                     document.getElementById('employeeDepartment').value = emp.department_id || '';
                     document.getElementById('employeeStatus').value = emp.status || 'active';
@@ -2943,7 +2943,7 @@
             document.getElementById('employeeSalesRepCommissionValue').value = '';
             toggleEmployeeSalesCommission();
             await loadEmployeeClientOptions([]);
-            await loadTwilioNumberOptions();
+            await loadPhoneNumberOptions();
         }
 
         updateEmployeeWizardUI();
@@ -3148,7 +3148,7 @@
         submitFormData.append('client_invoice_amount', formData.get('client_invoice_amount') ?? '0');
         submitFormData.append('required_work_hours', formData.get('required_work_hours') || '');
         submitFormData.append('recording_duration_minutes', formData.get('recording_duration_minutes') || '0.5');
-        submitFormData.append('twilio_number', formData.get('twilio_number') || '');
+        submitFormData.append('phone_system_number', formData.get('phone_system_number') || '');
         submitFormData.append('wise_account', formData.get('wise_account') || '');
         submitFormData.append('department_id', formData.get('department_id') || '');
         submitFormData.append('role_id', formData.get('role_id') || '');

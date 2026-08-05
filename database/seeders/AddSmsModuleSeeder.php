@@ -16,7 +16,7 @@ class AddSmsModuleSeeder extends Seeder
             ['slug' => 'sms'],
             [
                 'name' => 'SMS',
-                'description' => 'Twilio SMS conversations and outbound text messaging',
+                'description' => 'Infobip SMS conversations and outbound text messaging',
                 'route' => 'sms',
                 'sort_order' => 10,
                 'is_active' => true,
@@ -39,7 +39,7 @@ class AddSmsModuleSeeder extends Seeder
                 [
                     'name' => 'view_sms',
                     'display_name' => 'View SMS',
-                    'description' => 'View SMS conversations via Twilio',
+                    'description' => 'View SMS conversations via Infobip',
                     'category' => 'main',
                 ]
             );
@@ -48,7 +48,7 @@ class AddSmsModuleSeeder extends Seeder
             if ($viewPermission->category !== 'main') {
                 $viewPermission->update([
                     'category' => 'main',
-                    'description' => 'View SMS conversations via Twilio',
+                    'description' => 'View SMS conversations via Infobip',
                 ]);
             }
 
@@ -60,7 +60,7 @@ class AddSmsModuleSeeder extends Seeder
                 [
                     'name' => 'send_sms',
                     'display_name' => 'Send SMS',
-                    'description' => 'Send SMS messages via Twilio',
+                    'description' => 'Send SMS messages via Infobip',
                     'category' => 'main',
                 ]
             );

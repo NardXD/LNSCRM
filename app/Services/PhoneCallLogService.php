@@ -3,17 +3,21 @@
 namespace App\Services;
 
 use App\Models\PhoneCallLog;
-use App\Models\TwilioPhoneNumber;
-use App\Models\User;
 use Carbon\Carbon;
 
 class PhoneCallLogService
 {
     public function __construct(
-        protected TwilioCompanyService $twilioCompany
+        protected InfobipCompanyService $infobipCompany
     ) {}
 
     /**
+     * Upsert a call log from a webhook payload.
+     *
+     * Expected fields (Twilio-shaped, also produced by Infobip CallController mapping):
+     * - CallSid (required)
+     * - From, To, Direction, CallStatus, CallDuration
+     *
      * @param  array<string, mixed>  $payload
      */
     public function upsertFromWebhook(array $payload): ?PhoneCallLog
@@ -23,19 +27,18 @@ class PhoneCallLogService
             return null;
         }
 
-        $accountSid = $payload['AccountSid'] ?? null;
         $from = $payload['From'] ?? null;
         $to = $payload['To'] ?? null;
         $direction = $payload['Direction'] ?? null;
         $status = $payload['CallStatus'] ?? null;
         $duration = (int) ($payload['CallDuration'] ?? 0);
 
-        $company = $this->twilioCompany->resolveCompanyFromWebhook($accountSid, $to, $from);
+        $company = $this->infobipCompany->resolveCompanyFromNumber($to, $from);
         if (! $company) {
             return null;
         }
 
-        $user = $this->twilioCompany->resolveUserFromNumbers($to, $from, (string) $direction);
+        $user = $this->infobipCompany->resolveUserFromNumbers($to, $from, (string) ($direction ?? ''));
 
         $log = PhoneCallLog::query()->firstOrNew(['call_sid' => $callSid]);
         $log->company_id = $company->id;

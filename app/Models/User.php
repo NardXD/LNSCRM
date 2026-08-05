@@ -34,7 +34,7 @@ class User extends Authenticatable
         'salary',
         'allowances',
         'client_invoice_amount',
-        'twilio_number',
+        'phone_system_number',
         'wise_account',
         'wise_currency',
         'required_work_hours',

@@ -15,7 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Trust reverse proxies (ngrok, load balancers) so request URLs match what Twilio signed.
+        // Trust reverse proxies (ngrok, load balancers) for correct webhook URLs.
         $middleware->trustProxies(at: '*');
 
         $middleware->alias([
@@ -34,6 +34,12 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Exclude webhook routes from CSRF protection
         $middleware->validateCsrfTokens(except: [
+            'infobip/voice',
+            'infobip/calls-event',
+            'infobip/status-callback',
+            'infobip/sms-webhook',
+            'infobip/sms-status',
+            'infobip/message-status',
             'twilio/voice',
             'twilio/status-callback',
             'twilio/sms-webhook',

@@ -110,7 +110,7 @@ class SidebarHelper
                 'category' => 'main',
             ],
             [
-                'route' => 'twilio.call',
+                'route' => 'phone.call',
                 'permission' => 'view_phone_system',
                 'module_slug' => 'phone-system',
                 'label' => 'Phone System',

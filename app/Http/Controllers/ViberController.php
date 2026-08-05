@@ -6,8 +6,8 @@ use App\Models\Company;
 use App\Models\ViberConversation;
 use App\Models\ViberIntegration;
 use App\Models\ViberMessage;
-use App\Services\TwilioCompanyService;
-use App\Services\TwilioService;
+use App\Services\InfobipCompanyService;
+use App\Services\InfobipService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -18,18 +18,18 @@ use Symfony\Component\HttpFoundation\Response;
 
 class ViberController extends Controller
 {
-    public function __construct(protected TwilioCompanyService $twilioCompany) {}
+    public function __construct(protected InfobipCompanyService $infobipCompany) {}
 
     public function index()
     {
         $user = Auth::user();
         $integration = $this->channelIntegrationForCompany($user?->company_id);
-        $twilioReady = $user?->company
-            ? (bool) $this->twilioCompany->getActiveIntegration($user->company)
+        $infobipReady = $user?->company
+            ? (bool) $this->infobipCompany->getActiveIntegration($user->company)
             : false;
 
         return view('dashboard.viber', [
-            'integrationConnected' => (bool) ($integration && $twilioReady),
+            'integrationConnected' => (bool) ($integration && $infobipReady),
             'botName' => $integration?->bot_name,
             'botUri' => null,
             'botShareUrl' => null,
@@ -40,12 +40,12 @@ class ViberController extends Controller
     {
         $user = Auth::user();
         $integration = ViberIntegration::where('company_id', $user->company_id)->first();
-        $twilioReady = $user->company
-            ? (bool) $this->twilioCompany->getActiveIntegration($user->company)
+        $infobipReady = $user->company
+            ? (bool) $this->infobipCompany->getActiveIntegration($user->company)
             : false;
 
         return response()->json([
-            'connected' => (bool) ($integration && $integration->is_active && $twilioReady && $integration->sender_id),
+            'connected' => (bool) ($integration && $integration->is_active && $infobipReady && $integration->sender_id),
             'bot' => $integration ? [
                 'name' => $integration->bot_name,
                 'sender_id' => $integration->sender_id,
@@ -54,7 +54,7 @@ class ViberController extends Controller
                 'share_url' => null,
                 'webhook_url' => $integration->webhookUrl(),
                 'webhook_set_at' => $integration->webhook_set_at?->toIso8601String(),
-                'twilio_connected' => $twilioReady,
+                'infobip_connected' => $infobipReady,
                 'integrations_url' => route('integrations'),
             ] : null,
         ]);
@@ -123,52 +123,76 @@ class ViberController extends Controller
         ]);
 
         $channel = $this->requireActiveIntegration();
-        $twilio = $this->twilioClientForCompany(Auth::user()->company);
+        $infobip = $this->infobipClientForCompany(Auth::user()->company);
         $to = $conversation->phone ?: $conversation->viber_user_id;
-
-        $body = null;
-        $mediaUrl = null;
+        $notifyUrl = $channel->statusCallbackUrl();
         $type = $validated['type'];
-
-        if ($type === 'text') {
-            $body = (string) ($validated['text'] ?? '');
-            if ($body === '') {
-                return response()->json(['message' => 'Message text is required.'], 422);
-            }
-        } elseif ($type === 'location') {
-            $lat = $validated['latitude'] ?? null;
-            $lng = $validated['longitude'] ?? null;
-            if ($lat === null || $lng === null) {
-                return response()->json(['message' => 'Latitude and longitude are required.'], 422);
-            }
-            $body = trim(($validated['text'] ?? '').' Location: '.$lat.', '.$lng);
-        } elseif ($type === 'contact') {
-            $body = trim(($validated['contact_name'] ?? 'Contact').' '.($validated['contact_phone'] ?? ''));
-            if ($body === '') {
-                return response()->json(['message' => 'Contact details are required.'], 422);
-            }
-        } elseif ($type === 'url') {
-            $mediaUrl = $validated['media_url'] ?? null;
-            $body = $validated['text'] ?? $mediaUrl;
-            if (! $mediaUrl && ! $body) {
-                return response()->json(['message' => 'A URL is required.'], 422);
-            }
-        } else {
-            $mediaUrl = $validated['media_url'] ?? null;
-            if (! $mediaUrl) {
-                return response()->json(['message' => 'A media URL is required.'], 422);
-            }
-            $body = $validated['text'] ?? null;
-        }
+        $mediaUrl = null;
+        $body = null;
 
         try {
-            $sent = $twilio->sendViber(
-                (string) $channel->sender_id,
-                (string) $to,
-                $body,
-                $channel->statusCallbackUrl(),
-                $mediaUrl
-            );
+            if ($type === 'text') {
+                $body = (string) ($validated['text'] ?? '');
+                if ($body === '') {
+                    return response()->json(['message' => 'Message text is required.'], 422);
+                }
+                $sent = $infobip->sendViberText(
+                    (string) $channel->sender_id,
+                    (string) $to,
+                    $body,
+                    $notifyUrl
+                );
+            } elseif ($type === 'location') {
+                $lat = $validated['latitude'] ?? null;
+                $lng = $validated['longitude'] ?? null;
+                if ($lat === null || $lng === null) {
+                    return response()->json(['message' => 'Latitude and longitude are required.'], 422);
+                }
+                $body = trim(($validated['text'] ?? '').' Location: '.$lat.', '.$lng);
+                $sent = $infobip->sendViberText(
+                    (string) $channel->sender_id,
+                    (string) $to,
+                    $body,
+                    $notifyUrl
+                );
+            } elseif ($type === 'contact') {
+                $body = trim(($validated['contact_name'] ?? 'Contact').' '.($validated['contact_phone'] ?? ''));
+                if ($body === '') {
+                    return response()->json(['message' => 'Contact details are required.'], 422);
+                }
+                $sent = $infobip->sendViberText(
+                    (string) $channel->sender_id,
+                    (string) $to,
+                    $body,
+                    $notifyUrl
+                );
+            } elseif ($type === 'url') {
+                $mediaUrl = $validated['media_url'] ?? null;
+                $body = $validated['text'] ?? $mediaUrl;
+                if (! $mediaUrl && ! $body) {
+                    return response()->json(['message' => 'A URL is required.'], 422);
+                }
+                $sent = $infobip->sendViberText(
+                    (string) $channel->sender_id,
+                    (string) $to,
+                    (string) $body,
+                    $notifyUrl
+                );
+            } else {
+                $mediaUrl = $validated['media_url'] ?? null;
+                if (! $mediaUrl) {
+                    return response()->json(['message' => 'A media URL is required.'], 422);
+                }
+                $sent = $infobip->sendViberMedia(
+                    (string) $channel->sender_id,
+                    (string) $to,
+                    $type,
+                    $mediaUrl,
+                    $validated['text'] ?? null,
+                    $validated['file_name'] ?? null,
+                    $notifyUrl
+                );
+            }
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
@@ -178,9 +202,9 @@ class ViberController extends Controller
             'viber_conversation_id' => $conversation->id,
             'user_id' => Auth::id(),
             'direction' => 'outbound',
-            'message_token' => $sent->sid,
+            'message_token' => $sent['messageId'] ?? null,
             'type' => $type,
-            'text' => $validated['text'] ?? ($type === 'location' || $type === 'contact' ? $body : null),
+            'text' => $validated['text'] ?? ($type === 'location' || $type === 'contact' || $type === 'url' ? $body : null),
             'media_url' => $mediaUrl,
             'thumbnail_url' => $validated['thumbnail_url'] ?? null,
             'file_name' => $validated['file_name'] ?? null,
@@ -190,8 +214,8 @@ class ViberController extends Controller
             'longitude' => $validated['longitude'] ?? null,
             'contact_name' => $validated['contact_name'] ?? null,
             'contact_phone' => $validated['contact_phone'] ?? null,
-            'status' => $sent->status ?? 'sent',
-            'raw_payload' => ['sid' => $sent->sid, 'status' => $sent->status],
+            'status' => $sent['status'] ?? 'sent',
+            'raw_payload' => $sent['raw'] ?? $sent,
             'sent_at' => now(),
         ]);
 
@@ -268,33 +292,17 @@ class ViberController extends Controller
             return response('OK', 200);
         }
 
-        $twilioIntegration = $this->twilioCompany->getActiveIntegration($company);
-        if ($twilioIntegration) {
-            $credentials = $this->twilioCompany->getCredentials($twilioIntegration);
-            $signature = (string) $request->header('X-Twilio-Signature', '');
-            if ($credentials && $signature !== '') {
-                $twilio = new TwilioService($credentials['sid'], $credentials['token']);
-                if (! $twilio->validateRequest($signature, $request->fullUrl(), $request->post())) {
-                    Log::warning('Viber Twilio webhook signature mismatch', [
-                        'company_id' => $integration->company_id,
-                    ]);
+        $infobipIntegration = $this->infobipCompany->getActiveIntegration($company);
+        if ($infobipIntegration && ! $this->validateOptionalWebhookSecret($request, $infobipIntegration)) {
+            Log::warning('Viber Infobip webhook secret mismatch', [
+                'company_id' => $integration->company_id,
+            ]);
 
-                    return response('Invalid signature', 403);
-                }
-            }
-
-            $accountSid = $request->input('AccountSid');
-            if ($accountSid && $accountSid !== $twilioIntegration->account_sid) {
-                Log::warning('Viber webhook AccountSid mismatch', [
-                    'company_id' => $integration->company_id,
-                ]);
-
-                return response('OK', 200);
-            }
+            return response('Invalid signature', 403);
         }
 
         try {
-            $this->handleInboundTwilioMessage($integration, $request);
+            $this->handleInboundMessage($integration, $request);
         } catch (\Throwable $e) {
             Log::error('Viber webhook handler error', ['error' => $e->getMessage()]);
         }
@@ -307,9 +315,140 @@ class ViberController extends Controller
         return response('OK', 200);
     }
 
-    protected function handleInboundTwilioMessage(ViberIntegration $integration, Request $request): void
+    protected function handleInboundMessage(ViberIntegration $integration, Request $request): void
     {
-        $messageSid = $request->input('MessageSid');
+        $results = $request->input('results');
+        if (is_array($results) && $results !== []) {
+            foreach ($results as $result) {
+                if (is_array($result)) {
+                    $this->processInfobipInboundResult($integration, $result);
+                }
+            }
+
+            return;
+        }
+
+        if ($request->input('MessageSid') || $request->input('SmsMessageSid')) {
+            $this->handleInboundTwilioShapedMessage($integration, $request);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $result
+     */
+    protected function processInfobipInboundResult(ViberIntegration $integration, array $result): void
+    {
+        $messageId = (string) ($result['messageId'] ?? $result['message_id'] ?? '');
+        if ($messageId === '') {
+            return;
+        }
+
+        if (ViberMessage::where('message_token', $messageId)->exists()) {
+            return;
+        }
+
+        $from = $this->infobipCompany->normalizePhone((string) ($result['from'] ?? ''));
+        if ($from === '' || $from === '+') {
+            return;
+        }
+
+        $contact = is_array($result['contact'] ?? null) ? $result['contact'] : [];
+        $profileName = $contact['name'] ?? $result['senderName'] ?? $result['profileName'] ?? null;
+
+        $message = is_array($result['message'] ?? null)
+            ? $result['message']
+            : (is_array($result['content'] ?? null) ? $result['content'] : []);
+
+        $typeRaw = strtoupper((string) ($message['type'] ?? $result['type'] ?? 'TEXT'));
+        $text = null;
+        $mediaUrl = null;
+        $fileName = null;
+        $latitude = null;
+        $longitude = null;
+        $type = 'text';
+
+        if (in_array($typeRaw, ['TEXT', 'BUTTON', 'REPLY'], true)) {
+            $type = 'text';
+            $text = $message['text'] ?? $message['caption'] ?? null;
+            $text = is_string($text) ? $text : null;
+        } elseif (in_array($typeRaw, ['IMAGE', 'PICTURE', 'VIDEO', 'FILE', 'DOCUMENT', 'AUDIO'], true)) {
+            $type = match ($typeRaw) {
+                'IMAGE', 'PICTURE' => 'picture',
+                'VIDEO' => 'video',
+                default => 'file',
+            };
+            $remoteMedia = $message['url'] ?? $message['mediaUrl'] ?? $message['contentUri'] ?? null;
+            $text = isset($message['caption']) && is_string($message['caption'])
+                ? $message['caption']
+                : (isset($message['text']) && is_string($message['text']) ? $message['text'] : null);
+            $fileName = isset($message['filename']) && is_string($message['filename'])
+                ? $message['filename']
+                : (isset($message['fileName']) && is_string($message['fileName']) ? $message['fileName'] : null);
+
+            if ($remoteMedia) {
+                try {
+                    $mediaUrl = $this->storeInboundMedia(
+                        $integration,
+                        (string) $remoteMedia,
+                        null,
+                        $fileName,
+                        $messageId
+                    );
+                } catch (\Throwable $e) {
+                    Log::warning('Viber inbound media download failed', ['error' => $e->getMessage()]);
+                    $mediaUrl = (string) $remoteMedia;
+                }
+            }
+        } elseif ($typeRaw === 'LOCATION') {
+            $type = 'location';
+            $latitude = $message['latitude'] ?? $result['latitude'] ?? null;
+            $longitude = $message['longitude'] ?? $result['longitude'] ?? null;
+            $text = isset($message['name']) && is_string($message['name']) ? $message['name'] : null;
+        } elseif ($typeRaw === 'URL') {
+            $type = 'url';
+            $mediaUrl = $message['url'] ?? $message['mediaUrl'] ?? null;
+            $text = is_string($message['text'] ?? null) ? $message['text'] : $mediaUrl;
+        } else {
+            $type = 'text';
+            $text = is_string($message['text'] ?? null) ? $message['text'] : json_encode($message ?: $result);
+        }
+
+        $conversation = $this->upsertConversation(
+            $integration->company_id,
+            $from,
+            $profileName ? (string) $profileName : null
+        );
+
+        $isNewConversation = $conversation->wasRecentlyCreated
+            || ! ViberMessage::where('viber_conversation_id', $conversation->id)->exists();
+
+        $record = ViberMessage::create([
+            'company_id' => $integration->company_id,
+            'viber_conversation_id' => $conversation->id,
+            'direction' => 'inbound',
+            'message_token' => $messageId,
+            'type' => $type,
+            'text' => $text,
+            'media_url' => $mediaUrl,
+            'file_name' => $fileName,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'status' => 'received',
+            'raw_payload' => $result,
+            'sent_at' => now(),
+        ]);
+
+        $conversation->unread_count = (int) $conversation->unread_count + 1;
+        $this->touchConversation($conversation, $record);
+
+        if ($isNewConversation) {
+            $this->maybeSendWelcome($integration, $conversation);
+        }
+    }
+
+    protected function handleInboundTwilioShapedMessage(ViberIntegration $integration, Request $request): void
+    {
+        $messageSid = $request->input('MessageSid') ?: $request->input('SmsMessageSid');
         if (! $messageSid) {
             return;
         }
@@ -318,7 +457,7 @@ class ViberController extends Controller
             return;
         }
 
-        $from = $this->twilioCompany->normalizePhone((string) $request->input('From', ''));
+        $from = $this->infobipCompany->normalizePhone((string) $request->input('From', ''));
         $profileName = $request->input('ProfileName');
         $body = $request->input('Body');
         $numMedia = (int) $request->input('NumMedia', 0);
@@ -334,7 +473,6 @@ class ViberController extends Controller
 
         $type = 'text';
         $mediaUrl = null;
-        $mimeType = null;
         $fileName = null;
         $text = is_string($body) ? $body : null;
 
@@ -395,9 +533,9 @@ class ViberController extends Controller
         }
 
         try {
-            $twilio = $this->twilioClientForCompany($company);
+            $infobip = $this->infobipClientForCompany($company);
             $to = $conversation->phone ?: $conversation->viber_user_id;
-            $sent = $twilio->sendViber(
+            $sent = $infobip->sendViberText(
                 (string) $integration->sender_id,
                 (string) $to,
                 $welcome,
@@ -408,11 +546,11 @@ class ViberController extends Controller
                 'company_id' => $integration->company_id,
                 'viber_conversation_id' => $conversation->id,
                 'direction' => 'outbound',
-                'message_token' => $sent->sid,
+                'message_token' => $sent['messageId'] ?? null,
                 'type' => 'text',
                 'text' => $welcome,
-                'status' => $sent->status ?? 'sent',
-                'raw_payload' => ['sid' => $sent->sid, 'status' => $sent->status],
+                'status' => $sent['status'] ?? 'sent',
+                'raw_payload' => $sent['raw'] ?? $sent,
                 'sent_at' => now(),
             ]);
 
@@ -430,8 +568,8 @@ class ViberController extends Controller
         string $messageSid
     ): string {
         $company = Company::find($integration->company_id);
-        $twilio = $this->twilioClientForCompany($company);
-        $binary = $twilio->downloadMedia($remoteUrl);
+        $infobip = $this->infobipClientForCompany($company);
+        $binary = $infobip->downloadMedia($remoteUrl);
 
         $ext = 'bin';
         if ($fileName && str_contains($fileName, '.')) {
@@ -467,7 +605,7 @@ class ViberController extends Controller
 
     protected function upsertConversation(int $companyId, string $peerPhone, ?string $profileName): ViberConversation
     {
-        $normalized = $this->twilioCompany->normalizePhone($peerPhone);
+        $normalized = $this->infobipCompany->normalizePhone($peerPhone);
 
         $conversation = ViberConversation::firstOrNew([
             'company_id' => $companyId,
@@ -503,29 +641,37 @@ class ViberController extends Controller
         $conversation->save();
     }
 
-    protected function twilioClientForCompany(?Company $company): TwilioService
+    protected function validateOptionalWebhookSecret(Request $request, $infobipIntegration): bool
+    {
+        $provided = (string) (
+            $request->header('X-Infobip-Secret')
+            ?: $request->header('Authorization')
+            ?: ''
+        );
+
+        if (preg_match('/^(App|Bearer)\s+(.+)$/i', $provided, $matches)) {
+            $provided = $matches[2];
+        }
+
+        return $this->infobipCompany->validateWebhookSecret($provided, $infobipIntegration);
+    }
+
+    protected function infobipClientForCompany(?Company $company): InfobipService
     {
         if (! $company) {
             throw new \Illuminate\Http\Exceptions\HttpResponseException(
-                response()->json(['message' => 'Twilio is not connected. Configure it under Integrations.'], 422)
+                response()->json(['message' => 'Infobip is not connected. Configure it under Integrations.'], 422)
             );
         }
 
-        $integration = $this->twilioCompany->getActiveIntegration($company);
-        if (! $integration) {
+        $service = $this->infobipCompany->getServiceForCompany($company);
+        if (! $service) {
             throw new \Illuminate\Http\Exceptions\HttpResponseException(
-                response()->json(['message' => 'Twilio is not connected. Configure it under Integrations.'], 422)
+                response()->json(['message' => 'Infobip is not connected. Configure it under Integrations.'], 422)
             );
         }
 
-        $credentials = $this->twilioCompany->getCredentials($integration);
-        if (! $credentials) {
-            throw new \Illuminate\Http\Exceptions\HttpResponseException(
-                response()->json(['message' => 'Invalid Twilio credentials.'], 422)
-            );
-        }
-
-        return new TwilioService($credentials['sid'], $credentials['token']);
+        return $service;
     }
 
     protected function channelIntegrationForCompany(?int $companyId): ?ViberIntegration

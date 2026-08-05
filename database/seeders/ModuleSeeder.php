@@ -26,7 +26,7 @@ class ModuleSeeder extends Seeder
             ['slug' => 'messaging', 'name' => 'Messaging', 'description' => 'Internal messaging system', 'route' => 'messaging', 'sort_order' => 10],
             ['slug' => 'inbox', 'name' => 'Inbox', 'description' => 'Personal and shared Outlook inboxes with assignment, tags, and rules', 'route' => 'inbox', 'sort_order' => 10],
             ['slug' => 'viber', 'name' => 'Viber', 'description' => 'Viber Business chat, media, and customer conversations', 'route' => 'viber', 'sort_order' => 10],
-            ['slug' => 'whatsapp', 'name' => 'WhatsApp', 'description' => 'WhatsApp Business Cloud API chat, media, and customer conversations', 'route' => 'whatsapp', 'sort_order' => 10],
+            ['slug' => 'whatsapp', 'name' => 'WhatsApp', 'description' => 'WhatsApp messaging via Infobip — chat, media, and customer conversations', 'route' => 'whatsapp', 'sort_order' => 10],
             ['slug' => 'facebook', 'name' => 'Facebook & Instagram', 'description' => 'Facebook Page Messenger and Instagram Direct messaging', 'route' => 'facebook', 'sort_order' => 11],
             ['slug' => 'billing', 'name' => 'Billing & Payments', 'description' => 'Invoice and payment management', 'route' => 'billing', 'sort_order' => 12],
             ['slug' => 'client-management', 'name' => 'Client Management', 'description' => 'CRM and client database', 'route' => 'client-management', 'sort_order' => 12],

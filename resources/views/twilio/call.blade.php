@@ -1,11 +1,11 @@
 @extends('layouts.app')
 
-@section('title', 'Twilio Call')
+@section('title', 'Phone System')
 
 @section('content')
     <div class="page-header">
         <h1 class="page-title">Phone System</h1>
-        <p class="page-subtitle">Make calls using Twilio</p>
+        <p class="page-subtitle">Make calls using Infobip</p>
     </div>
 
     @include('twilio.partials.setup-tips')
@@ -38,7 +38,7 @@
                                 <line x1="12" y1="8" x2="12" y2="12"/>
                                 <line x1="12" y1="16" x2="12.01" y2="16"/>
                             </svg>
-                            <span>Twilio number is required. Please set your Twilio number in your profile to make calls.</span>
+                            <span>Phone number is required. Please assign a phone number in your profile to make calls.</span>
                         </div>
                     @endif
                     <div class="form-group">
@@ -835,14 +835,14 @@
                 <svg class="call-log-icon check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="20 6 9 17 4 12"/>
                 </svg>
-                <span>Twilio device ready</span>
+                <span>Phone device ready</span>
                 <span class="log-timestamp">${new Date().toLocaleTimeString()}</span>
             </div>
             <div class="call-log-entry">
                 <svg class="call-log-icon check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="20 6 9 17 4 12"/>
                 </svg>
-                <span>Twilio device registered</span>
+                <span>Phone device registered</span>
                 <span class="log-timestamp">${new Date().toLocaleTimeString()}</span>
             </div>
         `;
@@ -922,14 +922,14 @@
     function makeCall() {
         // Check if integration is available
         if (!hasIntegration) {
-            const errorMsg = integrationError || 'Twilio integration not configured. Please configure your Twilio credentials in the Integrations page.';
+            const errorMsg = integrationError || 'Infobip integration not configured. Please configure your Infobip credentials in the Integrations page.';
             addLogEntry('Error: ' + errorMsg, 'error', 'error-icon');
             return;
         }
 
         const phoneInput = document.getElementById('phoneNumber');
         if (phoneInput && phoneInput.disabled) {
-            addLogEntry('Error: Call function is disabled. Please configure your Twilio integration.', 'error', 'error-icon');
+            addLogEntry('Error: Call function is disabled. Please configure your Infobip integration.', 'error', 'error-icon');
             return;
         }
 
@@ -998,19 +998,19 @@
                 // Show hangup button and DTMF keys
                 document.getElementById('hangupBtn').style.display = 'inline-flex';
                 
-                // Start polling for real status updates from Twilio
+                // Start polling for real status updates from Infobip
                 startStatusPolling(data.call_sid);
             } else {
                 // If no call_sid, there might be an issue
                 console.error('Response missing call_sid:', data);
                 addLogEntry('Warning: Call initiated but no Call SID returned. Response: ' + JSON.stringify(data), 'error', 'error-icon');
-                addLogEntry('Check server logs and Twilio configuration', 'error', 'error-icon');
+                addLogEntry('Check server logs and Infobip configuration', 'error', 'error-icon');
             }
         })
         .catch(error => {
             console.error('Call error:', error);
             addLogEntry('Error: ' + error.message, 'error', 'error-icon');
-            addLogEntry('Please check: 1) Twilio credentials in .env, 2) Server logs, 3) Browser console', 'error', 'error-icon');
+            addLogEntry('Please check: 1) Infobip credentials in Integrations, 2) Server logs, 3) Browser console', 'error', 'error-icon');
         });
     }
 
@@ -1165,215 +1165,108 @@
     }
 
 
-    // Twilio Device for browser-based calling
-    let twilioDevice = null;
+    // Infobip RTC for browser-based calling
+    let infobipRtc = null;
     let activeConnection = null;
-    let useBrowserCalling = false; // Toggle between API calls and browser calls
+    let useBrowserCalling = false;
 
-    // Initialize Twilio Device for browser-based calling using Voice SDK 2.x
     async function initializeTwilioDevice() {
         try {
-            // Check if API Key/Secret/App SID are configured
-            const response = await fetch('{{ route("twilio.capability-token") }}', {
-                method: 'GET',
-                headers: {
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
-                    'Accept': 'application/json',
+            if (typeof window.initGlobalInfobipRtc === 'function') {
+                infobipRtc = await window.initGlobalInfobipRtc();
+            } else if (typeof window.createInfobipRtc === 'function') {
+                const response = await fetch('{{ route("twilio.capability-token") }}', {
+                    method: 'GET',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+                        'Accept': 'application/json',
+                    }
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success || !data.token) {
+                    throw new Error(data.message || 'WebRTC token unavailable');
                 }
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                const errorMessage = errorData.message || `HTTP ${response.status}`;
-                
-                if (errorMessage.includes('API Key') || errorMessage.includes('App SID')) {
-                    addLogEntry('Browser calling not configured. Using API-based calling.', 'info', 'check-icon');
-                } else {
-                    addLogEntry('Browser calling unavailable: ' + errorMessage, 'info', 'check-icon');
-                }
-                useBrowserCalling = false;
-                return;
+                infobipRtc = window.createInfobipRtc(data.token, { debug: false });
+                await infobipRtc.connect();
+            } else {
+                throw new Error('Infobip RTC SDK not loaded');
             }
 
-            const data = await response.json();
-            
-            if (!data.success) {
-                addLogEntry('Browser calling not available: ' + (data.message || 'Configuration missing'), 'info', 'check-icon');
-                useBrowserCalling = false;
-                return;
-            }
-
-            // Use Voice SDK 2.x (loaded via npm and Vite)
-            // Wait for the SDK to be available (it's loaded via app.js which is bundled by Vite)
-            let attempts = 0;
-            const maxAttempts = 20; // Wait up to 2 seconds
-            const checkSDK = setInterval(() => {
-                attempts++;
-                if (typeof window.TwilioVoiceSDK !== 'undefined' && window.TwilioVoiceSDK && window.TwilioVoiceSDK.Device) {
-                    clearInterval(checkSDK);
-                    console.log('Twilio Voice SDK loaded, setting up device');
-                    setupTwilioDevice(data.token);
-                } else if (attempts >= maxAttempts) {
-                    clearInterval(checkSDK);
-                    console.warn('Twilio Voice SDK not loaded after waiting. window.TwilioVoiceSDK:', window.TwilioVoiceSDK);
-                    addLogEntry('Browser calling SDK not available. Using API-based calling.', 'info', 'check-icon');
-                    useBrowserCalling = false;
-                }
-            }, 100);
-            
+            window.globalInfobipRtc = infobipRtc;
+            useBrowserCalling = true;
+            addLogEntry('Browser calling ready', 'info', 'check-icon');
         } catch (error) {
-            console.error('Error initializing Twilio Device:', error);
+            console.error('Error initializing Infobip RTC:', error);
             addLogEntry('Browser calling not available. Using API-based calling.', 'info', 'check-icon');
             useBrowserCalling = false;
         }
     }
 
-    function setupTwilioDevice(token) {
-        try {
-            // Use Voice SDK 2.x
-            const { Device } = window.TwilioVoiceSDK || {};
-            
-            if (!Device) {
-                throw new Error('Twilio Voice SDK 2.x not loaded');
-            }
-
-            // Create device with Voice SDK 2.x API
-            twilioDevice = new Device(token, {
-                logLevel: 'info',
-                codecPreferences: ['opus', 'pcmu']
-            });
-
-            // Voice SDK 2.x uses 'registered' instead of 'ready'
-            twilioDevice.on('registered', () => {
-                console.log('Twilio Device registered');
-                addLogEntry('Browser calling ready', 'info', 'check-icon');
-                useBrowserCalling = true;
-            });
-
-            twilioDevice.on('error', (error) => {
-                console.error('Twilio Device error:', error);
-                const errorMsg = error.message || error.toString() || 'Unknown error';
-                addLogEntry('Browser calling error: ' + errorMsg, 'error', 'error-icon');
-                useBrowserCalling = false;
-            });
-
-            twilioDevice.on('incoming', (call) => {
-                addLogEntry('Incoming call from browser - use header notification to answer', 'calling', 'phone-icon');
-                // ALWAYS forward to global handler - it works on all pages
-                if (typeof window.handleIncomingCall === 'function') {
-                    console.log('📞 Call page: Forwarding call to global handler (works on all pages)');
-                    window.handleIncomingCall(call);
-                } else {
-                    console.warn('⚠️ Global handler not available yet, showing notification manually');
-                    // Fallback: show notification manually if global handler not available
-                    const notification = document.getElementById('inboundCallNotification');
-                    const numberElement = document.getElementById('incomingCallNumber');
-                    if (notification && numberElement) {
-                        const callerNumber = call.parameters?.From || call.parameters?.Caller || call.from || 'Unknown';
-                        numberElement.textContent = callerNumber;
-                        notification.style.display = 'block';
-                        
-                        // Store call globally for answer/decline
-                        if (typeof window !== 'undefined') {
-                            window.globalActiveCall = call;
-                            window.__twilioActiveCall = call;
-                        }
-                    }
-                }
-            });
-
-            // Register the device
-            twilioDevice.register();
-            
-        } catch (error) {
-            console.error('Error setting up Twilio Device:', error);
-            addLogEntry('Failed to setup browser calling: ' + error.message, 'error', 'error-icon');
-            useBrowserCalling = false;
-        }
-    }
-
-    // Make call using browser (Voice SDK 2.x)
     async function makeBrowserCall(phoneNumber) {
-        if (!twilioDevice || !useBrowserCalling) {
-            // Fallback to API call if browser calling not available
+        if (!useBrowserCalling) {
             return makeCall();
         }
 
         try {
-            // Request microphone permission
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            stream.getTracks().forEach(track => track.stop()); // Stop immediately, Twilio will request it
-
+            await navigator.mediaDevices.getUserMedia({ audio: true });
             addLogEntry('Calling ' + phoneNumber + ' from browser...', 'calling', 'phone-icon');
-            
-            // Make the call using Voice SDK 2.x API
-            const params = {
-                To: phoneNumber,
-                user_id: '{{ auth()->id() }}'
-            };
-            
-            activeConnection = await twilioDevice.connect({ params });
-            
-            // Voice SDK 2.x uses 'call' object, not 'connection'
-            if (activeConnection) {
-                currentCallSid = activeConnection.parameters?.CallSid || activeConnection.sid;
-                document.getElementById('hangupBtn').style.display = 'inline-flex';
-                
-                // Handle call events
-                activeConnection.on('disconnect', () => {
+
+            if (typeof window.placeInfobipPhoneCall === 'function') {
+                activeConnection = await window.placeInfobipPhoneCall(phoneNumber);
+            } else {
+                const rtc = infobipRtc || window.globalInfobipRtc;
+                if (!rtc) {
+                    throw new Error('Infobip RTC not connected');
+                }
+                activeConnection = rtc.callPhone(phoneNumber);
+            }
+
+            document.getElementById('hangupBtn').style.display = 'inline-flex';
+            if (activeConnection?.on) {
+                activeConnection.on('hangup', () => {
                     activeConnection = null;
                     addLogEntry('Browser call ended', 'ended', 'check-icon');
                     document.getElementById('hangupBtn').style.display = 'none';
                 });
-                
-                activeConnection.on('error', (error) => {
-                    console.error('Call error:', error);
-                    addLogEntry('Call error: ' + (error.message || error), 'error', 'error-icon');
-                });
-                
-                addLogEntry('Browser call initiated', 'calling', 'phone-icon');
             }
+            addLogEntry('Browser call initiated', 'calling', 'phone-icon');
         } catch (error) {
             console.error('Error making browser call:', error);
             if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
                 addLogEntry('Microphone permission denied. Please allow microphone access.', 'error', 'error-icon');
-                alert('Microphone permission is required for browser-based calling. Please allow microphone access and try again.');
+                alert('Microphone permission is required for browser-based calling.');
             } else {
-                addLogEntry('Browser call failed: ' + error.message, 'error', 'error-icon');
-                // Fallback to API call
+                addLogEntry('Browser call failed: ' + (error.message || error), 'error', 'error-icon');
                 return makeCall();
             }
         }
     }
 
-    // Update makeCall function to support browser calling
     const originalMakeCall = window.makeCall;
     window.makeCall = function() {
         const phoneNumber = document.getElementById('phoneNumber').value.trim();
-        
+
         if (!phoneNumber || phoneNumber === '+') {
             addLogEntry('Please enter a phone number', 'error', 'error-icon');
             return;
         }
 
-        // Check if browser calling is available and preferred
-        if (useBrowserCalling && twilioDevice) {
+        if (useBrowserCalling) {
             makeBrowserCall(phoneNumber);
-        } else {
-            // Use API-based calling
-            if (originalMakeCall) {
-                originalMakeCall();
-            }
+        } else if (originalMakeCall) {
+            originalMakeCall();
         }
     };
 
-    // Update hangup function to support browser calls
     const originalHangup = window.hangup;
     window.hangup = function() {
-        if (activeConnection && twilioDevice) {
-            // Browser call - disconnect directly (Voice SDK 2.x)
+        if (activeConnection || window.globalActiveCall) {
             try {
-                activeConnection.disconnect();
+                if (typeof window.hangupGlobalCall === 'function') {
+                    window.hangupGlobalCall();
+                } else {
+                    activeConnection?.hangup?.();
+                }
                 activeConnection = null;
                 addLogEntry('Browser call ended', 'ended', 'check-icon');
                 document.getElementById('hangupBtn').style.display = 'none';
@@ -1385,7 +1278,6 @@
                 playHangupSound();
             }
         } else if (originalHangup) {
-            // API call - use original hangup
             originalHangup();
         }
     };

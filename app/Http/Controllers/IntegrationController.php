@@ -4,17 +4,17 @@ namespace App\Http\Controllers;
 
 use App\Models\Company;
 use App\Models\GmailIntegration;
+use App\Models\InfobipIntegration;
 use App\Models\OpenAIIntegration;
 use App\Models\StripeIntegration;
-use App\Models\TwilioIntegration;
 use App\Models\User;
 use App\Models\ViberIntegration;
 use App\Models\FacebookIntegration;
 use App\Models\WhatsAppIntegration;
 use App\Models\WiseIntegration;
 use App\Services\FacebookGraphService;
-use App\Services\TwilioCompanyService;
-use App\Services\TwilioIntegrationValidator;
+use App\Services\InfobipCompanyService;
+use App\Services\InfobipIntegrationValidator;
 use App\Services\WiseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,9 +33,9 @@ class IntegrationController extends Controller
     }
 
     /**
-     * Get Twilio integration for the current company.
+     * Get Infobip integration for the current company.
      */
-    public function getTwilioIntegration(Request $request): JsonResponse
+    public function getInfobipIntegration(Request $request): JsonResponse
     {
         $company = $this->getCompany($request);
 
@@ -43,21 +43,21 @@ class IntegrationController extends Controller
             return response()->json(['error' => 'Company not found'], 404);
         }
 
-        $integration = TwilioIntegration::where('company_id', $company->id)->first();
+        $integration = InfobipIntegration::where('company_id', $company->id)->first();
 
         if ($integration) {
-            $validator = app(TwilioIntegrationValidator::class);
+            $validator = app(InfobipIntegrationValidator::class);
             $isConnected = $integration->is_active && $validator->isComplete($integration);
 
             return response()->json([
                 'integration' => [
                     'id' => $integration->id,
                     'company_id' => $integration->company_id,
-                    'account_sid' => $integration->account_sid,
-                    'app_sid' => $integration->app_sid,
-                    'api_key' => $integration->api_key,
-                    'api_secret' => $integration->api_secret ? '***hidden***' : null,
-                    'auth_token' => $integration->auth_token ? '***hidden***' : null,
+                    'base_url' => $integration->base_url,
+                    'api_key' => $integration->api_key ? '***hidden***' : null,
+                    'application_id' => $integration->application_id,
+                    'default_from_number' => $integration->default_from_number,
+                    'webhook_secret' => $integration->webhook_secret ? '***hidden***' : null,
                     'is_active' => $integration->is_active,
                     'created_at' => $integration->created_at,
                     'updated_at' => $integration->updated_at,
@@ -74,9 +74,9 @@ class IntegrationController extends Controller
     }
 
     /**
-     * Store or update Twilio integration for the current company.
+     * Store or update Infobip integration for the current company.
      */
-    public function storeTwilioIntegration(Request $request): JsonResponse
+    public function storeInfobipIntegration(Request $request): JsonResponse
     {
         $company = $this->getCompany($request);
 
@@ -84,35 +84,32 @@ class IntegrationController extends Controller
             return response()->json(['error' => 'Company not found'], 404);
         }
 
+        $existingIntegration = InfobipIntegration::where('company_id', $company->id)->first();
+
         $validator = Validator::make($request->all(), [
-            'account_sid' => ['required', 'string', 'regex:/^AC[a-fA-F0-9]{32}$/'],
-            'auth_token' => ['nullable', 'string'],
-            'app_sid' => ['nullable', 'string', 'regex:/^AP[a-fA-F0-9]{32}$/'],
-            'api_key' => ['nullable', 'string', 'regex:/^SK[a-fA-F0-9]{32}$/'],
-            'api_secret' => ['nullable', 'string'],
-        ], [
-            'account_sid.regex' => 'Account SID must be a valid Twilio SID (starts with AC).',
-            'app_sid.regex' => 'App SID must be a valid Twilio SID (starts with AP).',
-            'api_key.regex' => 'API Key must be a valid Twilio key (starts with SK).',
+            'base_url' => ['required', 'url', 'max:255'],
+            'api_key' => [$existingIntegration ? 'nullable' : 'required', 'string'],
+            'application_id' => ['nullable', 'string', 'max:255'],
+            'default_from_number' => ['nullable', 'string', 'max:32'],
+            'webhook_secret' => ['nullable', 'string', 'max:255'],
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $existingIntegration = TwilioIntegration::where('company_id', $company->id)->first();
-        $twilioValidator = app(TwilioIntegrationValidator::class);
+        $infobipValidator = app(InfobipIntegrationValidator::class);
 
-        $plain = $twilioValidator->resolvePlainCredentials(
+        $plain = $infobipValidator->resolvePlainCredentials(
             $existingIntegration,
-            (string) $request->input('account_sid'),
-            $request->input('auth_token'),
-            $request->input('app_sid'),
+            (string) $request->input('base_url'),
             $request->input('api_key'),
-            $request->input('api_secret')
+            $request->input('application_id'),
+            $request->input('default_from_number'),
+            $request->input('webhook_secret')
         );
 
-        $missing = $twilioValidator->missingFieldsFromPlain($plain);
+        $missing = $infobipValidator->missingFieldsFromPlain($plain);
         if ($missing !== []) {
             $errors = [];
             foreach ($missing as $field => $message) {
@@ -122,7 +119,7 @@ class IntegrationController extends Controller
             return response()->json(['errors' => $errors], 422);
         }
 
-        $validation = $twilioValidator->validateWithTwilio($plain);
+        $validation = $infobipValidator->validateWithInfobip($plain);
         if (! $validation['valid']) {
             $errors = [];
             foreach ($validation['errors'] as $field => $message) {
@@ -132,42 +129,46 @@ class IntegrationController extends Controller
             $detail = implode(' ', array_values($validation['errors']));
 
             return response()->json([
-                'error' => 'Twilio credentials could not be verified. '.$detail,
+                'error' => 'Infobip credentials could not be verified. '.$detail,
                 'errors' => $errors,
             ], 422);
         }
 
-        $integration = TwilioIntegration::updateOrCreate(
+        $defaultFrom = $plain['default_from_number']
+            ? app(InfobipCompanyService::class)->normalizePhone($plain['default_from_number'])
+            : null;
+
+        $integration = InfobipIntegration::updateOrCreate(
             ['company_id' => $company->id],
             [
-                'account_sid' => $plain['account_sid'],
-                'auth_token' => Crypt::encryptString($plain['auth_token']),
-                'app_sid' => $plain['app_sid'],
-                'api_key' => $plain['api_key'],
-                'api_secret' => $plain['api_secret']
-                    ? Crypt::encryptString($plain['api_secret'])
+                'base_url' => $plain['base_url'],
+                'api_key' => Crypt::encryptString($plain['api_key']),
+                'application_id' => $plain['application_id'],
+                'default_from_number' => $defaultFrom,
+                'webhook_secret' => $plain['webhook_secret']
+                    ? Crypt::encryptString($plain['webhook_secret'])
                     : null,
                 'is_active' => true,
             ]
         );
 
         return response()->json([
-            'message' => 'Twilio integration saved and verified successfully',
+            'message' => 'Infobip integration saved and verified successfully',
             'status' => 'connected',
             'integration' => [
                 'id' => $integration->id,
-                'account_sid' => $integration->account_sid,
-                'app_sid' => $integration->app_sid,
-                'api_key' => $integration->api_key,
+                'base_url' => $integration->base_url,
+                'application_id' => $integration->application_id,
+                'default_from_number' => $integration->default_from_number,
                 'is_active' => $integration->is_active,
             ],
         ]);
     }
 
     /**
-     * Delete Twilio integration for the current company.
+     * Delete Infobip integration for the current company.
      */
-    public function deleteTwilioIntegration(Request $request): JsonResponse
+    public function deleteInfobipIntegration(Request $request): JsonResponse
     {
         $company = $this->getCompany($request);
 
@@ -175,13 +176,13 @@ class IntegrationController extends Controller
             return response()->json(['error' => 'Company not found'], 404);
         }
 
-        $integration = TwilioIntegration::where('company_id', $company->id)->first();
+        $integration = InfobipIntegration::where('company_id', $company->id)->first();
 
         if ($integration) {
             $integration->delete();
         }
 
-        return response()->json(['message' => 'Twilio integration deleted successfully']);
+        return response()->json(['message' => 'Infobip integration deleted successfully']);
     }
 
     /**
@@ -196,10 +197,10 @@ class IntegrationController extends Controller
         }
 
         $integration = ViberIntegration::where('company_id', $company->id)->first();
-        $twilioReady = (bool) app(TwilioCompanyService::class)->getActiveIntegration($company);
+        $infobipReady = (bool) app(InfobipCompanyService::class)->getActiveIntegration($company);
 
         if ($integration) {
-            $connected = $integration->is_active && $integration->sender_id && $twilioReady;
+            $connected = $integration->is_active && $integration->sender_id && $infobipReady;
 
             return response()->json([
                 'integration' => [
@@ -211,7 +212,7 @@ class IntegrationController extends Controller
                     'webhook_url' => $integration->webhookUrl(),
                     'webhook_set_at' => $integration->webhook_set_at,
                     'is_active' => $integration->is_active,
-                    'twilio_connected' => $twilioReady,
+                    'infobip_connected' => $infobipReady,
                     'created_at' => $integration->created_at,
                     'updated_at' => $integration->updated_at,
                 ],
@@ -222,12 +223,12 @@ class IntegrationController extends Controller
         return response()->json([
             'integration' => null,
             'status' => 'disconnected',
-            'twilio_connected' => $twilioReady,
+            'infobip_connected' => $infobipReady,
         ]);
     }
 
     /**
-     * Store or update Viber (Twilio Messaging) integration for the current company.
+     * Store or update Viber (Infobip Messaging) integration for the current company.
      */
     public function storeViberIntegration(Request $request): JsonResponse
     {
@@ -237,9 +238,9 @@ class IntegrationController extends Controller
             return response()->json(['error' => 'Company not found'], 404);
         }
 
-        if (! app(TwilioCompanyService::class)->getActiveIntegration($company)) {
+        if (! app(InfobipCompanyService::class)->getActiveIntegration($company)) {
             return response()->json([
-                'error' => 'Connect Twilio first under Integrations, then configure your Viber sender.',
+                'error' => 'Connect Infobip first under Integrations, then configure your Viber sender.',
             ], 422);
         }
 
@@ -305,7 +306,7 @@ class IntegrationController extends Controller
     }
 
     /**
-     * Get WhatsApp (Twilio Messaging) integration for the current company.
+     * Get WhatsApp (Infobip Messaging) integration for the current company.
      */
     public function getWhatsAppIntegration(Request $request): JsonResponse
     {
@@ -316,10 +317,10 @@ class IntegrationController extends Controller
         }
 
         $integration = WhatsAppIntegration::where('company_id', $company->id)->first();
-        $twilioReady = (bool) app(TwilioCompanyService::class)->getActiveIntegration($company);
+        $infobipReady = (bool) app(InfobipCompanyService::class)->getActiveIntegration($company);
 
         if ($integration) {
-            $connected = $integration->is_active && $integration->from_number && $twilioReady;
+            $connected = $integration->is_active && $integration->from_number && $infobipReady;
 
             return response()->json([
                 'integration' => [
@@ -332,7 +333,7 @@ class IntegrationController extends Controller
                     'webhook_url' => $integration->webhookUrl(),
                     'webhook_set_at' => $integration->webhook_set_at,
                     'is_active' => $integration->is_active,
-                    'twilio_connected' => $twilioReady,
+                    'infobip_connected' => $infobipReady,
                     'created_at' => $integration->created_at,
                     'updated_at' => $integration->updated_at,
                 ],
@@ -343,12 +344,12 @@ class IntegrationController extends Controller
         return response()->json([
             'integration' => null,
             'status' => 'disconnected',
-            'twilio_connected' => $twilioReady,
+            'infobip_connected' => $infobipReady,
         ]);
     }
 
     /**
-     * Store or update WhatsApp (Twilio Messaging) integration for the current company.
+     * Store or update WhatsApp (Infobip Messaging) integration for the current company.
      */
     public function storeWhatsAppIntegration(Request $request): JsonResponse
     {
@@ -358,9 +359,9 @@ class IntegrationController extends Controller
             return response()->json(['error' => 'Company not found'], 404);
         }
 
-        if (! app(TwilioCompanyService::class)->getActiveIntegration($company)) {
+        if (! app(InfobipCompanyService::class)->getActiveIntegration($company)) {
             return response()->json([
-                'error' => 'Connect Twilio first under Integrations, then configure your WhatsApp sender.',
+                'error' => 'Connect Infobip first under Integrations, then configure your WhatsApp sender.',
             ], 422);
         }
 
@@ -376,7 +377,7 @@ class IntegrationController extends Controller
 
         $existing = WhatsAppIntegration::where('company_id', $company->id)->first();
         $webhookKey = $existing?->webhook_key ?: Str::random(40);
-        $fromNumber = app(TwilioCompanyService::class)->normalizePhone((string) $request->input('from_number'));
+        $fromNumber = app(InfobipCompanyService::class)->normalizePhone((string) $request->input('from_number'));
 
         $integration = WhatsAppIntegration::updateOrCreate(
             ['company_id' => $company->id],

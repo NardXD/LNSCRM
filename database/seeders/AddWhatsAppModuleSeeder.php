@@ -16,7 +16,7 @@ class AddWhatsAppModuleSeeder extends Seeder
             ['slug' => 'whatsapp'],
             [
                 'name' => 'WhatsApp',
-                'description' => 'WhatsApp Business Cloud API chat, media, and customer conversations',
+                'description' => 'WhatsApp messaging via Infobip — chat, media, and customer conversations',
                 'route' => 'whatsapp',
                 'sort_order' => 10,
                 'is_active' => true,

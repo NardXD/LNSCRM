@@ -34,6 +34,14 @@ class ViberIntegration extends Model
 
     public function statusCallbackUrl(): string
     {
-        return route('twilio.sms-status');
+        if (\Illuminate\Support\Facades\Route::has('infobip.sms-status')) {
+            return route('infobip.sms-status');
+        }
+
+        if (\Illuminate\Support\Facades\Route::has('infobip.message-status')) {
+            return route('infobip.message-status');
+        }
+
+        return url('/infobip/sms-status');
     }
 }
