@@ -35,7 +35,12 @@ class PhoneCallLogService
             return null;
         }
 
-        $user = $this->twilioCompany->resolveUserFromNumbers($to, $from, (string) $direction);
+        $queueUserId = isset($payload['QueueAssignedUserId'])
+            ? (int) $payload['QueueAssignedUserId']
+            : null;
+        $user = $queueUserId
+            ? User::query()->where('company_id', $company->id)->find($queueUserId)
+            : $this->twilioCompany->resolveUserFromNumbers($to, $from, (string) $direction);
 
         $log = PhoneCallLog::query()->firstOrNew(['call_sid' => $callSid]);
         $log->company_id = $company->id;

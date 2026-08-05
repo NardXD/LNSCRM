@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Twilio;
 
 use App\Http\Controllers\Controller;
+use App\Models\CallAgentPresence;
 use App\Models\PhoneCallLog;
 use App\Models\PhoneContact;
 use App\Models\SmsMessage;
@@ -10,6 +11,7 @@ use App\Models\TwilioPhoneNumber;
 use App\Models\User;
 use App\Models\ViberMessage;
 use App\Models\WhatsAppMessage;
+use App\Services\InboundCallQueueService;
 use App\Services\PhoneCallLogService;
 use App\Services\SmsConversationService;
 use App\Services\TwilioCompanyService;
@@ -27,8 +29,78 @@ class PhoneSystemController extends Controller
         protected TwilioCompanyService $twilioCompany,
         protected PhoneCallLogService $callLogService,
         protected TwilioNumberAssignmentService $numberAssignment,
-        protected SmsConversationService $smsConversations
+        protected SmsConversationService $smsConversations,
+        protected InboundCallQueueService $callQueue
     ) {}
+
+    public function agentPresence(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+        $presence = $this->callQueue->getOrCreatePresence($user);
+        $snapshot = $this->callQueue->queueSnapshot((int) $user->company_id);
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->formatPresencePayload($presence, $snapshot),
+        ]);
+    }
+
+    public function updateAgentPresence(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+        $validated = $request->validate([
+            'status' => ['required', 'string', Rule::in([
+                CallAgentPresence::STATUS_AVAILABLE,
+                CallAgentPresence::STATUS_OFFLINE,
+            ])],
+        ]);
+
+        $presence = $validated['status'] === CallAgentPresence::STATUS_AVAILABLE
+            ? $this->callQueue->setAvailable($user)
+            : $this->callQueue->setOffline($user);
+
+        $snapshot = $this->callQueue->queueSnapshot((int) $user->company_id);
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->formatPresencePayload($presence, $snapshot),
+        ]);
+    }
+
+    public function agentPresenceHeartbeat(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+        $presence = $this->callQueue->heartbeat($user);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'status' => $presence->status,
+                'last_heartbeat_at' => $presence->last_heartbeat_at?->toIso8601String(),
+            ],
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @return array<string, mixed>
+     */
+    protected function formatPresencePayload(CallAgentPresence $presence, array $snapshot): array
+    {
+        return [
+            'me' => [
+                'status' => $presence->status,
+                'last_heartbeat_at' => $presence->last_heartbeat_at?->toIso8601String(),
+                'current_call_sid' => $presence->current_call_sid,
+            ],
+            'counts' => $snapshot['counts'],
+            'available_agents' => $snapshot['available_agents'],
+            'busy_agents' => $snapshot['busy_agents'],
+            'queue_order' => $snapshot['queue_order'],
+            'next_agent' => $snapshot['next_agent'],
+            'heartbeat_ttl_seconds' => $this->callQueue->heartbeatTtlSeconds(),
+        ];
+    }
 
     public function callHistory(Request $request): JsonResponse
     {

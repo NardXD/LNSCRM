@@ -21,11 +21,6 @@ use App\Http\Controllers\PayrollController;
 use App\Http\Controllers\TimeTrackingController;
 use App\Http\Controllers\Twilio\CallController;
 use App\Http\Controllers\Twilio\PhoneSystemController;
-use App\Models\Company;
-use App\Models\TwilioFlexIntegration;
-use App\Models\User;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 
 // MCP Server (Model Context Protocol) - for Claude AI integration
@@ -72,175 +67,9 @@ Route::post('/webhooks/wise/company/{company}', [\App\Http\Controllers\WiseWebho
 // These routes must be accessible to Twilio's servers without authentication
 // CSRF protection is excluded in bootstrap/app.php
 Route::prefix('twilio')->group(function () {
-    // TwiML webhook endpoint - returns XML instructions for Twilio calls
-    // Twilio can call this with either GET or POST, so we handle both
-    Route::match(['get', 'post'], '/voice', function (Request $request) {
-        // Log immediately to verify webhook is being called
-        try {
-            \Illuminate\Support\Facades\Log::info('=== TWILIO VOICE WEBHOOK HIT ===', [
-                'method' => $request->method(),
-                'url' => $request->fullUrl(),
-                'ip' => $request->ip(),
-                'user_agent' => $request->userAgent(),
-            ]);
-        } catch (\Exception $e) {
-            // Even if logging fails, continue
-        }
-
-        // Log all incoming parameters for debugging
-        \Illuminate\Support\Facades\Log::info('Twilio voice webhook received', [
-            'all_params' => $request->all(),
-            'To' => $request->input('To'),
-            'From' => $request->input('From'),
-            'CallSid' => $request->input('CallSid'),
-            'Called' => $request->input('Called'),
-            'Caller' => $request->input('Caller'),
-            'Direction' => $request->input('Direction'),
-        ]);
-
-        $called = $request->input('Called') ?: $request->input('To');
-        $caller = $request->input('Caller') ?: $request->input('From');
-        $direction = $request->input('Direction', 'outbound-api');
-        $fromClient = $request->input('From'); // For browser calls, this will be the client identifier
-
-        // Check if this is an INBOUND call (someone calling your Twilio number)
-        $isInbound = $direction === 'inbound';
-
-        // Check if this is a browser-based OUTBOUND call (has FromClient or From is a user ID)
-        $isBrowserCall = $request->has('FromClient') || (is_numeric($fromClient) && strlen($fromClient) < 10);
-
-        $recordingCallback = htmlspecialchars(route('twilio.recording-callback'), ENT_XML1);
-        $dialRecordAttrs = 'record="record-from-answer" recordingStatusCallback="'.$recordingCallback.'" recordingStatusCallbackEvent="completed" recordingTrack="both"';
-
-        // Build TwiML response
-        $twiml = '<?xml version="1.0" encoding="UTF-8"?>'."\n";
-        $twiml .= '<Response>'."\n";
-
-        if ($isInbound) {
-            // INBOUND CALL: Someone is calling your Twilio phone number
-            // Route to all registered browser clients (users) in the company
-            // Get company from the called number or use a default approach
-
-            try {
-                // Try to find company by phone number
-                $company = Company::whereHas('users', function ($query) use ($called) {
-                    $query->where('twilio_number', $called);
-                })->first();
-
-                // If not found, try active Flex account credentials
-                if (! $company) {
-                    $integration = TwilioFlexIntegration::where('is_active', true)->first();
-                    $company = $integration ? $integration->company : null;
-                }
-
-                if ($company) {
-                    // Get ONLY the user(s) whose twilio_number matches the called number
-                    // This ensures only the specific user assigned to that number receives the call
-                    $users = $company->users()
-                        ->where('twilio_number', $called)
-                        ->get();
-
-                    \Illuminate\Support\Facades\Log::info('Inbound call - routing to specific user(s)', [
-                        'company_id' => $company->id,
-                        'called' => $called,
-                        'caller' => $caller,
-                        'user_count' => $users->count(),
-                        'user_ids' => $users->pluck('id')->toArray(),
-                        'user_emails' => $users->pluck('email')->toArray(),
-                    ]);
-
-                    if ($users->count() > 0) {
-                        // Brief notice for compliance before connecting the agent
-                        $twiml .= '    <Say voice="alice">This call may be recorded.</Say>'."\n";
-                        // Dial only the user(s) with matching twilio_number
-                        $twiml .= '    <Dial timeout="30" answerOnMedia="true" '.$dialRecordAttrs.' action="'.route('twilio.status-callback').'">'."\n";
-
-                        foreach ($users as $user) {
-                            // Dial each user as a Client (browser client identity is user ID)
-                            // IMPORTANT: The identity in the capability token MUST match the user ID
-                            $twiml .= '        <Client>'.htmlspecialchars((string) $user->id, ENT_XML1).'</Client>'."\n";
-                            \Illuminate\Support\Facades\Log::info('Dialing client', [
-                                'user_id' => $user->id,
-                                'user_email' => $user->email,
-                                'twilio_number' => $user->twilio_number,
-                                'called_number' => $called,
-                            ]);
-                        }
-
-                        $twiml .= '    </Dial>'."\n";
-                    } else {
-                        // No user found with matching twilio_number
-                        \Illuminate\Support\Facades\Log::warning('Inbound call - no user found with matching twilio_number', [
-                            'called' => $called,
-                            'company_id' => $company->id,
-                        ]);
-                        $twiml .= '    <Say voice="alice">No agent is available for this number. Please try again later.</Say>'."\n";
-                    }
-                } else {
-                    // Company not found - try to find user by twilio_number directly (fallback)
-                    $users = \App\Models\User::where('twilio_number', $called)->get();
-
-                    \Illuminate\Support\Facades\Log::info('Inbound call - company not found, searching by twilio_number directly', [
-                        'called' => $called,
-                        'user_count' => $users->count(),
-                        'user_ids' => $users->pluck('id')->toArray(),
-                    ]);
-
-                    if ($users->count() > 0) {
-                        $twiml .= '    <Say voice="alice">This call may be recorded.</Say>'."\n";
-                        $twiml .= '    <Dial timeout="30" answerOnMedia="true" '.$dialRecordAttrs.' action="'.route('twilio.status-callback').'">'."\n";
-                        foreach ($users as $user) {
-                            $twiml .= '        <Client>'.htmlspecialchars((string) $user->id, ENT_XML1).'</Client>'."\n";
-                            \Illuminate\Support\Facades\Log::info('Dialing client (fallback)', [
-                                'user_id' => $user->id,
-                                'user_email' => $user->email,
-                                'twilio_number' => $user->twilio_number,
-                            ]);
-                        }
-                        $twiml .= '    </Dial>'."\n";
-                    } else {
-                        \Illuminate\Support\Facades\Log::warning('Inbound call - no user found with matching twilio_number (fallback)', [
-                            'called' => $called,
-                        ]);
-                        $twiml .= '    <Say voice="alice">No agent is available for this number. Please try again later.</Say>'."\n";
-                    }
-                }
-            } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error('Error handling inbound call', [
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
-                ]);
-                $twiml .= '    <Say voice="alice">An error occurred. Please try again later.</Say>'."\n";
-            }
-        } elseif ($isBrowserCall && $called) {
-            // Browser-based OUTBOUND call: dial the destination number
-            // The browser client is already connected, just need to dial the destination
-            $twiml .= '    <Dial timeout="60" answerOnMedia="true" '.$dialRecordAttrs.' callerId="'.htmlspecialchars($caller, ENT_XML1).'">'."\n";
-            $twiml .= '        <Number>'.htmlspecialchars($called, ENT_XML1).'</Number>'."\n";
-            $twiml .= '    </Dial>'."\n";
-        } elseif ($called) {
-            // API-based OUTBOUND call: dial the destination number to establish audio bridge
-            $twiml .= '    <Dial timeout="60" answerOnMedia="true" '.$dialRecordAttrs.'>'."\n";
-            $twiml .= '        <Number>'.htmlspecialchars($called, ENT_XML1).'</Number>'."\n";
-            $twiml .= '    </Dial>'."\n";
-        } else {
-            // Fallback if no number provided
-            $twiml .= '    <Say voice="alice">Call connected.</Say>'."\n";
-        }
-
-        $twiml .= '</Response>';
-
-        \Illuminate\Support\Facades\Log::info('Twilio voice webhook response', [
-            'twiml' => $twiml,
-            'called' => $called,
-            'caller' => $caller,
-            'direction' => $direction,
-            'is_inbound' => $isInbound,
-        ]);
-
-        return response($twiml, 200)
-            ->header('Content-Type', 'text/xml');
-    })->name('twilio.voice');
+    // TwiML webhooks — inbound uses round-robin among available agents
+    Route::match(['get', 'post'], '/voice', [CallController::class, 'voiceWebhook'])->name('twilio.voice');
+    Route::match(['get', 'post'], '/dial-action', [CallController::class, 'dialAction'])->name('twilio.dial-action');
 
     // Status callback endpoint - receives call status updates from Twilio
     Route::post('/status-callback', [CallController::class, 'statusCallback'])->name('twilio.status-callback');
@@ -411,6 +240,10 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/hangup', [CallController::class, 'hangup'])->name('twilio.hangup');
         Route::post('/send-digits', [CallController::class, 'sendDigits'])->name('twilio.send-digits');
         Route::get('/capability-token', [CallController::class, 'getCapabilityToken'])->name('twilio.capability-token');
+
+        Route::get('/agent-presence', [PhoneSystemController::class, 'agentPresence'])->name('twilio.agent-presence');
+        Route::post('/agent-presence', [PhoneSystemController::class, 'updateAgentPresence'])->name('twilio.agent-presence.update');
+        Route::post('/agent-presence/heartbeat', [PhoneSystemController::class, 'agentPresenceHeartbeat'])->name('twilio.agent-presence.heartbeat');
 
         Route::get('/call-history', [PhoneSystemController::class, 'callHistory'])
             ->middleware('permission:view_call_history')

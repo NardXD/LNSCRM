@@ -5,9 +5,12 @@ namespace App\Http\Controllers\Twilio;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\TwilioFlexIntegration;
+use App\Models\User;
+use App\Services\InboundCallQueueService;
 use App\Services\PhoneCallLogService;
 use App\Services\TwilioService;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
@@ -277,7 +280,7 @@ class CallController extends Controller
         }
     }
 
-    public function statusCallback(Request $request, PhoneCallLogService $callLogService)
+    public function statusCallback(Request $request, PhoneCallLogService $callLogService, InboundCallQueueService $queue)
     {
         $callSid = $request->input('CallSid');
         $callStatus = $request->input('CallStatus');
@@ -309,9 +312,210 @@ class CallController extends Controller
             'timestamp' => now()->toDateTimeString(),
         ]);
 
-        $callLogService->upsertFromWebhook($request->all());
+        $assignment = $callSid ? $queue->getAssignment($callSid) : null;
+        $payload = $request->all();
+        if ($assignment && ! empty($assignment['current_user_id'])) {
+            $payload['QueueAssignedUserId'] = (int) $assignment['current_user_id'];
+        }
+
+        $callLogService->upsertFromWebhook($payload);
+
+        if ($callSid && in_array($callStatus, ['completed', 'busy', 'no-answer', 'failed', 'canceled'], true)) {
+            $queue->releaseFromCall($callSid);
+            $queue->forgetAssignment($callSid);
+        }
 
         return response('OK', 200);
+    }
+
+    /**
+     * Twilio voice webhook — inbound calls use round-robin among available agents.
+     */
+    public function voiceWebhook(Request $request, InboundCallQueueService $queue): Response
+    {
+        Log::info('=== TWILIO VOICE WEBHOOK HIT ===', [
+            'method' => $request->method(),
+            'url' => $request->fullUrl(),
+            'all_params' => $request->all(),
+        ]);
+
+        $called = $request->input('Called') ?: $request->input('To');
+        $caller = $request->input('Caller') ?: $request->input('From');
+        $direction = $request->input('Direction', 'outbound-api');
+        $fromClient = $request->input('From');
+        $callSid = (string) ($request->input('CallSid') ?? '');
+        $accountSid = $request->input('AccountSid');
+
+        $isInbound = $direction === 'inbound';
+        $isBrowserCall = $request->has('FromClient') || (is_numeric($fromClient) && strlen((string) $fromClient) < 10);
+
+        $recordingCallback = htmlspecialchars(route('twilio.recording-callback'), ENT_XML1);
+        $dialRecordAttrs = 'record="record-from-answer" recordingStatusCallback="'.$recordingCallback.'" recordingStatusCallbackEvent="completed" recordingTrack="both"';
+
+        $twiml = '<?xml version="1.0" encoding="UTF-8"?>'."\n";
+        $twiml .= '<Response>'."\n";
+
+        if ($isInbound) {
+            $twiml .= $this->buildInboundRoundRobinTwiml(
+                $queue,
+                $accountSid,
+                $called,
+                $caller,
+                $callSid,
+                $dialRecordAttrs
+            );
+        } elseif ($isBrowserCall && $called) {
+            $twiml .= '    <Dial timeout="60" answerOnMedia="true" '.$dialRecordAttrs.' callerId="'.htmlspecialchars((string) $caller, ENT_XML1).'">'."\n";
+            $twiml .= '        <Number>'.htmlspecialchars((string) $called, ENT_XML1).'</Number>'."\n";
+            $twiml .= '    </Dial>'."\n";
+        } elseif ($called) {
+            $twiml .= '    <Dial timeout="60" answerOnMedia="true" '.$dialRecordAttrs.'>'."\n";
+            $twiml .= '        <Number>'.htmlspecialchars((string) $called, ENT_XML1).'</Number>'."\n";
+            $twiml .= '    </Dial>'."\n";
+        } else {
+            $twiml .= '    <Say voice="alice">Call connected.</Say>'."\n";
+        }
+
+        $twiml .= '</Response>';
+
+        Log::info('Twilio voice webhook response', [
+            'twiml' => $twiml,
+            'called' => $called,
+            'caller' => $caller,
+            'direction' => $direction,
+            'is_inbound' => $isInbound,
+        ]);
+
+        return response($twiml, 200)->header('Content-Type', 'text/xml');
+    }
+
+    /**
+     * Dial action callback — retry next available agent on no-answer / busy / failed.
+     */
+    public function dialAction(Request $request, InboundCallQueueService $queue): Response
+    {
+        $callSid = (string) ($request->input('CallSid') ?? '');
+        $dialStatus = (string) ($request->input('DialCallStatus') ?? '');
+        $called = $request->input('Called') ?: $request->input('To');
+        $caller = $request->input('Caller') ?: $request->input('From');
+        $accountSid = $request->input('AccountSid');
+
+        Log::info('Twilio dial action callback', [
+            'call_sid' => $callSid,
+            'dial_status' => $dialStatus,
+            'params' => $request->all(),
+        ]);
+
+        $recordingCallback = htmlspecialchars(route('twilio.recording-callback'), ENT_XML1);
+        $dialRecordAttrs = 'record="record-from-answer" recordingStatusCallback="'.$recordingCallback.'" recordingStatusCallbackEvent="completed" recordingTrack="both"';
+
+        $twiml = '<?xml version="1.0" encoding="UTF-8"?>'."\n";
+        $twiml .= '<Response>'."\n";
+
+        if (in_array($dialStatus, ['completed', 'answered'], true)) {
+            $queue->releaseFromCall($callSid);
+            $queue->forgetAssignment($callSid);
+            $twiml .= '</Response>';
+
+            return response($twiml, 200)->header('Content-Type', 'text/xml');
+        }
+
+        // Agent did not answer — free them and try the next available agent.
+        $queue->releaseFromCall($callSid);
+
+        $assignment = $callSid ? $queue->getAssignment($callSid) : null;
+        $attempted = array_map('intval', $assignment['attempted_user_ids'] ?? []);
+        $companyId = (int) ($assignment['company_id'] ?? 0);
+
+        if ($companyId <= 0) {
+            $company = $queue->resolveCompanyForInbound($accountSid, $called, $caller);
+            $companyId = (int) ($company?->id ?? 0);
+        }
+
+        if ($companyId > 0 && $callSid !== '') {
+            $next = $queue->pickNextAgent($companyId, $attempted);
+            if ($next) {
+                $queue->markBusy($next, $callSid);
+                $queue->rememberAssignment($callSid, $companyId, (int) $next->id, $attempted);
+                $twiml .= $this->dialClientTwiml($next, $dialRecordAttrs);
+
+                $twiml .= '</Response>';
+
+                return response($twiml, 200)->header('Content-Type', 'text/xml');
+            }
+        }
+
+        $queue->forgetAssignment($callSid);
+        $twiml .= '    <Say voice="alice">All agents are currently unavailable. Please try again later.</Say>'."\n";
+        $twiml .= '</Response>';
+
+        return response($twiml, 200)->header('Content-Type', 'text/xml');
+    }
+
+    protected function buildInboundRoundRobinTwiml(
+        InboundCallQueueService $queue,
+        ?string $accountSid,
+        ?string $called,
+        ?string $caller,
+        string $callSid,
+        string $dialRecordAttrs
+    ): string {
+        try {
+            $company = $queue->resolveCompanyForInbound($accountSid, $called, $caller);
+
+            if (! $company) {
+                Log::warning('Inbound call - company not found for round-robin', [
+                    'called' => $called,
+                    'caller' => $caller,
+                    'account_sid' => $accountSid,
+                ]);
+
+                return '    <Say voice="alice">No agent is available for this number. Please try again later.</Say>'."\n";
+            }
+
+            $agent = $queue->pickNextAgent((int) $company->id);
+
+            if (! $agent) {
+                Log::warning('Inbound call - no available agents in queue', [
+                    'company_id' => $company->id,
+                    'called' => $called,
+                ]);
+
+                return '    <Say voice="alice">No agents are available right now. Please try again later.</Say>'."\n";
+            }
+
+            if ($callSid !== '') {
+                $queue->markBusy($agent, $callSid);
+                $queue->rememberAssignment($callSid, (int) $company->id, (int) $agent->id);
+            }
+
+            $xml = '    <Say voice="alice">This call may be recorded.</Say>'."\n";
+            $xml .= $this->dialClientTwiml($agent, $dialRecordAttrs);
+
+            return $xml;
+        } catch (\Throwable $e) {
+            Log::error('Error handling inbound round-robin call', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return '    <Say voice="alice">An error occurred. Please try again later.</Say>'."\n";
+        }
+    }
+
+    protected function dialClientTwiml(User $user, string $dialRecordAttrs): string
+    {
+        $action = htmlspecialchars(route('twilio.dial-action'), ENT_XML1);
+        $xml = '    <Dial timeout="30" answerOnMedia="true" '.$dialRecordAttrs.' action="'.$action.'">'."\n";
+        $xml .= '        <Client>'.htmlspecialchars((string) $user->id, ENT_XML1).'</Client>'."\n";
+        $xml .= '    </Dial>'."\n";
+
+        Log::info('Dialing queued client', [
+            'user_id' => $user->id,
+            'user_email' => $user->email,
+        ]);
+
+        return $xml;
     }
 
     /**

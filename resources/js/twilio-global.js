@@ -46,6 +46,10 @@ if (typeof window !== 'undefined') {
             activeCall.accept();
             
             console.log('Call answered');
+            // Keep heartbeat alive while on a queued call so we return to available after hangup.
+            if (callQueueAvailable) {
+                sendCallQueueHeartbeat();
+            }
             
             // Hide incoming notification
             const incomingNotification = document.getElementById('inboundCallNotification');
@@ -97,6 +101,11 @@ if (typeof window !== 'undefined') {
                     window.callDurationInterval = null;
                 }
                 window.callStartTime = null;
+
+                // Re-assert availability after call ends (server also releases busy via webhook).
+                if (callQueueAvailable) {
+                    window.setCallQueueAvailable(true).catch(() => {});
+                }
                 
                 console.log('Call disconnected');
             });
@@ -215,6 +224,91 @@ let globalRingInterval = null;
 let isGlobalRinging = false;
 let callDurationInterval = null;
 let callStartTime = null;
+let callQueueHeartbeatTimer = null;
+let callQueueAvailable = false;
+
+function csrfHeaders() {
+    return {
+        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+    };
+}
+
+async function sendCallQueueHeartbeat() {
+    if (!callQueueAvailable) return;
+    try {
+        await fetch('/twilio/agent-presence/heartbeat', {
+            method: 'POST',
+            headers: csrfHeaders(),
+        });
+    } catch (error) {
+        console.warn('Call queue heartbeat failed', error);
+    }
+}
+
+function startCallQueueHeartbeat() {
+    stopCallQueueHeartbeat();
+    callQueueAvailable = true;
+    sendCallQueueHeartbeat();
+    callQueueHeartbeatTimer = setInterval(sendCallQueueHeartbeat, 20000);
+}
+
+function stopCallQueueHeartbeat() {
+    callQueueAvailable = false;
+    if (callQueueHeartbeatTimer) {
+        clearInterval(callQueueHeartbeatTimer);
+        callQueueHeartbeatTimer = null;
+    }
+}
+
+window.syncCallQueuePresence = function (isAvailable) {
+    if (isAvailable) {
+        startCallQueueHeartbeat();
+    } else {
+        stopCallQueueHeartbeat();
+    }
+};
+
+window.setCallQueueAvailable = async function (available) {
+    try {
+        const response = await fetch('/twilio/agent-presence', {
+            method: 'POST',
+            headers: csrfHeaders(),
+            body: JSON.stringify({ status: available ? 'available' : 'offline' }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || 'Failed to update availability');
+        }
+        window.syncCallQueuePresence(available);
+        return data;
+    } catch (error) {
+        console.error('Failed to set call queue availability', error);
+        throw error;
+    }
+};
+
+async function bootstrapCallQueuePresence() {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]');
+    if (!csrfToken) return;
+
+    try {
+        const response = await fetch('/twilio/agent-presence', {
+            method: 'GET',
+            headers: {
+                'X-CSRF-TOKEN': csrfToken.getAttribute('content') || '',
+                'Accept': 'application/json',
+            },
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        const status = data?.data?.me?.status;
+        window.syncCallQueuePresence(status === 'available' || status === 'busy');
+    } catch (error) {
+        // User may not have phone permission on this page.
+    }
+}
 
 // Initialize Twilio Device globally
 async function initializeGlobalTwilioDevice() {
@@ -396,6 +490,7 @@ function setupGlobalTwilioDevice(token) {
 
         // Register the device
         globalTwilioDevice.register();
+        bootstrapCallQueuePresence();
         
     } catch (error) {
         console.error('Error setting up global Twilio Device:', error);

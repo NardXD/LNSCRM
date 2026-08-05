@@ -39,6 +39,7 @@ return [
         'sid' => env('TWILIO_SID'),
         'token' => env('TWILIO_AUTH_TOKEN'),
         'voice_from' => env('TWILIO_VOICE_FROM'),
+        'call_queue_heartbeat_ttl' => (int) env('TWILIO_CALL_QUEUE_HEARTBEAT_TTL', 45),
     ],
 
     'stripe' => [

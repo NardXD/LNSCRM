@@ -14,6 +14,8 @@
         numbersAssign: @json(url('/twilio/numbers/__ID__/assign')),
         numbersUnassign: @json(url('/twilio/numbers/__ID__/unassign')),
         numbersEmployees: @json(route('twilio.numbers.employees')),
+        agentPresence: @json(route('twilio.agent-presence')),
+        agentPresenceUpdate: @json(route('twilio.agent-presence.update')),
     };
 
     const flags = {
@@ -23,16 +25,22 @@
     };
 
     function apiFetch(url, options = {}) {
+        const { headers: optionHeaders, ...rest } = options;
         return fetch(url, {
+            ...rest,
             headers: {
                 'Accept': 'application/json',
                 'X-CSRF-TOKEN': csrf,
-                ...(options.headers || {}),
+                ...(optionHeaders || {}),
             },
-            ...options,
         }).then(async (r) => {
             const data = await r.json().catch(() => ({}));
-            if (!r.ok) throw new Error(data.message || 'Request failed');
+            if (!r.ok) {
+                const msg = data.message
+                    || (data.errors ? Object.values(data.errors).flat().join(' ') : null)
+                    || `Request failed (${r.status})`;
+                throw new Error(msg);
+            }
             return data;
         });
     }
@@ -301,5 +309,113 @@
         });
         loadNumbersPanel();
     });
+
+    function renderAgentQueue(data) {
+        const toggle = document.getElementById('agentAvailableToggle');
+        const label = document.getElementById('agentAvailableLabel');
+        const subtitle = document.getElementById('agentQueueSubtitle');
+        const listEl = document.getElementById('agentQueueList');
+        const nextEl = document.getElementById('agentQueueNext');
+        const availableCountEl = document.getElementById('agentQueueAvailableCount');
+        const busyCountEl = document.getElementById('agentQueueBusyCount');
+        const totalCountEl = document.getElementById('agentQueueTotalCount');
+        if (!toggle || !data) return;
+
+        const status = data.me?.status || 'offline';
+        const isOn = status === 'available' || status === 'busy';
+        toggle.checked = isOn;
+        if (label) {
+            label.textContent = status === 'busy' ? 'On call' : (isOn ? 'Available' : 'Offline');
+        }
+        if (subtitle) {
+            subtitle.textContent = isOn
+                ? 'You are in the inbound round-robin queue'
+                : 'Turn on to receive round-robin inbound calls';
+        }
+
+        const counts = data.counts || {};
+        if (availableCountEl) availableCountEl.textContent = String(counts.available ?? 0);
+        if (busyCountEl) busyCountEl.textContent = String(counts.busy ?? 0);
+        if (totalCountEl) totalCountEl.textContent = String(counts.in_queue ?? 0);
+
+        if (nextEl) {
+            nextEl.innerHTML = data.next_agent
+                ? `Next up: <strong>${escapeHtml(data.next_agent.name)}</strong>`
+                : 'Next up: —';
+        }
+
+        if (!listEl) return;
+
+        const queueOrder = data.queue_order || [];
+        const busyAgents = data.busy_agents || [];
+        const rows = [];
+
+        queueOrder.forEach((agent) => {
+            const badge = agent.is_next
+                ? '<span class="agent-queue-badge next">Next</span>'
+                : '<span class="agent-queue-badge available">Available</span>';
+            rows.push(`
+                <div class="agent-queue-item${agent.is_next ? ' is-next' : ''}">
+                    <div class="agent-queue-item-main">
+                        <div class="agent-queue-item-name">${escapeHtml(agent.name)}</div>
+                        <div class="agent-queue-item-meta">#${agent.position} in round-robin</div>
+                    </div>
+                    ${badge}
+                </div>
+            `);
+        });
+
+        busyAgents.forEach((agent) => {
+            rows.push(`
+                <div class="agent-queue-item">
+                    <div class="agent-queue-item-main">
+                        <div class="agent-queue-item-name">${escapeHtml(agent.name)}</div>
+                        <div class="agent-queue-item-meta">Currently on a call</div>
+                    </div>
+                    <span class="agent-queue-badge busy">On call</span>
+                </div>
+            `);
+        });
+
+        listEl.innerHTML = rows.length
+            ? rows.join('')
+            : '<p class="agent-queue-empty">No agents in the queue yet</p>';
+    }
+
+    async function loadAgentPresence() {
+        try {
+            const res = await apiFetch(routes.agentPresence);
+            renderAgentQueue(res.data);
+            if (typeof window.syncCallQueuePresence === 'function') {
+                window.syncCallQueuePresence(res.data?.me?.status === 'available' || res.data?.me?.status === 'busy');
+            }
+        } catch (e) {
+            console.warn('Failed to load agent presence', e);
+        }
+    }
+
+    document.getElementById('agentAvailableToggle')?.addEventListener('change', async (event) => {
+        const on = !!event.target.checked;
+        const label = document.getElementById('agentAvailableLabel');
+        if (label) label.textContent = on ? 'Available' : 'Offline';
+        try {
+            const res = await apiFetch(routes.agentPresenceUpdate, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: on ? 'available' : 'offline' }),
+            });
+            renderAgentQueue(res.data);
+            if (typeof window.syncCallQueuePresence === 'function') {
+                window.syncCallQueuePresence(on);
+            }
+        } catch (e) {
+            event.target.checked = !on;
+            if (label) label.textContent = on ? 'Offline' : 'Available';
+            alert(e.message || 'Failed to update availability');
+        }
+    });
+
+    loadAgentPresence();
+    setInterval(loadAgentPresence, 15000);
 })();
 </script>

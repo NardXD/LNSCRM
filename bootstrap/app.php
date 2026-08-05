@@ -36,6 +36,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Exclude webhook routes from CSRF protection
         $middleware->validateCsrfTokens(except: [
             'twilio/voice',
+            'twilio/dial-action',
             'twilio/status-callback',
             'twilio/recording-callback',
             'twilio/sms-webhook',

@@ -18,6 +18,37 @@
     <div class="call-card-body phone-panel-body">
         {{-- Live session log --}}
         <div class="phone-tab-panel active" id="phoneTabLive" data-phone-panel="live">
+            <div class="agent-queue-card" id="agentQueueCard">
+                <div class="agent-queue-row">
+                    <div>
+                        <div class="agent-queue-title">Inbound call queue</div>
+                        <div class="agent-queue-subtitle" id="agentQueueSubtitle">Turn on to receive round-robin inbound calls</div>
+                    </div>
+                    <label class="agent-queue-toggle">
+                        <input type="checkbox" id="agentAvailableToggle" aria-label="Available for inbound calls">
+                        <span class="agent-queue-toggle-ui"></span>
+                        <span class="agent-queue-toggle-label" id="agentAvailableLabel">Offline</span>
+                    </label>
+                </div>
+                <div class="agent-queue-stats" id="agentQueueStats">
+                    <div class="agent-queue-stat">
+                        <span class="agent-queue-stat-value" id="agentQueueAvailableCount">0</span>
+                        <span class="agent-queue-stat-label">Available</span>
+                    </div>
+                    <div class="agent-queue-stat">
+                        <span class="agent-queue-stat-value" id="agentQueueBusyCount">0</span>
+                        <span class="agent-queue-stat-label">On call</span>
+                    </div>
+                    <div class="agent-queue-stat">
+                        <span class="agent-queue-stat-value" id="agentQueueTotalCount">0</span>
+                        <span class="agent-queue-stat-label">In queue</span>
+                    </div>
+                </div>
+                <div class="agent-queue-next" id="agentQueueNext">Next up: —</div>
+                <div class="agent-queue-list" id="agentQueueList">
+                    <p class="agent-queue-empty">No agents in the queue yet</p>
+                </div>
+            </div>
             <p class="phone-recording-notice">Calls are recorded automatically. Play them back from Call History after the call ends.</p>
             <div class="call-log-area" id="callLogArea">
                 <div class="call-log-entry">
@@ -139,6 +170,145 @@
         border: 1px solid var(--border);
         border-radius: 6px;
     }
+    .agent-queue-card {
+        margin: 0 0 0.85rem;
+        padding: 0.75rem 0.85rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-secondary, #f8fafc);
+    }
+    .agent-queue-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+    }
+    .agent-queue-title { font-size: 0.9rem; font-weight: 600; color: var(--text-primary); }
+    .agent-queue-subtitle { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.15rem; }
+    .agent-queue-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        cursor: pointer;
+        user-select: none;
+        flex-shrink: 0;
+    }
+    .agent-queue-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+    .agent-queue-toggle-ui {
+        width: 40px;
+        height: 22px;
+        border-radius: 999px;
+        background: #cbd5e1;
+        position: relative;
+        transition: background 0.15s ease;
+    }
+    .agent-queue-toggle-ui::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #fff;
+        transition: transform 0.15s ease;
+    }
+    .agent-queue-toggle input:checked + .agent-queue-toggle-ui { background: #16a34a; }
+    .agent-queue-toggle input:checked + .agent-queue-toggle-ui::after { transform: translateX(18px); }
+    .agent-queue-toggle-label { font-size: 0.78rem; font-weight: 600; min-width: 4.5rem; color: var(--text-secondary); }
+    .agent-queue-toggle input:checked ~ .agent-queue-toggle-label { color: #166534; }
+    .agent-queue-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+    }
+    .agent-queue-stat {
+        text-align: center;
+        padding: 0.5rem 0.35rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-card, #fff);
+    }
+    .agent-queue-stat-value {
+        display: block;
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        line-height: 1.2;
+    }
+    .agent-queue-stat-label {
+        display: block;
+        margin-top: 0.15rem;
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+    .agent-queue-next {
+        margin-top: 0.65rem;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+    .agent-queue-next strong { color: var(--text-primary); }
+    .agent-queue-list {
+        margin-top: 0.55rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        max-height: 180px;
+        overflow-y: auto;
+    }
+    .agent-queue-empty {
+        margin: 0;
+        font-size: 0.78rem;
+        color: var(--text-secondary);
+        text-align: center;
+        padding: 0.5rem 0;
+    }
+    .agent-queue-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0.45rem 0.55rem;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        background: var(--bg-card, #fff);
+        font-size: 0.8rem;
+    }
+    .agent-queue-item.is-next {
+        border-color: #86efac;
+        background: #f0fdf4;
+    }
+    .agent-queue-item-main {
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+        min-width: 0;
+    }
+    .agent-queue-item-name {
+        font-weight: 600;
+        color: var(--text-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .agent-queue-item-meta {
+        font-size: 0.72rem;
+        color: var(--text-secondary);
+    }
+    .agent-queue-badge {
+        flex-shrink: 0;
+        padding: 0.12rem 0.45rem;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    .agent-queue-badge.available { background: #dcfce7; color: #166534; }
+    .agent-queue-badge.busy { background: #ffedd5; color: #9a3412; }
+    .agent-queue-badge.next { background: #16a34a; color: #fff; }
     .phone-call-recording {
         display: block;
         width: 100%;
