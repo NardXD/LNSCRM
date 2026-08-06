@@ -6,16 +6,21 @@
     "keywords": ["laravel", "framework"],
     "license": "MIT",
     "require": {
-        "php": "^8.2",
+        "php": "^8.3",
         "barryvdh/laravel-dompdf": "^3.1",
         "google/apiclient": "^2.19",
+        "infobip/infobip-api-php-client": "6.2.1",
         "laravel/framework": "^12.0",
         "laravel/reverb": "^1.10",
         "laravel/socialite": "^5.24",
         "laravel/tinker": "^2.10.1",
         "maatwebsite/excel": "^3.1",
         "pusher/pusher-php-server": "^7.2",
-        "stripe/stripe-php": "^19.3"
+        "stripe/stripe-php": "^19.3",
+        "symfony/property-info": "^7.4",
+        "symfony/string": "^7.4",
+        "symfony/type-info": "^7.4",
+        "symfony/var-exporter": "^7.4"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

@@ -2,6 +2,49 @@
 
 namespace App\Services;
 
+use Infobip\Api\CallsApi;
+use Infobip\Api\SmsApi;
+use Infobip\Api\ViberApi;
+use Infobip\Api\WebRtcApi;
+use Infobip\Api\WhatsAppApi;
+use Infobip\ApiException;
+use Infobip\Configuration;
+use Infobip\Model\CallRequest;
+use Infobip\Model\CallsActionCallRequest;
+use Infobip\Model\CallsConnectWithNewCallRequest;
+use Infobip\Model\CallsDtmfSendRequest;
+use Infobip\Model\CallsHangupRequest;
+use Infobip\Model\CallsPhoneEndpoint;
+use Infobip\Model\CallsWebRtcEndpoint;
+use Infobip\Model\MessageResponse;
+use Infobip\Model\SmsDestination;
+use Infobip\Model\SmsMessage;
+use Infobip\Model\SmsMessageDeliveryReporting;
+use Infobip\Model\SmsRequest;
+use Infobip\Model\SmsResponse;
+use Infobip\Model\SmsTextContent;
+use Infobip\Model\SmsWebhooks;
+use Infobip\Model\ViberMessage;
+use Infobip\Model\ViberMessageDeliveryReporting;
+use Infobip\Model\ViberOttWebhooks;
+use Infobip\Model\ViberOutboundFileContent;
+use Infobip\Model\ViberOutboundImageContent;
+use Infobip\Model\ViberOutboundTextContent;
+use Infobip\Model\ViberRequest;
+use Infobip\Model\ViberToDestination;
+use Infobip\Model\WebRtcTokenRequestModel;
+use Infobip\Model\WhatsAppAudioContent;
+use Infobip\Model\WhatsAppAudioMessage;
+use Infobip\Model\WhatsAppDocumentContent;
+use Infobip\Model\WhatsAppDocumentMessage;
+use Infobip\Model\WhatsAppImageContent;
+use Infobip\Model\WhatsAppImageMessage;
+use Infobip\Model\WhatsAppSingleMessageInfo;
+use Infobip\Model\WhatsAppTextContent;
+use Infobip\Model\WhatsAppTextMessage;
+use Infobip\Model\WhatsAppVideoContent;
+use Infobip\Model\WhatsAppVideoMessage;
+use Infobip\ObjectSerializer;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -14,10 +57,29 @@ class InfobipService
 
     protected string $apiKey;
 
+    protected Configuration $configuration;
+
+    protected ObjectSerializer $serializer;
+
+    protected ?SmsApi $smsApi = null;
+
+    protected ?WhatsAppApi $whatsAppApi = null;
+
+    protected ?ViberApi $viberApi = null;
+
+    protected ?WebRtcApi $webRtcApi = null;
+
+    protected ?CallsApi $callsApi = null;
+
     public function __construct(string $baseUrl, string $apiKey)
     {
-        $this->baseUrl = rtrim($baseUrl, '/');
+        $this->baseUrl = $this->normalizeHost($baseUrl);
         $this->apiKey = $apiKey;
+        $this->configuration = new Configuration(
+            host: $this->baseUrl,
+            apiKey: $this->apiKey,
+        );
+        $this->serializer = new ObjectSerializer;
     }
 
     public function client(): PendingRequest
@@ -38,29 +100,29 @@ class InfobipService
         string $body,
         ?string $notifyUrl = null
     ): array {
-        $message = [
-            'sender' => $this->stripPlus($from),
-            'destinations' => [
-                ['to' => $this->stripPlus($to)],
-            ],
-            'content' => [
-                'text' => $body,
-            ],
-        ];
-
+        $webhooks = null;
         if ($notifyUrl) {
-            $message['webhooks'] = [
-                'delivery' => [
-                    'url' => $notifyUrl,
-                ],
-            ];
+            $webhooks = new SmsWebhooks(
+                delivery: new SmsMessageDeliveryReporting(url: $notifyUrl),
+            );
         }
 
-        $response = $this->client()->post('/sms/3/messages', [
-            'messages' => [$message],
-        ]);
+        $message = new SmsMessage(
+            destinations: [
+                new SmsDestination(to: $this->stripPlus($to)),
+            ],
+            content: new SmsTextContent(text: $body),
+            sender: $this->stripPlus($from),
+            webhooks: $webhooks,
+        );
 
-        return $this->parseMessageResponse($response, 'SMS');
+        try {
+            $response = $this->smsApi()->sendSmsMessages(new SmsRequest(messages: [$message]));
+        } catch (ApiException $e) {
+            throw $this->wrapApiException($e, 'SMS');
+        }
+
+        return $this->parseSdkMessageResponse($response, 'SMS');
     }
 
     /**
@@ -72,21 +134,20 @@ class InfobipService
         string $text,
         ?string $notifyUrl = null
     ): array {
-        $payload = [
-            'from' => $this->stripPlus($from),
-            'to' => $this->stripPlus($to),
-            'content' => [
-                'text' => $text,
-            ],
-        ];
+        $message = new WhatsAppTextMessage(
+            from: $this->stripPlus($from),
+            to: $this->stripPlus($to),
+            content: new WhatsAppTextContent(text: $text),
+            notifyUrl: $notifyUrl,
+        );
 
-        if ($notifyUrl) {
-            $payload['notifyUrl'] = $notifyUrl;
+        try {
+            $response = $this->whatsAppApi()->sendWhatsAppTextMessage($message);
+        } catch (ApiException $e) {
+            throw $this->wrapApiException($e, 'WhatsApp');
         }
 
-        $response = $this->client()->post('/whatsapp/1/message/text', $payload);
-
-        return $this->parseMessageResponse($response, 'WhatsApp');
+        return $this->parseSdkMessageResponse($response, 'WhatsApp');
     }
 
     /**
@@ -101,43 +162,52 @@ class InfobipService
         ?string $filename = null,
         ?string $notifyUrl = null
     ): array {
-        $endpointMap = [
-            'image' => '/whatsapp/1/message/image',
-            'video' => '/whatsapp/1/message/video',
-            'document' => '/whatsapp/1/message/document',
-            'audio' => '/whatsapp/1/message/audio',
-        ];
+        $fromNumber = $this->stripPlus($from);
+        $toNumber = $this->stripPlus($to);
 
-        $endpoint = $endpointMap[$type] ?? null;
-        if (! $endpoint) {
-            throw new RuntimeException('Unsupported WhatsApp media type: '.$type);
+        try {
+            $response = match ($type) {
+                'image' => $this->whatsAppApi()->sendWhatsAppImageMessage(new WhatsAppImageMessage(
+                    from: $fromNumber,
+                    to: $toNumber,
+                    content: new WhatsAppImageContent(
+                        mediaUrl: $mediaUrl,
+                        caption: ($caption !== null && $caption !== '') ? $caption : null,
+                    ),
+                    notifyUrl: $notifyUrl,
+                )),
+                'video' => $this->whatsAppApi()->sendWhatsAppVideoMessage(new WhatsAppVideoMessage(
+                    from: $fromNumber,
+                    to: $toNumber,
+                    content: new WhatsAppVideoContent(
+                        mediaUrl: $mediaUrl,
+                        caption: ($caption !== null && $caption !== '') ? $caption : null,
+                    ),
+                    notifyUrl: $notifyUrl,
+                )),
+                'document' => $this->whatsAppApi()->sendWhatsAppDocumentMessage(new WhatsAppDocumentMessage(
+                    from: $fromNumber,
+                    to: $toNumber,
+                    content: new WhatsAppDocumentContent(
+                        mediaUrl: $mediaUrl,
+                        caption: ($caption !== null && $caption !== '') ? $caption : null,
+                        filename: $filename,
+                    ),
+                    notifyUrl: $notifyUrl,
+                )),
+                'audio' => $this->whatsAppApi()->sendWhatsAppAudioMessage(new WhatsAppAudioMessage(
+                    from: $fromNumber,
+                    to: $toNumber,
+                    content: new WhatsAppAudioContent(mediaUrl: $mediaUrl),
+                    notifyUrl: $notifyUrl,
+                )),
+                default => throw new RuntimeException('Unsupported WhatsApp media type: '.$type),
+            };
+        } catch (ApiException $e) {
+            throw $this->wrapApiException($e, 'WhatsApp');
         }
 
-        $content = [
-            'mediaUrl' => $mediaUrl,
-        ];
-
-        if ($caption !== null && $caption !== '' && in_array($type, ['image', 'video', 'document'], true)) {
-            $content['caption'] = $caption;
-        }
-
-        if ($filename && $type === 'document') {
-            $content['filename'] = $filename;
-        }
-
-        $payload = [
-            'from' => $this->stripPlus($from),
-            'to' => $this->stripPlus($to),
-            'content' => $content,
-        ];
-
-        if ($notifyUrl) {
-            $payload['notifyUrl'] = $notifyUrl;
-        }
-
-        $response = $this->client()->post($endpoint, $payload);
-
-        return $this->parseMessageResponse($response, 'WhatsApp');
+        return $this->parseSdkMessageResponse($response, 'WhatsApp');
     }
 
     /**
@@ -149,22 +219,29 @@ class InfobipService
         string $text,
         ?string $notifyUrl = null
     ): array {
-        $payload = [
-            'from' => $from,
-            'to' => $this->stripPlus($to),
-            'content' => [
-                'text' => $text,
-                'type' => 'TEXT',
-            ],
-        ];
-
+        $webhooks = null;
         if ($notifyUrl) {
-            $payload['notifyUrl'] = $notifyUrl;
+            $webhooks = new ViberOttWebhooks(
+                delivery: new ViberMessageDeliveryReporting(url: $notifyUrl),
+            );
         }
 
-        $response = $this->client()->post('/viber/2/messages', $payload);
+        $message = new ViberMessage(
+            sender: $from,
+            destinations: [
+                new ViberToDestination(to: $this->stripPlus($to)),
+            ],
+            content: new ViberOutboundTextContent(text: $text),
+            webhooks: $webhooks,
+        );
 
-        return $this->parseMessageResponse($response, 'Viber');
+        try {
+            $response = $this->viberApi()->sendViberMessages(new ViberRequest(messages: [$message]));
+        } catch (ApiException $e) {
+            throw $this->wrapApiException($e, 'Viber');
+        }
+
+        return $this->parseSdkMessageResponse($response, 'Viber');
     }
 
     /**
@@ -179,39 +256,73 @@ class InfobipService
         ?string $filename = null,
         ?string $notifyUrl = null
     ): array {
-        $viberType = match ($type) {
-            'picture', 'image' => 'IMAGE',
-            'video' => 'VIDEO',
-            'file', 'document' => 'FILE',
-            default => 'FILE',
+        $normalizedType = match ($type) {
+            'picture', 'image' => 'image',
+            'video' => 'video',
+            'file', 'document' => 'file',
+            default => 'file',
         };
 
-        $content = [
-            'type' => $viberType,
-            'mediaUrl' => $mediaUrl,
-        ];
+        // SDK video content requires mediaDuration + thumbnailUrl; keep HTTP for video parity.
+        if ($normalizedType === 'video') {
+            $content = [
+                'type' => 'VIDEO',
+                'mediaUrl' => $mediaUrl,
+            ];
 
-        if ($text) {
-            $content['text'] = $text;
+            if ($text) {
+                $content['text'] = $text;
+            }
+
+            $payload = [
+                'from' => $from,
+                'to' => $this->stripPlus($to),
+                'content' => $content,
+            ];
+
+            if ($notifyUrl) {
+                $payload['notifyUrl'] = $notifyUrl;
+            }
+
+            $response = $this->client()->post('/viber/2/messages', $payload);
+
+            return $this->parseHttpMessageResponse($response, 'Viber');
         }
 
-        if ($filename) {
-            $content['fileName'] = $filename;
-        }
-
-        $payload = [
-            'from' => $from,
-            'to' => $this->stripPlus($to),
-            'content' => $content,
-        ];
-
+        $webhooks = null;
         if ($notifyUrl) {
-            $payload['notifyUrl'] = $notifyUrl;
+            $webhooks = new ViberOttWebhooks(
+                delivery: new ViberMessageDeliveryReporting(url: $notifyUrl),
+            );
         }
 
-        $response = $this->client()->post('/viber/2/messages', $payload);
+        $content = match ($normalizedType) {
+            'image' => new ViberOutboundImageContent(
+                mediaUrl: $mediaUrl,
+                text: $text,
+            ),
+            default => new ViberOutboundFileContent(
+                fileName: $filename ?: basename(parse_url($mediaUrl, PHP_URL_PATH) ?: 'file.pdf') ?: 'file.pdf',
+                mediaUrl: $mediaUrl,
+            ),
+        };
 
-        return $this->parseMessageResponse($response, 'Viber');
+        $message = new ViberMessage(
+            sender: $from,
+            destinations: [
+                new ViberToDestination(to: $this->stripPlus($to)),
+            ],
+            content: $content,
+            webhooks: $webhooks,
+        );
+
+        try {
+            $response = $this->viberApi()->sendViberMessages(new ViberRequest(messages: [$message]));
+        } catch (ApiException $e) {
+            throw $this->wrapApiException($e, 'Viber');
+        }
+
+        return $this->parseSdkMessageResponse($response, 'Viber');
     }
 
     /**
@@ -287,7 +398,7 @@ class InfobipService
             return [];
         }
 
-        $data = $response->json();
+        $data = $response->json() ?? [];
         $numbers = $data['numbers'] ?? $data['results'] ?? [];
 
         return array_values(array_filter(array_map(function ($n) {
@@ -349,31 +460,26 @@ class InfobipService
      */
     public function createWebrtcToken(string $identity, ?string $displayName = null, int $ttlSeconds = 43200): array
     {
-        $payload = [
-            'identity' => $identity,
-            'timeToLive' => $ttlSeconds,
-        ];
+        $request = new WebRtcTokenRequestModel(
+            identity: $identity,
+            displayName: $displayName,
+            timeToLive: $ttlSeconds,
+        );
 
-        if ($displayName) {
-            $payload['displayName'] = $displayName;
+        try {
+            $response = $this->webRtcApi()->generateWebRtcToken($request);
+        } catch (ApiException $e) {
+            throw $this->wrapApiException($e, 'create WebRTC token');
         }
 
-        $response = $this->client()->post('/webrtc/1/token', $payload);
-
-        if (! $response->successful()) {
-            throw new RuntimeException('Failed to create Infobip WebRTC token (HTTP '.$response->status().'): '.$response->body());
-        }
-
-        $data = $response->json() ?? [];
-        $token = $data['token'] ?? null;
-
+        $token = $response?->getToken();
         if (! $token) {
             throw new RuntimeException('Infobip WebRTC token response missing token.');
         }
 
         return [
             'token' => $token,
-            'expirationTime' => $data['expirationTime'] ?? null,
+            'expirationTime' => $response->getExpirationTime(),
         ];
     }
 
@@ -388,54 +494,47 @@ class InfobipService
         string $callsConfigurationId,
         ?string $webhookUrl = null
     ): array {
-        $payload = [
-            'endpoint' => [
-                'type' => 'PHONE',
-                'phoneNumber' => $this->normalizeE164($to),
-            ],
-            'from' => $this->normalizeE164($from),
-            'callsConfigurationId' => $callsConfigurationId,
-        ];
+        unset($webhookUrl);
 
-        if ($webhookUrl) {
-            $payload['callRouting'] = [
-                'type' => 'WEBHOOK',
-            ];
+        $request = new CallRequest(
+            endpoint: new CallsPhoneEndpoint(phoneNumber: $this->normalizeE164($to)),
+            callsConfigurationId: $callsConfigurationId,
+            from: $this->normalizeE164($from),
+        );
+
+        try {
+            $call = $this->callsApi()->createCall($request);
+        } catch (ApiException $e) {
+            throw $this->wrapApiException($e, 'place call');
         }
 
-        $response = $this->client()->post('/calls/1/calls', $payload);
-
-        if (! $response->successful()) {
-            throw new RuntimeException('Failed to place Infobip call (HTTP '.$response->status().'): '.$response->body());
-        }
-
-        $data = $response->json() ?? [];
+        $raw = $this->toArray($call);
 
         return [
-            'callId' => $data['id'] ?? $data['callId'] ?? null,
-            'raw' => $data,
+            'callId' => $call?->getId() ?? ($raw['id'] ?? $raw['callId'] ?? null),
+            'raw' => $raw,
         ];
     }
 
     public function hangupCall(string $callId): void
     {
-        $response = $this->client()->post('/calls/1/calls/'.$callId.'/hangup', [
-            'errorCode' => 'NORMAL_HANGUP',
-        ]);
+        try {
+            $this->callsApi()->hangupCall($callId, new CallsHangupRequest(errorCode: 'NORMAL_HANGUP'));
+        } catch (ApiException $e) {
+            if ($e->getCode() === 404) {
+                return;
+            }
 
-        if (! $response->successful() && $response->status() !== 404) {
-            throw new RuntimeException('Failed to hang up Infobip call (HTTP '.$response->status().'): '.$response->body());
+            throw $this->wrapApiException($e, 'hang up call');
         }
     }
 
     public function sendDtmf(string $callId, string $digits): void
     {
-        $response = $this->client()->post('/calls/1/calls/'.$callId.'/send-dtmf', [
-            'dtmf' => $digits,
-        ]);
-
-        if (! $response->successful()) {
-            throw new RuntimeException('Failed to send DTMF (HTTP '.$response->status().'): '.$response->body());
+        try {
+            $this->callsApi()->callSendDtmf($callId, new CallsDtmfSendRequest(dtmf: $digits));
+        } catch (ApiException $e) {
+            throw $this->wrapApiException($e, 'send DTMF');
         }
     }
 
@@ -444,13 +543,13 @@ class InfobipService
      */
     public function getCall(string $callId): array
     {
-        $response = $this->client()->get('/calls/1/calls/'.$callId);
-
-        if (! $response->successful()) {
-            throw new RuntimeException('Failed to fetch Infobip call (HTTP '.$response->status().'): '.$response->body());
+        try {
+            $call = $this->callsApi()->getCall($callId);
+        } catch (ApiException $e) {
+            throw $this->wrapApiException($e, 'fetch Infobip call');
         }
 
-        return $response->json() ?? [];
+        return $this->toArray($call);
     }
 
     /**
@@ -458,33 +557,23 @@ class InfobipService
      */
     public function connectCallToWebrtc(string $callId, string $identity): void
     {
-        $response = $this->client()->post('/calls/1/calls/'.$callId.'/connect', [
-            'endpoint' => [
-                'type' => 'WEBRTC',
-                'identity' => $identity,
-            ],
-        ]);
+        $request = new CallsConnectWithNewCallRequest(
+            callRequest: new CallsActionCallRequest(
+                endpoint: new CallsWebRtcEndpoint(identity: $identity),
+            ),
+        );
 
-        if (! $response->successful()) {
-            // Older/newer connect shapes
-            $response = $this->client()->post('/calls/1/connect', [
-                'callId' => $callId,
-                'endpoint' => [
-                    'type' => 'WEBRTC',
-                    'identity' => $identity,
-                ],
-            ]);
-        }
-
-        if (! $response->successful()) {
+        try {
+            $this->callsApi()->connectWithNewCall($callId, $request);
+        } catch (ApiException $e) {
             Log::warning('Infobip connect call to WebRTC failed', [
                 'call_id' => $callId,
                 'identity' => $identity,
-                'status' => $response->status(),
-                'body' => $response->body(),
+                'status' => $e->getCode(),
+                'body' => $e->getResponseBody(),
             ]);
 
-            throw new RuntimeException('Failed to connect call to WebRTC agent (HTTP '.$response->status().').');
+            throw new RuntimeException('Failed to connect call to WebRTC agent (HTTP '.$e->getCode().').', 0, $e);
         }
     }
 
@@ -525,10 +614,148 @@ class InfobipService
         return ltrim($normalized, '+');
     }
 
+    protected function smsApi(): SmsApi
+    {
+        return $this->smsApi ??= new SmsApi(config: $this->configuration);
+    }
+
+    protected function whatsAppApi(): WhatsAppApi
+    {
+        return $this->whatsAppApi ??= new WhatsAppApi(config: $this->configuration);
+    }
+
+    protected function viberApi(): ViberApi
+    {
+        return $this->viberApi ??= new ViberApi(config: $this->configuration);
+    }
+
+    protected function webRtcApi(): WebRtcApi
+    {
+        return $this->webRtcApi ??= new WebRtcApi(config: $this->configuration);
+    }
+
+    protected function callsApi(): CallsApi
+    {
+        return $this->callsApi ??= new CallsApi(config: $this->configuration);
+    }
+
+    protected function normalizeHost(string $baseUrl): string
+    {
+        $host = rtrim(trim($baseUrl), '/');
+
+        if ($host === '') {
+            return $host;
+        }
+
+        if (! preg_match('#^https?://#i', $host)) {
+            $host = 'https://'.$host;
+        }
+
+        return $host;
+    }
+
+    protected function wrapApiException(ApiException $e, string $channel): RuntimeException
+    {
+        $body = $e->getResponseBody();
+        $detail = is_string($body) ? $body : (is_object($body) || is_array($body) ? json_encode($body) : $e->getMessage());
+
+        $decoded = is_string($body) ? json_decode($body, true) : null;
+        if (is_array($decoded)) {
+            $text = $decoded['requestError']['serviceException']['text']
+                ?? $decoded['error']['description']
+                ?? $decoded['message']
+                ?? null;
+            if (is_string($text) && $text !== '') {
+                $detail = $text;
+            }
+        }
+
+        $action = preg_match('/^(send|create|place|hang|fetch)/i', $channel)
+            ? $channel
+            : "send {$channel} message";
+
+        return new RuntimeException(
+            "Failed to {$action} (HTTP {$e->getCode()}): {$detail}",
+            0,
+            $e
+        );
+    }
+
     /**
      * @return array{messageId: ?string, status: ?string, raw: array}
      */
-    protected function parseMessageResponse(Response $response, string $channel): array
+    protected function parseSdkMessageResponse(mixed $response, string $channel): array
+    {
+        $raw = $this->toArray($response);
+
+        if ($response instanceof SmsResponse) {
+            $messages = $response->getMessages() ?? [];
+            $first = $messages[0] ?? null;
+            $messageId = $first?->getMessageId();
+            $status = $first?->getStatus()?->getName()
+                ?? $first?->getStatus()?->getGroupName()
+                ?? 'pending';
+
+            return [
+                'messageId' => $messageId ? (string) $messageId : null,
+                'status' => $status ? strtolower((string) $status) : 'pending',
+                'raw' => $raw,
+            ];
+        }
+
+        if ($response instanceof WhatsAppSingleMessageInfo) {
+            $messageId = $response->getMessageId();
+            $status = $response->getStatus()?->getName()
+                ?? $response->getStatus()?->getGroupName()
+                ?? 'pending';
+
+            return [
+                'messageId' => $messageId ? (string) $messageId : null,
+                'status' => $status ? strtolower((string) $status) : 'pending',
+                'raw' => $raw,
+            ];
+        }
+
+        if ($response instanceof MessageResponse) {
+            $messages = $response->getMessages() ?? [];
+            $first = $messages[0] ?? null;
+            $messageId = $first?->getMessageId();
+            $status = $first?->getStatus()?->getName()
+                ?? $first?->getStatus()?->getGroupName()
+                ?? 'pending';
+
+            return [
+                'messageId' => $messageId ? (string) $messageId : null,
+                'status' => $status ? strtolower((string) $status) : 'pending',
+                'raw' => $raw,
+            ];
+        }
+
+        $messageId = $raw['messages'][0]['messageId']
+            ?? $raw['messageId']
+            ?? $raw['messages'][0]['to']['messageId']
+            ?? null;
+
+        $status = $raw['messages'][0]['status']['name']
+            ?? $raw['messages'][0]['status']['groupName']
+            ?? $raw['status']['name']
+            ?? 'pending';
+
+        if ($messageId === null && $status === 'pending' && $raw === []) {
+            throw new RuntimeException("Failed to send {$channel} message: empty response.");
+        }
+
+        return [
+            'messageId' => $messageId ? (string) $messageId : null,
+            'status' => $status ? strtolower((string) $status) : 'pending',
+            'raw' => $raw,
+        ];
+    }
+
+    /**
+     * @return array{messageId: ?string, status: ?string, raw: array}
+     */
+    protected function parseHttpMessageResponse(Response $response, string $channel): array
     {
         $data = $response->json() ?? [];
 
@@ -555,5 +782,37 @@ class InfobipService
             'status' => $status ? strtolower((string) $status) : 'pending',
             'raw' => $data,
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function toArray(mixed $value): array
+    {
+        if ($value === null) {
+            return [];
+        }
+
+        if (is_array($value)) {
+            return $value;
+        }
+
+        try {
+            $normalized = $this->serializer->normalize($value);
+            if (is_array($normalized)) {
+                return $normalized;
+            }
+        } catch (\Throwable) {
+            // Fall through to JSON encode.
+        }
+
+        $encoded = json_encode($value);
+        if (! is_string($encoded)) {
+            return [];
+        }
+
+        $decoded = json_decode($encoded, true);
+
+        return is_array($decoded) ? $decoded : [];
     }
 }
