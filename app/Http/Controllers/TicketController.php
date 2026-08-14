@@ -297,7 +297,7 @@ class TicketController extends Controller
             'sla' => $ticket->sla,
             'category' => $ticket->category,
             'created' => $ticket->created_at->diffForHumans(),
-            'image_url' => $ticket->image_path ? $baseUrl.'/storage/'.$ticket->image_path : null,
+            'image_url' => public_media_url($ticket->image_path),
         ];
     }
 

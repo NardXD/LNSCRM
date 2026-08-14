@@ -225,7 +225,7 @@
                     $user = auth()->user();
                     $userName = $user->name ?? 'User';
                     $userEmail = $user->email ?? '';
-                    $userPhoto = $user->photo ? asset('storage/' . $user->photo) : null;
+                    $userPhoto = public_media_url($user->photo);
                     $userInitials = '';
                     if ($userName) {
                         $words = explode(' ', $userName);

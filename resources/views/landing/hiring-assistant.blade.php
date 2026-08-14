@@ -91,7 +91,7 @@
                 </a>
                 <div class="header-logo">
                     @if($company->logo)
-                        <img src="{{ asset('storage/' . $company->logo) }}" alt="{{ $company->name }}">
+                        <img src="{{ public_media_url($company->logo) }}" alt="{{ $company->name }}">
                     @else
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <polygon points="12 2 15 9 22 9 17 14 19 22 12 18 5 22 7 14 2 9 9 9"/>

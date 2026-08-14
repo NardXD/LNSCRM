@@ -29,6 +29,10 @@ Route::match(['get', 'post'], '/mcp', [\App\Http\Controllers\McpServerController
     ->middleware('mcp.api_key')
     ->name('mcp');
 
+Route::get('/media/{path}', [\App\Http\Controllers\PublicMediaController::class, 'show'])
+    ->where('path', '.*')
+    ->name('media.show');
+
 Route::get('/', [\App\Http\Controllers\CompanyLandingController::class, 'index'])->name('landing');
 
 Route::get('/login', [LoginController::class, 'showLoginForm'])->name('login');
