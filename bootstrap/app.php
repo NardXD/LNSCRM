@@ -5,6 +5,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 
 require_once __DIR__.'/pdo_mysql_polyfill.php';
+require_once __DIR__.'/../app/helpers.php';
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(

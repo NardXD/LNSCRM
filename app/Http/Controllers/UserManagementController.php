@@ -182,7 +182,7 @@ class UserManagementController extends Controller
                     'address' => $user->address,
                     'date_of_birth' => $user->date_of_birth ? $user->date_of_birth->format('Y-m-d') : null,
                     'employment_date' => $user->employment_date ? $user->employment_date->format('Y-m-d') : null,
-                    'photo' => $user->photo ? asset('storage/'.$user->photo) : null,
+                    'photo' => $user->photo ? public_media_url($user->photo) : null,
                     'salary' => $user->salary,
                     'allowances' => $user->allowances ?? 0,
                     'client_invoice_amount' => $user->client_invoice_amount,

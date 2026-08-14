@@ -171,7 +171,7 @@ class FacebookController extends Controller
 
         return response()->json([
             'data' => [
-                'url' => asset('storage/'.$path),
+                'url' => public_media_url($path),
                 'file_name' => $file->getClientOriginalName(),
                 'file_size' => $file->getSize(),
                 'mime' => $file->getMimeType(),
@@ -411,7 +411,7 @@ class FacebookController extends Controller
         $path = 'facebook/'.$integration->company_id.'/inbound/'.date('Y/m').'/'.Str::random(12).'.'.$ext;
         Storage::disk('public')->put($path, $response->body());
 
-        return asset('storage/'.$path);
+        return public_media_url($path);
     }
 
     protected function notifyUnread(FacebookConversation $conversation, FacebookMessage $message): void

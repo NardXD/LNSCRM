@@ -8,7 +8,7 @@
         $company = request('company') ?? (app()->bound('company') ? app('company') : null);
     }
     if ($company && $company->logo) {
-        $faviconUrl = asset('storage/' . $company->logo);
+        $faviconUrl = public_media_url($company->logo);
     } else {
         $faviconUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
     }

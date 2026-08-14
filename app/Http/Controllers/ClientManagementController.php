@@ -64,15 +64,14 @@ class ClientManagementController extends Controller
         $clients = $query->paginate($perPage);
 
         // Format clients with employees having proper photo URLs
-        $baseUrl = request()->getSchemeAndHttpHost();
-        $formattedClients = collect($clients->items())->map(function ($client) use ($baseUrl) {
+        $formattedClients = collect($clients->items())->map(function ($client) {
             $clientData = $client->toArray();
 
             // Format employees with photo URLs
             if (isset($clientData['employees']) && is_array($clientData['employees'])) {
-                $clientData['employees'] = array_map(function ($employee) use ($baseUrl) {
+                $clientData['employees'] = array_map(function ($employee) {
                     if (! empty($employee['photo'])) {
-                        $employee['photo'] = $baseUrl.'/storage/'.$employee['photo'];
+                        $employee['photo'] = public_media_url($employee['photo']);
                     } else {
                         $employee['photo'] = null;
                     }
@@ -243,14 +242,13 @@ class ClientManagementController extends Controller
         $client->load(['contacts', 'employees.department', 'projects', 'notes.user']);
 
         // Convert to array and format employees with photo URLs
-        $baseUrl = request()->getSchemeAndHttpHost();
         $clientData = $client->toArray();
 
         // Format employees with photo URLs
         if (isset($clientData['employees']) && is_array($clientData['employees'])) {
-            $clientData['employees'] = array_map(function ($employee) use ($baseUrl) {
+            $clientData['employees'] = array_map(function ($employee) {
                 $employee['photo'] = ! empty($employee['photo'])
-                    ? $baseUrl.'/storage/'.$employee['photo']
+                    ? public_media_url($employee['photo'])
                     : null;
 
                 return $employee;
@@ -331,7 +329,7 @@ class ClientManagementController extends Controller
                     'name' => $employee->name,
                     'email' => $employee->email,
                     'department' => $employee->department ? $employee->department->name : null,
-                    'photo' => $employee->photo ? request()->getSchemeAndHttpHost().'/storage/'.$employee->photo : null,
+                    'photo' => $employee->photo ? public_media_url($employee->photo) : null,
                 ];
             });
 
@@ -397,7 +395,7 @@ class ClientManagementController extends Controller
                 'name' => $employee->name,
                 'email' => $employee->email,
                 'department' => $employee->department ? $employee->department->name : null,
-                'photo' => $employee->photo ? request()->getSchemeAndHttpHost().'/storage/'.$employee->photo : null,
+                'photo' => $employee->photo ? public_media_url($employee->photo) : null,
             ];
         });
 
