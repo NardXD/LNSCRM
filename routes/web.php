@@ -90,7 +90,7 @@ Route::post('/webhooks/whatsapp/{webhookKey}', [\App\Http\Controllers\WhatsAppCo
 Route::match(['get', 'post'], '/webhooks/facebook/{webhookKey}', [\App\Http\Controllers\FacebookController::class, 'webhook'])
     ->name('webhooks.facebook');
 
-// Twilio Flex — CRM screen-pop + TaskRouter event callbacks (public, CSRF-exempt)
+// Twilio webhooks — CRM screen-pop + TaskRouter event callbacks (public, CSRF-exempt, unused by standard Twilio UI)
 Route::get('/flex/screen-pop/{webhookKey}', [\App\Http\Controllers\Twilio\FlexController::class, 'screenPop'])
     ->name('flex.screen-pop');
 Route::post('/webhooks/flex/{webhookKey}/events', [\App\Http\Controllers\Twilio\FlexController::class, 'events'])

@@ -59,7 +59,7 @@ class TwilioCompanyService
 
             return ['sid' => $sid, 'token' => $token];
         } catch (\Exception $e) {
-            Log::error('Twilio Flex credential decryption failed', [
+            Log::error('Twilio credential decryption failed', [
                 'integration_id' => $integration->id,
                 'error' => $e->getMessage(),
             ]);

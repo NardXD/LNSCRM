@@ -356,7 +356,7 @@ async function initializeGlobalTwilioDevice() {
             const errorMessage = data.message || 'Configuration missing';
             // console.log('Global Twilio device: ' + errorMessage);
             // Note: twilio_number is NOT required for incoming calls
-            // Only required for: Company, Active Twilio Flex integration, App SID, API Key, API Secret
+            // Only required for: Company, Active Twilio integration, App SID, API Key, API Secret
             return;
         }
 

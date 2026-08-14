@@ -40,9 +40,9 @@ class CallController extends Controller
                     // Check if there's an inactive integration
                     $anyIntegration = TwilioFlexIntegration::where('company_id', $company->id)->first();
                     if ($anyIntegration) {
-                        $integrationError = 'Twilio Flex integration is inactive. Please activate it in the Integrations page.';
+                        $integrationError = 'Twilio integration is inactive. Please activate it in the Integrations page.';
                     } else {
-                        $integrationError = 'Twilio Flex not configured. Please connect Twilio Flex under Integrations.';
+                        $integrationError = 'Twilio not configured. Please connect Twilio under Integrations.';
                     }
                 }
             } else {
@@ -128,7 +128,7 @@ class CallController extends Controller
 
                 return response()->json([
                     'success' => false,
-                    'message' => 'Twilio Flex not configured. Please connect Twilio Flex under Integrations.',
+                    'message' => 'Twilio not configured. Please connect Twilio under Integrations.',
                     'call_sid' => null,
                 ], 500);
             }

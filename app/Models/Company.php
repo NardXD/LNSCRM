@@ -141,7 +141,7 @@ class Company extends Model
     }
 
     /**
-     * Get the Twilio Flex integration (account credentials + Flex settings) for the company.
+     * Get the Twilio integration (account credentials) for the company.
      */
     public function twilioFlexIntegration()
     {

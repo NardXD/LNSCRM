@@ -34,33 +34,9 @@ class IntegrationController extends Controller
     }
 
     /**
-     * @deprecated Use Flex endpoints — kept as aliases for older clients.
+     * Get Twilio integration (account credentials) for the current company.
      */
     public function getTwilioIntegration(Request $request): JsonResponse
-    {
-        return $this->getFlexIntegration($request);
-    }
-
-    /**
-     * @deprecated Use Flex endpoints — kept as aliases for older clients.
-     */
-    public function storeTwilioIntegration(Request $request): JsonResponse
-    {
-        return $this->storeFlexIntegration($request);
-    }
-
-    /**
-     * @deprecated Use Flex endpoints — kept as aliases for older clients.
-     */
-    public function deleteTwilioIntegration(Request $request): JsonResponse
-    {
-        return $this->deleteFlexIntegration($request);
-    }
-
-    /**
-     * Get Twilio Flex integration (account + Flex) for the current company.
-     */
-    public function getFlexIntegration(Request $request): JsonResponse
     {
         $company = $this->getCompany($request);
 
@@ -75,24 +51,46 @@ class IntegrationController extends Controller
             $isConnected = $integration->is_active && $validator->isComplete($integration);
 
             return response()->json([
-                'integration' => $this->formatFlexIntegration($integration),
+                'integration' => $this->formatTwilioIntegration($integration),
                 'status' => $isConnected ? 'connected' : 'disconnected',
                 'missing_fields' => $validator->missingFields($integration),
-                'urls' => $this->flexUrls($integration),
             ]);
         }
 
         return response()->json([
             'integration' => null,
             'status' => 'disconnected',
-            'urls' => null,
         ]);
     }
 
     /**
-     * Store or update Twilio Flex (account credentials + Flex settings).
+     * @deprecated Use Twilio endpoints — kept as aliases for older clients.
+     */
+    public function getFlexIntegration(Request $request): JsonResponse
+    {
+        return $this->getTwilioIntegration($request);
+    }
+
+    /**
+     * @deprecated Use Twilio endpoints — kept as aliases for older clients.
      */
     public function storeFlexIntegration(Request $request): JsonResponse
+    {
+        return $this->storeTwilioIntegration($request);
+    }
+
+    /**
+     * @deprecated Use Twilio endpoints — kept as aliases for older clients.
+     */
+    public function deleteFlexIntegration(Request $request): JsonResponse
+    {
+        return $this->deleteTwilioIntegration($request);
+    }
+
+    /**
+     * Store or update Twilio account credentials.
+     */
+    public function storeTwilioIntegration(Request $request): JsonResponse
     {
         $company = $this->getCompany($request);
 
@@ -106,15 +104,10 @@ class IntegrationController extends Controller
             'app_sid' => ['nullable', 'string', 'regex:/^AP[a-fA-F0-9]{32}$/'],
             'api_key' => ['nullable', 'string', 'regex:/^SK[a-fA-F0-9]{32}$/'],
             'api_secret' => ['nullable', 'string'],
-            'workspace_sid' => ['nullable', 'string', 'regex:/^WS[a-fA-F0-9]{32}$/'],
-            'workflow_sid' => ['nullable', 'string', 'regex:/^WW[a-fA-F0-9]{32}$/'],
-            'regenerate_api_key' => ['nullable', 'boolean'],
         ], [
             'account_sid.regex' => 'Account SID must be a valid Twilio SID (starts with AC).',
             'app_sid.regex' => 'App SID must be a valid Twilio SID (starts with AP).',
             'api_key.regex' => 'API Key must be a valid Twilio key (starts with SK).',
-            'workspace_sid.regex' => 'Workspace SID must start with WS.',
-            'workflow_sid.regex' => 'Workflow SID must start with WW.',
         ]);
 
         if ($validator->fails()) {
@@ -170,37 +163,22 @@ class IntegrationController extends Controller
                 'api_secret' => $plain['api_secret']
                     ? Crypt::encryptString($plain['api_secret'])
                     : null,
-                'workspace_sid' => $request->input('workspace_sid') ?: ($existing?->workspace_sid),
-                'workflow_sid' => $request->input('workflow_sid') ?: ($existing?->workflow_sid),
                 'webhook_key' => $webhookKey,
                 'is_active' => true,
             ]
         );
 
-        $plainApiKey = null;
-        $shouldIssueKey = $request->boolean('regenerate_api_key') || ! $integration->hasPluginApiKey();
-        if ($shouldIssueKey) {
-            $plainApiKey = TwilioFlexIntegration::generateApiKey();
-            $integration->setPluginApiKey($plainApiKey);
-            $integration->save();
-        }
-
         return response()->json([
-            'message' => 'Twilio Flex saved and verified successfully',
+            'message' => 'Twilio saved and verified successfully',
             'status' => 'connected',
-            'integration' => $this->formatFlexIntegration($integration),
-            'api_key' => $plainApiKey,
-            'api_key_notice' => $plainApiKey
-                ? 'Copy this Flex plugin API key now — it is shown only once.'
-                : null,
-            'urls' => $this->flexUrls($integration),
+            'integration' => $this->formatTwilioIntegration($integration),
         ]);
     }
 
     /**
-     * Delete Twilio Flex integration for the current company.
+     * Delete Twilio integration for the current company.
      */
-    public function deleteFlexIntegration(Request $request): JsonResponse
+    public function deleteTwilioIntegration(Request $request): JsonResponse
     {
         $company = $this->getCompany($request);
 
@@ -215,13 +193,13 @@ class IntegrationController extends Controller
             TwilioIntegration::where('company_id', $company->id)->delete();
         }
 
-        return response()->json(['message' => 'Twilio Flex integration deleted successfully']);
+        return response()->json(['message' => 'Twilio integration deleted successfully']);
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function formatFlexIntegration(TwilioFlexIntegration $integration): array
+    private function formatTwilioIntegration(TwilioFlexIntegration $integration): array
     {
         return [
             'id' => $integration->id,
@@ -231,26 +209,9 @@ class IntegrationController extends Controller
             'api_key' => $integration->api_key,
             'api_secret' => $integration->api_secret ? '***hidden***' : null,
             'auth_token' => $integration->auth_token ? '***hidden***' : null,
-            'workspace_sid' => $integration->workspace_sid,
-            'workflow_sid' => $integration->workflow_sid,
-            'webhook_key' => $integration->webhook_key,
-            'has_api_key' => $integration->hasPluginApiKey(),
-            'api_key_prefix' => $integration->api_key_prefix,
             'is_active' => $integration->is_active,
             'created_at' => $integration->created_at,
             'updated_at' => $integration->updated_at,
-        ];
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function flexUrls(TwilioFlexIntegration $integration): array
-    {
-        return [
-            'screen_pop_base' => url('/flex/screen-pop/'.$integration->webhook_key),
-            'events_webhook' => url('/webhooks/flex/'.$integration->webhook_key.'/events'),
-            'lookup_api' => url('/api/flex/crm/lookup'),
         ];
     }
 
@@ -309,7 +270,7 @@ class IntegrationController extends Controller
 
         if (! app(TwilioCompanyService::class)->getActiveIntegration($company)) {
             return response()->json([
-                'error' => 'Connect Twilio Flex first under Integrations, then configure your Viber sender.',
+                'error' => 'Connect Twilio first under Integrations, then configure your Viber sender.',
             ], 422);
         }
 
@@ -430,7 +391,7 @@ class IntegrationController extends Controller
 
         if (! app(TwilioCompanyService::class)->getActiveIntegration($company)) {
             return response()->json([
-                'error' => 'Connect Twilio Flex first under Integrations, then configure your WhatsApp sender.',
+                'error' => 'Connect Twilio first under Integrations, then configure your WhatsApp sender.',
             ], 422);
         }
 

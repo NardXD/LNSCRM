@@ -10,7 +10,7 @@ use Twilio\Rest\Client;
 
 class TwilioIntegrationValidator
 {
-    /** Required for SMS / WhatsApp / Viber messaging and Flex. */
+    /** Required for SMS / WhatsApp / Viber messaging and the phone system. */
     public const REQUIRED_FIELDS = [
         'account_sid' => 'Account SID',
         'auth_token' => 'Auth Token',
