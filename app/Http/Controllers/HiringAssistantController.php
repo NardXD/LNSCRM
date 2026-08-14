@@ -76,7 +76,7 @@ PROMPT;
 
     /**
      * Handle chat messages for the hiring assistant.
-     * Public endpoint - requires company from subdomain.
+     * Public endpoint — requires the bound company.
      */
     public function chat(Request $request): JsonResponse
     {

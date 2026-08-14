@@ -77,7 +77,7 @@ class CompanyManagementController extends Controller
             }
 
             return redirect()->route('admin.company-management')
-                ->with('success', 'Company "'.$company->name.'" created successfully. Admin can log in at their subdomain.');
+                ->with('success', 'Company "'.$company->name.'" created successfully. Admin can log in at /login.');
         } catch (\Exception $e) {
             DB::rollBack();
 

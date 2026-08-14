@@ -92,7 +92,6 @@ return array(
     'Laravel\\Roster\\' => array($vendorDir . '/laravel/roster/src'),
     'Laravel\\Reverb\\' => array($vendorDir . '/laravel/reverb/src'),
     'Laravel\\Prompts\\' => array($vendorDir . '/laravel/prompts/src'),
-    'Laravel\\Pail\\' => array($vendorDir . '/laravel/pail/src'),
     'Laravel\\Mcp\\Server\\' => array($vendorDir . '/laravel/mcp/src/Server'),
     'Laravel\\Mcp\\' => array($vendorDir . '/laravel/mcp/src'),
     'Laravel\\Boost\\' => array($vendorDir . '/laravel/boost/src'),

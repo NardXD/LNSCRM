@@ -1,0 +1,13 @@
+---
+description: Single-company install — do not use subdomains
+alwaysApply: true
+---
+
+# Single company, no subdomains
+
+This CRM runs as one company on the main domain.
+
+- Do not add subdomain routing, `*.domain` hosts, or redirects to `{subdomain}.example.com`
+- Resolve the company with `Company::current()` / `config('company.id')` (`COMPANY_ID` in `.env`)
+- Build links with `url()` or named routes, never subdomain URL helpers
+- `/admin/*` stays on the same host

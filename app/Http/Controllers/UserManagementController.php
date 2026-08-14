@@ -1101,7 +1101,7 @@ class UserManagementController extends Controller
         try {
             $company = Company::find($user->company_id);
             $loginUrl = $company
-                ? url('//'.$company->subdomain.'.'.parse_url(config('app.url'), PHP_URL_HOST).'/login')
+                ? url('/login')
                 : route('login');
 
             Mail::to($employee->email)->send(new WelcomeEmail(

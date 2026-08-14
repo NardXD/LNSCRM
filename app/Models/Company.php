@@ -31,6 +31,21 @@ class Company extends Model
     ];
 
     /**
+     * The company this single-tenant install should use (no subdomain lookup).
+     */
+    public static function current(): ?self
+    {
+        $query = static::query()->orderBy('id');
+        $id = config('company.id');
+
+        if ($id) {
+            return $query->where('id', $id)->first();
+        }
+
+        return $query->first();
+    }
+
+    /**
      * Get the users for the company.
      */
     public function users(): HasMany

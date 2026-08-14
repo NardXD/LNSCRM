@@ -24,7 +24,7 @@ class RecorderLoginRequest extends FormRequest
         return [
             'email' => ['required', 'email'],
             'password' => ['required', 'string'],
-            'company_subdomain' => ['required', 'string', 'max:255'],
+            'company_subdomain' => ['nullable', 'string', 'max:255'],
             'device_id' => ['required', 'string', 'max:255'],
             'platform' => ['required', 'string', 'in:windows,ios'],
             'token_name' => ['nullable', 'string', 'max:255'],

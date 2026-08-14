@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\CompanyHistory;
 use App\Models\User;
-use App\Support\SubdomainUrlBuilder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -20,7 +19,7 @@ class ImpersonationController extends Controller
     private const TOKEN_TTL_SECONDS = 120;
 
     /**
-     * Start impersonation by redirecting to the company subdomain with a one-time token.
+     * Start impersonation by logging in as the company admin on this host.
      */
     public function loginAsCompanyAdmin(Request $request, Company $company): RedirectResponse
     {
@@ -31,11 +30,6 @@ class ImpersonationController extends Controller
                 ->with('error', 'No active admin user found for "'.$company->name.'".');
         }
 
-        if (! $company->subdomain) {
-            return redirect()->route('admin.company-management')
-                ->with('error', 'Company "'.$company->name.'" does not have a subdomain configured.');
-        }
-
         $token = Str::random(64);
 
         Cache::put(self::CACHE_PREFIX.$token, [
@@ -44,16 +38,11 @@ class ImpersonationController extends Controller
             'company_id' => $company->id,
         ], self::TOKEN_TTL_SECONDS);
 
-        $url = SubdomainUrlBuilder::build(
-            $company->subdomain,
-            '/auth/impersonate?token='.urlencode($token)
-        );
-
-        return redirect()->away($url);
+        return redirect()->to(url('/auth/impersonate?token='.urlencode($token)));
     }
 
     /**
-     * Complete impersonation on the company subdomain (session is created here).
+     * Complete impersonation (session is created here).
      */
     public function accept(Request $request): RedirectResponse
     {

@@ -46,7 +46,7 @@ class CallController extends Controller
                     }
                 }
             } else {
-                $integrationError = 'Company not found. Please ensure you are accessing from the correct subdomain.';
+                        $integrationError = 'Company not found.';
             }
 
             return view('twilio.call', [
@@ -101,7 +101,7 @@ class CallController extends Controller
 
                 return response()->json([
                     'success' => false,
-                    'message' => 'Company not found. Please ensure you are accessing from the correct subdomain.',
+                    'message' => 'Company not found.',
                     'call_sid' => null,
                 ], 500);
             }

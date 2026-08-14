@@ -1338,7 +1338,7 @@ class IntegrationController extends Controller
     }
 
     /**
-     * Get company from request (subdomain) or the authenticated user.
+     * Get company from the current request or the authenticated user.
      */
     private function getCompany(Request $request): ?Company
     {

@@ -17,24 +17,6 @@ class LoginController extends Controller
     {
         // Redirect if already authenticated
         if (Auth::check()) {
-            $user = Auth::user();
-
-            // If user has a company and we're on main domain, redirect to their subdomain
-            if ($user->company_id) {
-                $company = $user->company;
-
-                if ($company && $company->subdomain) {
-                    $currentCompany = $this->getCompanyFromRequest($request);
-
-                    // Only redirect if we're on main domain (not already on subdomain)
-                    if (! $currentCompany) {
-                        $subdomainUrl = $this->buildSubdomainUrl($company->subdomain, '/time-tracking');
-
-                        return redirect($subdomainUrl);
-                    }
-                }
-            }
-
             return redirect()->route('time-tracking');
         }
 
@@ -53,7 +35,6 @@ class LoginController extends Controller
 
         $remember = $request->boolean('remember');
 
-        // Get the company from subdomain if available
         $company = $this->getCompanyFromRequest($request);
 
         // Attempt to authenticate the user
@@ -73,30 +54,16 @@ class LoginController extends Controller
                 ]);
             }
 
-            // If we're on a subdomain, verify user belongs to that company
-            if ($company && $user->company_id !== $company->id) {
+            if ($company && $user->company_id && $user->company_id !== $company->id && ! $user->is_admin) {
                 Auth::logout();
                 $request->session()->invalidate();
                 $request->session()->regenerateToken();
 
                 throw ValidationException::withMessages([
-                    'email' => ['This account does not belong to this company. Please log in through the correct subdomain.'],
+                    'email' => ['This account does not belong to this company.'],
                 ]);
             }
 
-            // If logging in from main domain (localhost:8000), redirect to user's subdomain
-            if (! $company && $user->company_id) {
-                $userCompany = $user->company;
-
-                if ($userCompany && $userCompany->subdomain) {
-                    // Redirect to user's subdomain time tracking
-                    $subdomainUrl = $this->buildSubdomainUrl($userCompany->subdomain, '/time-tracking');
-
-                    return redirect($subdomainUrl);
-                }
-            }
-
-            // Redirect to time tracking on the same host (avoid stale intended URLs to /).
             $request->session()->forget('url.intended');
 
             return redirect()->route('time-tracking');
@@ -143,48 +110,7 @@ class LoginController extends Controller
      */
     private function resolveLoginPortalUrl(Request $request): string
     {
-        $company = $this->getCompanyFromRequest($request);
-
-        if ($company?->subdomain) {
-            return $this->buildSubdomainUrl($company->subdomain, '/login');
-        }
-
-        if (Auth::check()) {
-            $userCompany = Auth::user()->company;
-
-            if ($userCompany?->subdomain) {
-                return $this->buildSubdomainUrl($userCompany->subdomain, '/login');
-            }
-        }
-
-        return config('app.url');
-    }
-
-    /**
-     * Build subdomain URL.
-     */
-    private function buildSubdomainUrl(string $subdomain, string $path = '/'): string
-    {
-        $baseUrl = config('app.url');
-        $parsed = parse_url($baseUrl);
-        $scheme = $parsed['scheme'] ?? (request()->secure() ? 'https' : 'http');
-        $port = request()->getPort();
-
-        // Handle different base URL formats
-        if (str_contains($baseUrl, 'localhost')) {
-            // For localhost, use subdomain.localhost format
-            $host = $subdomain.'.localhost';
-        } else {
-            // For production domains, extract the domain and prepend subdomain
-            $host = $subdomain.'.'.($parsed['host'] ?? 'localhost');
-        }
-
-        // Build URL with port if not default (skip for standard HTTP/HTTPS ports)
-        $url = ($port && $port != 80 && $port != 443)
-            ? "{$scheme}://{$host}:{$port}{$path}"
-            : "{$scheme}://{$host}{$path}";
-
-        return $url;
+        return url('/login');
     }
 
     /**

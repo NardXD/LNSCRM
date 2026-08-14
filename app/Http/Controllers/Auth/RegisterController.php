@@ -105,7 +105,7 @@ class RegisterController extends Controller
 
             // Send welcome email — failure must not break registration
             try {
-                $loginUrl = $this->buildSubdomainUrl($subdomain, '/login');
+                $loginUrl = url('/login');
                 Mail::to($user->email)->send(new WelcomeEmail(
                     userName: $user->name,
                     userEmail: $user->email,
@@ -119,10 +119,7 @@ class RegisterController extends Controller
                 ]);
             }
 
-            // Build subdomain URL and redirect to subdomain login (root route)
-            $subdomainUrl = $this->buildSubdomainUrl($subdomain, '/');
-
-            return redirect($subdomainUrl)
+            return redirect()->route('login')
                 ->with('success', 'Registration successful! Please log in to access your dashboard.')
                 ->with('registered_email', $request->email);
         } catch (\Exception $e) {
@@ -187,33 +184,6 @@ class RegisterController extends Controller
                 'max_users' => $planSlug === 'free' ? 1 : ($planSlug === 'gold' ? 10 : 40),
             ]
         );
-    }
-
-    /**
-     * Build subdomain URL.
-     */
-    private function buildSubdomainUrl(string $subdomain, string $path = '/'): string
-    {
-        $baseUrl = config('app.url');
-        $parsed = parse_url($baseUrl);
-        $scheme = $parsed['scheme'] ?? (request()->secure() ? 'https' : 'http');
-        $port = request()->getPort();
-
-        // Handle different base URL formats
-        if (str_contains($baseUrl, 'localhost')) {
-            // For localhost, use subdomain.localhost format
-            $host = $subdomain.'.localhost';
-        } else {
-            // For production domains, extract the domain and prepend subdomain
-            $host = $subdomain.'.'.($parsed['host'] ?? 'localhost');
-        }
-
-        // Build URL with port if not default (skip for standard HTTP/HTTPS ports)
-        $url = ($port && $port != 80 && $port != 443)
-            ? "{$scheme}://{$host}:{$port}{$path}"
-            : "{$scheme}://{$host}{$path}";
-
-        return $url;
     }
 
     /**

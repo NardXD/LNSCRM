@@ -13,12 +13,16 @@ class RecorderAuthController extends Controller
 {
     public function login(RecorderLoginRequest $request)
     {
-        $company = Company::where('subdomain', $request->string('company_subdomain')->toString())->first();
+        $subdomain = $request->input('company_subdomain');
+        $company = is_string($subdomain) && $subdomain !== ''
+            ? Company::where('subdomain', $subdomain)->first()
+            : null;
+        $company ??= Company::current();
 
         if (! $company) {
             return response()->json([
                 'success' => false,
-                'message' => 'Company subdomain not found.',
+                'message' => 'Company not found.',
             ], 404);
         }
 
