@@ -4,11 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Support\PublicMedia;
 use Illuminate\Support\Facades\Storage;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PublicMediaController extends Controller
 {
-    public function show(string $path): BinaryFileResponse
+    public function show(string $path): StreamedResponse
     {
         $path = PublicMedia::normalize($path);
 
