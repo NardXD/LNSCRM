@@ -1,0 +1,13 @@
+---
+description: Do not install or use Laravel Pail
+alwaysApply: true
+---
+
+# No Laravel Pail
+
+Do not add, install, or use Laravel Pail in this project.
+
+- Do not add `laravel/pail` to `composer.json`
+- Do not run `php artisan pail`
+- Do not add Pail to Composer scripts (including `composer dev`)
+- Use Laravel log files or `tail` on `storage/logs` if log streaming is needed
