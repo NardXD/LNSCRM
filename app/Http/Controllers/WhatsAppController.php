@@ -209,7 +209,7 @@ class WhatsAppController extends Controller
 
         return response()->json([
             'data' => [
-                'url' => public_media_url($path),
+                'url' => asset('storage/'.$path),
                 'file_name' => $file->getClientOriginalName(),
                 'file_size' => $file->getSize(),
                 'mime' => $file->getMimeType(),
@@ -495,7 +495,7 @@ class WhatsAppController extends Controller
         $path = 'whatsapp/'.$integration->company_id.'/inbound/'.date('Y/m').'/'.$messageSid.'-'.Str::random(6).'.'.$ext;
         Storage::disk('public')->put($path, $binary);
 
-        return public_media_url($path);
+        return asset('storage/'.$path);
     }
 
     protected function guessMediaType(?string $mimeType): string

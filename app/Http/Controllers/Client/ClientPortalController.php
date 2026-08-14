@@ -120,7 +120,7 @@ class ClientPortalController extends Controller
                     'name' => $employee->name,
                     'email' => $employee->email,
                     'department' => $employee->department?->name ?? 'General',
-                    'photo' => $employee->photo ? public_media_url($employee->photo) : null,
+                    'photo' => $employee->photo ? request()->getSchemeAndHttpHost().'/storage/'.$employee->photo : null,
                     'status' => $isActive ? 'active' : 'inactive',
                     'live_available' => isset($liveStatusMaps['live'][$employee->id]),
                     'videos_today' => $videosToday,
@@ -620,7 +620,7 @@ class ClientPortalController extends Controller
                     return [
                         'id' => $member->id,
                         'name' => $member->name,
-                        'photo' => $member->photo ? public_media_url($member->photo) : null,
+                        'photo' => $member->photo ? request()->getSchemeAndHttpHost().'/storage/'.$member->photo : null,
                     ];
                 }),
                 'created_at' => $project->created_at->format('M d, Y'),
@@ -685,7 +685,7 @@ class ClientPortalController extends Controller
                 'assigned_to' => $task->assignedUser ? [
                     'id' => $task->assignedUser->id,
                     'name' => $task->assignedUser->name,
-                    'photo' => $task->assignedUser->photo ? public_media_url($task->assignedUser->photo) : null,
+                    'photo' => $task->assignedUser->photo ? request()->getSchemeAndHttpHost().'/storage/'.$task->assignedUser->photo : null,
                 ] : null,
             ];
         });
@@ -715,7 +715,7 @@ class ClientPortalController extends Controller
                         'id' => $member->id,
                         'name' => $member->name,
                         'email' => $member->email,
-                        'photo' => $member->photo ? public_media_url($member->photo) : null,
+                        'photo' => $member->photo ? request()->getSchemeAndHttpHost().'/storage/'.$member->photo : null,
                     ];
                 }),
                 'created_at' => $project->created_at->format('M d, Y'),
@@ -783,7 +783,7 @@ class ClientPortalController extends Controller
                 'user' => $record->user ? [
                     'id' => $record->user->id,
                     'name' => $record->user->name,
-                    'photo' => $record->user->photo ? public_media_url($record->user->photo) : null,
+                    'photo' => $record->user->photo ? request()->getSchemeAndHttpHost().'/storage/'.$record->user->photo : null,
                 ] : null,
                 'task' => $record->task ? [
                     'id' => $record->task->id,
@@ -874,7 +874,7 @@ class ClientPortalController extends Controller
             return [
                 'user_id' => $userId,
                 'user_name' => $user?->name ?? 'Unknown',
-                'user_photo' => $user?->photo ? public_media_url($user->photo) : null,
+                'user_photo' => $user?->photo ? request()->getSchemeAndHttpHost().'/storage/'.$user->photo : null,
                 'total_hours' => round($userTotalSeconds / 3600, 2),
                 'records_count' => $userRecords->count(),
             ];

@@ -319,7 +319,7 @@
             <div class="logo-section">
                 @php
                     $company = request('company') ?? (app()->bound('company') ? app('company') : null);
-                    $companyLogo = $company ? public_media_url($company->logo) : null;
+                    $companyLogo = $company && $company->logo ? asset('storage/' . $company->logo) : null;
                     $companyName = $company ? $company->name : 'CRM Portal';
                 @endphp
                 <div class="logo">

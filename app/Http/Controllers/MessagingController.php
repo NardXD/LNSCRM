@@ -130,7 +130,7 @@ class MessagingController extends Controller
                 'unread_count' => max($unread, 0),
                 'participants_count' => $conv->participants->count() + 1, // +1 for current user in group
                 'avatar_initials' => $conv->type === 'group' ? $this->getInitials($conv->name ?? '') : $this->getInitials($otherParticipant?->name ?? ''),
-                'avatar_photo' => $conv->type === 'group' ? ($conv->photo ? public_media_url($conv->photo) : null) : ($otherParticipant?->photo ? public_media_url($otherParticipant->photo) : null),
+                'avatar_photo' => $conv->type === 'group' ? ($conv->photo ? asset('storage/'.$conv->photo) : null) : ($otherParticipant?->photo ? asset('storage/'.$otherParticipant->photo) : null),
             ];
         });
 
@@ -175,7 +175,7 @@ class MessagingController extends Controller
                 'name' => $u->name,
                 'email' => $u->email,
                 'initials' => $this->getInitials($u->name),
-                'photo' => $u->photo ? public_media_url($u->photo) : null,
+                'photo' => $u->photo ? asset('storage/'.$u->photo) : null,
             ];
         });
 
@@ -297,8 +297,8 @@ class MessagingController extends Controller
             ? $conversation->name
             : ($otherParticipant?->name ?? 'Unknown');
         $avatarPhoto = $conversation->type === 'group'
-            ? ($conversation->photo ? public_media_url($conversation->photo) : null)
-            : ($otherParticipant?->photo ? public_media_url($otherParticipant->photo) : null);
+            ? ($conversation->photo ? asset('storage/'.$conversation->photo) : null)
+            : ($otherParticipant?->photo ? asset('storage/'.$otherParticipant->photo) : null);
 
         $isCreator = $conversation->type === 'group' && $conversation->created_by === $user->id;
 
@@ -411,7 +411,7 @@ class MessagingController extends Controller
                     'name' => $other->name,
                     'email' => $other->email,
                     'phone' => $other->phone ?? null,
-                    'photo' => $other->photo ? public_media_url($other->photo) : null,
+                    'photo' => $other->photo ? asset('storage/'.$other->photo) : null,
                     'initials' => $this->getInitials($other->name),
                 ] : null,
             ];
@@ -421,7 +421,7 @@ class MessagingController extends Controller
                 'id' => $p->id,
                 'name' => $p->name,
                 'email' => $p->email,
-                'photo' => $p->photo ? public_media_url($p->photo) : null,
+                'photo' => $p->photo ? asset('storage/'.$p->photo) : null,
                 'initials' => $this->getInitials($p->name),
                 'is_me' => $p->id === $user->id,
                 'is_creator' => $p->id === $creatorId,
@@ -429,7 +429,7 @@ class MessagingController extends Controller
             $data = [
                 'type' => 'group',
                 'name' => $conversation->name,
-                'photo' => $conversation->photo ? public_media_url($conversation->photo) : null,
+                'photo' => $conversation->photo ? asset('storage/'.$conversation->photo) : null,
                 'is_creator' => $creatorId === $user->id,
                 'creator_id' => $creatorId,
                 'members' => $members,
@@ -616,7 +616,7 @@ class MessagingController extends Controller
             'success' => true,
             'data' => [
                 'path' => $path,
-                'url' => public_media_url($path),
+                'url' => asset('storage/'.$path),
                 'name' => $file->getClientOriginalName(),
                 'type' => str_starts_with($file->getMimeType(), 'image/') ? 'image' : 'file',
             ],
@@ -678,9 +678,9 @@ class MessagingController extends Controller
             'user_id' => $m->user_id,
             'author' => $isMe ? 'You' : $m->user->name,
             'author_initials' => $this->getInitials($m->user->name),
-            'author_photo' => $m->user->photo ? public_media_url($m->user->photo) : null,
+            'author_photo' => $m->user->photo ? asset('storage/'.$m->user->photo) : null,
             'body' => $m->body,
-            'attachment_path' => $m->attachment_path ? public_media_url($m->attachment_path) : null,
+            'attachment_path' => $m->attachment_path ? asset('storage/'.$m->attachment_path) : null,
             'attachment_name' => $m->attachment_name,
             'attachment_type' => $m->attachment_type,
             'created_at' => $m->created_at->toIso8601String(),

@@ -2412,7 +2412,7 @@
             const img = document.getElementById('groupAvatarImg');
             const placeholder = document.getElementById('groupAvatarPlaceholder');
             const removeBtn = document.getElementById('groupAvatarRemove');
-            img.src = data.url || ('/media/' + data.path);
+            img.src = data.url || ('/storage/' + data.path);
             img.style.display = 'block';
             placeholder.style.display = 'none';
             removeBtn.style.display = 'block';
@@ -2653,7 +2653,7 @@
             });
             const json = await res.json();
             if (json.success) {
-                chatInfoData.photo = data.url || ('/media/' + data.path);
+                chatInfoData.photo = data.url || ('/storage/' + data.path);
                 const avatarEl = document.getElementById('chatInfoGroupAvatar');
                 avatarEl.innerHTML = '<img src="' + chatInfoData.photo + '" alt="">';
                 loadConversations(document.getElementById('conversationSearch').value);

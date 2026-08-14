@@ -284,7 +284,7 @@
     @php
         $clientUser = Auth::guard('client')->user();
         $company = $clientUser?->client?->company;
-        $companyLogo = $company ? public_media_url($company->logo) : null;
+        $companyLogo = $company && $company->logo ? asset('storage/' . $company->logo) : null;
         $companyName = $company ? $company->name : 'Client Portal';
     @endphp
 

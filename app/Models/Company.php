@@ -273,7 +273,7 @@ class Company extends Model
     }
 
     /**
-     * Public URL for the company logo (served by Laravel, not the storage symlink).
+     * Public URL for the company logo (requires storage symlink).
      */
     public function logoUrl(): ?string
     {
@@ -282,7 +282,7 @@ class Company extends Model
         }
 
         if (\Illuminate\Support\Facades\Storage::disk('public')->exists($this->logo)) {
-            return public_media_url($this->logo);
+            return asset('storage/'.$this->logo);
         }
 
         return null;
