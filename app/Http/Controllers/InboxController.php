@@ -377,7 +377,7 @@ class InboxController extends Controller
         $user = $request->user();
         $validated = $request->validate([
             'inbox_id' => ['nullable', 'integer'],
-            'view' => ['nullable', 'string', 'in:open,assigned_to_me,unassigned,archived,drafts,sent,trash,spam,all'],
+            'view' => ['nullable', 'string', 'in:open,assigned_to_me,unassigned,archived,snoozed,drafts,sent,trash,spam,all'],
             'tag_id' => ['nullable', 'integer'],
             'search' => ['nullable', 'string', 'max:200'],
             'from' => ['nullable', 'string', 'max:255'],
@@ -415,7 +415,14 @@ class InboxController extends Controller
         } elseif ($view === 'open') {
             $query->where('folder', 'inbox')->where('status', 'open');
         } elseif ($view === 'archived') {
-            $query->where('folder', 'inbox')->where('status', 'archived');
+            $query->where('folder', 'inbox')->where('status', 'archived')
+                ->where(function ($q) {
+                    $q->whereNull('reopen_at')->orWhere('reopen_at', '<=', now());
+                });
+        } elseif ($view === 'snoozed') {
+            $query->where('folder', 'inbox')->where('status', 'archived')
+                ->whereNotNull('reopen_at')
+                ->where('reopen_at', '>', now());
         } elseif ($view === 'assigned_to_me') {
             $query->where('folder', 'inbox')->where('status', 'open')->where('assigned_to', $user->id);
         } elseif ($view === 'unassigned') {
@@ -798,7 +805,7 @@ class InboxController extends Controller
                 }
                 $existing->status = $status;
                 $existing->message_count = $existing->messages()->count();
-                if ($status === 'open') {
+                if ($status === 'open' || $status === 'archived') {
                     $existing->reopen_at = null;
                 }
                 $existing->save();
@@ -824,13 +831,53 @@ class InboxController extends Controller
         }
 
         $conversation->status = $status;
-        $conversation->save();
-        if ($status === 'open') {
+        if ($status === 'open' || $status === 'archived') {
             $conversation->reopen_at = null;
-            $conversation->save();
         }
+        $conversation->save();
         $this->recordStatusActivity($conversation, $actor, $oldStatus, $oldFolder, $status, $newFolder);
         $this->fireConversationStatusRules($conversation->fresh(['tags', 'inbox']), $status);
+
+        return response()->json([
+            'conversation' => $this->formatConversation($conversation->fresh(['assignee', 'tags', 'inbox'])),
+        ]);
+    }
+
+    public function snooze(Request $request, InboxConversation $conversation): JsonResponse
+    {
+        $this->authorizeConversation($request->user(), $conversation);
+        $validated = $request->validate([
+            'until' => ['required', 'date', 'after:now'],
+        ]);
+
+        $until = \Illuminate\Support\Carbon::parse($validated['until']);
+        $conversation->status = 'archived';
+        $conversation->folder = 'inbox';
+        $conversation->reopen_at = $until;
+        $conversation->save();
+
+        $this->recordActivity(
+            $conversation,
+            $request->user(),
+            'snoozed',
+            $request->user()->name.' snoozed this until '.$until->timezone(config('app.timezone'))->format('M j, g:ia'),
+            ['reopen_at' => $until->toIso8601String()]
+        );
+
+        return response()->json([
+            'conversation' => $this->formatConversation($conversation->fresh(['assignee', 'tags', 'inbox'])),
+        ]);
+    }
+
+    public function updateRead(Request $request, InboxConversation $conversation): JsonResponse
+    {
+        $this->authorizeConversation($request->user(), $conversation);
+        $validated = $request->validate([
+            'is_read' => ['required', 'boolean'],
+        ]);
+
+        $conversation->is_read = $validated['is_read'];
+        $conversation->save();
 
         return response()->json([
             'conversation' => $this->formatConversation($conversation->fresh(['assignee', 'tags', 'inbox'])),
@@ -904,7 +951,9 @@ class InboxController extends Controller
         $this->authorizeConversation($request->user(), $conversation);
         $validated = $request->validate([
             'body' => ['required', 'string', 'max:50000'],
+            'to' => ['nullable', 'string', 'max:2000'],
             'cc' => ['nullable', 'string', 'max:2000'],
+            'reply_all' => ['nullable', 'boolean'],
             'attachments' => ['nullable', 'array', 'max:5'],
             'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
@@ -917,7 +966,28 @@ class InboxController extends Controller
         }
 
         $lastInbound = $conversation->messages()->where('direction', 'inbound')->orderByDesc('sent_at')->first();
-        $to = $conversation->from_email;
+        $source = $lastInbound ?: $conversation->messages()->orderByDesc('sent_at')->first();
+        $mailboxEmail = strtolower(trim((string) ($inbox->email ?: $inbox->account->email ?: '')));
+        $to = trim((string) ($validated['to'] ?? $conversation->from_email ?? ''));
+        $cc = $validated['cc'] ?? null;
+
+        if ($request->boolean('reply_all') && $source) {
+            $others = collect()
+                ->merge($this->parseEmailList($source->from_email))
+                ->merge($this->parseEmailList($source->to_emails))
+                ->merge($this->parseEmailList($source->cc_emails))
+                ->map(fn ($email) => strtolower($email))
+                ->filter()
+                ->unique()
+                ->reject(fn ($email) => $email === $mailboxEmail)
+                ->values();
+            if ($others->isNotEmpty()) {
+                $to = $others->shift();
+                $existingCc = collect($this->parseEmailList($cc))->map(fn ($email) => strtolower($email));
+                $cc = $others->merge($existingCc)->unique()->implode(', ') ?: null;
+            }
+        }
+
         if (! $to) {
             return response()->json(['message' => 'No recipient found.'], 422);
         }
@@ -929,7 +999,7 @@ class InboxController extends Controller
 
         $result = $this->mailService->sendMail($inbox, [
             'to' => $to,
-            'cc' => $validated['cc'] ?? null,
+            'cc' => $cc,
             'subject' => (str_starts_with(strtolower((string) $conversation->subject), 're:') ? '' : 'Re: ').$conversation->subject,
             'body' => $validated['body'],
             'reply_to_message_id' => $lastInbound?->external_message_id,
@@ -947,7 +1017,7 @@ class InboxController extends Controller
             'from_name' => $request->user()->name,
             'from_email' => $inbox->email ?? $inbox->account->email,
             'to_emails' => $to,
-            'cc_emails' => $validated['cc'] ?? null,
+            'cc_emails' => $cc,
             'subject' => $conversation->subject,
             'body_html' => $validated['body'],
             'body_text' => strip_tags($validated['body']),
@@ -1963,6 +2033,7 @@ class InboxController extends Controller
             'inbox' => $c->relationLoaded('inbox') && $c->inbox ? [
                 'id' => $c->inbox->id,
                 'name' => $c->inbox->name,
+                'email' => $c->inbox->email,
                 'type' => $c->inbox->type,
                 'color' => $c->inbox->color,
             ] : null,
@@ -1974,6 +2045,7 @@ class InboxController extends Controller
             'is_read' => $c->is_read,
             'message_count' => $c->message_count,
             'last_message_at' => $c->last_message_at?->toIso8601String(),
+            'reopen_at' => $c->reopen_at?->toIso8601String(),
             'assigned_to' => $c->assigned_to,
             'assignee' => $c->relationLoaded('assignee') && $c->assignee ? [
                 'id' => $c->assignee->id,
@@ -2048,12 +2120,28 @@ class InboxController extends Controller
             'from_name' => $m->from_name,
             'from_email' => $m->from_email,
             'to_emails' => $m->to_emails,
+            'cc_emails' => $m->cc_emails,
+            'to' => $this->parseEmailList($m->to_emails),
+            'cc' => $this->parseEmailList($m->cc_emails),
             'subject' => $m->subject,
             'body_html' => $this->rewriteCidImagesForClient((string) ($m->body_html ?? ''), $m, $allAttachments),
             'body_text' => $m->body_text,
+            'is_read' => (bool) $m->is_read,
             'attachments' => $attachments,
             'sent_at' => $m->sent_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function parseEmailList(?string $value): array
+    {
+        return collect(preg_split('/[,;]+/', (string) $value) ?: [])
+            ->map(fn ($email) => trim((string) $email))
+            ->filter()
+            ->values()
+            ->all();
     }
 
     /**

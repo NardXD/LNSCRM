@@ -52,6 +52,9 @@
                 <button type="button" class="inbox-nav-item" data-view="archived" data-scope="all">
                     <span>Archived</span>
                 </button>
+                <button type="button" class="inbox-nav-item" data-view="snoozed" data-scope="all">
+                    <span>Snoozed</span>
+                </button>
             </div>
 
             <div class="inbox-nav-section">
@@ -157,14 +160,47 @@
                 <div class="inbox-thread-header">
                     <div class="inbox-thread-heading">
                         <h2 id="threadSubject"></h2>
+                        <div class="inbox-thread-participants" id="threadParticipants"></div>
                         <div class="inbox-thread-meta" id="threadMeta"></div>
                     </div>
                     <div class="inbox-thread-actions">
-                        <button type="button" class="inbox-btn ghost" id="btnArchive">Archive</button>
-                        <button type="button" class="inbox-btn ghost" id="btnSpam">Spam</button>
-                        <button type="button" class="inbox-btn ghost" id="btnTrash">Trash</button>
+                        <div class="inbox-pop" id="threadMorePop">
+                            <button type="button" class="inbox-icon-action" id="btnThreadMore" title="More actions" aria-haspopup="menu">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
+                            </button>
+                            <div class="inbox-pop-menu" id="threadMoreMenu" hidden>
+                                <button type="button" data-thread-action="unread">Mark as unread</button>
+                                <button type="button" id="btnSpam">Move to spam</button>
+                                <button type="button" id="btnTrash">Move to trash</button>
+                            </div>
+                        </div>
+                        <div class="inbox-pop" id="snoozePop">
+                            <button type="button" class="inbox-icon-action" id="btnSnooze" title="Snooze" aria-haspopup="menu">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                            </button>
+                            <div class="inbox-pop-menu inbox-snooze-menu" id="snoozeMenu" hidden>
+                                <button type="button" data-snooze="later_today">Later today</button>
+                                <button type="button" data-snooze="tomorrow">Tomorrow morning</button>
+                                <button type="button" data-snooze="monday">Next week</button>
+                                <button type="button" data-snooze="3d">In 3 days</button>
+                                <label class="inbox-snooze-custom">Custom
+                                    <input type="datetime-local" id="snoozeCustom">
+                                </label>
+                            </div>
+                        </div>
+                        <div class="inbox-pop" id="assignPop">
+                            <button type="button" class="inbox-btn ghost inbox-assign-btn" id="btnAssignToggle" aria-haspopup="menu">
+                                <span id="assignBtnLabel">Assign</span>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                            </button>
+                            <div class="inbox-pop-menu inbox-assign-menu" id="assignMenu" hidden></div>
+                        </div>
                         <button type="button" class="inbox-btn ghost" id="btnRestore" style="display:none;">Move to inbox</button>
                         <button type="button" class="inbox-btn ghost" id="btnReopen" style="display:none;">Reopen</button>
+                        <button type="button" class="inbox-btn ghost inbox-archive-btn" id="btnArchive">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+                            <span id="archiveBtnLabel">Archive</span>
+                        </button>
                     </div>
                 </div>
 
@@ -176,18 +212,29 @@
                         <button type="button" class="inbox-composer-mode" data-composer-mode="reply" id="btnModeReply">Reply</button>
                     </div>
 
+                    <div class="inbox-composer-card">
                     <div id="commentComposerPanel">
-                        <div class="inbox-composer-tools">
-                            <button type="button" class="inbox-composer-tool" id="btnCommentAttach" title="Attach files">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-                                Attach
-                            </button>
-                            <input type="file" id="commentAttachInput" multiple hidden>
-                            <button type="button" class="inbox-composer-tool" id="btnCommentMention" title="Mention teammate">@ Mention</button>
+                        <div class="inbox-composer-row">
+                            <div class="inbox-mention-popup" id="commentMentionPopup" hidden></div>
+                            <div id="commentBody" class="inbox-composer-editor" contenteditable="true" data-placeholder="Add an internal comment…" role="textbox" aria-multiline="true"></div>
+                            <div class="inbox-composer-icons">
+                                <button type="button" class="inbox-composer-icon" id="btnCommentAttach" title="Attach files">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                                </button>
+                                <input type="file" id="commentAttachInput" multiple hidden>
+                                <button type="button" class="inbox-composer-icon" id="btnCommentMention" title="Mention teammate">@</button>
+                                <div class="inbox-pop" id="commentEmojiPop">
+                                    <button type="button" class="inbox-composer-icon" id="btnCommentEmoji" title="Emoji">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+                                    </button>
+                                    <div class="inbox-pop-menu inbox-emoji-menu" id="commentEmojiMenu" hidden></div>
+                                </div>
+                                <button type="button" class="inbox-composer-icon" id="btnComposerExpand" title="Expand">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                                </button>
+                            </div>
                         </div>
                         <div class="inbox-attach-chips" id="commentAttachChips"></div>
-                        <div class="inbox-mention-popup" id="commentMentionPopup" hidden></div>
-                        <div id="commentBody" class="inbox-composer-editor" contenteditable="true" data-placeholder="Add an internal comment… Type @ to mention teammates." role="textbox" aria-multiline="true"></div>
                         <div class="inbox-composer-bar">
                             <span class="inbox-composer-hint">Internal — visible to teammates only</span>
                             <button type="button" class="inbox-btn primary" id="btnSendComment">Add comment</button>
@@ -195,28 +242,32 @@
                     </div>
 
                     <div id="replyComposerPanel" hidden>
-                        <div class="inbox-composer-tools">
-                            <button type="button" class="inbox-composer-tool" id="btnReplyAttach" title="Attach files">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-                                Attach
-                            </button>
-                            <input type="file" id="replyAttachInput" multiple hidden>
-                            <button type="button" class="inbox-composer-tool" id="btnReplyMention" title="Mention teammate">@ Mention</button>
-                            <div class="inbox-template-picker" data-template-picker="reply">
-                                <button type="button" class="inbox-composer-tool" data-template-picker-toggle title="Insert template">Template…</button>
-                                <div class="inbox-template-picker-menu" hidden>
-                                    <input type="search" class="inbox-tool-search" data-template-picker-search placeholder="Search templates…" autocomplete="off">
-                                    <div class="inbox-template-picker-list" data-template-picker-list></div>
+                        <div class="inbox-composer-row">
+                            <div class="inbox-mention-popup" id="replyMentionPopup" hidden></div>
+                            <div id="replyBody" class="inbox-composer-editor" contenteditable="true" data-placeholder="Write a reply… Type @ to mention teammates." role="textbox" aria-multiline="true"></div>
+                            <div class="inbox-composer-icons">
+                                <button type="button" class="inbox-composer-icon" id="btnReplyAttach" title="Attach files">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                                </button>
+                                <input type="file" id="replyAttachInput" multiple hidden>
+                                <button type="button" class="inbox-composer-icon" id="btnReplyMention" title="Mention teammate">@</button>
+                                <div class="inbox-template-picker" data-template-picker="reply">
+                                    <button type="button" class="inbox-composer-icon" data-template-picker-toggle title="Insert template">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                                    </button>
+                                    <div class="inbox-template-picker-menu" hidden>
+                                        <input type="search" class="inbox-tool-search" data-template-picker-search placeholder="Search templates…" autocomplete="off">
+                                        <div class="inbox-template-picker-list" data-template-picker-list></div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                         <div class="inbox-attach-chips" id="replyAttachChips"></div>
-                        <div class="inbox-mention-popup" id="replyMentionPopup" hidden></div>
-                        <div id="replyBody" class="inbox-composer-editor" contenteditable="true" data-placeholder="Write a reply… Type @ to mention teammates." role="textbox" aria-multiline="true"></div>
                         <div class="inbox-composer-bar">
                             <span class="inbox-composer-hint" id="composerHint">Reply via Outlook</span>
                             <button type="button" class="inbox-btn primary" id="btnSendReply">Send reply</button>
                         </div>
+                    </div>
                     </div>
                 </div>
             </div>
@@ -1184,8 +1235,13 @@
     padding: 0.75rem 0.7rem; border-radius: 10px; cursor: pointer; display: grid; gap: 0.2rem;
 }
 .inbox-conv:hover { background: var(--inbox-bg); }
-.inbox-conv.active { background: var(--inbox-accent-soft); }
-.inbox-conv.unread .inbox-conv-from { font-weight: 700; }
+.inbox-conv.active { background: #eef0f3; }
+.inbox-conv.active.unread { background: var(--inbox-accent-soft); }
+.inbox-conv:not(.unread) .inbox-conv-from,
+.inbox-conv:not(.unread) .inbox-conv-subject { color: #6b7280; font-weight: 500; }
+.inbox-conv:not(.unread) .inbox-conv-snippet { color: #9ca3af; }
+.inbox-conv.unread .inbox-conv-from { font-weight: 700; color: var(--inbox-text); }
+.inbox-conv.unread .inbox-conv-subject { color: var(--inbox-text); }
 .inbox-conv-top { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.78rem; color: var(--inbox-muted); }
 .inbox-conv-time {
     cursor: pointer;
@@ -1216,21 +1272,298 @@
 .inbox-placeholder-card svg { width: 48px; height: 48px; margin: 0 auto 1rem; color: var(--inbox-accent); }
 .inbox-placeholder-card h3 { margin: 0 0 0.4rem; color: var(--inbox-text); }
 .inbox-placeholder-card p { margin: 0; font-size: 0.9rem; line-height: 1.45; }
-.inbox-thread { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.inbox-thread-pane {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #f4f5f7;
+}
+.inbox-thread { display: flex; flex-direction: column; height: 100%; min-height: 0; flex: 1; }
+.inbox-thread-placeholder { flex: 1; }
 .inbox-thread-header {
     display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start;
-    padding: 1rem 1.25rem; border-bottom: 1px solid var(--inbox-border);
+    padding: 0.9rem 1.15rem 0.85rem; border-bottom: 1px solid var(--inbox-border);
+    background: #fff;
+    flex-shrink: 0;
 }
-.inbox-thread-heading h2 { margin: 0; font-size: 1.05rem; }
-.inbox-thread-meta { font-size: 0.8rem; color: var(--inbox-muted); margin-top: 0.25rem; }
-.inbox-thread-actions { display: flex; gap: 0.4rem; }
-.inbox-messages { flex: 1; overflow: auto; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; }
+.inbox-thread-heading { min-width: 0; flex: 1; }
+.inbox-thread-heading h2 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.inbox-thread-meta { font-size: 0.75rem; color: var(--inbox-muted); margin-top: 0.2rem; }
+.inbox-thread-meta:empty { display: none; }
+.inbox-thread-participants {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: 0.45rem;
+}
+.inbox-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    max-width: 220px;
+    padding: 0.12rem 0.45rem 0.12rem 0.2rem;
+    border-radius: 999px;
+    background: #f3f4f6;
+    color: #374151;
+    font-size: 0.72rem;
+    font-weight: 600;
+    border: 1px solid #e5e7eb;
+}
+.inbox-chip-avatar {
+    width: 16px; height: 16px; border-radius: 4px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 0.55rem; font-weight: 700; flex-shrink: 0;
+}
+.inbox-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inbox-chip-add {
+    width: 22px; height: 22px; border-radius: 6px;
+    border: 1px dashed #d1d5db; background: #fff; color: #6b7280;
+    cursor: pointer; font-size: 0.9rem; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.inbox-chip-add:hover { border-color: var(--inbox-accent); color: var(--inbox-accent); }
+.inbox-thread-actions {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    flex-shrink: 0;
+}
+.inbox-icon-action {
+    width: 34px; height: 34px; border-radius: 8px;
+    border: 1px solid var(--inbox-border); background: #fff;
+    color: #4b5563; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.inbox-icon-action:hover, .inbox-icon-action.is-open { background: var(--inbox-bg); color: var(--inbox-text); }
+.inbox-icon-action svg { width: 16px; height: 16px; }
+.inbox-assign-btn {
+    padding: 0.38rem 0.7rem;
+    gap: 0.3rem;
+}
+.inbox-assign-btn svg { width: 14px; height: 14px; }
+.inbox-archive-btn { padding: 0.38rem 0.75rem; }
+.inbox-archive-btn svg { width: 15px; height: 15px; }
+.inbox-pop { position: relative; }
+.inbox-pop-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 40;
+    min-width: 200px;
+    background: #fff;
+    border: 1px solid var(--inbox-border);
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+    padding: 0.3rem;
+    display: grid;
+    gap: 0.08rem;
+}
+.inbox-pop-menu[hidden] { display: none !important; }
+.inbox-pop-menu button {
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: transparent;
+    border-radius: 7px;
+    padding: 0.45rem 0.55rem;
+    font: inherit;
+    font-size: 0.82rem;
+    color: var(--inbox-text);
+    cursor: pointer;
+}
+.inbox-pop-menu button:hover,
+.inbox-pop-menu button.is-active { background: var(--inbox-accent-soft); color: var(--inbox-accent); }
+.inbox-assign-menu { min-width: 240px; max-height: 280px; overflow: auto; }
+.inbox-snooze-custom {
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.4rem 0.55rem 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--inbox-muted);
+}
+.inbox-snooze-custom input {
+    width: 100%;
+    border: 1px solid var(--inbox-border);
+    border-radius: 7px;
+    padding: 0.35rem 0.45rem;
+    font: inherit;
+    font-size: 0.78rem;
+}
+.inbox-messages {
+    flex: 1;
+    overflow: auto;
+    padding: 0.85rem 1.1rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    background: #f4f5f7;
+}
 .inbox-msg {
-    border: 1px solid var(--inbox-border); border-radius: 12px; padding: 0.9rem 1rem; background: #fff;
+    border: 1px solid #e7e9ee;
+    border-radius: 12px;
+    padding: 0;
+    background: #fff;
+    box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
 }
-.inbox-msg.outbound { background: #f8fafc; border-color: #dbe3ef; }
-.inbox-msg-head { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 0.55rem; font-size: 0.8rem; }
-.inbox-msg-from { font-weight: 600; color: var(--inbox-text); }
+.inbox-msg.outbound { background: #fff; }
+.inbox-msg-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.55rem 0.8rem;
+    cursor: pointer;
+    min-width: 0;
+}
+.inbox-msg.is-expanded .inbox-msg-row { cursor: pointer; padding-bottom: 0.35rem; }
+.inbox-msg-row:hover { background: #fafbfc; border-radius: 12px; }
+.inbox-msg.is-expanded .inbox-msg-row:hover { background: transparent; }
+.inbox-avatar {
+    width: 28px; height: 28px; border-radius: 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 0.68rem; font-weight: 700; flex-shrink: 0;
+    letter-spacing: 0.02em;
+}
+.inbox-msg-summary {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+}
+.inbox-msg-from { font-weight: 650; color: var(--inbox-text); font-size: 0.84rem; white-space: nowrap; }
+.inbox-msg-email { font-size: 0.78rem; color: #9ca3af; white-space: nowrap; }
+.inbox-msg-preview {
+    font-size: 0.8rem;
+    color: #9ca3af;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
+}
+.inbox-msg:not(.is-expanded) .inbox-msg-head-actions { display: none; }
+.inbox-msg.is-expanded .inbox-msg-preview { display: none; }
+.inbox-composer.is-reply .inbox-composer-card {
+    border-color: #c7d7fb;
+    box-shadow: 0 0 0 3px rgba(47, 111, 237, 0.08);
+}
+.inbox-msg-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-shrink: 0;
+    color: #9ca3af;
+    font-size: 0.75rem;
+}
+.inbox-seen {
+    color: #7c3aed;
+    font-weight: 650;
+    font-size: 0.72rem;
+}
+.inbox-msg-clip { display: inline-flex; color: #9ca3af; }
+.inbox-msg-clip svg { width: 14px; height: 14px; }
+.inbox-msg-time { white-space: nowrap; }
+.inbox-msg-expanded { display: none; padding: 0 0.9rem 0.9rem 3.4rem; }
+.inbox-msg.is-expanded .inbox-msg-expanded { display: block; }
+.inbox-msg-recipients {
+    font-size: 0.78rem;
+    color: #6b7280;
+    margin: 0 0 0.7rem;
+    line-height: 1.45;
+}
+.inbox-msg-recipients strong { color: #9ca3af; font-weight: 600; margin-right: 0.25rem; }
+.inbox-msg-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+}
+.inbox-msg-head-actions button {
+    width: 28px; height: 28px; border: none; background: transparent;
+    color: #9ca3af; border-radius: 6px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.inbox-msg-head-actions button:hover { background: #f3f4f6; color: var(--inbox-text); }
+.inbox-msg-head-actions svg { width: 15px; height: 15px; }
+.inbox-msg.internal { background: #fffbeb; border-color: #f3e8c8; }
+.inbox-msg.internal .inbox-msg-from { color: #92400e; }
+.inbox-composer { border-top: 1px solid var(--inbox-border); padding: 0.7rem 0.9rem 0.85rem; background: #fff; position: relative; flex-shrink: 0; }
+.inbox-composer-card {
+    border: 1px solid #e6e8ec;
+    border-radius: 12px;
+    background: #fff;
+    padding: 0.15rem 0.25rem 0.25rem;
+}
+.inbox-composer-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.15rem;
+    position: relative;
+}
+.inbox-composer .inbox-composer-editor {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    min-height: 40px;
+    max-height: 88px;
+    padding: 0.55rem 0.65rem;
+    border-radius: 10px;
+    background: transparent;
+    resize: none;
+}
+.inbox-composer.is-expanded .inbox-composer-editor { max-height: 220px; min-height: 88px; }
+.inbox-composer.is-reply .inbox-composer-editor,
+.inbox-composer.is-expanded.is-reply .inbox-composer-editor { min-height: 110px; max-height: 240px; }
+.inbox-composer-icons {
+    display: flex;
+    align-items: center;
+    gap: 0.05rem;
+    padding: 0.2rem 0.25rem 0.3rem 0;
+    flex-shrink: 0;
+}
+.inbox-composer-icon {
+    width: 30px; height: 30px; border: none; background: transparent;
+    color: #6b7280; border-radius: 7px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.88rem; font-weight: 700;
+}
+.inbox-composer-icon:hover { background: #f3f4f6; color: var(--inbox-text); }
+.inbox-composer-icon svg { width: 16px; height: 16px; }
+.inbox-composer:not(.is-expanded):not(.is-reply) .inbox-composer-bar { display: none; }
+.inbox-composer .inbox-composer-bar { padding: 0 0.55rem 0.45rem; margin-top: 0.15rem; }
+.inbox-composer .inbox-mention-popup {
+    left: 0.5rem;
+    right: auto;
+    bottom: calc(100% + 4px);
+    width: min(280px, 70vw);
+}
+.inbox-emoji-menu {
+    display: flex;
+    flex-wrap: wrap;
+    min-width: 210px;
+    gap: 0.15rem;
+}
+.inbox-emoji-menu button {
+    width: 34px;
+    text-align: center;
+    font-size: 1.1rem;
+    padding: 0.25rem;
+}
+.inbox-composer-modes {
+    display: flex;
+    gap: 0.15rem;
+    margin-bottom: 0.45rem;
+}
 .inbox-msg-body {
     font-size: 0.9rem;
     line-height: 1.5;
@@ -1259,12 +1592,6 @@
     margin-top: 0.75rem;
     padding-top: 0.65rem;
     border-top: 1px solid var(--inbox-border);
-}
-.inbox-composer { border-top: 1px solid var(--inbox-border); padding: 0.85rem 1rem 1rem; background: #fff; position: relative; }
-.inbox-composer-modes {
-    display: flex;
-    gap: 0.35rem;
-    margin-bottom: 0.65rem;
 }
 .inbox-composer-mode {
     border: 1px solid var(--inbox-border);
@@ -1766,6 +2093,7 @@
     const API = root.dataset.api;
     const CSRF = root.dataset.csrf;
     const CONNECT = root.dataset.connect;
+    const USER_ID = Number(root.dataset.userId || 0);
 
     const MAILBOX_FOLDERS = [
         { view: 'open', label: 'Inbox', countKey: 'open_count' },
@@ -1814,6 +2142,9 @@
         commentAttachments: [],
         composerMode: 'comment',
         composerCanReply: true,
+        composerExpanded: false,
+        expandedMessageIds: {},
+        replyAll: false,
         replyCcEmails: [],
         editingTemplateId: null,
         templateSearch: '',
@@ -2184,8 +2515,14 @@
         });
         const commentPanel = el('commentComposerPanel');
         const replyPanel = el('replyComposerPanel');
+        const composer = el('composerArea');
         if (commentPanel) commentPanel.hidden = next !== 'comment';
         if (replyPanel) replyPanel.hidden = next !== 'reply';
+        composer?.classList.toggle('is-reply', next === 'reply');
+        if (next === 'reply') {
+            composer?.classList.add('is-expanded');
+            state.composerExpanded = true;
+        }
         hideMentionPopup('comment');
         hideMentionPopup('reply');
         if (next === 'reply') {
@@ -2703,7 +3040,7 @@
 
     function folderLabel(view) {
         return MAILBOX_FOLDERS.find(f => f.view === view)?.label
-            || ({ open: 'Open', assigned_to_me: 'Assigned to me', unassigned: 'Unassigned', archived: 'Archived' }[view] || view);
+            || ({ open: 'Open', assigned_to_me: 'Assigned to me', unassigned: 'Unassigned', archived: 'Archived', snoozed: 'Snoozed' }[view] || view);
     }
 
     function updateListTitle() {
@@ -2985,6 +3322,7 @@
             `<option value="${m.id}">${escapeHtml(m.name)}</option>`
         ).join('');
         assign.value = current;
+        if (state.conversation) renderAssignMenu();
 
         el('newInboxMembers').innerHTML = state.members.map(m =>
             `<option value="${m.id}">${escapeHtml(m.name)} (${escapeHtml(m.email || '')})</option>`
@@ -3279,6 +3617,7 @@
                 <div class="inbox-conv-tags">
                     ${(c.tags || []).map(t => `<span class="inbox-pill" style="background:${t.color}22;color:${t.color}">${escapeHtml(t.name)}</span>`).join('')}
                     ${c.assignee ? `<span class="inbox-pill">${escapeHtml(c.assignee.name)}</span>` : ''}
+                    ${c.reopen_at ? `<span class="inbox-pill">Snoozed ${escapeHtml(formatThreadTime(c.reopen_at) ? 'until ' + formatAbsoluteTime(c.reopen_at) : '')}</span>` : ''}
                 </div>
             </button>
         `;
@@ -3498,6 +3837,9 @@
         state.replyAttachments = [];
         state.commentAttachments = [];
         state.replyCcEmails = [];
+        state.replyAll = false;
+        state.expandedMessageIds = {};
+        state.composerExpanded = false;
         renderAttachChips('reply');
         renderAttachChips('comment');
         hideMentionPopup('reply');
@@ -3537,6 +3879,232 @@
         renderThread();
     }
 
+    function formatThreadTime(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return '';
+        const secs = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+        const days = Math.floor(secs / 86400);
+        const hours = Math.floor(secs / 3600);
+        const mins = Math.floor(secs / 60);
+        if (days >= 1) return days === 1 ? '1 day' : `${days} days`;
+        if (hours >= 1) return hours === 1 ? '1 hour' : `${hours} hours`;
+        if (mins >= 1) return mins === 1 ? '1 min' : `${mins} min`;
+        return 'just now';
+    }
+
+    function avatarHue(seed) {
+        const colors = ['#4f46e5', '#0ea5e9', '#059669', '#d97706', '#dc2626', '#7c3aed', '#db2777', '#2563eb'];
+        let h = 0;
+        for (const ch of String(seed || '?')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+        return colors[h % colors.length];
+    }
+
+    function parseEmailList(value) {
+        if (Array.isArray(value)) return value.map(v => String(v || '').trim()).filter(Boolean);
+        return String(value || '').split(/[,;]+/).map(v => v.trim()).filter(Boolean);
+    }
+
+    function messagePreviewText(m) {
+        return String(m?.body_text || htmlToPlain(m?.body_html || '') || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function collectParticipants(c) {
+        const map = new Map();
+        const add = (email, name) => {
+            const key = String(email || '').trim().toLowerCase();
+            if (!key || !key.includes('@')) return;
+            if (!map.has(key)) map.set(key, { email: key, name: name || key.split('@')[0] });
+            else if (name && map.get(key).name === map.get(key).email.split('@')[0]) map.get(key).name = name;
+        };
+        add(c.from_email, c.from_name);
+        (c.messages || []).forEach(m => {
+            add(m.from_email, m.from_name);
+            parseEmailList(m.to || m.to_emails).forEach(email => add(email, ''));
+            parseEmailList(m.cc || m.cc_emails).forEach(email => add(email, ''));
+        });
+        return [...map.values()];
+    }
+
+    function closeThreadPops() {
+        ['threadMoreMenu', 'snoozeMenu', 'assignMenu', 'commentEmojiMenu'].forEach(id => {
+            const node = el(id);
+            if (node) node.hidden = true;
+        });
+        document.querySelectorAll('.inbox-icon-action.is-open, .inbox-assign-btn.is-open').forEach(btn => {
+            btn.classList.remove('is-open');
+        });
+    }
+
+    function togglePop(menuId, btn) {
+        const menu = el(menuId);
+        if (!menu) return;
+        const willOpen = menu.hidden;
+        closeThreadPops();
+        menu.hidden = !willOpen;
+        btn?.classList.toggle('is-open', willOpen);
+    }
+
+    function renderAssignMenu() {
+        const menu = el('assignMenu');
+        if (!menu) return;
+        const current = state.conversation?.assigned_to || '';
+        menu.innerHTML = '<button type="button" data-assign="">Unassigned</button>' +
+            state.members.map(m =>
+                `<button type="button" data-assign="${m.id}" class="${Number(m.id) === Number(current) ? 'is-active' : ''}">${escapeHtml(m.name)}</button>`
+            ).join('');
+    }
+
+    function snoozeUntilDate(preset) {
+        const now = new Date();
+        if (preset === 'later_today') {
+            const d = new Date(now);
+            d.setHours(18, 0, 0, 0);
+            if (d <= now) d.setHours(now.getHours() + 3, 0, 0, 0);
+            return d;
+        }
+        if (preset === 'tomorrow') {
+            const d = new Date(now);
+            d.setDate(d.getDate() + 1);
+            d.setHours(9, 0, 0, 0);
+            return d;
+        }
+        if (preset === 'monday') {
+            const d = new Date(now);
+            const add = d.getDay() === 0 ? 1 : (8 - d.getDay());
+            d.setDate(d.getDate() + add);
+            d.setHours(9, 0, 0, 0);
+            return d;
+        }
+        if (preset === '3d') {
+            const d = new Date(now);
+            d.setDate(d.getDate() + 3);
+            d.setHours(9, 0, 0, 0);
+            return d;
+        }
+        return null;
+    }
+
+    async function assignConversation(userId) {
+        if (!state.selectedId) return;
+        await api('/conversations/' + state.selectedId + '/assign', {
+            method: 'POST',
+            body: { assigned_to: userId ? Number(userId) : null },
+        });
+        await openConversation(state.selectedId);
+        await loadConversations();
+    }
+
+    async function snoozeConversation(until) {
+        if (!state.selectedId || !until) return;
+        await api('/conversations/' + state.selectedId + '/snooze', {
+            method: 'POST',
+            body: { until: until.toISOString() },
+        });
+        state.conversation = null;
+        state.selectedId = null;
+        renderThread();
+        await loadBootstrap();
+        await loadConversations();
+    }
+
+    function startReplyFromMessage(message, replyAll) {
+        if (!state.composerCanReply) return;
+        state.replyAll = !!replyAll;
+        const inbox = state.inboxes.find(i => Number(i.id) === Number(state.conversation?.inbox_id || state.conversation?.inbox?.id));
+        const myEmail = String(inbox?.email || inbox?.account_email || '').toLowerCase();
+        const unique = [...new Set([
+            ...parseEmailList(message.from_email),
+            ...parseEmailList(message.to || message.to_emails),
+            ...parseEmailList(message.cc || message.cc_emails),
+        ].map(email => email.toLowerCase()).filter(email => email && email !== myEmail))];
+        state.replyCcEmails = unique.slice(1);
+        setComposerMode('reply');
+        const hint = el('composerHint');
+        if (hint) {
+            hint.textContent = unique.length
+                ? ((replyAll ? 'Reply all' : 'Reply') + ' · ' + unique.join(', '))
+                : 'Reply via Outlook';
+        }
+        el('replyBody')?.focus();
+    }
+
+    function clipIconHtml() {
+        return '<span class="inbox-msg-clip" title="Has attachments"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></span>';
+    }
+
+    function emailCardHtml(m, expanded) {
+        const name = m.from_name || m.from_email || 'Unknown';
+        const email = m.from_email || '';
+        const preview = messagePreviewText(m);
+        const toList = parseEmailList(m.to || m.to_emails);
+        const ccList = parseEmailList(m.cc || m.cc_emails);
+        const attachments = (m.attachments || []).map(a => `
+            <a class="inbox-msg-attach" href="${escapeHtml(a.download_url)}" target="_blank" rel="noopener">
+                ${escapeHtml(a.name || 'Attachment')}
+            </a>
+        `).join('');
+        const recipients = [
+            toList.length ? `<div><strong>To</strong> ${escapeHtml(toList.join(', '))}</div>` : '',
+            ccList.length ? `<div><strong>Cc</strong> ${escapeHtml(ccList.join(', '))}</div>` : '',
+        ].join('');
+        return `
+            <div class="inbox-msg ${m.direction} ${expanded ? 'is-expanded' : ''}" data-msg-id="${escapeHtml(String(m.id))}">
+                <div class="inbox-msg-row">
+                    <span class="inbox-avatar" style="background:${avatarHue(email || name)}">${escapeHtml(initials(name))}</span>
+                    <div class="inbox-msg-summary">
+                        <span class="inbox-msg-from">${escapeHtml(name)}</span>
+                        ${email ? `<span class="inbox-msg-email">${escapeHtml(email)}</span>` : ''}
+                        <span class="inbox-msg-preview">${escapeHtml(preview)}</span>
+                    </div>
+                    <div class="inbox-msg-meta">
+        ${m.direction === 'inbound' && m.is_read ? '<span class="inbox-seen">Seen</span>' : ''}
+                        ${(m.attachments || []).length ? clipIconHtml() : ''}
+                        <span class="inbox-msg-time" title="${escapeHtml(m.sent_at ? formatAbsoluteTime(m.sent_at) : '')}">${escapeHtml(formatThreadTime(m.sent_at))}</span>
+                        <div class="inbox-msg-head-actions">
+                            <button type="button" data-reply-msg="${escapeHtml(String(m.id))}" title="Reply all">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="inbox-msg-expanded">
+                    ${recipients ? `<div class="inbox-msg-recipients">${recipients}</div>` : ''}
+                    <div class="inbox-msg-body" data-email-body="${escapeHtml(String(m.id))}"></div>
+                    ${attachments ? `<div class="inbox-msg-attachments">${attachments}</div>` : ''}
+                </div>
+            </div>`;
+    }
+
+    function commentCardHtml(comment, expanded) {
+        const name = comment.user?.name || 'Teammate';
+        const preview = String(comment.body_text || htmlToPlain(comment.body_html || '') || '').replace(/\s+/g, ' ').trim();
+        const attachments = (comment.attachments || []).map(a => `
+            <a class="inbox-msg-attach" href="${escapeHtml(a.download_url)}" target="_blank" rel="noopener">
+                ${escapeHtml(a.name || 'Attachment')}
+            </a>
+        `).join('');
+        return `
+            <div class="inbox-msg internal ${expanded ? 'is-expanded' : ''}" data-comment-id="${escapeHtml(String(comment.id))}">
+                <div class="inbox-msg-row">
+                    <span class="inbox-avatar" style="background:#d97706">${escapeHtml(initials(name))}</span>
+                    <div class="inbox-msg-summary">
+                        <span class="inbox-msg-from">${escapeHtml(name)}</span>
+                        <span class="inbox-msg-email">internal comment</span>
+                        <span class="inbox-msg-preview">${escapeHtml(preview)}</span>
+                    </div>
+                    <div class="inbox-msg-meta">
+                        ${(comment.attachments || []).length ? clipIconHtml() : ''}
+                        <span class="inbox-msg-time" title="${escapeHtml(comment.created_at ? formatAbsoluteTime(comment.created_at) : '')}">${escapeHtml(formatThreadTime(comment.created_at))}</span>
+                    </div>
+                </div>
+                <div class="inbox-msg-expanded">
+                    <div class="inbox-msg-body">${formatMessageBodyHtml(comment)}</div>
+                    ${attachments ? `<div class="inbox-msg-attachments">${attachments}</div>` : ''}
+                </div>
+            </div>`;
+    }
+
     function renderThread() {
         const c = state.conversation;
         const shell = document.querySelector('.inbox-shell');
@@ -3552,7 +4120,21 @@
         el('propsPane').style.display = 'block';
         shell?.classList.add('with-props');
         el('threadSubject').textContent = c.subject || '(No subject)';
-        el('threadMeta').textContent = `${c.from_name || ''} <${c.from_email || ''}> · ${c.folder || 'inbox'} · ${c.message_count || 0} messages`;
+
+        const snoozedUntil = c.reopen_at && new Date(c.reopen_at) > new Date() ? c.reopen_at : null;
+        el('threadMeta').textContent = snoozedUntil ? ('Snoozed until ' + formatAbsoluteTime(snoozedUntil)) : '';
+
+        const people = collectParticipants(c);
+        const tagChips = (c.tags || []).map(t =>
+            `<span class="inbox-pill" style="background:${t.color}22;color:${t.color}">${escapeHtml(t.name)}</span>`
+        ).join('');
+        el('threadParticipants').innerHTML = people.slice(0, 6).map(p => `
+            <span class="inbox-chip" title="${escapeHtml(p.email)}">
+                <span class="inbox-chip-avatar" style="background:${avatarHue(p.email)}">${escapeHtml(initials(p.name))}</span>
+                <span>${escapeHtml(p.name || p.email)}</span>
+            </span>
+        `).join('') + (people.length > 6 ? `<span class="inbox-chip">+${people.length - 6}</span>` : '') + tagChips +
+            '<button type="button" class="inbox-chip-add" id="btnAddParticipant" title="Assign teammate">+</button>';
 
         const folder = c.folder || 'inbox';
         const isInboxOpen = folder === 'inbox' && c.status === 'open';
@@ -3560,14 +4142,20 @@
         const isTrashOrSpam = folder === 'trash' || folder === 'spam' || c.status === 'trashed' || c.status === 'spam';
 
         el('btnArchive').style.display = isInboxOpen ? '' : 'none';
+        el('btnSnooze').style.display = isInboxOpen ? '' : 'none';
         el('btnSpam').style.display = (folder === 'inbox' || folder === 'trash') ? '' : 'none';
         el('btnTrash').style.display = (!isTrashOrSpam && folder !== 'trash') ? '' : 'none';
         el('btnRestore').style.display = isTrashOrSpam ? '' : 'none';
         el('btnReopen').style.display = isArchived ? '' : 'none';
+        el('assignBtnLabel').textContent = c.assignee?.name || 'Assign';
+        const inbox = c.inbox || state.inboxes.find(i => Number(i.id) === Number(c.inbox_id));
+        el('archiveBtnLabel').textContent = inbox?.type === 'personal' ? 'Archive in my inbox' : 'Archive';
+        renderAssignMenu();
 
         const canReply = folder === 'inbox' || folder === 'sent' || folder === 'drafts';
         state.composerCanReply = canReply;
         el('composerArea').style.display = '';
+        el('composerArea').classList.toggle('is-expanded', !!state.composerExpanded || state.composerMode === 'reply');
         const replyModeBtn = el('btnModeReply');
         if (replyModeBtn) {
             replyModeBtn.disabled = !canReply;
@@ -3578,8 +4166,14 @@
         } else {
             setComposerMode(state.composerMode || 'comment');
         }
-        el('composerHint').textContent = folder === 'drafts' ? 'Send draft via Outlook' : 'Reply via Outlook';
+        if (!state.replyAll) {
+            el('composerHint').textContent = folder === 'drafts' ? 'Send draft via Outlook' : 'Reply via Outlook';
+        }
         el('replyBody').dataset.placeholder = folder === 'drafts' ? 'Edit and send…' : 'Write a reply… Type @ to mention teammates.';
+        const me = state.members.find(m => Number(m.id) === USER_ID);
+        el('commentBody').dataset.placeholder = c.assignee?.name
+            ? `Add internal comment visible to ${me?.name ? 'you' : 'your team'} and ${c.assignee.name}.`
+            : 'Add internal comment visible to your team.';
 
         el('assignSelect').value = c.assigned_to || '';
         el('propInboxName').textContent = c.inbox?.name || '—';
@@ -3594,48 +4188,26 @@
             .filter(t => !used.has(t.id))
             .map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
 
+        const emails = [...(c.messages || [])].sort((a, b) => String(a.sent_at || '').localeCompare(String(b.sent_at || '')));
+        const lastEmailId = emails.length ? String(emails[emails.length - 1].id) : null;
+        const isEmailExpanded = (id) => {
+            const key = String(id);
+            if (Object.prototype.hasOwnProperty.call(state.expandedMessageIds, key)) return !!state.expandedMessageIds[key];
+            return key === String(lastEmailId);
+        };
+
         const timeline = [
-            ...(c.messages || []).map(m => {
-                const attachments = (m.attachments || []).map(a => `
-                    <a class="inbox-msg-attach" href="${escapeHtml(a.download_url)}" target="_blank" rel="noopener">
-                        ${escapeHtml(a.name || 'Attachment')}
-                    </a>
-                `).join('');
-                return {
+            ...(c.messages || []).map(m => ({
                 type: 'email',
                 message: m,
                 sort: m.sent_at || '',
-                html: `
-            <div class="inbox-msg ${m.direction}">
-                <div class="inbox-msg-head">
-                    <span class="inbox-msg-from">${escapeHtml(m.from_name || m.from_email || '')}</span>
-                    <span>${m.sent_at ? new Date(m.sent_at).toLocaleString() : ''}</span>
-                </div>
-                <div class="inbox-msg-body" data-email-body="${escapeHtml(String(m.id))}"></div>
-                ${attachments ? `<div class="inbox-msg-attachments">${attachments}</div>` : ''}
-            </div>`,
-            };
-            }),
-            ...(c.comments || []).map(comment => {
-                const attachments = (comment.attachments || []).map(a => `
-                    <a class="inbox-msg-attach" href="${escapeHtml(a.download_url)}" target="_blank" rel="noopener">
-                        ${escapeHtml(a.name || 'Attachment')}
-                    </a>
-                `).join('');
-                return {
-                    type: 'comment',
-                    sort: comment.created_at || '',
-                    html: `
-            <div class="inbox-msg internal">
-                <div class="inbox-msg-head">
-                    <span class="inbox-msg-from"><span class="inbox-msg-label">Internal</span>${escapeHtml(comment.user?.name || 'Teammate')}</span>
-                    <span>${comment.created_at ? new Date(comment.created_at).toLocaleString() : ''}</span>
-                </div>
-                <div class="inbox-msg-body">${formatMessageBodyHtml(comment)}</div>
-                ${attachments ? `<div class="inbox-msg-attachments">${attachments}</div>` : ''}
-            </div>`,
-                };
-            }),
+                html: emailCardHtml(m, isEmailExpanded(m.id)),
+            })),
+            ...(c.comments || []).map(comment => ({
+                type: 'comment',
+                sort: comment.created_at || '',
+                html: commentCardHtml(comment, true),
+            })),
             ...(c.activities || []).map(activity => ({
                 type: 'activity',
                 sort: activity.created_at || '',
@@ -3643,16 +4215,11 @@
             <div class="inbox-msg activity" data-activity-action="${escapeHtml(activity.action || '')}">
                 <div class="inbox-activity-line">
                     <span>${escapeHtml(activity.summary || 'Updated conversation')}</span>
-                    <span class="inbox-activity-time">${activity.created_at ? new Date(activity.created_at).toLocaleString() : ''}</span>
+                    <span class="inbox-activity-time">${escapeHtml(formatThreadTime(activity.created_at))}</span>
                 </div>
             </div>`,
             })),
-        ].sort((a, b) => {
-            const rank = (type) => (type === 'email' ? 0 : 1);
-            const byType = rank(a.type) - rank(b.type);
-            if (byType !== 0) return byType;
-            return String(a.sort).localeCompare(String(b.sort));
-        });
+        ].sort((a, b) => String(a.sort).localeCompare(String(b.sort)));
 
         el('threadMessages').innerHTML = timeline.map(item => item.html).join('')
             || '<div class="inbox-empty">No messages</div>';
@@ -4517,15 +5084,128 @@
         await loadConversations();
     });
 
-    el('assignSelect').addEventListener('change', async () => {
-        if (!state.selectedId) return;
-        const val = el('assignSelect').value;
-        await api('/conversations/' + state.selectedId + '/assign', {
-            method: 'POST',
-            body: { assigned_to: val ? Number(val) : null },
-        });
-        await openConversation(state.selectedId);
+    el('btnThreadMore')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePop('threadMoreMenu', e.currentTarget);
+    });
+    el('btnSnooze')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePop('snoozeMenu', e.currentTarget);
+    });
+    el('btnAssignToggle')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        renderAssignMenu();
+        togglePop('assignMenu', e.currentTarget);
+    });
+    el('assignMenu')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-assign]');
+        if (!btn) return;
+        closeThreadPops();
+        await assignConversation(btn.dataset.assign || null);
+    });
+    el('snoozeMenu')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-snooze]');
+        if (!btn) return;
+        closeThreadPops();
+        const until = snoozeUntilDate(btn.dataset.snooze);
+        try {
+            await snoozeConversation(until);
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+    el('snoozeCustom')?.addEventListener('change', async () => {
+        const raw = el('snoozeCustom').value;
+        if (!raw) return;
+        const until = new Date(raw);
+        if (Number.isNaN(until.getTime()) || until <= new Date()) {
+            alert('Pick a future date and time.');
+            return;
+        }
+        closeThreadPops();
+        try {
+            await snoozeConversation(until);
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+    el('threadMoreMenu')?.addEventListener('click', async (e) => {
+        const unread = e.target.closest('[data-thread-action="unread"]');
+        if (!unread || !state.selectedId) return;
+        closeThreadPops();
+        await api('/conversations/' + state.selectedId + '/read', { method: 'PATCH', body: { is_read: false } });
+        const row = state.conversations.find(c => Number(c.id) === Number(state.selectedId));
+        if (row) row.is_read = false;
+        el('conversationList')?.querySelector(`[data-conv-id="${state.selectedId}"]`)?.classList.add('unread');
         await loadConversations();
+    });
+    el('threadParticipants')?.addEventListener('click', (e) => {
+        if (!e.target.closest('#btnAddParticipant')) return;
+        e.stopPropagation();
+        renderAssignMenu();
+        togglePop('assignMenu', el('btnAssignToggle'));
+    });
+    el('threadMessages')?.addEventListener('click', (e) => {
+        const replyBtn = e.target.closest('[data-reply-msg]');
+        if (replyBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const msg = (state.conversation?.messages || []).find(m => String(m.id) === String(replyBtn.dataset.replyMsg));
+            if (msg) startReplyFromMessage(msg, true);
+            return;
+        }
+        if (e.target.closest('a, button')) return;
+        const card = e.target.closest('.inbox-msg[data-msg-id], .inbox-msg[data-comment-id]');
+        if (!card) return;
+        card.classList.toggle('is-expanded');
+        if (card.dataset.msgId) {
+            state.expandedMessageIds[card.dataset.msgId] = card.classList.contains('is-expanded');
+        }
+    });
+    el('btnComposerExpand')?.addEventListener('click', () => {
+        state.composerExpanded = !state.composerExpanded;
+        el('composerArea')?.classList.toggle('is-expanded', state.composerExpanded);
+    });
+    el('commentBody')?.addEventListener('focus', () => {
+        el('composerArea')?.classList.add('is-expanded');
+        state.composerExpanded = true;
+    });
+    el('commentBody')?.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            el('btnSendComment')?.click();
+        }
+    });
+    el('replyBody')?.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            el('btnSendReply')?.click();
+        }
+    });
+    const EMOJIS = ['👍', '🙂', '😂', '🎉', '🙏', '✅', '👀', '❤️', '🔥', '👏'];
+    el('commentEmojiMenu') && (el('commentEmojiMenu').innerHTML = EMOJIS.map(emo =>
+        `<button type="button" data-emoji="${emo}">${emo}</button>`
+    ).join(''));
+    el('btnCommentEmoji')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePop('commentEmojiMenu', e.currentTarget);
+    });
+    el('commentEmojiMenu')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-emoji]');
+        if (!btn) return;
+        const editor = el('commentBody');
+        if (editor) insertHtmlAtCaret(editor, btn.dataset.emoji);
+        closeThreadPops();
+        editor?.focus();
+    });
+    document.addEventListener('click', (e) => {
+        if (e.target.closest('.inbox-pop')) return;
+        closeThreadPops();
+    });
+
+    el('assignSelect').addEventListener('change', async () => {
+        const val = el('assignSelect').value;
+        await assignConversation(val || null);
     });
 
     el('addTagSelect').addEventListener('change', async () => {
@@ -4605,10 +5285,12 @@
             if (state.replyCcEmails?.length) {
                 payload.cc = state.replyCcEmails.join(', ');
             }
+            if (state.replyAll) payload.reply_all = true;
             const data = await api('/conversations/' + state.selectedId + '/reply', { method: 'POST', body: payload });
             applyComposerSignature('reply');
             state.replyAttachments = [];
             state.replyCcEmails = [];
+            state.replyAll = false;
             renderAttachChips('reply');
             hideMentionPopup('reply');
             el('composerHint').textContent = 'Reply via Outlook';

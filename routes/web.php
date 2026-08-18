@@ -505,6 +505,8 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/conversations/{conversation}', [\App\Http\Controllers\InboxController::class, 'showConversation'])->name('api.inbox.conversations.show');
         Route::post('/conversations/{conversation}/assign', [\App\Http\Controllers\InboxController::class, 'assign'])->name('api.inbox.conversations.assign');
         Route::patch('/conversations/{conversation}/status', [\App\Http\Controllers\InboxController::class, 'updateStatus'])->name('api.inbox.conversations.status');
+        Route::post('/conversations/{conversation}/snooze', [\App\Http\Controllers\InboxController::class, 'snooze'])->name('api.inbox.conversations.snooze');
+        Route::patch('/conversations/{conversation}/read', [\App\Http\Controllers\InboxController::class, 'updateRead'])->name('api.inbox.conversations.read');
         Route::post('/conversations/{conversation}/tags', [\App\Http\Controllers\InboxController::class, 'syncTags'])->name('api.inbox.conversations.tags');
         Route::post('/conversations/{conversation}/reply', [\App\Http\Controllers\InboxController::class, 'reply'])->name('api.inbox.conversations.reply');
         Route::post('/conversations/{conversation}/comments', [\App\Http\Controllers\InboxController::class, 'storeComment'])->name('api.inbox.conversations.comments.store');
