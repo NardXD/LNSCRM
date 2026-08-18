@@ -32,7 +32,7 @@ class CheckPermission
         'facebook' => 'view_facebook',
         'billing' => 'view_billing',
         'client-management' => 'view_client_management',
-        'leads' => 'view_client_management',
+        'leads' => 'view_leads',
         'hiring-queue' => 'view_client_management',
         'tickets' => 'view_tickets',
         'knowledge-base' => 'view_knowledge_base',

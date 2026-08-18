@@ -163,8 +163,8 @@ Route::middleware(['auth', 'company.active'])->group(function () {
     Route::patch('/api/hiring-queue/{item}/candidates/{candidate}', [HiringQueueController::class, 'updateCandidate'])->middleware('permission:view_client_management')->name('api.hiring-queue.candidates.update');
     Route::patch('/api/hiring-queue/{item}/candidates/{candidate}/status', [HiringQueueController::class, 'updateCandidateStatus'])->middleware('permission:view_client_management')->name('api.hiring-queue.candidates.status.update');
 
-    Route::get('/leads', [LeadsController::class, 'index'])->middleware('permission:view_client_management')->name('leads');
-    Route::prefix('api/leads')->middleware('permission:view_client_management')->group(function () {
+    Route::get('/leads', [LeadsController::class, 'index'])->middleware('permission:view_leads')->name('leads');
+    Route::prefix('api/leads')->middleware('permission:view_leads')->group(function () {
         Route::get('/', [LeadsController::class, 'list'])->name('api.leads.index');
         Route::post('/', [LeadsController::class, 'store'])->name('api.leads.store');
         Route::get('/labels', [LeadsController::class, 'labels'])->name('api.leads.labels');

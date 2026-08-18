@@ -87,7 +87,7 @@ class SidebarHelper
             ],
             [
                 'route' => 'leads',
-                'permission' => 'view_client_management',
+                'permission' => 'view_leads',
                 'module_slug' => 'client-management',
                 'label' => 'Leads',
                 'icon' => 'user-plus',

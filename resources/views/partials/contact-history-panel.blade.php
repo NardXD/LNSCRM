@@ -4,7 +4,7 @@
 @endphp
 <aside class="chp-panel" id="{{ $panelId }}" hidden
        data-api="/api/crm/contact-history"
-       data-can-save-lead="{{ auth()->user()?->hasPermission('view_client_management') ? '1' : '0' }}">
+       data-can-save-lead="{{ auth()->user()?->hasPermission('view_leads') ? '1' : '0' }}">
     <div class="chp-header">
         <strong>Contact history</strong>
         <span class="chp-hint">All channels</span>

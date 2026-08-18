@@ -759,6 +759,7 @@ class UserManagementController extends Controller
             'SMS' => ['view_sms', 'send_sms', 'module_slug' => 'sms'],
             'Billing & Payments' => ['view_billing', 'delete_billing', 'module_slug' => 'billing'],
             'Client Management' => ['view_client_management', 'module_slug' => 'client-management'],
+            'Leads' => ['view_leads', 'module_slug' => 'client-management'],
             'Tickets & Helpdesk' => ['view_tickets', 'module_slug' => 'tickets'],
             'Knowledge Base' => [
                 'view_knowledge_base',

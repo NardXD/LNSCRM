@@ -128,6 +128,13 @@ class SidebarPermissionsSeeder extends Seeder
                 'description' => 'Access to client management module',
                 'category' => 'main',
             ],
+            'leads' => [
+                'name' => 'view_leads',
+                'slug' => 'view_leads',
+                'display_name' => 'Leads',
+                'description' => 'Access to the leads module',
+                'category' => 'main',
+            ],
             'tickets' => [
                 'name' => 'view_tickets',
                 'slug' => 'view_tickets',

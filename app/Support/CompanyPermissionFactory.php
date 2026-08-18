@@ -91,6 +91,7 @@ class CompanyPermissionFactory
             'billing' => ['name' => 'view_billing', 'slug' => 'view_billing', 'display_name' => 'Billing & Payments', 'description' => 'Access to billing and payments module', 'category' => 'main'],
             'delete_billing' => ['name' => 'delete_billing', 'slug' => 'delete_billing', 'display_name' => 'Delete Invoices', 'description' => 'Delete invoices in the billing and payments module', 'category' => 'main'],
             'client-management' => ['name' => 'view_client_management', 'slug' => 'view_client_management', 'display_name' => 'Client Management', 'description' => 'Access to client management module', 'category' => 'main'],
+            'leads' => ['name' => 'view_leads', 'slug' => 'view_leads', 'display_name' => 'Leads', 'description' => 'Access to the leads module', 'category' => 'main'],
             'tickets' => ['name' => 'view_tickets', 'slug' => 'view_tickets', 'display_name' => 'Tickets & Helpdesk', 'description' => 'Access to tickets and helpdesk module', 'category' => 'main'],
             'knowledge-base' => ['name' => 'view_knowledge_base', 'slug' => 'view_knowledge_base', 'display_name' => 'View Knowledge Base', 'description' => 'Access to knowledge base module', 'category' => 'main'],
             'create_knowledge_base' => ['name' => 'create_knowledge_base', 'slug' => 'create_knowledge_base', 'display_name' => 'Create (Knowledge Base)', 'description' => 'Create articles, FAQs, guides, and categories in Knowledge Base', 'category' => 'main'],
