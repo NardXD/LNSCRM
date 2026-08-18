@@ -748,7 +748,7 @@
                                 <select id="employeeTwilioNumber" name="twilio_number" class="form-input">
                                     <option value="">No phone system number</option>
                                 </select>
-                                <small class="form-help">Used as caller ID for outbound calls. Numbers come from Phone System → Numbers.</small>
+                                <small class="form-help">Used as caller ID for outbound calls. The same number can be assigned to multiple employees.</small>
                             </div>
                         </div>
                         <div class="form-row">
@@ -757,7 +757,7 @@
                                 <select id="employeeTwilioSmsNumber" name="twilio_sms_number" class="form-input">
                                     <option value="">No SMS number</option>
                                 </select>
-                                <small class="form-help">Used as the From number for SMS. Can be the same as or different from the phone system number.</small>
+                                <small class="form-help">Used as the From number for SMS. Can match the phone system number, and can be shared with other employees.</small>
                             </div>
                             <div class="form-group">
                                 <label for="employeeWiseAccount" class="form-label">Wise Account</label>
@@ -2818,20 +2818,22 @@
         select.innerHTML = `<option value="">${emptyLabel}</option>`;
         const seen = new Set();
         numbers.forEach(number => {
-            const assignedId = number[assignedKey];
-            const isCurrent = selectedNumber && number.phone_number === selectedNumber;
-            if (assignedId && Number(assignedId) !== Number(employeeId) && !isCurrent) {
-                return;
-            }
             if (seen.has(number.phone_number)) {
                 return;
             }
             seen.add(number.phone_number);
             const option = document.createElement('option');
             option.value = number.phone_number;
+            const users = assignedKey === 'sms_assigned_user_id'
+                ? (number.sms_users || [])
+                : (number.voice_users || []);
+            const names = users.map((u) => u.name).filter(Boolean);
             option.textContent = number.friendly_name
                 ? `${number.friendly_name} (${number.phone_number})`
                 : number.phone_number;
+            if (names.length) {
+                option.textContent += ` — ${names.join(', ')}`;
+            }
             select.appendChild(option);
         });
         if (selectedNumber && !seen.has(selectedNumber)) {

@@ -23,7 +23,7 @@
                 <strong>Phone numbers</strong> — Company admins with <em>Manage Twilio Numbers</em> can search and buy numbers on the <strong>Numbers</strong> tab, or buy in the Twilio Console and click <strong>Sync</strong>.
             </li>
             <li>
-                <strong>Assign numbers</strong> to each employee who will make calls or send SMS (Numbers tab → Assign Phone or SMS, or User Management). Phone system and SMS numbers can be different.
+                <strong>Assign numbers</strong> to each employee who will make calls or send SMS (Numbers tab → Assign Phone or SMS, or User Management). Phone system and SMS numbers can be different, and the same number can be assigned to more than one employee.
             </li>
             <li>
                 <strong>Twilio Console webhooks</strong> (required for inbound calls, call history, and SMS if numbers were not bought in-app):

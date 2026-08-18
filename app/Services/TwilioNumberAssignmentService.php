@@ -23,28 +23,21 @@ class TwilioNumberAssignmentService
      *     assigned_user_id: ?int,
      *     assigned_user_name: ?string,
      *     sms_assigned_user_id: ?int,
-     *     sms_assigned_user_name: ?string
+     *     sms_assigned_user_name: ?string,
+     *     voice_users: array<int, array{id: int, name: string}>,
+     *     sms_users: array<int, array{id: int, name: string}>
      * }>
      */
     public function optionsForCompany(int $companyId, ?int $forEmployeeId = null, ?string $purpose = null): array
     {
-        $purpose = $this->normalizePurpose($purpose, allowNull: true);
+        $this->normalizePurpose($purpose, allowNull: true);
+        $assignees = $this->assigneesForCompany($companyId);
 
         $options = TwilioPhoneNumber::query()
             ->where('company_id', $companyId)
-            ->with(['assignedUser:id,name', 'smsAssignedUser:id,name'])
             ->orderBy('phone_number')
             ->get()
-            ->filter(function (TwilioPhoneNumber $number) use ($forEmployeeId, $purpose) {
-                if ($purpose === null) {
-                    return true;
-                }
-
-                $assignedUserId = $this->inventoryAssigneeId($number, $purpose);
-
-                return $assignedUserId === null || $assignedUserId === $forEmployeeId;
-            })
-            ->map(fn (TwilioPhoneNumber $number) => $this->formatOption($number))
+            ->map(fn (TwilioPhoneNumber $number) => $this->formatOption($number, $assignees))
             ->values();
 
         if ($forEmployeeId) {
@@ -60,18 +53,40 @@ class TwilioNumberAssignmentService
                     continue;
                 }
 
-                $options->push([
-                    'phone_number' => $normalized,
-                    'friendly_name' => null,
-                    'assigned_user_id' => $employeePurpose === self::PURPOSE_VOICE ? $employee->id : null,
-                    'assigned_user_name' => $employeePurpose === self::PURPOSE_VOICE ? $employee->name : null,
-                    'sms_assigned_user_id' => $employeePurpose === self::PURPOSE_SMS ? $employee->id : null,
-                    'sms_assigned_user_name' => $employeePurpose === self::PURPOSE_SMS ? $employee->name : null,
-                ]);
+                $options->push($this->formatLooseOption($normalized, $assignees));
             }
         }
 
         return $options->values()->all();
+    }
+
+    /**
+     * @return array{
+     *     voice: array<string, array<int, array{id: int, name: string}>>,
+     *     sms: array<string, array<int, array{id: int, name: string}>>
+     * }
+     */
+    public function assigneesForCompany(int $companyId): array
+    {
+        $voice = [];
+        $sms = [];
+
+        User::query()
+            ->where('company_id', $companyId)
+            ->orderBy('name')
+            ->get(['id', 'name', 'twilio_number', 'twilio_sms_number'])
+            ->each(function (User $user) use (&$voice, &$sms) {
+                if ($user->twilio_number) {
+                    $number = $this->twilioCompany->normalizePhone($user->twilio_number);
+                    $voice[$number][] = ['id' => (int) $user->id, 'name' => $user->name];
+                }
+                if ($user->twilio_sms_number) {
+                    $number = $this->twilioCompany->normalizePhone($user->twilio_sms_number);
+                    $sms[$number][] = ['id' => (int) $user->id, 'name' => $user->name];
+                }
+            });
+
+        return ['voice' => $voice, 'sms' => $sms];
     }
 
     /**
@@ -95,22 +110,9 @@ class TwilioNumberAssignmentService
             ->where('phone_number', $normalized)
             ->first();
 
-        if (! $record) {
-            if ($alreadyTheirs) {
-                return $normalized;
-            }
-
+        if (! $record && ! $alreadyTheirs) {
             throw ValidationException::withMessages([
                 $field => 'Select a Twilio number from your company inventory (Phone System → Numbers).',
-            ]);
-        }
-
-        $assignedUserId = $this->inventoryAssigneeId($record, $purpose);
-        if ($assignedUserId && $assignedUserId !== $forUserId && ! $alreadyTheirs) {
-            throw ValidationException::withMessages([
-                $field => $purpose === self::PURPOSE_SMS
-                    ? 'This Twilio number is already assigned to another employee for SMS.'
-                    : 'This Twilio number is already assigned to another employee for the phone system.',
             ]);
         }
 
@@ -122,38 +124,17 @@ class TwilioNumberAssignmentService
         $purpose = $this->normalizePurpose($purpose);
         $companyId = (int) $user->company_id;
         $normalized = $this->validateAssignable($rawNumber, $companyId, $user->id, $purpose);
-        $inventoryColumn = $this->inventoryColumn($purpose);
         $userColumn = $this->userColumn($purpose);
+        $previousNumber = $user->{$userColumn};
 
-        TwilioPhoneNumber::query()
-            ->where('company_id', $companyId)
-            ->where($inventoryColumn, $user->id)
-            ->update([$inventoryColumn => null]);
-
-        if (! $normalized) {
-            $user->update([$userColumn => null]);
-
-            return;
-        }
-
-        $record = TwilioPhoneNumber::query()
-            ->where('company_id', $companyId)
-            ->where('phone_number', $normalized)
-            ->first();
-
-        if ($record && $this->inventoryAssigneeId($record, $purpose) && $this->inventoryAssigneeId($record, $purpose) !== $user->id) {
-            $previousOwnerId = $this->inventoryAssigneeId($record, $purpose);
-            $previousOwner = User::query()->find($previousOwnerId);
-            if (! $previousOwner || $previousOwner->{$userColumn} !== $normalized) {
-                User::query()
-                    ->where('id', $previousOwnerId)
-                    ->where($userColumn, $normalized)
-                    ->update([$userColumn => null]);
-            }
-        }
-
-        $record?->update([$inventoryColumn => $user->id]);
         $user->update([$userColumn => $normalized]);
+
+        if ($previousNumber) {
+            $this->refreshInventoryAssignees($companyId, $previousNumber);
+        }
+        if ($normalized) {
+            $this->refreshInventoryAssignees($companyId, $normalized);
+        }
     }
 
     public function assignInventoryRecord(TwilioPhoneNumber $twilioPhoneNumber, User $employee, string $purpose = self::PURPOSE_VOICE): void
@@ -166,96 +147,116 @@ class TwilioNumberAssignmentService
             ]);
         }
 
-        $this->clearUserAssignment($employee, $purpose, exceptInventoryId: $twilioPhoneNumber->id);
-        $this->stealInventoryAssignment($twilioPhoneNumber, $purpose);
-
-        $twilioPhoneNumber->update([
-            $this->inventoryColumn($purpose) => $employee->id,
-        ]);
-        $employee->update([
-            $this->userColumn($purpose) => $twilioPhoneNumber->phone_number,
-        ]);
+        $this->assignToUser($employee, $twilioPhoneNumber->phone_number, $purpose);
     }
 
-    public function unassignInventoryRecord(TwilioPhoneNumber $twilioPhoneNumber, ?string $purpose = null): void
+    public function unassignInventoryRecord(TwilioPhoneNumber $twilioPhoneNumber, ?string $purpose = null, ?int $userId = null): void
     {
         $purpose = $this->normalizePurpose($purpose, allowNull: true);
         $purposes = $purpose ? [$purpose] : [self::PURPOSE_VOICE, self::PURPOSE_SMS];
+        $companyId = (int) $twilioPhoneNumber->company_id;
 
         foreach ($purposes as $itemPurpose) {
-            $assigneeId = $this->inventoryAssigneeId($twilioPhoneNumber, $itemPurpose);
-            if ($assigneeId) {
-                User::query()
-                    ->where('id', $assigneeId)
-                    ->where($this->userColumn($itemPurpose), $twilioPhoneNumber->phone_number)
-                    ->update([$this->userColumn($itemPurpose) => null]);
+            $query = User::query()
+                ->where('company_id', $companyId)
+                ->where($this->userColumn($itemPurpose), $twilioPhoneNumber->phone_number);
+
+            if ($userId) {
+                $query->where('id', $userId);
             }
 
-            $twilioPhoneNumber->{$this->inventoryColumn($itemPurpose)} = null;
+            $query->update([$this->userColumn($itemPurpose) => null]);
         }
 
-        $twilioPhoneNumber->save();
+        $this->refreshInventoryAssignees($companyId, $twilioPhoneNumber->phone_number);
     }
 
     /**
+     * @param  array{
+     *     voice?: array<string, array<int, array{id: int, name: string}>>,
+     *     sms?: array<string, array<int, array{id: int, name: string}>>
+     * }  $assignees
      * @return array{
      *     phone_number: string,
      *     friendly_name: ?string,
      *     assigned_user_id: ?int,
      *     assigned_user_name: ?string,
      *     sms_assigned_user_id: ?int,
-     *     sms_assigned_user_name: ?string
+     *     sms_assigned_user_name: ?string,
+     *     voice_users: array<int, array{id: int, name: string}>,
+     *     sms_users: array<int, array{id: int, name: string}>
      * }
      */
-    public function formatOption(TwilioPhoneNumber $number): array
+    public function formatOption(TwilioPhoneNumber $number, array $assignees = []): array
     {
+        return $this->formatLooseOption($number->phone_number, $assignees, $number->friendly_name);
+    }
+
+    /**
+     * @param  array{
+     *     voice?: array<string, array<int, array{id: int, name: string}>>,
+     *     sms?: array<string, array<int, array{id: int, name: string}>>
+     * }  $assignees
+     * @return array{
+     *     phone_number: string,
+     *     friendly_name: ?string,
+     *     assigned_user_id: ?int,
+     *     assigned_user_name: ?string,
+     *     sms_assigned_user_id: ?int,
+     *     sms_assigned_user_name: ?string,
+     *     voice_users: array<int, array{id: int, name: string}>,
+     *     sms_users: array<int, array{id: int, name: string}>
+     * }
+     */
+    protected function formatLooseOption(string $phoneNumber, array $assignees = [], ?string $friendlyName = null): array
+    {
+        $voiceUsers = $assignees['voice'][$phoneNumber] ?? [];
+        $smsUsers = $assignees['sms'][$phoneNumber] ?? [];
+
         return [
-            'phone_number' => $number->phone_number,
-            'friendly_name' => $number->friendly_name,
-            'assigned_user_id' => $number->assigned_user_id,
-            'assigned_user_name' => $number->assignedUser?->name,
-            'sms_assigned_user_id' => $number->sms_assigned_user_id,
-            'sms_assigned_user_name' => $number->smsAssignedUser?->name,
+            'phone_number' => $phoneNumber,
+            'friendly_name' => $friendlyName,
+            'assigned_user_id' => $voiceUsers[0]['id'] ?? null,
+            'assigned_user_name' => $voiceUsers[0]['name'] ?? null,
+            'sms_assigned_user_id' => $smsUsers[0]['id'] ?? null,
+            'sms_assigned_user_name' => $smsUsers[0]['name'] ?? null,
+            'voice_users' => $voiceUsers,
+            'sms_users' => $smsUsers,
         ];
     }
 
-    protected function clearUserAssignment(User $employee, string $purpose, ?int $exceptInventoryId = null): void
+    protected function refreshInventoryAssignees(int $companyId, string $rawNumber): void
     {
-        TwilioPhoneNumber::query()
-            ->where('company_id', $employee->company_id)
-            ->where($this->inventoryColumn($purpose), $employee->id)
-            ->when($exceptInventoryId, fn ($query) => $query->where('id', '!=', $exceptInventoryId))
-            ->update([$this->inventoryColumn($purpose) => null]);
-    }
+        $normalized = $this->twilioCompany->normalizePhone($rawNumber);
+        $record = TwilioPhoneNumber::query()
+            ->where('company_id', $companyId)
+            ->where('phone_number', $normalized)
+            ->first();
 
-    protected function stealInventoryAssignment(TwilioPhoneNumber $twilioPhoneNumber, string $purpose): void
-    {
-        $assigneeId = $this->inventoryAssigneeId($twilioPhoneNumber, $purpose);
-        if (! $assigneeId) {
+        if (! $record) {
             return;
         }
 
-        User::query()
-            ->where('id', $assigneeId)
-            ->where($this->userColumn($purpose), $twilioPhoneNumber->phone_number)
-            ->update([$this->userColumn($purpose) => null]);
-    }
+        $voiceUser = User::query()
+            ->where('company_id', $companyId)
+            ->where('twilio_number', $normalized)
+            ->orderBy('id')
+            ->first();
+        $smsUser = User::query()
+            ->where('company_id', $companyId)
+            ->where('twilio_sms_number', $normalized)
+            ->orderBy('id')
+            ->first();
 
-    protected function inventoryAssigneeId(TwilioPhoneNumber $number, string $purpose): ?int
-    {
-        $id = $number->{$this->inventoryColumn($purpose)};
-
-        return $id !== null ? (int) $id : null;
+        $record->update([
+            'assigned_user_id' => $voiceUser?->id,
+            'sms_assigned_user_id' => $smsUser?->id,
+        ]);
     }
 
     protected function userColumn(string $purpose): string
     {
         return $purpose === self::PURPOSE_SMS ? 'twilio_sms_number' : 'twilio_number';
-    }
-
-    protected function inventoryColumn(string $purpose): string
-    {
-        return $purpose === self::PURPOSE_SMS ? 'sms_assigned_user_id' : 'assigned_user_id';
     }
 
     protected function normalizePurpose(?string $purpose, bool $allowNull = false): ?string

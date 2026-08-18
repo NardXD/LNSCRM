@@ -211,14 +211,26 @@
 
     // Numbers
     function numberAssignmentSummary(n) {
+        const voiceNames = (n.voice_users || []).map((u) => u.name).filter(Boolean);
+        const smsNames = (n.sms_users || []).map((u) => u.name).filter(Boolean);
         const parts = [];
-        if (n.assigned_user_name) {
-            parts.push(`Phone: ${escapeHtml(n.assigned_user_name)}`);
+        if (voiceNames.length) {
+            parts.push(`Phone: ${escapeHtml(voiceNames.join(', '))}`);
         }
-        if (n.sms_assigned_user_name) {
-            parts.push(`SMS: ${escapeHtml(n.sms_assigned_user_name)}`);
+        if (smsNames.length) {
+            parts.push(`SMS: ${escapeHtml(smsNames.join(', '))}`);
         }
         return parts.length ? parts.join(' · ') : '<em>Unassigned</em>';
+    }
+
+    function numberUnassignButtons(n) {
+        const voiceBtns = (n.voice_users || []).map((u) =>
+            `<button type="button" class="btn-secondary btn-sm" data-unassign="${n.id}" data-purpose="voice" data-user-id="${u.id}">Unassign Phone (${escapeHtml(u.name)})</button>`
+        );
+        const smsBtns = (n.sms_users || []).map((u) =>
+            `<button type="button" class="btn-secondary btn-sm" data-unassign="${n.id}" data-purpose="sms" data-user-id="${u.id}">Unassign SMS (${escapeHtml(u.name)})</button>`
+        );
+        return [...voiceBtns, ...smsBtns].join('');
     }
 
     async function loadNumbersPanel() {
@@ -244,8 +256,7 @@
                             <span>${numberAssignmentSummary(n)}</span>
                         </div>
                         <div class="phone-list-item-actions">
-                            ${n.assigned_user_id ? `<button type="button" class="btn-secondary btn-sm" data-unassign="${n.id}" data-purpose="voice">Unassign Phone</button>` : ''}
-                            ${n.sms_assigned_user_id ? `<button type="button" class="btn-secondary btn-sm" data-unassign="${n.id}" data-purpose="sms">Unassign SMS</button>` : ''}
+                            ${numberUnassignButtons(n)}
                         </div>
                     </div>
                 `).join('');
@@ -254,7 +265,10 @@
                         await apiFetch(routes.numbersUnassign.replace('__ID__', btn.getAttribute('data-unassign')), {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ purpose: btn.getAttribute('data-purpose') }),
+                            body: JSON.stringify({
+                                purpose: btn.getAttribute('data-purpose'),
+                                user_id: parseInt(btn.getAttribute('data-user-id'), 10),
+                            }),
                         });
                         loadNumbersPanel();
                     });

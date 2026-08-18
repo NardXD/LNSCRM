@@ -267,12 +267,12 @@ class PhoneSystemController extends Controller
             }
         }
 
+        $assignees = $this->numberAssignment->assigneesForCompany((int) $user->company_id);
         $numbers = TwilioPhoneNumber::query()
             ->where('company_id', $user->company_id)
-            ->with(['assignedUser:id,name,email', 'smsAssignedUser:id,name,email'])
             ->orderBy('phone_number')
             ->get()
-            ->map(fn (TwilioPhoneNumber $n) => $this->formatNumber($n));
+            ->map(fn (TwilioPhoneNumber $n) => $this->formatNumber($n, $assignees));
 
         return response()->json(['success' => true, 'data' => $numbers]);
     }
@@ -395,7 +395,7 @@ class PhoneSystemController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatNumber($twilioPhoneNumber->fresh(['assignedUser', 'smsAssignedUser'])),
+            'data' => $this->formatNumber($twilioPhoneNumber->fresh()),
         ]);
     }
 
@@ -408,13 +408,18 @@ class PhoneSystemController extends Controller
 
         $validated = $request->validate([
             'purpose' => ['nullable', 'in:voice,sms'],
+            'user_id' => ['nullable', 'integer'],
         ]);
 
-        $this->numberAssignment->unassignInventoryRecord($twilioPhoneNumber, $validated['purpose'] ?? null);
+        $this->numberAssignment->unassignInventoryRecord(
+            $twilioPhoneNumber,
+            $validated['purpose'] ?? null,
+            isset($validated['user_id']) ? (int) $validated['user_id'] : null
+        );
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatNumber($twilioPhoneNumber->fresh(['assignedUser', 'smsAssignedUser'])),
+            'data' => $this->formatNumber($twilioPhoneNumber->fresh()),
         ]);
     }
 
@@ -684,17 +689,29 @@ class PhoneSystemController extends Controller
         ];
     }
 
-    private function formatNumber(TwilioPhoneNumber $number): array
+    /**
+     * @param  array{
+     *     voice?: array<string, array<int, array{id: int, name: string}>>,
+     *     sms?: array<string, array<int, array{id: int, name: string}>>
+     * }|null  $assignees
+     * @return array<string, mixed>
+     */
+    private function formatNumber(TwilioPhoneNumber $number, ?array $assignees = null): array
     {
+        $assignees ??= $this->numberAssignment->assigneesForCompany((int) $number->company_id);
+        $formatted = $this->numberAssignment->formatOption($number, $assignees);
+
         return [
             'id' => $number->id,
-            'phone_number' => $number->phone_number,
-            'friendly_name' => $number->friendly_name,
+            'phone_number' => $formatted['phone_number'],
+            'friendly_name' => $formatted['friendly_name'] ?? $number->friendly_name,
             'capabilities' => $number->capabilities,
-            'assigned_user_id' => $number->assigned_user_id,
-            'assigned_user_name' => $number->assignedUser?->name,
-            'sms_assigned_user_id' => $number->sms_assigned_user_id,
-            'sms_assigned_user_name' => $number->smsAssignedUser?->name,
+            'assigned_user_id' => $formatted['assigned_user_id'],
+            'assigned_user_name' => $formatted['assigned_user_name'],
+            'sms_assigned_user_id' => $formatted['sms_assigned_user_id'],
+            'sms_assigned_user_name' => $formatted['sms_assigned_user_name'],
+            'voice_users' => $formatted['voice_users'],
+            'sms_users' => $formatted['sms_users'],
         ];
     }
 
