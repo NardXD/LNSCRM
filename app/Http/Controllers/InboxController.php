@@ -17,11 +17,13 @@ use App\Models\User;
 use App\Notifications\InboxThreadUpdateNotification;
 use App\Services\CalendarOauthSettingsService;
 use App\Services\InboxRuleEngine;
+use App\Services\LeadAutoCreateService;
 use App\Services\OutlookMailService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -36,7 +38,8 @@ class InboxController extends Controller
     public function __construct(
         protected OutlookMailService $mailService,
         protected CalendarOauthSettingsService $oauthSettings,
-        protected InboxRuleEngine $ruleEngine
+        protected InboxRuleEngine $ruleEngine,
+        protected LeadAutoCreateService $leadAutoCreate
     ) {}
 
     public function index(): View
@@ -850,7 +853,7 @@ class InboxController extends Controller
             'until' => ['required', 'date', 'after:now'],
         ]);
 
-        $until = \Illuminate\Support\Carbon::parse($validated['until']);
+        $until = Carbon::parse($validated['until']);
         $conversation->status = 'archived';
         $conversation->folder = 'inbox';
         $conversation->reopen_at = $until;
@@ -1044,6 +1047,13 @@ class InboxController extends Controller
             $conversation->fresh(['tags', 'inbox']),
             InboxRuleEngine::TRIGGER_OUTBOUND_REPLY
         );
+
+        if (! $inbox->isPersonal()) {
+            $this->leadAutoCreate->fromSharedInbox($inbox, $conversation->from_name, $conversation->from_email);
+            foreach ($this->parseEmailList($to) as $recipient) {
+                $this->leadAutoCreate->fromSharedInbox($inbox, $conversation->from_name, $recipient);
+            }
+        }
 
         return response()->json([
             'message' => $this->formatMessage($message),
@@ -1288,6 +1298,12 @@ class InboxController extends Controller
             InboxRuleEngine::TRIGGER_OUTBOUND_MESSAGE_NEW
         );
 
+        if (! $inbox->isPersonal()) {
+            foreach ($toEmails as $recipient) {
+                $this->leadAutoCreate->fromSharedInbox($inbox, null, (string) $recipient);
+            }
+        }
+
         return response()->json([
             'conversation' => $this->formatConversation(
                 $conversation->fresh(['assignee', 'tags', 'inbox', 'messages']),
@@ -1431,6 +1447,7 @@ class InboxController extends Controller
         foreach ($query->get() as $inbox) {
             if (! $inbox->account) {
                 $skipped[] = ['id' => $inbox->id, 'name' => $inbox->name, 'reason' => 'not_connected'];
+
                 continue;
             }
 
@@ -2147,7 +2164,7 @@ class InboxController extends Controller
     /**
      * Fallback: map any remaining cid: refs to authenticated attachment URLs for display.
      *
-     * @param  \Illuminate\Support\Collection<int, mixed>  $allAttachments
+     * @param  Collection<int, mixed>  $allAttachments
      */
     private function rewriteCidImagesForClient(string $html, InboxMessage $m, Collection $allAttachments): string
     {

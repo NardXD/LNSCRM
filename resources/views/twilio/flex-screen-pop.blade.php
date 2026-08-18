@@ -108,7 +108,21 @@
         <h1>{{ $data['display_name'] ?? 'Unknown caller' }}</h1>
         <p class="sub">{{ $data['phone'] ?? 'Waiting for an active Flex task…' }}</p>
 
-        @if (!empty($data['client']))
+        @if (!empty($data['lead']))
+            <div class="row"><span class="label">Lead</span><span class="value">{{ $data['lead']['name'] }}</span></div>
+            @if (!empty($data['lead']['company_name']))
+                <div class="row"><span class="label">Company</span><span class="value">{{ $data['lead']['company_name'] }}</span></div>
+            @endif
+            @if (!empty($data['lead']['status']))
+                <div class="row"><span class="label">Status</span><span class="value">{{ $data['lead']['status'] }}</span></div>
+            @endif
+            @if (!empty($data['lead']['emails']))
+                <div class="row"><span class="label">Email</span><span class="value">{{ implode(', ', $data['lead']['emails']) }}</span></div>
+            @endif
+            @if (!empty($data['lead']['crm_url']))
+                <a class="cta" href="{{ $data['lead']['crm_url'] }}" target="_blank" rel="noopener">Open lead</a>
+            @endif
+        @elseif (!empty($data['client']))
             <div class="row"><span class="label">Client</span><span class="value">{{ $data['client']['name'] }}</span></div>
             @if (!empty($data['client']['contact_person']))
                 <div class="row"><span class="label">Contact</span><span class="value">{{ $data['client']['contact_person'] }}</span></div>

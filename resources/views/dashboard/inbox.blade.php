@@ -303,7 +303,8 @@
             <div class="inbox-props-block">
                 <div class="inbox-props-label">Contact history (all channels)</div>
                 <div id="inboxContactHistory" class="chp-panel chp-visible" style="width:100%;max-width:none;border:0;background:transparent;height:auto;display:block;"
-                     data-api="/api/crm/contact-history">
+                     data-api="/api/crm/contact-history"
+                     data-can-save-lead="{{ auth()->user()?->hasPermission('view_client_management') ? '1' : '0' }}">
                     <div class="chp-body" id="inboxContactHistoryBody" style="padding:0;overflow:visible;">
                         <p class="chp-empty">Select a conversation to see cross-channel history.</p>
                     </div>
@@ -4268,6 +4269,7 @@
             <div class="chp-name">${escapeHtml(contact.display_name || 'Contact')}</div>
             ${(contact.matched_phones || []).slice(0, 2).map((p) => `<div class="chp-meta">${escapeHtml(p)}</div>`).join('')}
             ${(contact.matched_emails || []).slice(0, 2).map((em) => `<div class="chp-meta">${escapeHtml(em)}</div>`).join('')}
+            ${contact.lead?.crm_url ? `<a class="chp-link" href="${escapeHtml(contact.lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>` : ''}
             ${contact.client?.crm_url ? `<a class="chp-link" href="${escapeHtml(contact.client.crm_url)}" target="_blank" rel="noopener">Open client →</a>` : ''}
         `;
         const threadsHtml = threads.length

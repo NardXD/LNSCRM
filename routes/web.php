@@ -14,26 +14,61 @@ use App\Http\Controllers\Admin\SupportOverrideController;
 use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
+use App\Http\Controllers\BillingInvoiceController;
+use App\Http\Controllers\BillingSubscriptionController;
+use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\ChangePasswordController;
+use App\Http\Controllers\Client\ClientAuthController;
+use App\Http\Controllers\Client\ClientLiveViewController;
+use App\Http\Controllers\Client\ClientPortalController;
 use App\Http\Controllers\ClientManagementController;
+use App\Http\Controllers\CompanyLandingController;
+use App\Http\Controllers\ContactHistoryController;
+use App\Http\Controllers\ContractController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EmployeeMonitoringController;
+use App\Http\Controllers\FacebookController;
+use App\Http\Controllers\HiringAssistantController;
+use App\Http\Controllers\HiringQueueController;
+use App\Http\Controllers\InboxController;
+use App\Http\Controllers\IntegrationController;
+use App\Http\Controllers\KnowledgeBaseController;
+use App\Http\Controllers\LeadsController;
+use App\Http\Controllers\LeaveManagementController;
+use App\Http\Controllers\LiveViewController;
+use App\Http\Controllers\McpServerController;
+use App\Http\Controllers\MessagingController;
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\OpenAiController;
 use App\Http\Controllers\PayrollController;
+use App\Http\Controllers\ProjectManagementController;
+use App\Http\Controllers\PublicMediaController;
+use App\Http\Controllers\QuotationController;
+use App\Http\Controllers\QuotationItemTemplateController;
+use App\Http\Controllers\SmsController;
+use App\Http\Controllers\StripeWebhookController;
+use App\Http\Controllers\TeamManagementController;
+use App\Http\Controllers\TicketController;
 use App\Http\Controllers\TimeTrackingController;
 use App\Http\Controllers\Twilio\CallController;
+use App\Http\Controllers\Twilio\FlexController;
 use App\Http\Controllers\Twilio\PhoneSystemController;
+use App\Http\Controllers\ViberController;
+use App\Http\Controllers\WhatsAppController;
+use App\Http\Controllers\WiseWebhookController;
 use Illuminate\Support\Facades\Route;
 
 // MCP Server (Model Context Protocol) - for Claude AI integration
 // Requires X-API-Key header. Use: php artisan mcp:create-key --company=1
-Route::match(['get', 'post'], '/mcp', [\App\Http\Controllers\McpServerController::class, 'handle'])
+Route::match(['get', 'post'], '/mcp', [McpServerController::class, 'handle'])
     ->middleware('mcp.api_key')
     ->name('mcp');
 
-Route::get('/media/{path}', [\App\Http\Controllers\PublicMediaController::class, 'show'])
+Route::get('/media/{path}', [PublicMediaController::class, 'show'])
     ->where('path', '.*')
     ->name('media.show');
 
-Route::get('/', [\App\Http\Controllers\CompanyLandingController::class, 'index'])->name('landing');
+Route::get('/', [CompanyLandingController::class, 'index'])->name('landing');
 
 Route::get('/login', [LoginController::class, 'showLoginForm'])->name('login');
 
@@ -55,17 +90,17 @@ Route::get('/forgot-password', function () {
     return view('auth.forgot-password');
 })->name('password.request');
 
-Route::get('/start', [\App\Http\Controllers\CompanyLandingController::class, 'hiringAssistant'])->name('landing.start');
+Route::get('/start', [CompanyLandingController::class, 'hiringAssistant'])->name('landing.start');
 
-Route::post('/api/hiring-assistant/chat', [\App\Http\Controllers\HiringAssistantController::class, 'chat'])->name('api.hiring-assistant.chat');
-Route::post('/api/hiring-queue/save-from-assistant', [\App\Http\Controllers\HiringQueueController::class, 'storeFromAssistant'])->name('api.hiring-queue.save-from-assistant');
+Route::post('/api/hiring-assistant/chat', [HiringAssistantController::class, 'chat'])->name('api.hiring-assistant.chat');
+Route::post('/api/hiring-queue/save-from-assistant', [HiringQueueController::class, 'storeFromAssistant'])->name('api.hiring-queue.save-from-assistant');
 
 Route::post('/forgot-password', function () {
     // Handle password reset email logic here
 })->name('password.email');
 
-Route::post('/webhooks/stripe/company/{company}', [\App\Http\Controllers\StripeWebhookController::class, 'handleWebhook'])->name('webhooks.stripe');
-Route::post('/webhooks/wise/company/{company}', [\App\Http\Controllers\WiseWebhookController::class, 'handle'])->name('webhooks.wise')->where('company', '[0-9]+');
+Route::post('/webhooks/stripe/company/{company}', [StripeWebhookController::class, 'handleWebhook'])->name('webhooks.stripe');
+Route::post('/webhooks/wise/company/{company}', [WiseWebhookController::class, 'handle'])->name('webhooks.wise')->where('company', '[0-9]+');
 
 // Twilio Webhook Routes (Public - no authentication required)
 // These routes must be accessible to Twilio's servers without authentication
@@ -83,52 +118,65 @@ Route::prefix('twilio')->group(function () {
 });
 
 // Viber (Twilio Messaging) inbound webhook (public, CSRF-exempt)
-Route::post('/webhooks/viber/{webhookKey}', [\App\Http\Controllers\ViberController::class, 'webhook'])
+Route::post('/webhooks/viber/{webhookKey}', [ViberController::class, 'webhook'])
     ->name('webhooks.viber');
 
 // WhatsApp (Twilio Messaging) inbound webhook (public, CSRF-exempt)
-Route::post('/webhooks/whatsapp/{webhookKey}', [\App\Http\Controllers\WhatsAppController::class, 'webhook'])
+Route::post('/webhooks/whatsapp/{webhookKey}', [WhatsAppController::class, 'webhook'])
     ->name('webhooks.whatsapp');
 
 // Facebook / Instagram Messenger webhooks (public, CSRF-exempt; GET = verify, POST = events)
-Route::match(['get', 'post'], '/webhooks/facebook/{webhookKey}', [\App\Http\Controllers\FacebookController::class, 'webhook'])
+Route::match(['get', 'post'], '/webhooks/facebook/{webhookKey}', [FacebookController::class, 'webhook'])
     ->name('webhooks.facebook');
 
 // Twilio webhooks — CRM screen-pop + TaskRouter event callbacks (public, CSRF-exempt, unused by standard Twilio UI)
-Route::get('/flex/screen-pop/{webhookKey}', [\App\Http\Controllers\Twilio\FlexController::class, 'screenPop'])
+Route::get('/flex/screen-pop/{webhookKey}', [FlexController::class, 'screenPop'])
     ->name('flex.screen-pop');
-Route::post('/webhooks/flex/{webhookKey}/events', [\App\Http\Controllers\Twilio\FlexController::class, 'events'])
+Route::post('/webhooks/flex/{webhookKey}/events', [FlexController::class, 'events'])
     ->name('webhooks.flex.events');
 Route::middleware('flex.api_key')->prefix('api/flex')->group(function () {
-    Route::get('/crm/lookup', [\App\Http\Controllers\Twilio\FlexController::class, 'lookup'])->name('api.flex.crm.lookup');
+    Route::get('/crm/lookup', [FlexController::class, 'lookup'])->name('api.flex.crm.lookup');
 });
 
 // Public contract signing routes (no auth required)
-Route::get('/contracts/sign/{token}', [\App\Http\Controllers\ContractController::class, 'showSigningPage'])->name('contracts.sign');
-Route::post('/contracts/sign/{token}', [\App\Http\Controllers\ContractController::class, 'submitSignature'])->name('contracts.sign.submit');
+Route::get('/contracts/sign/{token}', [ContractController::class, 'showSigningPage'])->name('contracts.sign');
+Route::post('/contracts/sign/{token}', [ContractController::class, 'submitSignature'])->name('contracts.sign.submit');
 
 // Protected Dashboard Routes - Require Authentication
 Route::middleware(['auth', 'company.active'])->group(function () {
-    Route::get('/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])->middleware('permission:view_dashboard')->name('dashboard');
+    Route::get('/dashboard', [DashboardController::class, 'index'])->middleware('permission:view_dashboard')->name('dashboard');
 
     Route::get('/time-tracking', [TimeTrackingController::class, 'index'])->middleware('permission:view_time_tracking')->name('time-tracking');
 
-    Route::get('/client-management', [ClientManagementController::class, 'index'])->middleware('permission:view_client_management')->name('client-management');
+    Route::get('/hiring-queue', [HiringQueueController::class, 'index'])->middleware('permission:view_client_management')->name('hiring-queue');
+    Route::get('/api/hiring-queue', [HiringQueueController::class, 'getItems'])->middleware('permission:view_client_management')->name('api.hiring-queue.index');
+    Route::post('/api/hiring-queue', [HiringQueueController::class, 'store'])->middleware('permission:view_client_management')->name('api.hiring-queue.store');
+    Route::get('/api/hiring-queue/{item}', [HiringQueueController::class, 'show'])->middleware('permission:view_client_management')->name('api.hiring-queue.show');
+    Route::patch('/api/hiring-queue/{item}', [HiringQueueController::class, 'update'])->middleware('permission:view_client_management')->name('api.hiring-queue.update');
+    Route::get('/api/hiring-queue/{item}/comments', [HiringQueueController::class, 'getComments'])->middleware('permission:view_client_management')->name('api.hiring-queue.comments');
+    Route::post('/api/hiring-queue/{item}/comments', [HiringQueueController::class, 'storeComment'])->middleware('permission:view_client_management')->name('api.hiring-queue.comments.store');
+    Route::delete('/api/hiring-queue/{item}/comments/{comment}', [HiringQueueController::class, 'destroyComment'])->middleware('permission:view_client_management')->name('api.hiring-queue.comments.destroy');
+    Route::get('/api/hiring-queue/{item}/pdf', [HiringQueueController::class, 'pdf'])->middleware('permission:view_client_management')->name('api.hiring-queue.pdf');
+    Route::patch('/api/hiring-queue/{item}/status', [HiringQueueController::class, 'updateStatus'])->middleware('permission:view_client_management')->name('api.hiring-queue.status.update');
+    Route::get('/api/hiring-queue/{item}/candidates', [HiringQueueController::class, 'getCandidates'])->middleware('permission:view_client_management')->name('api.hiring-queue.candidates');
+    Route::post('/api/hiring-queue/{item}/candidates', [HiringQueueController::class, 'storeCandidate'])->middleware('permission:view_client_management')->name('api.hiring-queue.candidates.store');
+    Route::patch('/api/hiring-queue/{item}/candidates/{candidate}', [HiringQueueController::class, 'updateCandidate'])->middleware('permission:view_client_management')->name('api.hiring-queue.candidates.update');
+    Route::patch('/api/hiring-queue/{item}/candidates/{candidate}/status', [HiringQueueController::class, 'updateCandidateStatus'])->middleware('permission:view_client_management')->name('api.hiring-queue.candidates.status.update');
 
-    Route::get('/hiring-queue', [\App\Http\Controllers\HiringQueueController::class, 'index'])->middleware('permission:view_client_management')->name('hiring-queue');
-    Route::get('/api/hiring-queue', [\App\Http\Controllers\HiringQueueController::class, 'getItems'])->middleware('permission:view_client_management')->name('api.hiring-queue.index');
-    Route::post('/api/hiring-queue', [\App\Http\Controllers\HiringQueueController::class, 'store'])->middleware('permission:view_client_management')->name('api.hiring-queue.store');
-    Route::get('/api/hiring-queue/{item}', [\App\Http\Controllers\HiringQueueController::class, 'show'])->middleware('permission:view_client_management')->name('api.hiring-queue.show');
-    Route::patch('/api/hiring-queue/{item}', [\App\Http\Controllers\HiringQueueController::class, 'update'])->middleware('permission:view_client_management')->name('api.hiring-queue.update');
-    Route::get('/api/hiring-queue/{item}/comments', [\App\Http\Controllers\HiringQueueController::class, 'getComments'])->middleware('permission:view_client_management')->name('api.hiring-queue.comments');
-    Route::post('/api/hiring-queue/{item}/comments', [\App\Http\Controllers\HiringQueueController::class, 'storeComment'])->middleware('permission:view_client_management')->name('api.hiring-queue.comments.store');
-    Route::delete('/api/hiring-queue/{item}/comments/{comment}', [\App\Http\Controllers\HiringQueueController::class, 'destroyComment'])->middleware('permission:view_client_management')->name('api.hiring-queue.comments.destroy');
-    Route::get('/api/hiring-queue/{item}/pdf', [\App\Http\Controllers\HiringQueueController::class, 'pdf'])->middleware('permission:view_client_management')->name('api.hiring-queue.pdf');
-    Route::patch('/api/hiring-queue/{item}/status', [\App\Http\Controllers\HiringQueueController::class, 'updateStatus'])->middleware('permission:view_client_management')->name('api.hiring-queue.status.update');
-    Route::get('/api/hiring-queue/{item}/candidates', [\App\Http\Controllers\HiringQueueController::class, 'getCandidates'])->middleware('permission:view_client_management')->name('api.hiring-queue.candidates');
-    Route::post('/api/hiring-queue/{item}/candidates', [\App\Http\Controllers\HiringQueueController::class, 'storeCandidate'])->middleware('permission:view_client_management')->name('api.hiring-queue.candidates.store');
-    Route::patch('/api/hiring-queue/{item}/candidates/{candidate}', [\App\Http\Controllers\HiringQueueController::class, 'updateCandidate'])->middleware('permission:view_client_management')->name('api.hiring-queue.candidates.update');
-    Route::patch('/api/hiring-queue/{item}/candidates/{candidate}/status', [\App\Http\Controllers\HiringQueueController::class, 'updateCandidateStatus'])->middleware('permission:view_client_management')->name('api.hiring-queue.candidates.status.update');
+    Route::get('/leads', [LeadsController::class, 'index'])->middleware('permission:view_client_management')->name('leads');
+    Route::prefix('api/leads')->middleware('permission:view_client_management')->group(function () {
+        Route::get('/', [LeadsController::class, 'list'])->name('api.leads.index');
+        Route::post('/', [LeadsController::class, 'store'])->name('api.leads.store');
+        Route::get('/labels', [LeadsController::class, 'labels'])->name('api.leads.labels');
+        Route::get('/{lead}/history', [LeadsController::class, 'history'])->name('api.leads.history');
+        Route::post('/{lead}/notes', [LeadsController::class, 'storeNote'])->name('api.leads.notes.store');
+        Route::delete('/{lead}/notes/{note}', [LeadsController::class, 'destroyNote'])->name('api.leads.notes.destroy');
+        Route::post('/{lead}/labels', [LeadsController::class, 'attachLabel'])->name('api.leads.labels.attach');
+        Route::delete('/{lead}/labels/{leadLabel}', [LeadsController::class, 'detachLabel'])->name('api.leads.labels.detach');
+        Route::get('/{lead}', [LeadsController::class, 'show'])->name('api.leads.show');
+        Route::match(['PUT', 'PATCH'], '/{lead}', [LeadsController::class, 'update'])->name('api.leads.update');
+        Route::delete('/{lead}', [LeadsController::class, 'destroy'])->name('api.leads.destroy');
+    });
 
     // Time Tracking API Routes
     Route::prefix('api/time-tracking')->group(function () {
@@ -144,38 +192,38 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/recording/{id}/view', [TimeTrackingController::class, 'viewRecording'])->name('api.time-tracking.view-recording');
     });
 
-    Route::get('/user-management', [\App\Http\Controllers\UserManagementController::class, 'index'])->middleware('permission:view_user_management')->name('user-management');
+    Route::get('/user-management', [App\Http\Controllers\UserManagementController::class, 'index'])->middleware('permission:view_user_management')->name('user-management');
 
     // User Management API Routes
     Route::prefix('api/user-management')->group(function () {
-        Route::get('/employees', [\App\Http\Controllers\UserManagementController::class, 'getEmployees'])->name('api.user-management.employees');
-        Route::get('/twilio-number-options', [\App\Http\Controllers\UserManagementController::class, 'getTwilioNumberOptions'])->name('api.user-management.twilio-number-options');
-        Route::get('/employees/{employee}/clients', [\App\Http\Controllers\UserManagementController::class, 'getEmployeeClients'])->name('api.user-management.employees.clients');
-        Route::get('/clients', [\App\Http\Controllers\UserManagementController::class, 'getClientsList'])->name('api.user-management.clients');
-        Route::post('/employees', [\App\Http\Controllers\UserManagementController::class, 'storeEmployee'])->name('api.user-management.employees.store');
-        Route::match(['PUT', 'POST'], '/employees/{employee}', [\App\Http\Controllers\UserManagementController::class, 'updateEmployee'])->name('api.user-management.employees.update');
-        Route::delete('/employees/{employee}', [\App\Http\Controllers\UserManagementController::class, 'destroyEmployee'])->name('api.user-management.employees.destroy');
+        Route::get('/employees', [App\Http\Controllers\UserManagementController::class, 'getEmployees'])->name('api.user-management.employees');
+        Route::get('/twilio-number-options', [App\Http\Controllers\UserManagementController::class, 'getTwilioNumberOptions'])->name('api.user-management.twilio-number-options');
+        Route::get('/employees/{employee}/clients', [App\Http\Controllers\UserManagementController::class, 'getEmployeeClients'])->name('api.user-management.employees.clients');
+        Route::get('/clients', [App\Http\Controllers\UserManagementController::class, 'getClientsList'])->name('api.user-management.clients');
+        Route::post('/employees', [App\Http\Controllers\UserManagementController::class, 'storeEmployee'])->name('api.user-management.employees.store');
+        Route::match(['PUT', 'POST'], '/employees/{employee}', [App\Http\Controllers\UserManagementController::class, 'updateEmployee'])->name('api.user-management.employees.update');
+        Route::delete('/employees/{employee}', [App\Http\Controllers\UserManagementController::class, 'destroyEmployee'])->name('api.user-management.employees.destroy');
 
-        Route::get('/sales-reps', [\App\Http\Controllers\UserManagementController::class, 'getSalesReps'])->name('api.user-management.sales-reps.index');
-        Route::post('/sales-reps', [\App\Http\Controllers\UserManagementController::class, 'storeSalesRep'])->name('api.user-management.sales-reps.store');
-        Route::put('/sales-reps/{salesRep}', [\App\Http\Controllers\UserManagementController::class, 'updateSalesRep'])->name('api.user-management.sales-reps.update');
-        Route::delete('/sales-reps/{salesRep}', [\App\Http\Controllers\UserManagementController::class, 'destroySalesRep'])->name('api.user-management.sales-reps.destroy');
+        Route::get('/sales-reps', [App\Http\Controllers\UserManagementController::class, 'getSalesReps'])->name('api.user-management.sales-reps.index');
+        Route::post('/sales-reps', [App\Http\Controllers\UserManagementController::class, 'storeSalesRep'])->name('api.user-management.sales-reps.store');
+        Route::put('/sales-reps/{salesRep}', [App\Http\Controllers\UserManagementController::class, 'updateSalesRep'])->name('api.user-management.sales-reps.update');
+        Route::delete('/sales-reps/{salesRep}', [App\Http\Controllers\UserManagementController::class, 'destroySalesRep'])->name('api.user-management.sales-reps.destroy');
 
-        Route::get('/departments', [\App\Http\Controllers\UserManagementController::class, 'getDepartments'])->name('api.user-management.departments');
-        Route::post('/departments', [\App\Http\Controllers\UserManagementController::class, 'storeDepartment'])->name('api.user-management.departments.store');
-        Route::match(['PUT', 'POST'], '/departments/{department}', [\App\Http\Controllers\UserManagementController::class, 'updateDepartment'])->name('api.user-management.departments.update');
-        Route::delete('/departments/{department}', [\App\Http\Controllers\UserManagementController::class, 'destroyDepartment'])->name('api.user-management.departments.destroy');
+        Route::get('/departments', [App\Http\Controllers\UserManagementController::class, 'getDepartments'])->name('api.user-management.departments');
+        Route::post('/departments', [App\Http\Controllers\UserManagementController::class, 'storeDepartment'])->name('api.user-management.departments.store');
+        Route::match(['PUT', 'POST'], '/departments/{department}', [App\Http\Controllers\UserManagementController::class, 'updateDepartment'])->name('api.user-management.departments.update');
+        Route::delete('/departments/{department}', [App\Http\Controllers\UserManagementController::class, 'destroyDepartment'])->name('api.user-management.departments.destroy');
 
-        Route::get('/roles', [\App\Http\Controllers\UserManagementController::class, 'getRoles'])->name('api.user-management.roles');
-        Route::post('/roles', [\App\Http\Controllers\UserManagementController::class, 'storeRole'])->name('api.user-management.roles.store');
-        Route::put('/roles/{role}', [\App\Http\Controllers\UserManagementController::class, 'updateRole'])->name('api.user-management.roles.update');
-        Route::delete('/roles/{role}', [\App\Http\Controllers\UserManagementController::class, 'destroyRole'])->name('api.user-management.roles.destroy');
+        Route::get('/roles', [App\Http\Controllers\UserManagementController::class, 'getRoles'])->name('api.user-management.roles');
+        Route::post('/roles', [App\Http\Controllers\UserManagementController::class, 'storeRole'])->name('api.user-management.roles.store');
+        Route::put('/roles/{role}', [App\Http\Controllers\UserManagementController::class, 'updateRole'])->name('api.user-management.roles.update');
+        Route::delete('/roles/{role}', [App\Http\Controllers\UserManagementController::class, 'destroyRole'])->name('api.user-management.roles.destroy');
 
-        Route::get('/permissions', [\App\Http\Controllers\UserManagementController::class, 'getPermissions'])->name('api.user-management.permissions');
-        Route::get('/roles/{role}/permissions', [\App\Http\Controllers\UserManagementController::class, 'getRolePermissions'])->name('api.user-management.roles.permissions.get');
-        Route::put('/roles/{role}/permissions', [\App\Http\Controllers\UserManagementController::class, 'updateRolePermissions'])->name('api.user-management.roles.permissions.update');
+        Route::get('/permissions', [App\Http\Controllers\UserManagementController::class, 'getPermissions'])->name('api.user-management.permissions');
+        Route::get('/roles/{role}/permissions', [App\Http\Controllers\UserManagementController::class, 'getRolePermissions'])->name('api.user-management.roles.permissions.get');
+        Route::put('/roles/{role}/permissions', [App\Http\Controllers\UserManagementController::class, 'updateRolePermissions'])->name('api.user-management.roles.permissions.update');
 
-        Route::post('/company/settings', [\App\Http\Controllers\UserManagementController::class, 'updateCompanySettings'])->name('api.user-management.company.settings.update');
+        Route::post('/company/settings', [App\Http\Controllers\UserManagementController::class, 'updateCompanySettings'])->name('api.user-management.company.settings.update');
     });
 
     // Client Management API Routes
@@ -214,17 +262,17 @@ Route::middleware(['auth', 'company.active'])->group(function () {
 
     // Employee Monitoring API Routes
     Route::prefix('api/live-view')->group(function () {
-        Route::get('/ice-config', [\App\Http\Controllers\LiveViewController::class, 'iceConfig'])->name('api.live-view.ice-config');
-        Route::post('/heartbeat', [\App\Http\Controllers\LiveViewController::class, 'heartbeat'])->middleware('throttle:live-view-heartbeat')->name('api.live-view.heartbeat');
-        Route::post('/heartbeat/clear', [\App\Http\Controllers\LiveViewController::class, 'clearHeartbeat'])->name('api.live-view.heartbeat.clear');
-        Route::get('/signals', [\App\Http\Controllers\LiveViewController::class, 'pullSignals'])->middleware('throttle:live-view-signals')->name('api.live-view.signals.pull');
-        Route::post('/signals', [\App\Http\Controllers\LiveViewController::class, 'sendSignal'])->middleware('throttle:live-view-signals')->name('api.live-view.signals.send');
-        Route::get('/sessions', [\App\Http\Controllers\LiveViewController::class, 'listSessions'])->middleware('permission:view_live_screen')->name('api.live-view.sessions.index');
-        Route::post('/sessions', [\App\Http\Controllers\LiveViewController::class, 'startSession'])->middleware('permission:view_live_screen')->name('api.live-view.sessions.start');
-        Route::get('/sessions/{liveViewSession}', [\App\Http\Controllers\LiveViewController::class, 'getSession'])->name('api.live-view.sessions.show');
-        Route::post('/sessions/{liveViewSession}/end', [\App\Http\Controllers\LiveViewController::class, 'endSession'])->name('api.live-view.sessions.end');
-        Route::get('/sessions/{liveViewSession}/messages', [\App\Http\Controllers\LiveViewController::class, 'listMessages'])->name('api.live-view.sessions.messages.index');
-        Route::post('/sessions/{liveViewSession}/messages', [\App\Http\Controllers\LiveViewController::class, 'sendMessage'])->name('api.live-view.sessions.messages.send');
+        Route::get('/ice-config', [LiveViewController::class, 'iceConfig'])->name('api.live-view.ice-config');
+        Route::post('/heartbeat', [LiveViewController::class, 'heartbeat'])->middleware('throttle:live-view-heartbeat')->name('api.live-view.heartbeat');
+        Route::post('/heartbeat/clear', [LiveViewController::class, 'clearHeartbeat'])->name('api.live-view.heartbeat.clear');
+        Route::get('/signals', [LiveViewController::class, 'pullSignals'])->middleware('throttle:live-view-signals')->name('api.live-view.signals.pull');
+        Route::post('/signals', [LiveViewController::class, 'sendSignal'])->middleware('throttle:live-view-signals')->name('api.live-view.signals.send');
+        Route::get('/sessions', [LiveViewController::class, 'listSessions'])->middleware('permission:view_live_screen')->name('api.live-view.sessions.index');
+        Route::post('/sessions', [LiveViewController::class, 'startSession'])->middleware('permission:view_live_screen')->name('api.live-view.sessions.start');
+        Route::get('/sessions/{liveViewSession}', [LiveViewController::class, 'getSession'])->name('api.live-view.sessions.show');
+        Route::post('/sessions/{liveViewSession}/end', [LiveViewController::class, 'endSession'])->name('api.live-view.sessions.end');
+        Route::get('/sessions/{liveViewSession}/messages', [LiveViewController::class, 'listMessages'])->name('api.live-view.sessions.messages.index');
+        Route::post('/sessions/{liveViewSession}/messages', [LiveViewController::class, 'sendMessage'])->name('api.live-view.sessions.messages.send');
     });
 
     Route::prefix('api/employee-monitoring')->middleware('permission:view_employee_monitoring')->group(function () {
@@ -334,384 +382,384 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         return view('dashboard.project-management');
     })->middleware('permission:view_project_management')->name('project-management');
 
-    Route::get('/team-management', [\App\Http\Controllers\TeamManagementController::class, 'index'])->middleware('permission:view_team_management')->name('team-management');
+    Route::get('/team-management', [TeamManagementController::class, 'index'])->middleware('permission:view_team_management')->name('team-management');
 
     // Team Management API Routes
     Route::prefix('api/team-management')->group(function () {
-        Route::get('/teams', [\App\Http\Controllers\TeamManagementController::class, 'getTeams'])->name('api.team-management.teams');
-        Route::get('/teams/{team}', [\App\Http\Controllers\TeamManagementController::class, 'getTeam'])->name('api.team-management.teams.show');
-        Route::post('/teams', [\App\Http\Controllers\TeamManagementController::class, 'store'])->name('api.team-management.teams.store');
-        Route::put('/teams/{team}', [\App\Http\Controllers\TeamManagementController::class, 'update'])->name('api.team-management.teams.update');
-        Route::delete('/teams/{team}', [\App\Http\Controllers\TeamManagementController::class, 'destroy'])->name('api.team-management.teams.destroy');
+        Route::get('/teams', [TeamManagementController::class, 'getTeams'])->name('api.team-management.teams');
+        Route::get('/teams/{team}', [TeamManagementController::class, 'getTeam'])->name('api.team-management.teams.show');
+        Route::post('/teams', [TeamManagementController::class, 'store'])->name('api.team-management.teams.store');
+        Route::put('/teams/{team}', [TeamManagementController::class, 'update'])->name('api.team-management.teams.update');
+        Route::delete('/teams/{team}', [TeamManagementController::class, 'destroy'])->name('api.team-management.teams.destroy');
 
-        Route::get('/teams/{team}/members', [\App\Http\Controllers\TeamManagementController::class, 'getTeamMembers'])->name('api.team-management.teams.members');
-        Route::post('/teams/{team}/members', [\App\Http\Controllers\TeamManagementController::class, 'addMembers'])->name('api.team-management.teams.members.add');
-        Route::delete('/teams/{team}/members/{member}', [\App\Http\Controllers\TeamManagementController::class, 'removeMember'])->name('api.team-management.teams.members.remove');
-        Route::put('/teams/{team}/members/{member}/role', [\App\Http\Controllers\TeamManagementController::class, 'updateMemberRole'])->name('api.team-management.teams.members.role');
+        Route::get('/teams/{team}/members', [TeamManagementController::class, 'getTeamMembers'])->name('api.team-management.teams.members');
+        Route::post('/teams/{team}/members', [TeamManagementController::class, 'addMembers'])->name('api.team-management.teams.members.add');
+        Route::delete('/teams/{team}/members/{member}', [TeamManagementController::class, 'removeMember'])->name('api.team-management.teams.members.remove');
+        Route::put('/teams/{team}/members/{member}/role', [TeamManagementController::class, 'updateMemberRole'])->name('api.team-management.teams.members.role');
 
-        Route::get('/teams/{team}/tasks', [\App\Http\Controllers\TeamManagementController::class, 'getTeamTasks'])->name('api.team-management.teams.tasks');
-        Route::get('/teams/{team}/tasks/{task}/time-tracking', [\App\Http\Controllers\TeamManagementController::class, 'getTaskTimeTracking'])->name('api.team-management.teams.tasks.time-tracking');
+        Route::get('/teams/{team}/tasks', [TeamManagementController::class, 'getTeamTasks'])->name('api.team-management.teams.tasks');
+        Route::get('/teams/{team}/tasks/{task}/time-tracking', [TeamManagementController::class, 'getTaskTimeTracking'])->name('api.team-management.teams.tasks.time-tracking');
 
-        Route::get('/teams/{team}/time-tracking', [\App\Http\Controllers\TeamManagementController::class, 'getTeamTimeTracking'])->name('api.team-management.teams.time-tracking');
-        Route::get('/teams/{team}/recordings', [\App\Http\Controllers\TeamManagementController::class, 'getTeamRecordings'])->name('api.team-management.teams.recordings');
-        Route::get('/teams/{team}/recordings/{recording}/view', [\App\Http\Controllers\TeamManagementController::class, 'viewRecording'])->name('api.team-management.teams.recordings.view');
-        Route::get('/teams/{team}/stats', [\App\Http\Controllers\TeamManagementController::class, 'getTeamStats'])->name('api.team-management.teams.stats');
+        Route::get('/teams/{team}/time-tracking', [TeamManagementController::class, 'getTeamTimeTracking'])->name('api.team-management.teams.time-tracking');
+        Route::get('/teams/{team}/recordings', [TeamManagementController::class, 'getTeamRecordings'])->name('api.team-management.teams.recordings');
+        Route::get('/teams/{team}/recordings/{recording}/view', [TeamManagementController::class, 'viewRecording'])->name('api.team-management.teams.recordings.view');
+        Route::get('/teams/{team}/stats', [TeamManagementController::class, 'getTeamStats'])->name('api.team-management.teams.stats');
 
-        Route::get('/users', [\App\Http\Controllers\TeamManagementController::class, 'getAvailableUsers'])->name('api.team-management.users');
+        Route::get('/users', [TeamManagementController::class, 'getAvailableUsers'])->name('api.team-management.users');
     });
 
-    Route::get('/leave-management', [\App\Http\Controllers\LeaveManagementController::class, 'index'])->middleware('permission:view_leave_management')->name('leave-management');
+    Route::get('/leave-management', [LeaveManagementController::class, 'index'])->middleware('permission:view_leave_management')->name('leave-management');
 
     // Leave Management API Routes
     Route::prefix('api/leave-management')->group(function () {
-        Route::get('/leave-requests', [\App\Http\Controllers\LeaveManagementController::class, 'getLeaveRequests'])->name('api.leave-management.leave-requests');
-        Route::post('/leave-requests', [\App\Http\Controllers\LeaveManagementController::class, 'storeLeaveRequest'])->name('api.leave-management.leave-requests.store');
-        Route::put('/leave-requests/{leaveRequest}', [\App\Http\Controllers\LeaveManagementController::class, 'updateLeaveRequest'])->name('api.leave-management.leave-requests.update');
-        Route::post('/leave-requests/{leaveRequest}/cancel', [\App\Http\Controllers\LeaveManagementController::class, 'cancelLeaveRequest'])->name('api.leave-management.leave-requests.cancel');
-        Route::get('/leave-requests/{leaveRequest}/attachment', [\App\Http\Controllers\LeaveManagementController::class, 'viewAttachment'])->name('api.leave-management.leave-requests.attachment');
+        Route::get('/leave-requests', [LeaveManagementController::class, 'getLeaveRequests'])->name('api.leave-management.leave-requests');
+        Route::post('/leave-requests', [LeaveManagementController::class, 'storeLeaveRequest'])->name('api.leave-management.leave-requests.store');
+        Route::put('/leave-requests/{leaveRequest}', [LeaveManagementController::class, 'updateLeaveRequest'])->name('api.leave-management.leave-requests.update');
+        Route::post('/leave-requests/{leaveRequest}/cancel', [LeaveManagementController::class, 'cancelLeaveRequest'])->name('api.leave-management.leave-requests.cancel');
+        Route::get('/leave-requests/{leaveRequest}/attachment', [LeaveManagementController::class, 'viewAttachment'])->name('api.leave-management.leave-requests.attachment');
 
-        Route::get('/leave-credits', [\App\Http\Controllers\LeaveManagementController::class, 'getLeaveCredits'])->name('api.leave-management.leave-credits');
-        Route::post('/leave-credits', [\App\Http\Controllers\LeaveManagementController::class, 'storeLeaveCredit'])->name('api.leave-management.leave-credits.store');
+        Route::get('/leave-credits', [LeaveManagementController::class, 'getLeaveCredits'])->name('api.leave-management.leave-credits');
+        Route::post('/leave-credits', [LeaveManagementController::class, 'storeLeaveCredit'])->name('api.leave-management.leave-credits.store');
 
-        Route::get('/users', [\App\Http\Controllers\LeaveManagementController::class, 'getAvailableUsers'])->name('api.leave-management.users');
-        Route::get('/my-credits', [\App\Http\Controllers\LeaveManagementController::class, 'getMyLeaveCredits'])->name('api.leave-management.my-credits');
-        Route::get('/calendar', [\App\Http\Controllers\LeaveManagementController::class, 'getLeaveCalendar'])->name('api.leave-management.calendar');
-        Route::get('/employees-on-leave', [\App\Http\Controllers\LeaveManagementController::class, 'getEmployeesOnLeave'])->name('api.leave-management.employees-on-leave');
-        Route::get('/stats', [\App\Http\Controllers\LeaveManagementController::class, 'getLeaveStats'])->name('api.leave-management.stats');
+        Route::get('/users', [LeaveManagementController::class, 'getAvailableUsers'])->name('api.leave-management.users');
+        Route::get('/my-credits', [LeaveManagementController::class, 'getMyLeaveCredits'])->name('api.leave-management.my-credits');
+        Route::get('/calendar', [LeaveManagementController::class, 'getLeaveCalendar'])->name('api.leave-management.calendar');
+        Route::get('/employees-on-leave', [LeaveManagementController::class, 'getEmployeesOnLeave'])->name('api.leave-management.employees-on-leave');
+        Route::get('/stats', [LeaveManagementController::class, 'getLeaveStats'])->name('api.leave-management.stats');
     });
 
     // Project Management API Routes
     Route::prefix('api/project-management')->group(function () {
-        Route::get('/projects', [\App\Http\Controllers\ProjectManagementController::class, 'getProjects'])->name('api.project-management.projects');
-        Route::get('/projects/stats', [\App\Http\Controllers\ProjectManagementController::class, 'getProjectStats'])->name('api.project-management.projects.stats');
-        Route::get('/projects/{project}', [\App\Http\Controllers\ProjectManagementController::class, 'getProject'])->name('api.project-management.projects.show');
-        Route::post('/projects', [\App\Http\Controllers\ProjectManagementController::class, 'storeProject'])->name('api.project-management.projects.store');
-        Route::put('/projects/{project}', [\App\Http\Controllers\ProjectManagementController::class, 'updateProject'])->name('api.project-management.projects.update');
-        Route::delete('/projects/{project}', [\App\Http\Controllers\ProjectManagementController::class, 'deleteProject'])->name('api.project-management.projects.destroy');
+        Route::get('/projects', [ProjectManagementController::class, 'getProjects'])->name('api.project-management.projects');
+        Route::get('/projects/stats', [ProjectManagementController::class, 'getProjectStats'])->name('api.project-management.projects.stats');
+        Route::get('/projects/{project}', [ProjectManagementController::class, 'getProject'])->name('api.project-management.projects.show');
+        Route::post('/projects', [ProjectManagementController::class, 'storeProject'])->name('api.project-management.projects.store');
+        Route::put('/projects/{project}', [ProjectManagementController::class, 'updateProject'])->name('api.project-management.projects.update');
+        Route::delete('/projects/{project}', [ProjectManagementController::class, 'deleteProject'])->name('api.project-management.projects.destroy');
 
-        Route::get('/tasks', [\App\Http\Controllers\ProjectManagementController::class, 'getTasks'])->name('api.project-management.tasks');
-        Route::post('/tasks', [\App\Http\Controllers\ProjectManagementController::class, 'storeTask'])->name('api.project-management.tasks.store');
-        Route::put('/tasks/{task}', [\App\Http\Controllers\ProjectManagementController::class, 'updateTask'])->name('api.project-management.tasks.update');
-        Route::delete('/tasks/{task}', [\App\Http\Controllers\ProjectManagementController::class, 'deleteTask'])->name('api.project-management.tasks.destroy');
+        Route::get('/tasks', [ProjectManagementController::class, 'getTasks'])->name('api.project-management.tasks');
+        Route::post('/tasks', [ProjectManagementController::class, 'storeTask'])->name('api.project-management.tasks.store');
+        Route::put('/tasks/{task}', [ProjectManagementController::class, 'updateTask'])->name('api.project-management.tasks.update');
+        Route::delete('/tasks/{task}', [ProjectManagementController::class, 'deleteTask'])->name('api.project-management.tasks.destroy');
 
-        Route::get('/time-tracking', [\App\Http\Controllers\ProjectManagementController::class, 'getTimeTracking'])->name('api.project-management.time-tracking');
-        Route::get('/time-tracking/summary', [\App\Http\Controllers\ProjectManagementController::class, 'getTimeTrackingSummary'])->name('api.project-management.time-tracking.summary');
+        Route::get('/time-tracking', [ProjectManagementController::class, 'getTimeTracking'])->name('api.project-management.time-tracking');
+        Route::get('/time-tracking/summary', [ProjectManagementController::class, 'getTimeTrackingSummary'])->name('api.project-management.time-tracking.summary');
 
-        Route::get('/dashboard/progress', [\App\Http\Controllers\ProjectManagementController::class, 'getDashboardProgress'])->name('api.project-management.dashboard.progress');
+        Route::get('/dashboard/progress', [ProjectManagementController::class, 'getDashboardProgress'])->name('api.project-management.dashboard.progress');
 
-        Route::get('/users', [\App\Http\Controllers\ProjectManagementController::class, 'getUsers'])->name('api.project-management.users');
+        Route::get('/users', [ProjectManagementController::class, 'getUsers'])->name('api.project-management.users');
 
-        Route::get('/time-tracking/active-record', [\App\Http\Controllers\ProjectManagementController::class, 'getActiveTimeTracking'])->name('api.project-management.time-tracking.active-record');
-        Route::post('/time-tracking/start', [\App\Http\Controllers\ProjectManagementController::class, 'startTaskTimeTracking'])->name('api.project-management.time-tracking.start');
-        Route::post('/tasks/{task}/stop-tracking', [\App\Http\Controllers\ProjectManagementController::class, 'stopTaskTimeTracking'])->name('api.project-management.tasks.stop-tracking');
+        Route::get('/time-tracking/active-record', [ProjectManagementController::class, 'getActiveTimeTracking'])->name('api.project-management.time-tracking.active-record');
+        Route::post('/time-tracking/start', [ProjectManagementController::class, 'startTaskTimeTracking'])->name('api.project-management.time-tracking.start');
+        Route::post('/tasks/{task}/stop-tracking', [ProjectManagementController::class, 'stopTaskTimeTracking'])->name('api.project-management.tasks.stop-tracking');
     });
 
-    Route::get('/messaging', [\App\Http\Controllers\MessagingController::class, 'index'])
+    Route::get('/messaging', [MessagingController::class, 'index'])
         ->middleware('permission:view_messaging')->name('messaging');
 
-    Route::get('/viber', [\App\Http\Controllers\ViberController::class, 'index'])
+    Route::get('/viber', [ViberController::class, 'index'])
         ->middleware('permission:view_viber')->name('viber');
 
     Route::prefix('api/viber')->middleware('permission:view_viber')->group(function () {
-        Route::get('/bootstrap', [\App\Http\Controllers\ViberController::class, 'bootstrap'])->name('api.viber.bootstrap');
-        Route::get('/conversations', [\App\Http\Controllers\ViberController::class, 'conversations'])->name('api.viber.conversations');
-        Route::get('/conversations/{conversation}/messages', [\App\Http\Controllers\ViberController::class, 'messages'])->name('api.viber.messages');
-        Route::post('/conversations/{conversation}/messages', [\App\Http\Controllers\ViberController::class, 'sendMessage'])->name('api.viber.messages.store');
-        Route::get('/conversations/{conversation}/call-link', [\App\Http\Controllers\ViberController::class, 'callLink'])->name('api.viber.call-link');
-        Route::post('/media', [\App\Http\Controllers\ViberController::class, 'uploadMedia'])->name('api.viber.media.store');
+        Route::get('/bootstrap', [ViberController::class, 'bootstrap'])->name('api.viber.bootstrap');
+        Route::get('/conversations', [ViberController::class, 'conversations'])->name('api.viber.conversations');
+        Route::get('/conversations/{conversation}/messages', [ViberController::class, 'messages'])->name('api.viber.messages');
+        Route::post('/conversations/{conversation}/messages', [ViberController::class, 'sendMessage'])->name('api.viber.messages.store');
+        Route::get('/conversations/{conversation}/call-link', [ViberController::class, 'callLink'])->name('api.viber.call-link');
+        Route::post('/media', [ViberController::class, 'uploadMedia'])->name('api.viber.media.store');
     });
 
-    Route::get('/whatsapp', [\App\Http\Controllers\WhatsAppController::class, 'index'])
+    Route::get('/whatsapp', [WhatsAppController::class, 'index'])
         ->middleware('permission:view_whatsapp')->name('whatsapp');
 
     Route::prefix('api/whatsapp')->middleware('permission:view_whatsapp')->group(function () {
-        Route::get('/bootstrap', [\App\Http\Controllers\WhatsAppController::class, 'bootstrap'])->name('api.whatsapp.bootstrap');
-        Route::get('/conversations', [\App\Http\Controllers\WhatsAppController::class, 'conversations'])->name('api.whatsapp.conversations');
-        Route::get('/conversations/{conversation}/messages', [\App\Http\Controllers\WhatsAppController::class, 'messages'])->name('api.whatsapp.messages');
-        Route::post('/conversations/{conversation}/messages', [\App\Http\Controllers\WhatsAppController::class, 'sendMessage'])->name('api.whatsapp.messages.store');
-        Route::get('/conversations/{conversation}/call-link', [\App\Http\Controllers\WhatsAppController::class, 'callLink'])->name('api.whatsapp.call-link');
-        Route::post('/media', [\App\Http\Controllers\WhatsAppController::class, 'uploadMedia'])->name('api.whatsapp.media.store');
+        Route::get('/bootstrap', [WhatsAppController::class, 'bootstrap'])->name('api.whatsapp.bootstrap');
+        Route::get('/conversations', [WhatsAppController::class, 'conversations'])->name('api.whatsapp.conversations');
+        Route::get('/conversations/{conversation}/messages', [WhatsAppController::class, 'messages'])->name('api.whatsapp.messages');
+        Route::post('/conversations/{conversation}/messages', [WhatsAppController::class, 'sendMessage'])->name('api.whatsapp.messages.store');
+        Route::get('/conversations/{conversation}/call-link', [WhatsAppController::class, 'callLink'])->name('api.whatsapp.call-link');
+        Route::post('/media', [WhatsAppController::class, 'uploadMedia'])->name('api.whatsapp.media.store');
     });
 
-    Route::get('/facebook', [\App\Http\Controllers\FacebookController::class, 'index'])
+    Route::get('/facebook', [FacebookController::class, 'index'])
         ->middleware('permission:view_facebook')->name('facebook');
 
     Route::prefix('api/facebook')->middleware('permission:view_facebook')->group(function () {
-        Route::get('/bootstrap', [\App\Http\Controllers\FacebookController::class, 'bootstrap'])->name('api.facebook.bootstrap');
-        Route::get('/conversations', [\App\Http\Controllers\FacebookController::class, 'conversations'])->name('api.facebook.conversations');
-        Route::get('/conversations/{conversation}/messages', [\App\Http\Controllers\FacebookController::class, 'messages'])->name('api.facebook.messages');
-        Route::post('/conversations/{conversation}/messages', [\App\Http\Controllers\FacebookController::class, 'sendMessage'])->name('api.facebook.messages.store');
-        Route::post('/media', [\App\Http\Controllers\FacebookController::class, 'uploadMedia'])->name('api.facebook.media.store');
+        Route::get('/bootstrap', [FacebookController::class, 'bootstrap'])->name('api.facebook.bootstrap');
+        Route::get('/conversations', [FacebookController::class, 'conversations'])->name('api.facebook.conversations');
+        Route::get('/conversations/{conversation}/messages', [FacebookController::class, 'messages'])->name('api.facebook.messages');
+        Route::post('/conversations/{conversation}/messages', [FacebookController::class, 'sendMessage'])->name('api.facebook.messages.store');
+        Route::post('/media', [FacebookController::class, 'uploadMedia'])->name('api.facebook.media.store');
     });
 
-    Route::get('/sms', [\App\Http\Controllers\SmsController::class, 'index'])
+    Route::get('/sms', [SmsController::class, 'index'])
         ->middleware('permission:view_sms')->name('sms');
 
-    Route::get('/contact-history', [\App\Http\Controllers\ContactHistoryController::class, 'index'])
+    Route::get('/contact-history', [ContactHistoryController::class, 'index'])
         ->middleware('permission:view_whatsapp|view_viber|view_sms|view_facebook|view_inbox|view_phone_system|view_client_management')
         ->name('contact-history');
-    Route::get('/api/crm/contact-history', [\App\Http\Controllers\ContactHistoryController::class, 'search'])
+    Route::get('/api/crm/contact-history', [ContactHistoryController::class, 'search'])
         ->middleware('permission:view_whatsapp|view_viber|view_sms|view_facebook|view_inbox|view_phone_system|view_client_management')
         ->name('api.crm.contact-history');
 
     Route::prefix('api/sms')->middleware('permission:view_sms')->group(function () {
-        Route::get('/bootstrap', [\App\Http\Controllers\SmsController::class, 'bootstrap'])->name('api.sms.bootstrap');
-        Route::get('/conversations', [\App\Http\Controllers\SmsController::class, 'conversations'])->name('api.sms.conversations');
-        Route::post('/conversations', [\App\Http\Controllers\SmsController::class, 'startConversation'])
+        Route::get('/bootstrap', [SmsController::class, 'bootstrap'])->name('api.sms.bootstrap');
+        Route::get('/conversations', [SmsController::class, 'conversations'])->name('api.sms.conversations');
+        Route::post('/conversations', [SmsController::class, 'startConversation'])
             ->middleware('permission:send_sms')
             ->name('api.sms.conversations.store');
-        Route::get('/conversations/{conversation}/messages', [\App\Http\Controllers\SmsController::class, 'messages'])->name('api.sms.messages');
-        Route::post('/conversations/{conversation}/messages', [\App\Http\Controllers\SmsController::class, 'sendMessage'])
+        Route::get('/conversations/{conversation}/messages', [SmsController::class, 'messages'])->name('api.sms.messages');
+        Route::post('/conversations/{conversation}/messages', [SmsController::class, 'sendMessage'])
             ->middleware('permission:send_sms')
             ->name('api.sms.messages.store');
-        Route::get('/conversations/{conversation}/call-link', [\App\Http\Controllers\SmsController::class, 'callLink'])->name('api.sms.call-link');
+        Route::get('/conversations/{conversation}/call-link', [SmsController::class, 'callLink'])->name('api.sms.call-link');
     });
 
     Route::prefix('api/messaging')->middleware('permission:view_messaging')->group(function () {
-        Route::get('/unread-count', [\App\Http\Controllers\MessagingController::class, 'getUnreadCount'])->name('api.messaging.unread-count');
-        Route::get('/conversations', [\App\Http\Controllers\MessagingController::class, 'getConversations'])->name('api.messaging.conversations');
-        Route::get('/users', [\App\Http\Controllers\MessagingController::class, 'getUsers'])->name('api.messaging.users');
-        Route::post('/conversations', [\App\Http\Controllers\MessagingController::class, 'createConversation'])->name('api.messaging.conversations.store');
-        Route::get('/conversations/{conversation}', [\App\Http\Controllers\MessagingController::class, 'getConversation'])->name('api.messaging.conversations.show');
-        Route::post('/conversations/{conversation}/update', [\App\Http\Controllers\MessagingController::class, 'updateConversation'])->name('api.messaging.conversations.update');
-        Route::get('/conversations/{conversation}/messages', [\App\Http\Controllers\MessagingController::class, 'getMessages'])->name('api.messaging.messages');
-        Route::post('/conversations/{conversation}/messages', [\App\Http\Controllers\MessagingController::class, 'sendMessage'])->name('api.messaging.messages.store');
-        Route::post('/conversations/{conversation}/members', [\App\Http\Controllers\MessagingController::class, 'addMember'])->name('api.messaging.conversations.members.store');
-        Route::post('/conversations/{conversation}/members/{user}/remove', [\App\Http\Controllers\MessagingController::class, 'removeMember'])->name('api.messaging.conversations.members.destroy');
-        Route::post('/conversations/{conversation}/transfer-ownership', [\App\Http\Controllers\MessagingController::class, 'transferOwnership'])->name('api.messaging.conversations.transfer-ownership');
-        Route::delete('/conversations/{conversation}', [\App\Http\Controllers\MessagingController::class, 'destroyConversation'])->name('api.messaging.conversations.destroy');
-        Route::post('/attachments', [\App\Http\Controllers\MessagingController::class, 'uploadAttachment'])->name('api.messaging.attachments.store');
-        Route::post('/attachments/discard', [\App\Http\Controllers\MessagingController::class, 'discardAttachment'])->name('api.messaging.attachments.discard');
+        Route::get('/unread-count', [MessagingController::class, 'getUnreadCount'])->name('api.messaging.unread-count');
+        Route::get('/conversations', [MessagingController::class, 'getConversations'])->name('api.messaging.conversations');
+        Route::get('/users', [MessagingController::class, 'getUsers'])->name('api.messaging.users');
+        Route::post('/conversations', [MessagingController::class, 'createConversation'])->name('api.messaging.conversations.store');
+        Route::get('/conversations/{conversation}', [MessagingController::class, 'getConversation'])->name('api.messaging.conversations.show');
+        Route::post('/conversations/{conversation}/update', [MessagingController::class, 'updateConversation'])->name('api.messaging.conversations.update');
+        Route::get('/conversations/{conversation}/messages', [MessagingController::class, 'getMessages'])->name('api.messaging.messages');
+        Route::post('/conversations/{conversation}/messages', [MessagingController::class, 'sendMessage'])->name('api.messaging.messages.store');
+        Route::post('/conversations/{conversation}/members', [MessagingController::class, 'addMember'])->name('api.messaging.conversations.members.store');
+        Route::post('/conversations/{conversation}/members/{user}/remove', [MessagingController::class, 'removeMember'])->name('api.messaging.conversations.members.destroy');
+        Route::post('/conversations/{conversation}/transfer-ownership', [MessagingController::class, 'transferOwnership'])->name('api.messaging.conversations.transfer-ownership');
+        Route::delete('/conversations/{conversation}', [MessagingController::class, 'destroyConversation'])->name('api.messaging.conversations.destroy');
+        Route::post('/attachments', [MessagingController::class, 'uploadAttachment'])->name('api.messaging.attachments.store');
+        Route::post('/attachments/discard', [MessagingController::class, 'discardAttachment'])->name('api.messaging.attachments.discard');
     });
 
     // Shared / personal Outlook inbox (Front-style)
-    Route::get('/inbox', [\App\Http\Controllers\InboxController::class, 'index'])
+    Route::get('/inbox', [InboxController::class, 'index'])
         ->middleware('permission:view_inbox')
         ->name('inbox');
-    Route::get('/inbox/connect/outlook', [\App\Http\Controllers\InboxController::class, 'redirectOutlook'])
+    Route::get('/inbox/connect/outlook', [InboxController::class, 'redirectOutlook'])
         ->middleware('permission:view_inbox')
         ->name('inbox.connect.outlook');
-    Route::get('/inbox/connect/outlook/callback', [\App\Http\Controllers\InboxController::class, 'callbackOutlook'])
+    Route::get('/inbox/connect/outlook/callback', [InboxController::class, 'callbackOutlook'])
         ->middleware('permission:view_inbox')
         ->name('inbox.connect.outlook.callback');
 
     Route::prefix('api/inbox')->middleware('permission:view_inbox')->group(function () {
-        Route::get('/bootstrap', [\App\Http\Controllers\InboxController::class, 'bootstrap'])->name('api.inbox.bootstrap');
-        Route::post('/disconnect', [\App\Http\Controllers\InboxController::class, 'disconnectMail'])->name('api.inbox.disconnect');
-        Route::post('/sync', [\App\Http\Controllers\InboxController::class, 'sync'])->name('api.inbox.sync');
-        Route::post('/sync-totals', [\App\Http\Controllers\InboxController::class, 'syncTotals'])->name('api.inbox.sync-totals');
-        Route::get('/conversations', [\App\Http\Controllers\InboxController::class, 'listConversations'])->name('api.inbox.conversations');
-        Route::get('/email-suggestions', [\App\Http\Controllers\InboxController::class, 'suggestEmails'])->name('api.inbox.email-suggestions');
-        Route::get('/conversations/{conversation}', [\App\Http\Controllers\InboxController::class, 'showConversation'])->name('api.inbox.conversations.show');
-        Route::post('/conversations/{conversation}/assign', [\App\Http\Controllers\InboxController::class, 'assign'])->name('api.inbox.conversations.assign');
-        Route::patch('/conversations/{conversation}/status', [\App\Http\Controllers\InboxController::class, 'updateStatus'])->name('api.inbox.conversations.status');
-        Route::post('/conversations/{conversation}/snooze', [\App\Http\Controllers\InboxController::class, 'snooze'])->name('api.inbox.conversations.snooze');
-        Route::patch('/conversations/{conversation}/read', [\App\Http\Controllers\InboxController::class, 'updateRead'])->name('api.inbox.conversations.read');
-        Route::post('/conversations/{conversation}/tags', [\App\Http\Controllers\InboxController::class, 'syncTags'])->name('api.inbox.conversations.tags');
-        Route::post('/conversations/{conversation}/reply', [\App\Http\Controllers\InboxController::class, 'reply'])->name('api.inbox.conversations.reply');
-        Route::post('/conversations/{conversation}/comments', [\App\Http\Controllers\InboxController::class, 'storeComment'])->name('api.inbox.conversations.comments.store');
-        Route::get('/conversations/{conversation}/comments/{comment}/attachments/{index}', [\App\Http\Controllers\InboxController::class, 'downloadCommentAttachment'])->name('api.inbox.conversations.comments.attachments');
-        Route::get('/conversations/{conversation}/messages/{message}/attachments/{index}', [\App\Http\Controllers\InboxController::class, 'downloadMessageAttachment'])->name('api.inbox.conversations.messages.attachments')->whereNumber('index');
-        Route::post('/compose', [\App\Http\Controllers\InboxController::class, 'compose'])->name('api.inbox.compose');
-        Route::post('/inboxes', [\App\Http\Controllers\InboxController::class, 'storeInbox'])->name('api.inbox.inboxes.store');
-        Route::put('/inboxes/{sharedInbox}/members', [\App\Http\Controllers\InboxController::class, 'updateInboxMembers'])->name('api.inbox.inboxes.members');
-        Route::post('/tags', [\App\Http\Controllers\InboxController::class, 'storeTag'])->name('api.inbox.tags.store');
-        Route::delete('/tags/{tag}', [\App\Http\Controllers\InboxController::class, 'destroyTag'])->name('api.inbox.tags.destroy');
-        Route::put('/pinned-tags', [\App\Http\Controllers\InboxController::class, 'syncPinnedTags'])->name('api.inbox.pinned-tags');
-        Route::post('/templates', [\App\Http\Controllers\InboxController::class, 'storeTemplate'])->name('api.inbox.templates.store');
-        Route::put('/templates/{template}', [\App\Http\Controllers\InboxController::class, 'updateTemplate'])->name('api.inbox.templates.update');
-        Route::delete('/templates/{template}', [\App\Http\Controllers\InboxController::class, 'destroyTemplate'])->name('api.inbox.templates.destroy');
-        Route::post('/templates/import', [\App\Http\Controllers\InboxController::class, 'importTemplates'])->name('api.inbox.templates.import');
-        Route::post('/rules', [\App\Http\Controllers\InboxController::class, 'storeRule'])->name('api.inbox.rules.store');
-        Route::patch('/rules/{rule}', [\App\Http\Controllers\InboxController::class, 'updateRule'])->name('api.inbox.rules.update');
-        Route::delete('/rules/{rule}', [\App\Http\Controllers\InboxController::class, 'destroyRule'])->name('api.inbox.rules.destroy');
+        Route::get('/bootstrap', [InboxController::class, 'bootstrap'])->name('api.inbox.bootstrap');
+        Route::post('/disconnect', [InboxController::class, 'disconnectMail'])->name('api.inbox.disconnect');
+        Route::post('/sync', [InboxController::class, 'sync'])->name('api.inbox.sync');
+        Route::post('/sync-totals', [InboxController::class, 'syncTotals'])->name('api.inbox.sync-totals');
+        Route::get('/conversations', [InboxController::class, 'listConversations'])->name('api.inbox.conversations');
+        Route::get('/email-suggestions', [InboxController::class, 'suggestEmails'])->name('api.inbox.email-suggestions');
+        Route::get('/conversations/{conversation}', [InboxController::class, 'showConversation'])->name('api.inbox.conversations.show');
+        Route::post('/conversations/{conversation}/assign', [InboxController::class, 'assign'])->name('api.inbox.conversations.assign');
+        Route::patch('/conversations/{conversation}/status', [InboxController::class, 'updateStatus'])->name('api.inbox.conversations.status');
+        Route::post('/conversations/{conversation}/snooze', [InboxController::class, 'snooze'])->name('api.inbox.conversations.snooze');
+        Route::patch('/conversations/{conversation}/read', [InboxController::class, 'updateRead'])->name('api.inbox.conversations.read');
+        Route::post('/conversations/{conversation}/tags', [InboxController::class, 'syncTags'])->name('api.inbox.conversations.tags');
+        Route::post('/conversations/{conversation}/reply', [InboxController::class, 'reply'])->name('api.inbox.conversations.reply');
+        Route::post('/conversations/{conversation}/comments', [InboxController::class, 'storeComment'])->name('api.inbox.conversations.comments.store');
+        Route::get('/conversations/{conversation}/comments/{comment}/attachments/{index}', [InboxController::class, 'downloadCommentAttachment'])->name('api.inbox.conversations.comments.attachments');
+        Route::get('/conversations/{conversation}/messages/{message}/attachments/{index}', [InboxController::class, 'downloadMessageAttachment'])->name('api.inbox.conversations.messages.attachments')->whereNumber('index');
+        Route::post('/compose', [InboxController::class, 'compose'])->name('api.inbox.compose');
+        Route::post('/inboxes', [InboxController::class, 'storeInbox'])->name('api.inbox.inboxes.store');
+        Route::put('/inboxes/{sharedInbox}/members', [InboxController::class, 'updateInboxMembers'])->name('api.inbox.inboxes.members');
+        Route::post('/tags', [InboxController::class, 'storeTag'])->name('api.inbox.tags.store');
+        Route::delete('/tags/{tag}', [InboxController::class, 'destroyTag'])->name('api.inbox.tags.destroy');
+        Route::put('/pinned-tags', [InboxController::class, 'syncPinnedTags'])->name('api.inbox.pinned-tags');
+        Route::post('/templates', [InboxController::class, 'storeTemplate'])->name('api.inbox.templates.store');
+        Route::put('/templates/{template}', [InboxController::class, 'updateTemplate'])->name('api.inbox.templates.update');
+        Route::delete('/templates/{template}', [InboxController::class, 'destroyTemplate'])->name('api.inbox.templates.destroy');
+        Route::post('/templates/import', [InboxController::class, 'importTemplates'])->name('api.inbox.templates.import');
+        Route::post('/rules', [InboxController::class, 'storeRule'])->name('api.inbox.rules.store');
+        Route::patch('/rules/{rule}', [InboxController::class, 'updateRule'])->name('api.inbox.rules.update');
+        Route::delete('/rules/{rule}', [InboxController::class, 'destroyRule'])->name('api.inbox.rules.destroy');
     });
 
     Route::prefix('api/notifications')->group(function () {
-        Route::get('/unread-count', [\App\Http\Controllers\NotificationController::class, 'unreadCount'])->name('api.notifications.unread-count');
-        Route::get('/', [\App\Http\Controllers\NotificationController::class, 'index'])->name('api.notifications.index');
-        Route::post('/read-all', [\App\Http\Controllers\NotificationController::class, 'markAllRead'])->name('api.notifications.read-all');
-        Route::post('/{id}/read', [\App\Http\Controllers\NotificationController::class, 'markRead'])->name('api.notifications.read');
+        Route::get('/unread-count', [NotificationController::class, 'unreadCount'])->name('api.notifications.unread-count');
+        Route::get('/', [NotificationController::class, 'index'])->name('api.notifications.index');
+        Route::post('/read-all', [NotificationController::class, 'markAllRead'])->name('api.notifications.read-all');
+        Route::post('/{id}/read', [NotificationController::class, 'markRead'])->name('api.notifications.read');
     });
 
-    Route::get('/billing', [\App\Http\Controllers\BillingInvoiceController::class, 'page'])
+    Route::get('/billing', [BillingInvoiceController::class, 'page'])
         ->middleware('permission:view_billing')->name('billing');
 
     Route::prefix('api/billing-invoices')->middleware('permission:view_billing')->group(function () {
-        Route::get('/', [\App\Http\Controllers\BillingInvoiceController::class, 'index'])->name('api.billing-invoices.index');
-        Route::get('/stats', [\App\Http\Controllers\BillingInvoiceController::class, 'stats'])->name('api.billing-invoices.stats');
-        Route::get('/clients', [\App\Http\Controllers\BillingInvoiceController::class, 'getClients'])->name('api.billing-invoices.clients');
-        Route::get('/clients/{client}/employees', [\App\Http\Controllers\BillingInvoiceController::class, 'getClientEmployees'])->name('api.billing-invoices.client-employees')->where('client', '[0-9]+');
-        Route::get('/next-number', [\App\Http\Controllers\BillingInvoiceController::class, 'getNextInvoiceNumber'])->name('api.billing-invoices.next-number');
-        Route::get('/payment-tracking', [\App\Http\Controllers\BillingInvoiceController::class, 'paymentTracking'])->name('api.billing-invoices.payment-tracking');
-        Route::get('/stripe-dashboard', [\App\Http\Controllers\BillingInvoiceController::class, 'stripeDashboard'])->name('api.billing-invoices.stripe-dashboard');
-        Route::get('/wise-dashboard', [\App\Http\Controllers\BillingInvoiceController::class, 'wiseDashboard'])->name('api.billing-invoices.wise-dashboard');
-        Route::post('/stripe-payment-link', [\App\Http\Controllers\BillingInvoiceController::class, 'createStripePaymentLink'])->name('api.billing-invoices.stripe-payment-link');
-        Route::post('/bulk-send-email', [\App\Http\Controllers\BillingInvoiceController::class, 'bulkSendEmail'])->name('api.billing-invoices.bulk-send-email');
-        Route::post('/bulk-stripe-payment-link', [\App\Http\Controllers\BillingInvoiceController::class, 'bulkStripePaymentLink'])->name('api.billing-invoices.bulk-stripe-payment-link');
-        Route::match(['get', 'post'], '/wise-default-link', [\App\Http\Controllers\BillingInvoiceController::class, 'wiseDefaultLink'])->name('api.billing-invoices.wise-default-link');
-        Route::get('/wise-webhook-status', [\App\Http\Controllers\BillingInvoiceController::class, 'wiseWebhookStatus'])->name('api.billing-invoices.wise-webhook-status');
-        Route::post('/wise-webhook/enable', [\App\Http\Controllers\BillingInvoiceController::class, 'enableWiseWebhook'])->name('api.billing-invoices.wise-webhook.enable');
-        Route::post('/wise-webhook/disable', [\App\Http\Controllers\BillingInvoiceController::class, 'disableWiseWebhook'])->name('api.billing-invoices.wise-webhook.disable');
-        Route::get('/wise-incoming-payments', [\App\Http\Controllers\BillingInvoiceController::class, 'wiseIncomingPayments'])->name('api.billing-invoices.wise-incoming-payments');
-        Route::post('/{invoice}/mark-wise-paid', [\App\Http\Controllers\BillingInvoiceController::class, 'markWisePaid'])->name('api.billing-invoices.mark-wise-paid')->where('invoice', '[0-9]+');
-        Route::get('/subscriptions', [\App\Http\Controllers\BillingSubscriptionController::class, 'index'])->name('api.billing-subscriptions.index');
-        Route::post('/subscriptions', [\App\Http\Controllers\BillingSubscriptionController::class, 'store'])->name('api.billing-subscriptions.store');
-        Route::get('/subscriptions/{subscription}/payment-link', [\App\Http\Controllers\BillingSubscriptionController::class, 'paymentLink'])->name('api.billing-subscriptions.payment-link')->where('subscription', '[0-9]+');
-        Route::post('/subscriptions/{subscription}/cancel', [\App\Http\Controllers\BillingSubscriptionController::class, 'cancel'])->name('api.billing-subscriptions.cancel')->where('subscription', '[0-9]+');
-        Route::get('/subscriptions/{subscription}', [\App\Http\Controllers\BillingSubscriptionController::class, 'show'])->name('api.billing-subscriptions.show')->where('subscription', '[0-9]+');
-        Route::put('/subscriptions/{subscription}', [\App\Http\Controllers\BillingSubscriptionController::class, 'update'])->name('api.billing-subscriptions.update')->where('subscription', '[0-9]+');
-        Route::delete('/subscriptions/{subscription}', [\App\Http\Controllers\BillingSubscriptionController::class, 'destroy'])->name('api.billing-subscriptions.destroy')->where('subscription', '[0-9]+');
-        Route::post('/', [\App\Http\Controllers\BillingInvoiceController::class, 'store'])->name('api.billing-invoices.store');
-        Route::get('/{invoice}/pdf', [\App\Http\Controllers\BillingInvoiceController::class, 'pdf'])->name('api.billing-invoices.pdf')->where('invoice', '[0-9]+');
-        Route::post('/{invoice}/send-email', [\App\Http\Controllers\BillingInvoiceController::class, 'sendEmail'])->name('api.billing-invoices.send-email')->where('invoice', '[0-9]+');
-        Route::get('/{invoice}', [\App\Http\Controllers\BillingInvoiceController::class, 'show'])->name('api.billing-invoices.show')->where('invoice', '[0-9]+');
-        Route::put('/{invoice}', [\App\Http\Controllers\BillingInvoiceController::class, 'update'])->name('api.billing-invoices.update')->where('invoice', '[0-9]+');
-        Route::delete('/{invoice}', [\App\Http\Controllers\BillingInvoiceController::class, 'destroy'])->middleware('permission:delete_billing')->name('api.billing-invoices.destroy')->where('invoice', '[0-9]+');
+        Route::get('/', [BillingInvoiceController::class, 'index'])->name('api.billing-invoices.index');
+        Route::get('/stats', [BillingInvoiceController::class, 'stats'])->name('api.billing-invoices.stats');
+        Route::get('/clients', [BillingInvoiceController::class, 'getClients'])->name('api.billing-invoices.clients');
+        Route::get('/clients/{client}/employees', [BillingInvoiceController::class, 'getClientEmployees'])->name('api.billing-invoices.client-employees')->where('client', '[0-9]+');
+        Route::get('/next-number', [BillingInvoiceController::class, 'getNextInvoiceNumber'])->name('api.billing-invoices.next-number');
+        Route::get('/payment-tracking', [BillingInvoiceController::class, 'paymentTracking'])->name('api.billing-invoices.payment-tracking');
+        Route::get('/stripe-dashboard', [BillingInvoiceController::class, 'stripeDashboard'])->name('api.billing-invoices.stripe-dashboard');
+        Route::get('/wise-dashboard', [BillingInvoiceController::class, 'wiseDashboard'])->name('api.billing-invoices.wise-dashboard');
+        Route::post('/stripe-payment-link', [BillingInvoiceController::class, 'createStripePaymentLink'])->name('api.billing-invoices.stripe-payment-link');
+        Route::post('/bulk-send-email', [BillingInvoiceController::class, 'bulkSendEmail'])->name('api.billing-invoices.bulk-send-email');
+        Route::post('/bulk-stripe-payment-link', [BillingInvoiceController::class, 'bulkStripePaymentLink'])->name('api.billing-invoices.bulk-stripe-payment-link');
+        Route::match(['get', 'post'], '/wise-default-link', [BillingInvoiceController::class, 'wiseDefaultLink'])->name('api.billing-invoices.wise-default-link');
+        Route::get('/wise-webhook-status', [BillingInvoiceController::class, 'wiseWebhookStatus'])->name('api.billing-invoices.wise-webhook-status');
+        Route::post('/wise-webhook/enable', [BillingInvoiceController::class, 'enableWiseWebhook'])->name('api.billing-invoices.wise-webhook.enable');
+        Route::post('/wise-webhook/disable', [BillingInvoiceController::class, 'disableWiseWebhook'])->name('api.billing-invoices.wise-webhook.disable');
+        Route::get('/wise-incoming-payments', [BillingInvoiceController::class, 'wiseIncomingPayments'])->name('api.billing-invoices.wise-incoming-payments');
+        Route::post('/{invoice}/mark-wise-paid', [BillingInvoiceController::class, 'markWisePaid'])->name('api.billing-invoices.mark-wise-paid')->where('invoice', '[0-9]+');
+        Route::get('/subscriptions', [BillingSubscriptionController::class, 'index'])->name('api.billing-subscriptions.index');
+        Route::post('/subscriptions', [BillingSubscriptionController::class, 'store'])->name('api.billing-subscriptions.store');
+        Route::get('/subscriptions/{subscription}/payment-link', [BillingSubscriptionController::class, 'paymentLink'])->name('api.billing-subscriptions.payment-link')->where('subscription', '[0-9]+');
+        Route::post('/subscriptions/{subscription}/cancel', [BillingSubscriptionController::class, 'cancel'])->name('api.billing-subscriptions.cancel')->where('subscription', '[0-9]+');
+        Route::get('/subscriptions/{subscription}', [BillingSubscriptionController::class, 'show'])->name('api.billing-subscriptions.show')->where('subscription', '[0-9]+');
+        Route::put('/subscriptions/{subscription}', [BillingSubscriptionController::class, 'update'])->name('api.billing-subscriptions.update')->where('subscription', '[0-9]+');
+        Route::delete('/subscriptions/{subscription}', [BillingSubscriptionController::class, 'destroy'])->name('api.billing-subscriptions.destroy')->where('subscription', '[0-9]+');
+        Route::post('/', [BillingInvoiceController::class, 'store'])->name('api.billing-invoices.store');
+        Route::get('/{invoice}/pdf', [BillingInvoiceController::class, 'pdf'])->name('api.billing-invoices.pdf')->where('invoice', '[0-9]+');
+        Route::post('/{invoice}/send-email', [BillingInvoiceController::class, 'sendEmail'])->name('api.billing-invoices.send-email')->where('invoice', '[0-9]+');
+        Route::get('/{invoice}', [BillingInvoiceController::class, 'show'])->name('api.billing-invoices.show')->where('invoice', '[0-9]+');
+        Route::put('/{invoice}', [BillingInvoiceController::class, 'update'])->name('api.billing-invoices.update')->where('invoice', '[0-9]+');
+        Route::delete('/{invoice}', [BillingInvoiceController::class, 'destroy'])->middleware('permission:delete_billing')->name('api.billing-invoices.destroy')->where('invoice', '[0-9]+');
     });
 
     Route::get('/client-management', function () {
         return view('dashboard.client-management');
     })->middleware('permission:view_client_management')->name('client-management');
 
-    Route::get('/tickets', [\App\Http\Controllers\TicketController::class, 'index'])
+    Route::get('/tickets', [TicketController::class, 'index'])
         ->middleware('permission:view_tickets')
         ->name('tickets');
 
     // Tickets API Routes
     Route::prefix('api/tickets')->middleware('permission:view_tickets')->group(function () {
-        Route::get('/form-data', [\App\Http\Controllers\TicketController::class, 'getFormData'])->name('api.tickets.form-data');
-        Route::get('/', [\App\Http\Controllers\TicketController::class, 'getTickets'])->name('api.tickets.index');
-        Route::post('/', [\App\Http\Controllers\TicketController::class, 'store'])->name('api.tickets.store');
-        Route::get('/{ticket}', [\App\Http\Controllers\TicketController::class, 'show'])->name('api.tickets.show');
-        Route::put('/{ticket}', [\App\Http\Controllers\TicketController::class, 'update'])->name('api.tickets.update');
-        Route::post('/{ticket}/comments', [\App\Http\Controllers\TicketController::class, 'storeComment'])->name('api.tickets.comments.store');
+        Route::get('/form-data', [TicketController::class, 'getFormData'])->name('api.tickets.form-data');
+        Route::get('/', [TicketController::class, 'getTickets'])->name('api.tickets.index');
+        Route::post('/', [TicketController::class, 'store'])->name('api.tickets.store');
+        Route::get('/{ticket}', [TicketController::class, 'show'])->name('api.tickets.show');
+        Route::put('/{ticket}', [TicketController::class, 'update'])->name('api.tickets.update');
+        Route::post('/{ticket}/comments', [TicketController::class, 'storeComment'])->name('api.tickets.comments.store');
     });
 
-    Route::get('/knowledge-base', [\App\Http\Controllers\KnowledgeBaseController::class, 'index'])
+    Route::get('/knowledge-base', [KnowledgeBaseController::class, 'index'])
         ->middleware('permission:view_knowledge_base')
         ->name('knowledge-base');
 
     Route::prefix('api/knowledge-base')->middleware('permission:view_knowledge_base')->group(function () {
-        Route::post('/categories', [\App\Http\Controllers\KnowledgeBaseController::class, 'storeCategory'])->middleware('permission:create_knowledge_base')->name('api.knowledge-base.categories.store');
-        Route::post('/articles', [\App\Http\Controllers\KnowledgeBaseController::class, 'storeArticle'])->middleware('permission:create_knowledge_base')->name('api.knowledge-base.articles.store');
-        Route::put('/articles/{id}', [\App\Http\Controllers\KnowledgeBaseController::class, 'updateArticle'])->middleware('permission:edit_knowledge_base')->name('api.knowledge-base.articles.update');
-        Route::delete('/articles/{id}', [\App\Http\Controllers\KnowledgeBaseController::class, 'destroyArticle'])->middleware('permission:delete_knowledge_base')->name('api.knowledge-base.articles.destroy');
-        Route::post('/faqs', [\App\Http\Controllers\KnowledgeBaseController::class, 'storeFaq'])->middleware('permission:create_knowledge_base')->name('api.knowledge-base.faqs.store');
-        Route::put('/faqs/{id}', [\App\Http\Controllers\KnowledgeBaseController::class, 'updateFaq'])->middleware('permission:edit_knowledge_base')->name('api.knowledge-base.faqs.update');
-        Route::delete('/faqs/{id}', [\App\Http\Controllers\KnowledgeBaseController::class, 'destroyFaq'])->middleware('permission:delete_knowledge_base')->name('api.knowledge-base.faqs.destroy');
-        Route::post('/guides', [\App\Http\Controllers\KnowledgeBaseController::class, 'storeGuide'])->middleware('permission:create_knowledge_base')->name('api.knowledge-base.guides.store');
-        Route::put('/guides/{id}', [\App\Http\Controllers\KnowledgeBaseController::class, 'updateGuide'])->middleware('permission:edit_knowledge_base')->name('api.knowledge-base.guides.update');
-        Route::delete('/guides/{id}', [\App\Http\Controllers\KnowledgeBaseController::class, 'destroyGuide'])->middleware('permission:delete_knowledge_base')->name('api.knowledge-base.guides.destroy');
+        Route::post('/categories', [KnowledgeBaseController::class, 'storeCategory'])->middleware('permission:create_knowledge_base')->name('api.knowledge-base.categories.store');
+        Route::post('/articles', [KnowledgeBaseController::class, 'storeArticle'])->middleware('permission:create_knowledge_base')->name('api.knowledge-base.articles.store');
+        Route::put('/articles/{id}', [KnowledgeBaseController::class, 'updateArticle'])->middleware('permission:edit_knowledge_base')->name('api.knowledge-base.articles.update');
+        Route::delete('/articles/{id}', [KnowledgeBaseController::class, 'destroyArticle'])->middleware('permission:delete_knowledge_base')->name('api.knowledge-base.articles.destroy');
+        Route::post('/faqs', [KnowledgeBaseController::class, 'storeFaq'])->middleware('permission:create_knowledge_base')->name('api.knowledge-base.faqs.store');
+        Route::put('/faqs/{id}', [KnowledgeBaseController::class, 'updateFaq'])->middleware('permission:edit_knowledge_base')->name('api.knowledge-base.faqs.update');
+        Route::delete('/faqs/{id}', [KnowledgeBaseController::class, 'destroyFaq'])->middleware('permission:delete_knowledge_base')->name('api.knowledge-base.faqs.destroy');
+        Route::post('/guides', [KnowledgeBaseController::class, 'storeGuide'])->middleware('permission:create_knowledge_base')->name('api.knowledge-base.guides.store');
+        Route::put('/guides/{id}', [KnowledgeBaseController::class, 'updateGuide'])->middleware('permission:edit_knowledge_base')->name('api.knowledge-base.guides.update');
+        Route::delete('/guides/{id}', [KnowledgeBaseController::class, 'destroyGuide'])->middleware('permission:delete_knowledge_base')->name('api.knowledge-base.guides.destroy');
     });
 
     Route::get('/integrations', function () {
         return view('dashboard.integrations');
     })->middleware('permission:view_integrations')->name('integrations');
 
-    Route::get('/wise-recipients', [\App\Http\Controllers\IntegrationController::class, 'wiseRecipientsPage'])
+    Route::get('/wise-recipients', [IntegrationController::class, 'wiseRecipientsPage'])
         ->name('wise-recipients');
 
     // Integration API Routes
     Route::prefix('api/integrations')->group(function () {
-        Route::get('/twilio', [\App\Http\Controllers\IntegrationController::class, 'getTwilioIntegration'])->name('api.integrations.twilio.get');
-        Route::post('/twilio', [\App\Http\Controllers\IntegrationController::class, 'storeTwilioIntegration'])->name('api.integrations.twilio.store');
-        Route::delete('/twilio', [\App\Http\Controllers\IntegrationController::class, 'deleteTwilioIntegration'])->name('api.integrations.twilio.delete');
-        Route::get('/flex', [\App\Http\Controllers\IntegrationController::class, 'getFlexIntegration'])->name('api.integrations.flex.get');
-        Route::post('/flex', [\App\Http\Controllers\IntegrationController::class, 'storeFlexIntegration'])->name('api.integrations.flex.store');
-        Route::delete('/flex', [\App\Http\Controllers\IntegrationController::class, 'deleteFlexIntegration'])->name('api.integrations.flex.delete');
-        Route::get('/viber', [\App\Http\Controllers\IntegrationController::class, 'getViberIntegration'])->name('api.integrations.viber.get');
-        Route::post('/viber', [\App\Http\Controllers\IntegrationController::class, 'storeViberIntegration'])->name('api.integrations.viber.store');
-        Route::delete('/viber', [\App\Http\Controllers\IntegrationController::class, 'deleteViberIntegration'])->name('api.integrations.viber.delete');
-        Route::get('/whatsapp', [\App\Http\Controllers\IntegrationController::class, 'getWhatsAppIntegration'])->name('api.integrations.whatsapp.get');
-        Route::post('/whatsapp', [\App\Http\Controllers\IntegrationController::class, 'storeWhatsAppIntegration'])->name('api.integrations.whatsapp.store');
-        Route::delete('/whatsapp', [\App\Http\Controllers\IntegrationController::class, 'deleteWhatsAppIntegration'])->name('api.integrations.whatsapp.delete');
-        Route::get('/facebook', [\App\Http\Controllers\IntegrationController::class, 'getFacebookIntegration'])->name('api.integrations.facebook.get');
-        Route::post('/facebook', [\App\Http\Controllers\IntegrationController::class, 'storeFacebookIntegration'])->name('api.integrations.facebook.store');
-        Route::delete('/facebook', [\App\Http\Controllers\IntegrationController::class, 'deleteFacebookIntegration'])->name('api.integrations.facebook.delete');
-        Route::get('/gmail', [\App\Http\Controllers\IntegrationController::class, 'getGmailIntegration'])->name('api.integrations.gmail.get');
-        Route::post('/gmail', [\App\Http\Controllers\IntegrationController::class, 'storeGmailIntegration'])->name('api.integrations.gmail.store');
-        Route::delete('/gmail', [\App\Http\Controllers\IntegrationController::class, 'deleteGmailIntegration'])->name('api.integrations.gmail.delete');
-        Route::get('/stripe', [\App\Http\Controllers\IntegrationController::class, 'getStripeIntegration'])->name('api.integrations.stripe.get');
-        Route::post('/stripe', [\App\Http\Controllers\IntegrationController::class, 'storeStripeIntegration'])->name('api.integrations.stripe.store');
-        Route::delete('/stripe', [\App\Http\Controllers\IntegrationController::class, 'deleteStripeIntegration'])->name('api.integrations.stripe.delete');
-        Route::get('/wise', [\App\Http\Controllers\IntegrationController::class, 'getWiseIntegration'])->name('api.integrations.wise.get');
-        Route::match(['get', 'post'], '/wise/profiles', [\App\Http\Controllers\IntegrationController::class, 'getWiseProfiles'])->name('api.integrations.wise.profiles');
-        Route::get('/wise/recipients', [\App\Http\Controllers\IntegrationController::class, 'getWiseRecipients'])->name('api.integrations.wise.recipients');
-        Route::post('/wise/recipients/requirements', [\App\Http\Controllers\IntegrationController::class, 'getWiseRecipientRequirements'])->name('api.integrations.wise.recipients.requirements');
-        Route::post('/wise/recipients/requirements/refresh', [\App\Http\Controllers\IntegrationController::class, 'postWiseRecipientRequirements'])->name('api.integrations.wise.recipients.requirements.refresh');
-        Route::post('/wise/recipients', [\App\Http\Controllers\IntegrationController::class, 'createWiseRecipient'])->name('api.integrations.wise.recipients.create');
-        Route::post('/wise/contacts', [\App\Http\Controllers\IntegrationController::class, 'createWiseContact'])->name('api.integrations.wise.contacts.create');
-        Route::put('/wise/employees/{user}/wise-account', [\App\Http\Controllers\IntegrationController::class, 'updateEmployeeWiseAccount'])->name('api.integrations.wise.employees.wise-account');
-        Route::post('/wise', [\App\Http\Controllers\IntegrationController::class, 'storeWiseIntegration'])->name('api.integrations.wise.store');
-        Route::delete('/wise', [\App\Http\Controllers\IntegrationController::class, 'deleteWiseIntegration'])->name('api.integrations.wise.delete');
-        Route::get('/openai', [\App\Http\Controllers\IntegrationController::class, 'getOpenAiIntegration'])->name('api.integrations.openai.get');
-        Route::post('/openai', [\App\Http\Controllers\IntegrationController::class, 'storeOpenAiIntegration'])->name('api.integrations.openai.store');
-        Route::delete('/openai', [\App\Http\Controllers\IntegrationController::class, 'deleteOpenAiIntegration'])->name('api.integrations.openai.delete');
+        Route::get('/twilio', [IntegrationController::class, 'getTwilioIntegration'])->name('api.integrations.twilio.get');
+        Route::post('/twilio', [IntegrationController::class, 'storeTwilioIntegration'])->name('api.integrations.twilio.store');
+        Route::delete('/twilio', [IntegrationController::class, 'deleteTwilioIntegration'])->name('api.integrations.twilio.delete');
+        Route::get('/flex', [IntegrationController::class, 'getFlexIntegration'])->name('api.integrations.flex.get');
+        Route::post('/flex', [IntegrationController::class, 'storeFlexIntegration'])->name('api.integrations.flex.store');
+        Route::delete('/flex', [IntegrationController::class, 'deleteFlexIntegration'])->name('api.integrations.flex.delete');
+        Route::get('/viber', [IntegrationController::class, 'getViberIntegration'])->name('api.integrations.viber.get');
+        Route::post('/viber', [IntegrationController::class, 'storeViberIntegration'])->name('api.integrations.viber.store');
+        Route::delete('/viber', [IntegrationController::class, 'deleteViberIntegration'])->name('api.integrations.viber.delete');
+        Route::get('/whatsapp', [IntegrationController::class, 'getWhatsAppIntegration'])->name('api.integrations.whatsapp.get');
+        Route::post('/whatsapp', [IntegrationController::class, 'storeWhatsAppIntegration'])->name('api.integrations.whatsapp.store');
+        Route::delete('/whatsapp', [IntegrationController::class, 'deleteWhatsAppIntegration'])->name('api.integrations.whatsapp.delete');
+        Route::get('/facebook', [IntegrationController::class, 'getFacebookIntegration'])->name('api.integrations.facebook.get');
+        Route::post('/facebook', [IntegrationController::class, 'storeFacebookIntegration'])->name('api.integrations.facebook.store');
+        Route::delete('/facebook', [IntegrationController::class, 'deleteFacebookIntegration'])->name('api.integrations.facebook.delete');
+        Route::get('/gmail', [IntegrationController::class, 'getGmailIntegration'])->name('api.integrations.gmail.get');
+        Route::post('/gmail', [IntegrationController::class, 'storeGmailIntegration'])->name('api.integrations.gmail.store');
+        Route::delete('/gmail', [IntegrationController::class, 'deleteGmailIntegration'])->name('api.integrations.gmail.delete');
+        Route::get('/stripe', [IntegrationController::class, 'getStripeIntegration'])->name('api.integrations.stripe.get');
+        Route::post('/stripe', [IntegrationController::class, 'storeStripeIntegration'])->name('api.integrations.stripe.store');
+        Route::delete('/stripe', [IntegrationController::class, 'deleteStripeIntegration'])->name('api.integrations.stripe.delete');
+        Route::get('/wise', [IntegrationController::class, 'getWiseIntegration'])->name('api.integrations.wise.get');
+        Route::match(['get', 'post'], '/wise/profiles', [IntegrationController::class, 'getWiseProfiles'])->name('api.integrations.wise.profiles');
+        Route::get('/wise/recipients', [IntegrationController::class, 'getWiseRecipients'])->name('api.integrations.wise.recipients');
+        Route::post('/wise/recipients/requirements', [IntegrationController::class, 'getWiseRecipientRequirements'])->name('api.integrations.wise.recipients.requirements');
+        Route::post('/wise/recipients/requirements/refresh', [IntegrationController::class, 'postWiseRecipientRequirements'])->name('api.integrations.wise.recipients.requirements.refresh');
+        Route::post('/wise/recipients', [IntegrationController::class, 'createWiseRecipient'])->name('api.integrations.wise.recipients.create');
+        Route::post('/wise/contacts', [IntegrationController::class, 'createWiseContact'])->name('api.integrations.wise.contacts.create');
+        Route::put('/wise/employees/{user}/wise-account', [IntegrationController::class, 'updateEmployeeWiseAccount'])->name('api.integrations.wise.employees.wise-account');
+        Route::post('/wise', [IntegrationController::class, 'storeWiseIntegration'])->name('api.integrations.wise.store');
+        Route::delete('/wise', [IntegrationController::class, 'deleteWiseIntegration'])->name('api.integrations.wise.delete');
+        Route::get('/openai', [IntegrationController::class, 'getOpenAiIntegration'])->name('api.integrations.openai.get');
+        Route::post('/openai', [IntegrationController::class, 'storeOpenAiIntegration'])->name('api.integrations.openai.store');
+        Route::delete('/openai', [IntegrationController::class, 'deleteOpenAiIntegration'])->name('api.integrations.openai.delete');
     });
 
     Route::get('/billing-plan', function () {
         return view('dashboard.billing-plan');
     })->name('billing-plan');
 
-    Route::get('/quotation-builder', [\App\Http\Controllers\QuotationController::class, 'index'])->middleware('permission:view_quotation_builder')->name('quotation-builder');
+    Route::get('/quotation-builder', [QuotationController::class, 'index'])->middleware('permission:view_quotation_builder')->name('quotation-builder');
 
     // Quotation Builder API Routes
     Route::prefix('api/quotation-builder')->group(function () {
-        Route::get('/quotations', [\App\Http\Controllers\QuotationController::class, 'getQuotations'])->name('api.quotation-builder.quotations');
-        Route::get('/stats', [\App\Http\Controllers\QuotationController::class, 'getStats'])->name('api.quotation-builder.stats');
-        Route::get('/clients', [\App\Http\Controllers\QuotationController::class, 'getClients'])->name('api.quotation-builder.clients');
-        Route::get('/next-quotation-number', [\App\Http\Controllers\QuotationController::class, 'getNextQuotationNumber'])->name('api.quotation-builder.next-quotation-number');
-        Route::post('/quotations', [\App\Http\Controllers\QuotationController::class, 'store'])->name('api.quotation-builder.quotations.store');
-        Route::get('/quotations/{quotation}', [\App\Http\Controllers\QuotationController::class, 'show'])->name('api.quotation-builder.quotations.show');
-        Route::get('/quotations/{quotation}/pdf', [\App\Http\Controllers\QuotationController::class, 'pdf'])->name('api.quotation-builder.quotations.pdf');
-        Route::get('/quotations/{quotation}/status-history', [\App\Http\Controllers\QuotationController::class, 'getStatusHistory'])->name('api.quotation-builder.quotations.status-history');
-        Route::post('/quotations/{quotation}/send-email', [\App\Http\Controllers\QuotationController::class, 'sendEmail'])->name('api.quotation-builder.quotations.send-email');
-        Route::put('/quotations/{quotation}', [\App\Http\Controllers\QuotationController::class, 'update'])->name('api.quotation-builder.quotations.update');
-        Route::patch('/quotations/{quotation}/status', [\App\Http\Controllers\QuotationController::class, 'updateStatus'])->name('api.quotation-builder.quotations.status.update');
-        Route::delete('/quotations/{quotation}', [\App\Http\Controllers\QuotationController::class, 'destroy'])->name('api.quotation-builder.quotations.destroy');
+        Route::get('/quotations', [QuotationController::class, 'getQuotations'])->name('api.quotation-builder.quotations');
+        Route::get('/stats', [QuotationController::class, 'getStats'])->name('api.quotation-builder.stats');
+        Route::get('/clients', [QuotationController::class, 'getClients'])->name('api.quotation-builder.clients');
+        Route::get('/next-quotation-number', [QuotationController::class, 'getNextQuotationNumber'])->name('api.quotation-builder.next-quotation-number');
+        Route::post('/quotations', [QuotationController::class, 'store'])->name('api.quotation-builder.quotations.store');
+        Route::get('/quotations/{quotation}', [QuotationController::class, 'show'])->name('api.quotation-builder.quotations.show');
+        Route::get('/quotations/{quotation}/pdf', [QuotationController::class, 'pdf'])->name('api.quotation-builder.quotations.pdf');
+        Route::get('/quotations/{quotation}/status-history', [QuotationController::class, 'getStatusHistory'])->name('api.quotation-builder.quotations.status-history');
+        Route::post('/quotations/{quotation}/send-email', [QuotationController::class, 'sendEmail'])->name('api.quotation-builder.quotations.send-email');
+        Route::put('/quotations/{quotation}', [QuotationController::class, 'update'])->name('api.quotation-builder.quotations.update');
+        Route::patch('/quotations/{quotation}/status', [QuotationController::class, 'updateStatus'])->name('api.quotation-builder.quotations.status.update');
+        Route::delete('/quotations/{quotation}', [QuotationController::class, 'destroy'])->name('api.quotation-builder.quotations.destroy');
 
         // Item templates autocomplete
-        Route::get('/item-templates/search', [\App\Http\Controllers\QuotationItemTemplateController::class, 'search'])->name('api.quotation-builder.item-templates.search');
+        Route::get('/item-templates/search', [QuotationItemTemplateController::class, 'search'])->name('api.quotation-builder.item-templates.search');
     });
 
     // Quotation Item Templates Routes
-    Route::get('/quotation-item-templates', [\App\Http\Controllers\QuotationItemTemplateController::class, 'index'])->middleware('permission:view_quotation_builder')->name('quotation-item-templates');
+    Route::get('/quotation-item-templates', [QuotationItemTemplateController::class, 'index'])->middleware('permission:view_quotation_builder')->name('quotation-item-templates');
 
     Route::prefix('api/quotation-item-templates')->group(function () {
-        Route::get('/templates', [\App\Http\Controllers\QuotationItemTemplateController::class, 'getTemplates'])->name('api.quotation-item-templates.templates');
-        Route::post('/templates', [\App\Http\Controllers\QuotationItemTemplateController::class, 'store'])->name('api.quotation-item-templates.templates.store');
-        Route::get('/templates/{quotationItemTemplate}', [\App\Http\Controllers\QuotationItemTemplateController::class, 'show'])->name('api.quotation-item-templates.templates.show');
-        Route::put('/templates/{quotationItemTemplate}', [\App\Http\Controllers\QuotationItemTemplateController::class, 'update'])->name('api.quotation-item-templates.templates.update');
-        Route::delete('/templates/{quotationItemTemplate}', [\App\Http\Controllers\QuotationItemTemplateController::class, 'destroy'])->name('api.quotation-item-templates.templates.destroy');
+        Route::get('/templates', [QuotationItemTemplateController::class, 'getTemplates'])->name('api.quotation-item-templates.templates');
+        Route::post('/templates', [QuotationItemTemplateController::class, 'store'])->name('api.quotation-item-templates.templates.store');
+        Route::get('/templates/{quotationItemTemplate}', [QuotationItemTemplateController::class, 'show'])->name('api.quotation-item-templates.templates.show');
+        Route::put('/templates/{quotationItemTemplate}', [QuotationItemTemplateController::class, 'update'])->name('api.quotation-item-templates.templates.update');
+        Route::delete('/templates/{quotationItemTemplate}', [QuotationItemTemplateController::class, 'destroy'])->name('api.quotation-item-templates.templates.destroy');
     });
 
     // Contracts & E-Sign Routes
-    Route::get('/contracts', [\App\Http\Controllers\ContractController::class, 'index'])
+    Route::get('/contracts', [ContractController::class, 'index'])
         ->middleware('permission:view_contracts')
         ->name('contracts');
 
     Route::prefix('api/contracts')->middleware('permission:view_contracts')->group(function () {
-        Route::get('/', [\App\Http\Controllers\ContractController::class, 'getContracts'])->name('api.contracts.index');
-        Route::get('/stats', [\App\Http\Controllers\ContractController::class, 'getStats'])->name('api.contracts.stats');
-        Route::get('/clients', [\App\Http\Controllers\ContractController::class, 'getClients'])->name('api.contracts.clients');
-        Route::get('/next-number', [\App\Http\Controllers\ContractController::class, 'getNextContractNumber'])->name('api.contracts.next-number');
-        Route::post('/', [\App\Http\Controllers\ContractController::class, 'store'])
+        Route::get('/', [ContractController::class, 'getContracts'])->name('api.contracts.index');
+        Route::get('/stats', [ContractController::class, 'getStats'])->name('api.contracts.stats');
+        Route::get('/clients', [ContractController::class, 'getClients'])->name('api.contracts.clients');
+        Route::get('/next-number', [ContractController::class, 'getNextContractNumber'])->name('api.contracts.next-number');
+        Route::post('/', [ContractController::class, 'store'])
             ->middleware('permission:create_contracts')
             ->name('api.contracts.store');
-        Route::get('/{contract}', [\App\Http\Controllers\ContractController::class, 'show'])->name('api.contracts.show');
-        Route::get('/{contract}/pdf', [\App\Http\Controllers\ContractController::class, 'pdf'])->name('api.contracts.pdf');
-        Route::get('/{contract}/status-history', [\App\Http\Controllers\ContractController::class, 'getStatusHistory'])->name('api.contracts.status-history');
-        Route::put('/{contract}', [\App\Http\Controllers\ContractController::class, 'update'])
+        Route::get('/{contract}', [ContractController::class, 'show'])->name('api.contracts.show');
+        Route::get('/{contract}/pdf', [ContractController::class, 'pdf'])->name('api.contracts.pdf');
+        Route::get('/{contract}/status-history', [ContractController::class, 'getStatusHistory'])->name('api.contracts.status-history');
+        Route::put('/{contract}', [ContractController::class, 'update'])
             ->middleware('permission:create_contracts')
             ->name('api.contracts.update');
-        Route::delete('/{contract}', [\App\Http\Controllers\ContractController::class, 'destroy'])
+        Route::delete('/{contract}', [ContractController::class, 'destroy'])
             ->middleware('permission:delete_contracts')
             ->name('api.contracts.destroy');
-        Route::post('/{contract}/send', [\App\Http\Controllers\ContractController::class, 'sendForSignature'])
+        Route::post('/{contract}/send', [ContractController::class, 'sendForSignature'])
             ->middleware('permission:send_contracts')
             ->name('api.contracts.send');
-        Route::post('/{contract}/cancel', [\App\Http\Controllers\ContractController::class, 'cancel'])
+        Route::post('/{contract}/cancel', [ContractController::class, 'cancel'])
             ->middleware('permission:create_contracts')
             ->name('api.contracts.cancel');
     });
@@ -721,31 +769,31 @@ Route::middleware(['auth', 'company.active'])->group(function () {
     })->middleware('permission:view_calendar')->name('calendar');
 
     // Calendar OAuth (Google & Outlook)
-    Route::get('/calendar/connect/google', [\App\Http\Controllers\CalendarController::class, 'redirectGoogle'])
+    Route::get('/calendar/connect/google', [CalendarController::class, 'redirectGoogle'])
         ->middleware('permission:view_calendar')
         ->name('calendar.connect.google');
-    Route::get('/calendar/connect/google/callback', [\App\Http\Controllers\CalendarController::class, 'callbackGoogle'])
+    Route::get('/calendar/connect/google/callback', [CalendarController::class, 'callbackGoogle'])
         ->middleware('permission:view_calendar')
         ->name('calendar.connect.google.callback');
-    Route::get('/calendar/connect/outlook', [\App\Http\Controllers\CalendarController::class, 'redirectOutlook'])
+    Route::get('/calendar/connect/outlook', [CalendarController::class, 'redirectOutlook'])
         ->middleware('permission:view_calendar')
         ->name('calendar.connect.outlook');
-    Route::get('/calendar/connect/outlook/callback', [\App\Http\Controllers\CalendarController::class, 'callbackOutlook'])
+    Route::get('/calendar/connect/outlook/callback', [CalendarController::class, 'callbackOutlook'])
         ->middleware('permission:view_calendar')
         ->name('calendar.connect.outlook.callback');
-    Route::post('/api/calendar/disconnect', [\App\Http\Controllers\CalendarController::class, 'disconnect'])
+    Route::post('/api/calendar/disconnect', [CalendarController::class, 'disconnect'])
         ->middleware('permission:view_calendar')
         ->name('api.calendar.disconnect');
-    Route::get('/api/calendar/status', [\App\Http\Controllers\CalendarController::class, 'status'])
+    Route::get('/api/calendar/status', [CalendarController::class, 'status'])
         ->middleware('permission:view_calendar')
         ->name('api.calendar.status');
-    Route::get('/api/calendar/events', [\App\Http\Controllers\CalendarController::class, 'events'])
+    Route::get('/api/calendar/events', [CalendarController::class, 'events'])
         ->middleware('permission:view_calendar')
         ->name('api.calendar.events');
-    Route::get('/api/calendar/oauth-settings', [\App\Http\Controllers\CalendarController::class, 'getOauthSettings'])
+    Route::get('/api/calendar/oauth-settings', [CalendarController::class, 'getOauthSettings'])
         ->middleware('permission:view_calendar')
         ->name('api.calendar.oauth-settings');
-    Route::post('/api/calendar/oauth-settings', [\App\Http\Controllers\CalendarController::class, 'storeOauthSettings'])
+    Route::post('/api/calendar/oauth-settings', [CalendarController::class, 'storeOauthSettings'])
         ->middleware('permission:view_calendar')
         ->name('api.calendar.oauth-settings.store');
 
@@ -761,7 +809,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         return view('dashboard.openai');
     })->middleware('permission:view_ai_assistant')->name('openai');
 
-    Route::post('/api/openai/chat', [\App\Http\Controllers\OpenAiController::class, 'chat'])
+    Route::post('/api/openai/chat', [OpenAiController::class, 'chat'])
         ->middleware('permission:view_ai_assistant')
         ->name('api.openai.chat');
 
@@ -877,85 +925,85 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->group(function () {
 
 // Client Portal Authentication Routes (Public)
 Route::prefix('client')->group(function () {
-    Route::get('/login', [\App\Http\Controllers\Client\ClientAuthController::class, 'showLoginForm'])
+    Route::get('/login', [ClientAuthController::class, 'showLoginForm'])
         ->name('client.login');
 
-    Route::post('/login', [\App\Http\Controllers\Client\ClientAuthController::class, 'login'])
+    Route::post('/login', [ClientAuthController::class, 'login'])
         ->name('client.login.submit');
 });
 
 // Client Portal Protected Routes
 Route::middleware(['auth:client', 'client.company.active'])->prefix('client')->group(function () {
-    Route::post('/logout', [\App\Http\Controllers\Client\ClientAuthController::class, 'logout'])
+    Route::post('/logout', [ClientAuthController::class, 'logout'])
         ->name('client.logout');
 
-    Route::get('/portal', [\App\Http\Controllers\Client\ClientPortalController::class, 'dashboard'])
+    Route::get('/portal', [ClientPortalController::class, 'dashboard'])
         ->name('client.portal.dashboard');
 
-    Route::get('/portal/projects', [\App\Http\Controllers\Client\ClientPortalController::class, 'projects'])
+    Route::get('/portal/projects', [ClientPortalController::class, 'projects'])
         ->name('client.portal.projects');
 
-    Route::get('/portal/billing', [\App\Http\Controllers\Client\ClientPortalController::class, 'billing'])
+    Route::get('/portal/billing', [ClientPortalController::class, 'billing'])
         ->name('client.portal.billing');
 
-    Route::get('/portal/documents', [\App\Http\Controllers\Client\ClientPortalController::class, 'documents'])
+    Route::get('/portal/documents', [ClientPortalController::class, 'documents'])
         ->name('client.portal.documents');
 
-    Route::get('/contracts/{contractId}/pdf', [\App\Http\Controllers\Client\ClientPortalController::class, 'downloadContractPdf'])
+    Route::get('/contracts/{contractId}/pdf', [ClientPortalController::class, 'downloadContractPdf'])
         ->name('client.portal.contracts.pdf');
 
     // Client Portal API Routes
     Route::prefix('api')->group(function () {
         // Billing
-        Route::get('/billing/invoices', [\App\Http\Controllers\Client\ClientPortalController::class, 'getInvoices'])
+        Route::get('/billing/invoices', [ClientPortalController::class, 'getInvoices'])
             ->name('client.portal.api.billing.invoices');
 
-        Route::get('/billing/stats', [\App\Http\Controllers\Client\ClientPortalController::class, 'getBillingStats'])
+        Route::get('/billing/stats', [ClientPortalController::class, 'getBillingStats'])
             ->name('client.portal.api.billing.stats');
 
-        Route::get('/contracts', [\App\Http\Controllers\Client\ClientPortalController::class, 'getContracts'])
+        Route::get('/contracts', [ClientPortalController::class, 'getContracts'])
             ->name('client.portal.api.contracts');
 
         // Employee monitoring
-        Route::get('/employees', [\App\Http\Controllers\Client\ClientPortalController::class, 'getAssignedEmployees'])
+        Route::get('/employees', [ClientPortalController::class, 'getAssignedEmployees'])
             ->name('client.portal.employees');
 
-        Route::get('/employees/{employeeId}/recordings', [\App\Http\Controllers\Client\ClientPortalController::class, 'getEmployeeRecordings'])
+        Route::get('/employees/{employeeId}/recordings', [ClientPortalController::class, 'getEmployeeRecordings'])
             ->name('client.portal.employee-recordings');
 
-        Route::get('/recording/{id}/view', [\App\Http\Controllers\Client\ClientPortalController::class, 'viewRecording'])
+        Route::get('/recording/{id}/view', [ClientPortalController::class, 'viewRecording'])
             ->name('client.portal.view-recording');
 
         // Project management
-        Route::get('/projects', [\App\Http\Controllers\Client\ClientPortalController::class, 'getProjects'])
+        Route::get('/projects', [ClientPortalController::class, 'getProjects'])
             ->name('client.portal.api.projects');
 
-        Route::get('/projects/{projectId}', [\App\Http\Controllers\Client\ClientPortalController::class, 'getProject'])
+        Route::get('/projects/{projectId}', [ClientPortalController::class, 'getProject'])
             ->name('client.portal.api.project');
 
-        Route::get('/projects/{projectId}/time-tracking', [\App\Http\Controllers\Client\ClientPortalController::class, 'getProjectTimeTracking'])
+        Route::get('/projects/{projectId}/time-tracking', [ClientPortalController::class, 'getProjectTimeTracking'])
             ->name('client.portal.api.project-time-tracking');
 
-        Route::get('/time-tracking/summary', [\App\Http\Controllers\Client\ClientPortalController::class, 'getTimeTrackingSummary'])
+        Route::get('/time-tracking/summary', [ClientPortalController::class, 'getTimeTrackingSummary'])
             ->name('client.portal.api.time-tracking-summary');
     });
 
     // Client Portal Live View Routes
     Route::prefix('api/live-view')->group(function () {
-        Route::get('/ice-config', [\App\Http\Controllers\Client\ClientLiveViewController::class, 'iceConfig'])
+        Route::get('/ice-config', [ClientLiveViewController::class, 'iceConfig'])
             ->name('client.portal.live-view.ice-config');
 
-        Route::post('/sessions', [\App\Http\Controllers\Client\ClientLiveViewController::class, 'startSession'])
+        Route::post('/sessions', [ClientLiveViewController::class, 'startSession'])
             ->name('client.portal.live-view.sessions.start');
 
-        Route::post('/sessions/{liveViewSession}/end', [\App\Http\Controllers\Client\ClientLiveViewController::class, 'endSession'])
+        Route::post('/sessions/{liveViewSession}/end', [ClientLiveViewController::class, 'endSession'])
             ->name('client.portal.live-view.sessions.end');
 
-        Route::get('/signals', [\App\Http\Controllers\Client\ClientLiveViewController::class, 'pullSignals'])
+        Route::get('/signals', [ClientLiveViewController::class, 'pullSignals'])
             ->middleware('throttle:live-view-signals')
             ->name('client.portal.live-view.signals.pull');
 
-        Route::post('/signals', [\App\Http\Controllers\Client\ClientLiveViewController::class, 'sendSignal'])
+        Route::post('/signals', [ClientLiveViewController::class, 'sendSignal'])
             ->middleware('throttle:live-view-signals')
             ->name('client.portal.live-view.signals.send');
     });

@@ -6,8 +6,10 @@ use App\Models\Company;
 use App\Models\ViberConversation;
 use App\Models\ViberIntegration;
 use App\Models\ViberMessage;
+use App\Services\LeadAutoCreateService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -18,7 +20,10 @@ use Symfony\Component\HttpFoundation\Response;
 
 class ViberController extends Controller
 {
-    public function __construct(protected TwilioCompanyService $twilioCompany) {}
+    public function __construct(
+        protected TwilioCompanyService $twilioCompany,
+        protected LeadAutoCreateService $leadAutoCreate
+    ) {}
 
     public function index()
     {
@@ -196,6 +201,13 @@ class ViberController extends Controller
         ]);
 
         $this->touchConversation($conversation, $message);
+
+        $this->leadAutoCreate->fromPhoneChannel(
+            (int) $conversation->company_id,
+            'viber',
+            $conversation->phone ?: $conversation->viber_user_id,
+            $conversation->name
+        );
 
         return response()->json(['data' => $this->formatMessage($message)], 201);
     }
@@ -481,6 +493,8 @@ class ViberController extends Controller
         ]);
         $conversation->save();
 
+        $this->leadAutoCreate->fromPhoneChannel($companyId, 'viber', $normalized, $profileName ?: $conversation->name);
+
         return $conversation;
     }
 
@@ -506,21 +520,21 @@ class ViberController extends Controller
     protected function twilioClientForCompany(?Company $company): TwilioService
     {
         if (! $company) {
-            throw new \Illuminate\Http\Exceptions\HttpResponseException(
+            throw new HttpResponseException(
                 response()->json(['message' => 'Twilio is not connected. Configure it under Integrations.'], 422)
             );
         }
 
         $integration = $this->twilioCompany->getActiveIntegration($company);
         if (! $integration) {
-            throw new \Illuminate\Http\Exceptions\HttpResponseException(
+            throw new HttpResponseException(
                 response()->json(['message' => 'Twilio is not connected. Configure it under Integrations.'], 422)
             );
         }
 
         $credentials = $this->twilioCompany->getCredentials($integration);
         if (! $credentials) {
-            throw new \Illuminate\Http\Exceptions\HttpResponseException(
+            throw new HttpResponseException(
                 response()->json(['message' => 'Invalid Twilio credentials.'], 422)
             );
         }
@@ -542,7 +556,7 @@ class ViberController extends Controller
         $integration = $this->channelIntegrationForCompany(Auth::user()->company_id);
 
         if (! $integration || ! $integration->sender_id) {
-            throw new \Illuminate\Http\Exceptions\HttpResponseException(
+            throw new HttpResponseException(
                 response()->json(['message' => 'Viber is not connected. Configure it under Integrations.'], 422)
             );
         }

@@ -24,6 +24,7 @@ class ContactHistoryController extends Controller
         $phone = $request->query('phone');
         $email = $request->query('email');
         $name = $request->query('name');
+        $leadId = $request->query('lead_id');
         $limit = min(200, max(20, (int) $request->query('limit', 100)));
 
         $data = $history->history(
@@ -31,7 +32,8 @@ class ContactHistoryController extends Controller
             is_string($phone) ? $phone : null,
             is_string($email) ? $email : null,
             $limit,
-            is_string($name) ? $name : null
+            is_string($name) ? $name : null,
+            is_numeric($leadId) ? (int) $leadId : null
         );
 
         return response()->json($data);

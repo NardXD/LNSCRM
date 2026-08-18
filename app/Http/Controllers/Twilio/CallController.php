@@ -349,6 +349,15 @@ class CallController extends Controller
         $isInbound = $direction === 'inbound';
         $isBrowserCall = $request->has('FromClient') || (is_numeric($fromClient) && strlen((string) $fromClient) < 10);
 
+        if (! $isInbound && $called) {
+            $company = app(\App\Services\TwilioCompanyService::class)
+                ->resolveCompanyFromWebhook($accountSid, $called, $caller);
+            if ($company) {
+                app(\App\Services\LeadAutoCreateService::class)
+                    ->fromPhoneChannel((int) $company->id, 'phone', (string) $called);
+            }
+        }
+
         $recordingCallback = htmlspecialchars(route('twilio.recording-callback'), ENT_XML1);
         $dialRecordAttrs = 'record="record-from-answer" recordingStatusCallback="'.$recordingCallback.'" recordingStatusCallbackEvent="completed" recordingTrack="both"';
 

@@ -32,6 +32,7 @@ class CheckPermission
         'facebook' => 'view_facebook',
         'billing' => 'view_billing',
         'client-management' => 'view_client_management',
+        'leads' => 'view_client_management',
         'hiring-queue' => 'view_client_management',
         'tickets' => 'view_tickets',
         'knowledge-base' => 'view_knowledge_base',
@@ -68,6 +69,7 @@ class CheckPermission
         'facebook' => 'facebook',
         'billing' => 'billing',
         'client-management' => 'client-management',
+        'leads' => 'client-management',
         'hiring-queue' => 'client-management',
         'tickets' => 'tickets',
         'knowledge-base' => 'knowledge-base',
@@ -84,7 +86,7 @@ class CheckPermission
     /**
      * Handle an incoming request.
      *
-     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
+     * @param  Closure(Request): (Response)  $next
      */
     public function handle(Request $request, Closure $next, ?string $permission = null): Response
     {
@@ -223,6 +225,9 @@ class CheckPermission
             return 'openai';
         }
         if (str_starts_with($routeName, 'api.hiring-queue')) {
+            return 'client-management';
+        }
+        if (str_starts_with($routeName, 'api.leads')) {
             return 'client-management';
         }
         if ($routeName === 'api.payroll.pnl-invoice-basis') {

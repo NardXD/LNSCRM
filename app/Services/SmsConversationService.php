@@ -10,7 +10,8 @@ use Illuminate\Support\Str;
 class SmsConversationService
 {
     public function __construct(
-        protected TwilioCompanyService $twilioCompany
+        protected TwilioCompanyService $twilioCompany,
+        protected LeadAutoCreateService $leadAutoCreate
     ) {}
 
     public function upsert(
@@ -40,6 +41,8 @@ class SmsConversationService
         }
 
         $conversation->save();
+
+        $this->leadAutoCreate->fromPhoneChannel($companyId, 'sms', $peer, $conversation->name);
 
         return $conversation;
     }

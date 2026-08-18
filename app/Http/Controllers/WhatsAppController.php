@@ -8,10 +8,13 @@ use App\Models\WhatsAppConversation;
 use App\Models\WhatsAppIntegration;
 use App\Models\WhatsAppMessage;
 use App\Notifications\WhatsAppMessageNotification;
+use App\Services\LeadAutoCreateService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -20,7 +23,10 @@ use Symfony\Component\HttpFoundation\Response;
 
 class WhatsAppController extends Controller
 {
-    public function __construct(protected TwilioCompanyService $twilioCompany) {}
+    public function __construct(
+        protected TwilioCompanyService $twilioCompany,
+        protected LeadAutoCreateService $leadAutoCreate
+    ) {}
 
     public function index()
     {
@@ -178,6 +184,13 @@ class WhatsAppController extends Controller
         ]);
 
         $this->touchConversation($conversation, $message);
+
+        $this->leadAutoCreate->fromPhoneChannel(
+            (int) $conversation->company_id,
+            'whatsapp',
+            $conversation->wa_id ?: $conversation->phone,
+            $conversation->name
+        );
 
         return response()->json(['data' => $this->formatMessage($message)], 201);
     }
@@ -394,7 +407,7 @@ class WhatsAppController extends Controller
     }
 
     /**
-     * @return \Illuminate\Support\Collection<int, User>
+     * @return Collection<int, User>
      */
     protected function whatsappNotifyRecipients(int $companyId)
     {
@@ -527,6 +540,8 @@ class WhatsAppController extends Controller
         ]);
         $conversation->save();
 
+        $this->leadAutoCreate->fromPhoneChannel($companyId, 'whatsapp', $normalized, $profileName ?: $conversation->name);
+
         return $conversation;
     }
 
@@ -551,21 +566,21 @@ class WhatsAppController extends Controller
     protected function twilioClientForCompany(?Company $company): TwilioService
     {
         if (! $company) {
-            throw new \Illuminate\Http\Exceptions\HttpResponseException(
+            throw new HttpResponseException(
                 response()->json(['message' => 'Twilio is not connected. Configure it under Integrations.'], 422)
             );
         }
 
         $integration = $this->twilioCompany->getActiveIntegration($company);
         if (! $integration) {
-            throw new \Illuminate\Http\Exceptions\HttpResponseException(
+            throw new HttpResponseException(
                 response()->json(['message' => 'Twilio is not connected. Configure it under Integrations.'], 422)
             );
         }
 
         $credentials = $this->twilioCompany->getCredentials($integration);
         if (! $credentials) {
-            throw new \Illuminate\Http\Exceptions\HttpResponseException(
+            throw new HttpResponseException(
                 response()->json(['message' => 'Invalid Twilio credentials.'], 422)
             );
         }
@@ -587,7 +602,7 @@ class WhatsAppController extends Controller
         $integration = $this->channelIntegrationForCompany(Auth::user()->company_id);
 
         if (! $integration || ! $integration->from_number) {
-            throw new \Illuminate\Http\Exceptions\HttpResponseException(
+            throw new HttpResponseException(
                 response()->json(['message' => 'WhatsApp is not connected. Configure it under Integrations.'], 422)
             );
         }

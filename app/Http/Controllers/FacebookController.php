@@ -8,6 +8,9 @@ use App\Models\FacebookMessage;
 use App\Models\User;
 use App\Notifications\FacebookMessageNotification;
 use App\Services\FacebookGraphService;
+use App\Services\LeadAutoCreateService;
+use Carbon\Carbon;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -19,6 +22,10 @@ use Symfony\Component\HttpFoundation\Response;
 
 class FacebookController extends Controller
 {
+    public function __construct(
+        protected LeadAutoCreateService $leadAutoCreate
+    ) {}
+
     public function index()
     {
         $companyId = Auth::user()?->company_id;
@@ -149,6 +156,13 @@ class FacebookController extends Controller
 
         $this->touchConversation($conversation, $message);
 
+        $this->leadAutoCreate->fromFacebook(
+            (int) $conversation->company_id,
+            (string) $conversation->channel,
+            $conversation->name,
+            $conversation->username
+        );
+
         return response()->json(['data' => $this->formatMessage($message)], 201);
     }
 
@@ -278,7 +292,7 @@ class FacebookController extends Controller
                 'audio' => 'audio',
                 default => 'file',
             };
-                    $mediaUrl = $attachment['payload']['url'] ?? null;
+            $mediaUrl = $attachment['payload']['url'] ?? null;
             if ($mediaUrl) {
                 try {
                     $mediaUrl = $this->storeInboundMedia($integration, (string) $mediaUrl, $type);
@@ -301,7 +315,7 @@ class FacebookController extends Controller
             'status' => 'received',
             'raw_payload' => $event,
             'sent_at' => isset($event['timestamp'])
-                ? \Carbon\Carbon::createFromTimestampMs((int) $event['timestamp'])
+                ? Carbon::createFromTimestampMs((int) $event['timestamp'])
                 : now(),
         ]);
 
@@ -368,6 +382,13 @@ class FacebookController extends Controller
         }
 
         $conversation->save();
+
+        $this->leadAutoCreate->fromFacebook(
+            (int) $integration->company_id,
+            $channel,
+            $conversation->name,
+            $conversation->username
+        );
 
         return $conversation;
     }
@@ -486,7 +507,7 @@ class FacebookController extends Controller
             ->first();
 
         if (! $integration) {
-            throw new \Illuminate\Http\Exceptions\HttpResponseException(
+            throw new HttpResponseException(
                 response()->json(['message' => 'Facebook is not connected. Configure it under Integrations.'], 422)
             );
         }

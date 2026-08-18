@@ -6,8 +6,8 @@ use App\Models\Client;
 use App\Models\ClientContact;
 use App\Models\FacebookConversation;
 use App\Models\InboxConversation;
+use App\Models\Lead;
 use App\Models\PhoneCallLog;
-use App\Models\PhoneContact;
 use App\Models\SmsConversation;
 use App\Models\SmsMessage;
 use App\Models\ViberConversation;
@@ -28,26 +28,26 @@ class ContactConversationHistoryService
      * Unified timeline across WhatsApp, Viber, SMS, Inbox, Calls, and Facebook (name-linked).
      *
      * @return array{
-     *     query: array{phone: ?string, email: ?string},
+     *     query: array{phone: ?string, email: ?string, name: ?string, lead_id: ?int},
      *     contact: array<string, mixed>,
      *     threads: list<array<string, mixed>>,
      *     events: list<array<string, mixed>>,
      *     notes: list<string>
      * }
      */
-    public function history(int $companyId, ?string $phone = null, ?string $email = null, int $limit = 100, ?string $name = null): array
+    public function history(int $companyId, ?string $phone = null, ?string $email = null, int $limit = 100, ?string $name = null, ?int $leadId = null): array
     {
         $phone = $phone !== null && trim($phone) !== '' ? trim($phone) : null;
         $email = $email !== null && trim($email) !== '' ? strtolower(trim($email)) : null;
         $name = $name !== null && trim($name) !== '' ? trim($name) : null;
 
-        if (! $phone && ! $email && ! $name) {
+        if (! $phone && ! $email && ! $name && ! $leadId) {
             return [
-                'query' => ['phone' => null, 'email' => null, 'name' => null],
+                'query' => ['phone' => null, 'email' => null, 'name' => null, 'lead_id' => null],
                 'contact' => ['found' => false, 'display_name' => null],
                 'threads' => [],
                 'events' => [],
-                'notes' => ['Provide a phone number, email, or name to search.'],
+                'notes' => ['Provide a phone number, email, name, or lead to search.'],
             ];
         }
 
@@ -56,7 +56,24 @@ class ContactConversationHistoryService
 
         $lookup = $normalizedPhone
             ? $this->crmLookup->lookup($companyId, $normalizedPhone)
-            : ['found' => false, 'client' => null, 'phone_contact' => null, 'display_name' => $name, 'recent_calls' => []];
+            : ['found' => false, 'client' => null, 'lead' => null, 'phone_contact' => null, 'display_name' => $name, 'recent_calls' => []];
+
+        $lead = $leadId ? $this->crmLookup->findLeadById($companyId, $leadId) : null;
+        if (! $lead && isset($lookup['lead']['id'])) {
+            $lead = $this->crmLookup->findLeadById($companyId, (int) $lookup['lead']['id']);
+        }
+        if (! $lead && $normalizedPhone) {
+            $lead = $this->crmLookup->findLeadByPhone($companyId, $normalizedPhone, $digits);
+        }
+        if (! $lead && $email) {
+            $lead = $this->crmLookup->findLeadByEmail($companyId, $email);
+        }
+        if (! $lead && $name) {
+            $lead = $this->crmLookup->findLeadByName($companyId, $name);
+        }
+        if ($lead) {
+            $lead->loadMissing('identities');
+        }
 
         // Enrich contact via email if phone lookup missed.
         $client = isset($lookup['client']) && is_array($lookup['client'])
@@ -89,15 +106,15 @@ class ContactConversationHistoryService
             $lookup['display_name'] = $name;
         }
 
-        $emails = $this->collectEmails($email, $client, $lookup['phone_contact']['email'] ?? null);
-        $phones = $this->collectPhones($normalizedPhone, $digits, $client);
+        $emails = $this->collectEmails($email, $client, $lookup['phone_contact']['email'] ?? null, $lead);
+        $phones = $this->collectPhones($normalizedPhone, $digits, $client, $lead);
 
         $threads = collect()
             ->merge($this->safeChannel('whatsapp-threads', fn () => $this->whatsappThreads($companyId, $phones)))
             ->merge($this->safeChannel('viber-threads', fn () => $this->viberThreads($companyId, $phones)))
             ->merge($this->safeChannel('sms-threads', fn () => $this->smsThreads($companyId, $phones)))
             ->merge($this->safeChannel('inbox-threads', fn () => $this->inboxThreads($companyId, $emails)))
-            ->merge($this->safeChannel('facebook-threads', fn () => $this->facebookThreads($companyId, $client, $lookup)))
+            ->merge($this->safeChannel('facebook-threads', fn () => $this->facebookThreads($companyId, $client, $lookup, $lead)))
             ->values()
             ->all();
 
@@ -123,7 +140,8 @@ class ContactConversationHistoryService
         }
         $notes[] = 'Facebook/Instagram threads match by CRM client name when available (Meta does not expose phone/email on messages).';
 
-        $displayName = $client?->name
+        $displayName = $lead?->name
+            ?? $client?->name
             ?? ($lookup['display_name'] ?? null)
             ?? ($lookup['phone_contact']['name'] ?? null)
             ?? $normalizedPhone
@@ -134,10 +152,12 @@ class ContactConversationHistoryService
                 'phone' => $normalizedPhone,
                 'email' => $email,
                 'name' => $name,
+                'lead_id' => $lead?->id,
             ],
             'contact' => [
-                'found' => (bool) ($client || ($lookup['found'] ?? false) || $threads !== []),
+                'found' => (bool) ($lead || $client || ($lookup['found'] ?? false) || $threads !== []),
                 'display_name' => $displayName,
+                'lead' => $lead ? $this->crmLookup->serializeLead($lead) : null,
                 'client' => $client ? [
                     'id' => $client->id,
                     'name' => $client->name,
@@ -158,7 +178,7 @@ class ContactConversationHistoryService
     /**
      * @return list<string>
      */
-    protected function collectEmails(?string $email, ?Client $client, ?string $phoneContactEmail): array
+    protected function collectEmails(?string $email, ?Client $client, ?string $phoneContactEmail, ?Lead $lead = null): array
     {
         $emails = [];
         foreach ([$email, $phoneContactEmail, $client?->email] as $candidate) {
@@ -175,6 +195,14 @@ class ContactConversationHistoryService
                 }
             }
         }
+        if ($lead) {
+            foreach ($lead->emailValues() as $candidate) {
+                $extracted = $this->extractEmail($candidate);
+                if ($extracted) {
+                    $emails[] = $extracted;
+                }
+            }
+        }
 
         return array_values(array_unique(array_filter($emails)));
     }
@@ -182,7 +210,7 @@ class ContactConversationHistoryService
     /**
      * @return list<string>
      */
-    protected function collectPhones(?string $normalizedPhone, string $digits, ?Client $client): array
+    protected function collectPhones(?string $normalizedPhone, string $digits, ?Client $client, ?Lead $lead = null): array
     {
         $phones = [];
         if ($normalizedPhone) {
@@ -201,6 +229,11 @@ class ContactConversationHistoryService
                 if ($c->phone) {
                     $phones[] = $this->twilioCompany->normalizePhone((string) $c->phone);
                 }
+            }
+        }
+        if ($lead) {
+            foreach ($lead->phoneValues() as $candidate) {
+                $phones[] = $this->twilioCompany->normalizePhone((string) $candidate);
             }
         }
 
@@ -340,7 +373,7 @@ class ContactConversationHistoryService
      * @param  array<string, mixed>  $lookup
      * @return Collection<int, array<string, mixed>>
      */
-    protected function facebookThreads(int $companyId, ?Client $client, array $lookup): Collection
+    protected function facebookThreads(int $companyId, ?Client $client, array $lookup, ?Lead $lead = null): Collection
     {
         $names = [];
         if ($client?->name) {
@@ -351,6 +384,11 @@ class ContactConversationHistoryService
         }
         if (! empty($lookup['phone_contact']['name'])) {
             $names[] = strtolower(trim((string) $lookup['phone_contact']['name']));
+        }
+        if ($lead) {
+            foreach ($lead->socialNames() as $socialName) {
+                $names[] = $socialName;
+            }
         }
         $names = array_values(array_unique(array_filter($names)));
         if ($names === []) {

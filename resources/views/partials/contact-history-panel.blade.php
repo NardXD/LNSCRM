@@ -3,7 +3,8 @@
     $panelId = $panelId ?? 'contactHistoryPanel';
 @endphp
 <aside class="chp-panel" id="{{ $panelId }}" hidden
-       data-api="/api/crm/contact-history">
+       data-api="/api/crm/contact-history"
+       data-can-save-lead="{{ auth()->user()?->hasPermission('view_client_management') ? '1' : '0' }}">
     <div class="chp-header">
         <strong>Contact history</strong>
         <span class="chp-hint">All channels</span>
@@ -58,7 +59,19 @@
 }
 .chp-name { font-weight: 700; font-size: 0.98rem; color: var(--text-primary, #1a2332); margin-bottom: 0.25rem; }
 .chp-meta { font-size: 0.8rem; color: var(--text-secondary, #5b6b7c); margin: 0.15rem 0; word-break: break-all; }
-.chp-link { display: inline-block; margin-top: 0.45rem; font-size: 0.82rem; font-weight: 600; color: #0b5cab; text-decoration: none; }
+.chp-link { display: inline-block; margin-top: 0.45rem; margin-right: 0.65rem; font-size: 0.82rem; font-weight: 600; color: #0b5cab; text-decoration: none; }
+.chp-save-lead {
+    display: inline-block;
+    margin-top: 0.45rem;
+    padding: 0.28rem 0.6rem;
+    border: 1px solid #0b5cab;
+    border-radius: 6px;
+    background: #fff;
+    color: #0b5cab;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+}
 .chp-item {
     display: block;
     text-decoration: none;
@@ -141,7 +154,9 @@
             <div class="chp-name">${esc(contact.display_name || 'Contact')}</div>
             ${(contact.matched_phones || []).slice(0, 2).map((p) => `<div class="chp-meta">${esc(p)}</div>`).join('')}
             ${(contact.matched_emails || []).slice(0, 2).map((em) => `<div class="chp-meta">${esc(em)}</div>`).join('')}
+            ${contact.lead?.crm_url ? `<a class="chp-link" href="${esc(contact.lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>` : ''}
             ${contact.client?.crm_url ? `<a class="chp-link" href="${esc(contact.client.crm_url)}" target="_blank" rel="noopener">Open client →</a>` : ''}
+            ${!contact.lead && (opts.canSaveLead !== false) ? `<button type="button" class="chp-save-lead" data-chp-save-lead>Save as lead</button>` : ''}
         `;
         const threadsHtml = threads.length
             ? threads.map((t) => `
@@ -170,6 +185,60 @@
                 ${eventsHtml}
             </div>
         `;
+
+        const saveBtn = root.querySelector('[data-chp-save-lead]');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => saveAsLead(root, opts, contact));
+        }
+    }
+
+    async function saveAsLead(bodyEl, opts, contact) {
+        const name = String(contact.display_name || opts.name || opts.phone || opts.email || 'New lead').trim();
+        const phones = (contact.matched_phones || []).filter(Boolean);
+        if (opts.phone && !phones.length) phones.push(opts.phone);
+        const emails = (contact.matched_emails || []).filter(Boolean);
+        if (opts.email && !emails.length) emails.push(opts.email);
+        const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        const btn = bodyEl.querySelector('[data-chp-save-lead]');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Saving…';
+        }
+        try {
+            const res = await fetch('/api/leads', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    ...(token ? { 'X-CSRF-TOKEN': token } : {}),
+                },
+                body: JSON.stringify({
+                    name,
+                    phones,
+                    emails,
+                    facebook_name: opts.name || null,
+                    source: opts.source || 'contact-history',
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                if (data.existing_lead_id) {
+                    window.location.href = '/leads?lead=' + data.existing_lead_id;
+                    return;
+                }
+                throw new Error(data.message || 'Could not save lead.');
+            }
+            const url = data.data?.crm_url || ('/leads?lead=' + (data.data?.id || ''));
+            window.location.href = url;
+        } catch (err) {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Save as lead';
+            }
+            alert(err.message || 'Could not save lead.');
+        }
     }
 
     async function load(rootOrSelector, opts) {
@@ -184,6 +253,9 @@
         const name = String(opts.name || '').trim();
         const api = root.dataset.api || '/api/crm/contact-history';
         const body = getBody(root);
+        if (root.dataset.canSaveLead === '0') {
+            opts.canSaveLead = false;
+        }
 
         root.hidden = false;
         root.removeAttribute('hidden');

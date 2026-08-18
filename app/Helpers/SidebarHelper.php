@@ -86,6 +86,14 @@ class SidebarHelper
                 'category' => 'main',
             ],
             [
+                'route' => 'leads',
+                'permission' => 'view_client_management',
+                'module_slug' => 'client-management',
+                'label' => 'Leads',
+                'icon' => 'user-plus',
+                'category' => 'main',
+            ],
+            [
                 'route' => 'hiring-queue',
                 'permission' => 'view_client_management',
                 'module_slug' => 'client-management',

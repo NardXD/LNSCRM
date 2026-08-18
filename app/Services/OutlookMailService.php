@@ -25,7 +25,8 @@ class OutlookMailService
 
     public function __construct(
         protected CalendarOauthSettingsService $oauthSettings,
-        protected InboxRuleEngine $ruleEngine
+        protected InboxRuleEngine $ruleEngine,
+        protected LeadAutoCreateService $leadAutoCreate
     ) {}
 
     /**
@@ -188,6 +189,7 @@ class OutlookMailService
                 ]);
                 // Fall back to treating unsynced as unknown; don't block other folders.
                 $foldersRemaining[$folder] = 0;
+
                 continue;
             }
 
@@ -377,6 +379,10 @@ class OutlookMailService
 
         $conversation->save();
 
+        if ($folder === 'inbox' && $fromEmail) {
+            $this->leadAutoCreate->fromSharedInbox($inbox, $fromName, $fromEmail);
+        }
+
         $externalMessageId = $this->truncate($msg['id'] ?? null, 512);
         if ($externalMessageId) {
             $existing = InboxMessage::where('inbox_conversation_id', $conversation->id)
@@ -546,6 +552,7 @@ class OutlookMailService
                     'message_id' => $message->external_message_id,
                     'status' => $response->status(),
                 ]);
+
                 continue;
             }
 
@@ -619,6 +626,7 @@ class OutlookMailService
                 }
                 $message->attachments = [];
                 $message->save();
+
                 continue;
             }
 

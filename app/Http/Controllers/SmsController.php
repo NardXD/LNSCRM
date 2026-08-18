@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\SmsConversation;
 use App\Models\SmsMessage;
+use App\Services\LeadAutoCreateService;
 use App\Services\SmsConversationService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
@@ -15,7 +16,8 @@ class SmsController extends Controller
 {
     public function __construct(
         protected TwilioCompanyService $twilioCompany,
-        protected SmsConversationService $conversations
+        protected SmsConversationService $conversations,
+        protected LeadAutoCreateService $leadAutoCreate
     ) {}
 
     public function index()
@@ -196,6 +198,13 @@ class SmsController extends Controller
         ]);
 
         $this->conversations->touch($conversation, $message);
+
+        $this->leadAutoCreate->fromPhoneChannel(
+            (int) $conversation->company_id,
+            'sms',
+            $conversation->peer_phone,
+            $conversation->name
+        );
 
         return response()->json(['data' => $this->formatMessage($message)], 201);
     }

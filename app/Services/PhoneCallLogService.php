@@ -3,14 +3,14 @@
 namespace App\Services;
 
 use App\Models\PhoneCallLog;
-use App\Models\TwilioPhoneNumber;
 use App\Models\User;
 use Carbon\Carbon;
 
 class PhoneCallLogService
 {
     public function __construct(
-        protected TwilioCompanyService $twilioCompany
+        protected TwilioCompanyService $twilioCompany,
+        protected LeadAutoCreateService $leadAutoCreate
     ) {}
 
     /**
@@ -66,6 +66,13 @@ class PhoneCallLogService
 
         $log->save();
 
+        $customerPhone = str_contains(strtolower((string) ($log->direction ?? '')), 'outbound')
+            ? $log->to_number
+            : $log->from_number;
+        if ($customerPhone) {
+            $this->leadAutoCreate->fromPhoneChannel((int) $company->id, 'phone', (string) $customerPhone);
+        }
+
         return $log;
     }
 
@@ -74,7 +81,7 @@ class PhoneCallLogService
      */
     public function recordOutbound(int $companyId, int $userId, string $callSid, string $from, string $to): PhoneCallLog
     {
-        return PhoneCallLog::query()->updateOrCreate(
+        $log = PhoneCallLog::query()->updateOrCreate(
             ['call_sid' => $callSid],
             [
                 'company_id' => $companyId,
@@ -86,6 +93,10 @@ class PhoneCallLogService
                 'started_at' => now(),
             ]
         );
+
+        $this->leadAutoCreate->fromPhoneChannel($companyId, 'phone', $to);
+
+        return $log;
     }
 
     /**
