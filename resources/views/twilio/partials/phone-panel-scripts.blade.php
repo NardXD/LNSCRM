@@ -2,20 +2,20 @@
 (function () {
     const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
     const routes = {
-        history: @json(route('twilio.call-history')),
-        contacts: @json(route('twilio.contacts')),
-        contactsStore: @json(route('twilio.contacts.store')),
+        history: @json(route('twilio.call-history', [], false)),
+        contacts: @json(route('twilio.contacts', [], false)),
+        contactsStore: @json(route('twilio.contacts.store', [], false)),
         contactsUpdate: @json(url('/twilio/contacts/__ID__')),
         contactsDelete: @json(url('/twilio/contacts/__ID__')),
-        numbers: @json(route('twilio.numbers')),
-        numbersSearch: @json(route('twilio.numbers.search')),
-        numbersPurchase: @json(route('twilio.numbers.purchase')),
-        numbersSync: @json(route('twilio.numbers.sync')),
+        numbers: @json(route('twilio.numbers', [], false)),
+        numbersSearch: @json(route('twilio.numbers.search', [], false)),
+        numbersPurchase: @json(route('twilio.numbers.purchase', [], false)),
+        numbersSync: @json(route('twilio.numbers.sync', [], false)),
         numbersAssign: @json(url('/twilio/numbers/__ID__/assign')),
         numbersUnassign: @json(url('/twilio/numbers/__ID__/unassign')),
-        numbersEmployees: @json(route('twilio.numbers.employees')),
-        agentPresence: @json(route('twilio.agent-presence')),
-        agentPresenceUpdate: @json(route('twilio.agent-presence.update')),
+        numbersEmployees: @json(route('twilio.numbers.employees', [], false)),
+        agentPresence: @json(route('twilio.agent-presence', [], false)),
+        agentPresenceUpdate: @json(route('twilio.agent-presence.update', [], false)),
     };
 
     const flags = {

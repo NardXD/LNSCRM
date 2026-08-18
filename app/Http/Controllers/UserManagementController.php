@@ -685,7 +685,7 @@ class UserManagementController extends Controller
 
         // Filter for sidebar permissions (category = 'main', 'settings', 'payroll', 'team_management', 'sidebar', or 'Leave Management')
         $allPermissions = $permissionsQuery
-            ->whereIn('category', ['main', 'settings', 'payroll', 'team_management', 'sidebar', 'Leave Management'])
+            ->whereIn('category', ['main', 'settings', 'payroll', 'team_management', 'sidebar', 'Leave Management', 'phone'])
             ->orderBy('display_name')
             ->get();
 

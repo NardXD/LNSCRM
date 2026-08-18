@@ -426,16 +426,21 @@ class PhoneSystemController extends Controller
     public function employeesForAssignment(Request $request): JsonResponse
     {
         $user = Auth::user();
+        $columns = ['id', 'name', 'email', 'twilio_number'];
+        if (\Illuminate\Support\Facades\Schema::hasColumn('users', 'twilio_sms_number')) {
+            $columns[] = 'twilio_sms_number';
+        }
+
         $employees = User::query()
             ->where('company_id', $user->company_id)
             ->orderBy('name')
-            ->get(['id', 'name', 'email', 'twilio_number', 'twilio_sms_number'])
+            ->get($columns)
             ->map(fn (User $e) => [
                 'id' => $e->id,
                 'name' => $e->name,
                 'email' => $e->email,
                 'twilio_number' => $e->twilio_number,
-                'twilio_sms_number' => $e->twilio_sms_number,
+                'twilio_sms_number' => $e->twilio_sms_number ?? $e->twilio_number,
             ]);
 
         return response()->json(['success' => true, 'data' => $employees]);

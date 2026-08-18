@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\TwilioPhoneNumber;
 use App\Models\User;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class TwilioNumberAssignmentService
@@ -70,18 +71,24 @@ class TwilioNumberAssignmentService
     {
         $voice = [];
         $sms = [];
+        $columns = ['id', 'name', 'twilio_number'];
+        $hasSmsNumber = Schema::hasColumn('users', 'twilio_sms_number');
+        if ($hasSmsNumber) {
+            $columns[] = 'twilio_sms_number';
+        }
 
         User::query()
             ->where('company_id', $companyId)
             ->orderBy('name')
-            ->get(['id', 'name', 'twilio_number', 'twilio_sms_number'])
-            ->each(function (User $user) use (&$voice, &$sms) {
+            ->get($columns)
+            ->each(function (User $user) use (&$voice, &$sms, $hasSmsNumber) {
                 if ($user->twilio_number) {
                     $number = $this->twilioCompany->normalizePhone($user->twilio_number);
                     $voice[$number][] = ['id' => (int) $user->id, 'name' => $user->name];
                 }
-                if ($user->twilio_sms_number) {
-                    $number = $this->twilioCompany->normalizePhone($user->twilio_sms_number);
+                $smsNumber = $hasSmsNumber ? $user->twilio_sms_number : $user->twilio_number;
+                if ($smsNumber) {
+                    $number = $this->twilioCompany->normalizePhone($smsNumber);
                     $sms[$number][] = ['id' => (int) $user->id, 'name' => $user->name];
                 }
             });
@@ -242,16 +249,21 @@ class TwilioNumberAssignmentService
             ->where('twilio_number', $normalized)
             ->orderBy('id')
             ->first();
-        $smsUser = User::query()
-            ->where('company_id', $companyId)
-            ->where('twilio_sms_number', $normalized)
-            ->orderBy('id')
-            ->first();
 
-        $record->update([
+        $updates = [
             'assigned_user_id' => $voiceUser?->id,
-            'sms_assigned_user_id' => $smsUser?->id,
-        ]);
+        ];
+
+        if (Schema::hasColumn('users', 'twilio_sms_number') && Schema::hasColumn('twilio_phone_numbers', 'sms_assigned_user_id')) {
+            $smsUser = User::query()
+                ->where('company_id', $companyId)
+                ->where('twilio_sms_number', $normalized)
+                ->orderBy('id')
+                ->first();
+            $updates['sms_assigned_user_id'] = $smsUser?->id;
+        }
+
+        $record->update($updates);
     }
 
     protected function userColumn(string $purpose): string

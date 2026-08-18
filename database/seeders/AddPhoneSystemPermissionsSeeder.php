@@ -25,35 +25,35 @@ class AddPhoneSystemPermissionsSeeder extends Seeder
                 'slug' => 'view_call_history',
                 'display_name' => 'View Call History',
                 'description' => 'View persisted phone call history',
-                'category' => 'phone',
+                'category' => 'main',
             ],
             [
                 'name' => 'manage_phone_contacts',
                 'slug' => 'manage_phone_contacts',
                 'display_name' => 'Manage Phone Contacts',
                 'description' => 'Create and manage phone system contacts',
-                'category' => 'phone',
+                'category' => 'main',
             ],
             [
                 'name' => 'view_sms',
                 'slug' => 'view_sms',
                 'display_name' => 'View SMS',
                 'description' => 'View SMS conversations in phone system',
-                'category' => 'phone',
+                'category' => 'main',
             ],
             [
                 'name' => 'send_sms',
                 'slug' => 'send_sms',
                 'display_name' => 'Send SMS',
                 'description' => 'Send SMS messages from phone system',
-                'category' => 'phone',
+                'category' => 'main',
             ],
             [
                 'name' => 'manage_twilio_numbers',
                 'slug' => 'manage_twilio_numbers',
                 'display_name' => 'Manage Twilio Numbers',
                 'description' => 'Purchase and assign Twilio phone numbers (admin only)',
-                'category' => 'phone',
+                'category' => 'main',
             ],
         ];
 
@@ -76,29 +76,49 @@ class AddPhoneSystemPermissionsSeeder extends Seeder
                 $createdIds[] = $permission->id;
             }
 
-            $adminRole = Role::query()
-                ->where('slug', 'admin')
+            $adminRoles = Role::query()
                 ->where('company_id', $company->id)
-                ->first();
+                ->where(function ($q) {
+                    $q->where('slug', 'admin')
+                        ->orWhere('slug', 'like', '%admin%')
+                        ->orWhere('name', 'like', '%admin%')
+                        ->orWhere('name', 'like', '%owner%');
+                })
+                ->get();
 
-            if ($adminRole) {
+            foreach ($adminRoles as $adminRole) {
                 $adminRole->permissions()->syncWithoutDetaching($createdIds);
             }
 
-            $phoneRole = Role::query()
+            $agentPermIds = Permission::query()
+                ->where('company_id', $company->id)
+                ->whereIn('slug', ['view_call_history', 'manage_phone_contacts', 'view_sms', 'send_sms'])
+                ->pluck('id');
+
+            $phoneRoles = Role::query()
                 ->where('company_id', $company->id)
                 ->where(function ($q) {
                     $q->where('slug', 'like', '%phone%')
                         ->orWhere('name', 'like', '%phone%');
                 })
+                ->get();
+
+            $phoneSystemPermission = Permission::query()
+                ->where('company_id', $company->id)
+                ->where('slug', 'view_phone_system')
                 ->first();
 
-            if ($phoneRole) {
-                $nonAdminPerms = Permission::query()
-                    ->where('company_id', $company->id)
-                    ->whereIn('slug', ['view_call_history', 'manage_phone_contacts', 'view_sms', 'send_sms'])
-                    ->pluck('id');
-                $phoneRole->permissions()->syncWithoutDetaching($nonAdminPerms);
+            if ($phoneSystemPermission) {
+                $phoneRoles = $phoneRoles->merge(
+                    Role::query()
+                        ->where('company_id', $company->id)
+                        ->whereHas('permissions', fn ($q) => $q->where('permissions.id', $phoneSystemPermission->id))
+                        ->get()
+                )->unique('id');
+            }
+
+            foreach ($phoneRoles as $phoneRole) {
+                $phoneRole->permissions()->syncWithoutDetaching($agentPermIds);
             }
         }
 
