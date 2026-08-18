@@ -95,11 +95,144 @@
 @media (max-width: 900px) {
     .chp-panel { display: none !important; }
 }
+@media (min-width: 901px) {
+    .sms-layout.with-history .chp-panel,
+    .wa-layout.with-history .chp-panel,
+    .viber-layout.with-history .chp-panel,
+    .fb-layout.with-history .chp-panel {
+        display: flex !important;
+    }
+}
 </style>
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-    if (!window.LnsContactHistory) {
-        console.error('Contact history panel script is missing. Rebuild frontend assets with npm run build.');
+(function () {
+    if (window.LnsContactHistory) return;
+
+    function esc(str) {
+        return String(str ?? '').replace(/[&<>"']/g, (c) => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+        }[c]));
     }
-});
+
+    function badgeClass(channel) {
+        return ['whatsapp', 'viber', 'sms', 'inbox', 'call', 'facebook'].includes(channel) ? channel : '';
+    }
+
+    function formatAt(iso) {
+        if (!iso) return '';
+        try { return new Date(iso).toLocaleString(); } catch { return iso; }
+    }
+
+    function getBody(root) {
+        return root.querySelector('.chp-body') || root;
+    }
+
+    function renderPanel(root, data, opts) {
+        opts = opts || {};
+        const excludeChannel = opts.excludeChannel || null;
+        const excludeId = opts.excludeId != null ? Number(opts.excludeId) : null;
+        const contact = data.contact || {};
+        const threads = (data.threads || []).filter((t) => {
+            if (excludeChannel && t.channel === excludeChannel && Number(t.conversation_id) === excludeId) {
+                return false;
+            }
+            return true;
+        });
+        const events = (data.events || []).slice(0, 25);
+        const contactHtml = `
+            <div class="chp-name">${esc(contact.display_name || 'Contact')}</div>
+            ${(contact.matched_phones || []).slice(0, 2).map((p) => `<div class="chp-meta">${esc(p)}</div>`).join('')}
+            ${(contact.matched_emails || []).slice(0, 2).map((em) => `<div class="chp-meta">${esc(em)}</div>`).join('')}
+            ${contact.client?.crm_url ? `<a class="chp-link" href="${esc(contact.client.crm_url)}" target="_blank" rel="noopener">Open client →</a>` : ''}
+        `;
+        const threadsHtml = threads.length
+            ? threads.map((t) => `
+                <a class="chp-item" href="${esc(t.deep_link || '#')}">
+                    <span class="chp-badge ${badgeClass(t.channel)}">${esc(t.label || t.channel)}</span>
+                    <div class="chp-item-title">${esc(t.title || '')}</div>
+                    <div class="chp-item-preview">${esc(t.preview || '')}</div>
+                </a>`).join('')
+            : '<p class="chp-empty">No other channel threads found.</p>';
+        const eventsHtml = events.length
+            ? events.map((ev) => `
+                <div class="chp-event">
+                    <span class="chp-badge ${badgeClass(ev.channel)}">${esc(ev.label || ev.channel)}</span>
+                    <span class="chp-dir">${esc(ev.direction || '')} · ${esc(formatAt(ev.at))}</span>
+                    <div class="chp-item-preview">${esc(ev.preview || '')}</div>
+                </div>`).join('')
+            : '<p class="chp-empty">No timeline events.</p>';
+        root.innerHTML = `
+            <div class="chp-section">${contactHtml}</div>
+            <div class="chp-section">
+                <div class="chp-label">Other channels</div>
+                ${threadsHtml}
+            </div>
+            <div class="chp-section">
+                <div class="chp-label">Timeline</div>
+                ${eventsHtml}
+            </div>
+        `;
+    }
+
+    async function load(rootOrSelector, opts) {
+        opts = opts || {};
+        const root = typeof rootOrSelector === 'string'
+            ? document.querySelector(rootOrSelector)
+            : rootOrSelector;
+        if (!root) return null;
+
+        const phone = String(opts.phone || '').trim();
+        const email = String(opts.email || '').trim();
+        const name = String(opts.name || '').trim();
+        const api = root.dataset.api || '/api/crm/contact-history';
+        const body = getBody(root);
+
+        root.hidden = false;
+        root.removeAttribute('hidden');
+        root.classList.add('chp-visible');
+
+        if (!phone && !email && !name) {
+            body.innerHTML = '<p class="chp-empty">No phone, email, or name on this conversation to look up history.</p>';
+            return null;
+        }
+
+        body.innerHTML = '<p class="chp-empty">Loading contact history…</p>';
+
+        const q = new URLSearchParams();
+        if (phone) q.set('phone', phone);
+        if (email) q.set('email', email);
+        if (name) q.set('name', name);
+        q.set('limit', String(opts.limit || 60));
+
+        try {
+            const res = await fetch(api + '?' + q.toString(), {
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || data.message || 'Failed to load history');
+            renderPanel(body, data, opts);
+            return data;
+        } catch (err) {
+            body.innerHTML = `<p class="chp-empty">${esc(err.message || 'Could not load contact history.')}</p>`;
+            return null;
+        }
+    }
+
+    function clear(rootOrSelector) {
+        const root = typeof rootOrSelector === 'string'
+            ? document.querySelector(rootOrSelector)
+            : rootOrSelector;
+        if (!root) return;
+        root.hidden = true;
+        root.setAttribute('hidden', '');
+        root.classList.remove('chp-visible');
+        getBody(root).innerHTML = '<p class="chp-empty">Select a conversation to see history across WhatsApp, Viber, SMS, Inbox, Calls, and Facebook.</p>';
+    }
+
+    window.LnsContactHistory = { load, clear, renderPanel };
+})();
 </script>
