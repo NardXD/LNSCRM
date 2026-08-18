@@ -1547,6 +1547,24 @@
     width: 100%; border: 1px solid var(--inbox-border); border-radius: 8px; padding: 0.5rem 0.65rem; font-size: 0.84rem; background: #fff;
 }
 .inbox-prop-value { font-size: 0.88rem; }
+.inbox-props .chp-panel { display: block !important; width: 100%; max-width: none; border: 0; background: transparent; height: auto; min-height: 0; }
+.inbox-props .chp-body { padding: 0; overflow: visible; }
+.inbox-props .chp-name { font-weight: 700; font-size: 0.95rem; margin-bottom: 0.25rem; }
+.inbox-props .chp-meta { font-size: 0.8rem; color: var(--inbox-muted); margin: 0.15rem 0; word-break: break-all; }
+.inbox-props .chp-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--inbox-muted); margin: 0.85rem 0 0.4rem; }
+.inbox-props .chp-item { display: block; text-decoration: none; color: inherit; padding: 0.5rem 0; border-bottom: 1px solid var(--inbox-border); }
+.inbox-props .chp-item-title { font-size: 0.84rem; font-weight: 600; margin: 0.2rem 0; }
+.inbox-props .chp-item-preview { font-size: 0.78rem; color: var(--inbox-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inbox-props .chp-event { padding: 0.4rem 0; border-bottom: 1px solid var(--inbox-border); }
+.inbox-props .chp-dir { font-size: 0.72rem; color: var(--inbox-muted); }
+.inbox-props .chp-empty { font-size: 0.84rem; color: var(--inbox-muted); margin: 0; }
+.inbox-props .chp-link { display: inline-block; margin-top: 0.4rem; font-size: 0.82rem; font-weight: 600; color: #0b5cab; text-decoration: none; }
+.inbox-props .chp-badge { display: inline-block; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; padding: 0.12rem 0.4rem; border-radius: 4px; background: #fff4e5; color: #b45309; }
+.inbox-props .chp-badge.whatsapp { background: #e8f8ef; color: #128c7e; }
+.inbox-props .chp-badge.viber { background: #efeaff; color: #5b3cc4; }
+.inbox-props .chp-badge.sms { background: #e8f8ef; color: #0f7b4c; }
+.inbox-props .chp-badge.call { background: #f1f3f5; color: #495057; }
+.inbox-props .chp-badge.facebook { background: #e8f1ff; color: #1877f2; }
 .inbox-tag-pills { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.5rem; min-height: 1.25rem; }
 .inbox-modal-backdrop {
     position: fixed; inset: 0; background: rgba(15, 23, 42, .35); z-index: 80;
@@ -3658,12 +3676,112 @@
             `).join('')
             : '<div style="color:var(--inbox-muted);font-size:0.8rem;">No history yet</div>';
 
-        window.LnsContactHistory?.load('#inboxContactHistory', {
-            email: c.from_email || '',
-            name: c.from_name || '',
-            excludeChannel: 'inbox',
-            excludeId: c.id,
+        loadInboxContactHistory(c);
+    }
+
+    function extractContactEmail(value) {
+        const raw = String(value || '').trim();
+        const angle = raw.match(/<([^>]+@[^>]+)>/);
+        if (angle) return angle[1].trim().toLowerCase();
+        return raw.includes('@') ? raw.toLowerCase() : '';
+    }
+
+    function renderInboxContactHistoryFallback(root, data, opts = {}) {
+        const excludeChannel = opts.excludeChannel || null;
+        const excludeId = opts.excludeId != null ? Number(opts.excludeId) : null;
+        const contact = data.contact || {};
+        const threads = (data.threads || []).filter((t) => {
+            if (excludeChannel && t.channel === excludeChannel && Number(t.conversation_id) === excludeId) {
+                return false;
+            }
+            return true;
         });
+        const events = (data.events || []).slice(0, 25);
+        const contactHtml = `
+            <div class="chp-name">${escapeHtml(contact.display_name || 'Contact')}</div>
+            ${(contact.matched_phones || []).slice(0, 2).map((p) => `<div class="chp-meta">${escapeHtml(p)}</div>`).join('')}
+            ${(contact.matched_emails || []).slice(0, 2).map((em) => `<div class="chp-meta">${escapeHtml(em)}</div>`).join('')}
+            ${contact.client?.crm_url ? `<a class="chp-link" href="${escapeHtml(contact.client.crm_url)}" target="_blank" rel="noopener">Open client →</a>` : ''}
+        `;
+        const threadsHtml = threads.length
+            ? threads.map((t) => `
+                <a class="chp-item" href="${escapeHtml(t.deep_link || '#')}">
+                    <span class="chp-badge ${escapeHtml(t.channel || '')}">${escapeHtml(t.label || t.channel)}</span>
+                    <div class="chp-item-title">${escapeHtml(t.title || '')}</div>
+                    <div class="chp-item-preview">${escapeHtml(t.preview || '')}</div>
+                </a>`).join('')
+            : '<p class="chp-empty">No other channel threads found.</p>';
+        const eventsHtml = events.length
+            ? events.map((ev) => `
+                <div class="chp-event">
+                    <span class="chp-badge ${escapeHtml(ev.channel || '')}">${escapeHtml(ev.label || ev.channel)}</span>
+                    <span class="chp-dir">${escapeHtml(ev.direction || '')} · ${escapeHtml(ev.at ? new Date(ev.at).toLocaleString() : '')}</span>
+                    <div class="chp-item-preview">${escapeHtml(ev.preview || '')}</div>
+                </div>`).join('')
+            : '<p class="chp-empty">No timeline events.</p>';
+        root.innerHTML = `
+            <div class="chp-section">${contactHtml}</div>
+            <div class="chp-section">
+                <div class="chp-label">Other channels</div>
+                ${threadsHtml}
+            </div>
+            <div class="chp-section">
+                <div class="chp-label">Timeline</div>
+                ${eventsHtml}
+            </div>
+        `;
+    }
+
+    async function loadInboxContactHistory(c) {
+        const root = el('inboxContactHistory');
+        const body = el('inboxContactHistoryBody') || root;
+        if (!body || !c) return;
+
+        const email = extractContactEmail(c.from_email);
+        const name = String(c.from_name || '').trim();
+        const phone = String(c.phone || c.from_phone || '').trim();
+
+        if (!email && !name && !phone) {
+            body.innerHTML = '<p class="chp-empty">No email or name on this conversation to look up history.</p>';
+            return;
+        }
+
+        body.innerHTML = '<p class="chp-empty">Loading contact history…</p>';
+
+        const opts = { email, name, phone, excludeChannel: 'inbox', excludeId: c.id, limit: 60 };
+        if (window.LnsContactHistory?.load) {
+            try {
+                await window.LnsContactHistory.load(root, opts);
+                return;
+            } catch (e) {
+                console.warn('LnsContactHistory.load failed, using inbox fallback', e);
+            }
+        }
+
+        const q = new URLSearchParams();
+        if (email) q.set('email', email);
+        if (name) q.set('name', name);
+        if (phone) q.set('phone', phone);
+        q.set('limit', '60');
+
+        try {
+            const res = await fetch('/api/crm/contact-history?' + q.toString(), {
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || data.message || 'Failed to load history');
+            if (window.LnsContactHistory?.renderPanel) {
+                window.LnsContactHistory.renderPanel(body, data, opts);
+            } else {
+                renderInboxContactHistoryFallback(body, data, opts);
+            }
+        } catch (err) {
+            body.innerHTML = `<p class="chp-empty">${escapeHtml(err.message || 'Could not load contact history.')}</p>`;
+        }
     }
 
     function escapeHtml(str) {
