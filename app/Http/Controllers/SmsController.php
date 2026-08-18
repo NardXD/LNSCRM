@@ -8,6 +8,7 @@ use App\Services\LeadAutoCreateService;
 use App\Services\SmsConversationService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -60,6 +61,8 @@ class SmsController extends Controller
     {
         $user = Auth::user();
         $q = trim((string) $request->query('q', ''));
+        $limit = min(max((int) $request->query('limit', 40), 1), 100);
+        $beforeId = (int) $request->query('before_id', 0);
 
         $query = SmsConversation::query()
             ->where('company_id', $user->company_id)
@@ -81,31 +84,66 @@ class SmsController extends Controller
                 $builder->where('our_number', $mine)->orWhereNull('our_number');
             });
         } elseif (! $user->hasPermission('manage_twilio_numbers') && ! $user->twilio_sms_number) {
-            return response()->json(['data' => []]);
+            return response()->json(['data' => [], 'has_more' => false]);
         }
 
-        $conversations = $query->limit(100)->get()->map(fn (SmsConversation $c) => $this->formatConversation($c));
+        if ($beforeId > 0) {
+            $before = SmsConversation::query()
+                ->where('company_id', $user->company_id)
+                ->whereKey($beforeId)
+                ->first();
 
-        return response()->json(['data' => $conversations]);
+            if ($before) {
+                $this->constrainConversationsBefore($query, $before);
+            }
+        }
+
+        $rows = $query->limit($limit + 1)->get();
+        $hasMore = $rows->count() > $limit;
+        if ($hasMore) {
+            $rows = $rows->take($limit);
+        }
+
+        return response()->json([
+            'data' => $rows->map(fn (SmsConversation $c) => $this->formatConversation($c))->values(),
+            'has_more' => $hasMore,
+        ]);
     }
 
-    public function messages(SmsConversation $conversation): JsonResponse
+    public function messages(Request $request, SmsConversation $conversation): JsonResponse
     {
         $this->assertCompanyConversation($conversation);
 
-        $messages = SmsMessage::query()
-            ->where('sms_conversation_id', $conversation->id)
-            ->orderBy('created_at')
-            ->orderBy('id')
-            ->limit(500)
-            ->get()
-            ->map(fn (SmsMessage $m) => $this->formatMessage($m));
+        $limit = min(max((int) $request->query('limit', 40), 1), 100);
+        $beforeId = (int) $request->query('before_id', 0);
 
-        $conversation->update(['unread_count' => 0]);
+        $query = SmsMessage::query()
+            ->where('sms_conversation_id', $conversation->id);
+
+        if ($beforeId > 0) {
+            $query->where('id', '<', $beforeId);
+        }
+
+        $messages = $query
+            ->orderByDesc('id')
+            ->limit($limit + 1)
+            ->get();
+
+        $hasMore = $messages->count() > $limit;
+        if ($hasMore) {
+            $messages = $messages->take($limit);
+        }
+
+        $messages = $messages->reverse()->values()->map(fn (SmsMessage $m) => $this->formatMessage($m));
+
+        if ($beforeId <= 0) {
+            $conversation->update(['unread_count' => 0]);
+        }
 
         return response()->json([
             'conversation' => $this->formatConversation($conversation->fresh()),
             'data' => $messages,
+            'has_more' => $hasMore,
         ]);
     }
 
@@ -228,6 +266,24 @@ class SmsController extends Controller
         if ((int) $conversation->company_id !== (int) Auth::user()->company_id) {
             abort(404);
         }
+    }
+
+    protected function constrainConversationsBefore(Builder $query, SmsConversation $before): void
+    {
+        if ($before->last_message_at) {
+            $query->where(function ($builder) use ($before) {
+                $builder->where('last_message_at', '<', $before->last_message_at)
+                    ->orWhere(function ($inner) use ($before) {
+                        $inner->where('last_message_at', $before->last_message_at)
+                            ->where('id', '<', $before->id);
+                    })
+                    ->orWhereNull('last_message_at');
+            });
+
+            return;
+        }
+
+        $query->whereNull('last_message_at')->where('id', '<', $before->id);
     }
 
     protected function formatConversation(SmsConversation $c): array
