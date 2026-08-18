@@ -9,7 +9,9 @@ use App\Models\Department;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SalesRep;
+use App\Models\TwilioPhoneNumber;
 use App\Models\User;
+use App\Services\TwilioCompanyService;
 use App\Services\TwilioNumberAssignmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -122,6 +124,40 @@ class UserManagementController extends Controller
     {
         $user = Auth::user();
         $forEmployeeId = $request->integer('employee_id') ?: null;
+        $company = $user->company;
+
+        if ($company) {
+            $needsSync = TwilioPhoneNumber::query()->where('company_id', $company->id)->doesntExist();
+            if (! $needsSync && $forEmployeeId) {
+                $employee = User::query()->find($forEmployeeId);
+                foreach (['twilio_number', 'twilio_sms_number'] as $column) {
+                    $current = $employee?->{$column};
+                    if (! $current) {
+                        continue;
+                    }
+                    $normalized = app(TwilioCompanyService::class)->normalizePhone($current);
+                    $inInventory = TwilioPhoneNumber::query()
+                        ->where('company_id', $company->id)
+                        ->where('phone_number', $normalized)
+                        ->exists();
+                    if (! $inInventory) {
+                        $needsSync = true;
+                        break;
+                    }
+                }
+            }
+
+            if ($needsSync) {
+                try {
+                    app(TwilioCompanyService::class)->syncOwnedNumbers($company);
+                } catch (\Throwable $e) {
+                    Log::warning('Twilio number sync while loading assignment options failed', [
+                        'company_id' => $company->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+        }
 
         return response()->json([
             'success' => true,

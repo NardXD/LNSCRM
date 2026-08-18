@@ -30,7 +30,7 @@ class TwilioNumberAssignmentService
     {
         $purpose = $this->normalizePurpose($purpose, allowNull: true);
 
-        return TwilioPhoneNumber::query()
+        $options = TwilioPhoneNumber::query()
             ->where('company_id', $companyId)
             ->with(['assignedUser:id,name', 'smsAssignedUser:id,name'])
             ->orderBy('phone_number')
@@ -45,8 +45,33 @@ class TwilioNumberAssignmentService
                 return $assignedUserId === null || $assignedUserId === $forEmployeeId;
             })
             ->map(fn (TwilioPhoneNumber $number) => $this->formatOption($number))
-            ->values()
-            ->all();
+            ->values();
+
+        if ($forEmployeeId) {
+            $employee = User::query()->find($forEmployeeId);
+            foreach ([self::PURPOSE_VOICE, self::PURPOSE_SMS] as $employeePurpose) {
+                $current = $employee?->{$this->userColumn($employeePurpose)};
+                if (! $current) {
+                    continue;
+                }
+
+                $normalized = $this->twilioCompany->normalizePhone($current);
+                if ($options->contains(fn (array $option) => $option['phone_number'] === $normalized)) {
+                    continue;
+                }
+
+                $options->push([
+                    'phone_number' => $normalized,
+                    'friendly_name' => null,
+                    'assigned_user_id' => $employeePurpose === self::PURPOSE_VOICE ? $employee->id : null,
+                    'assigned_user_name' => $employeePurpose === self::PURPOSE_VOICE ? $employee->name : null,
+                    'sms_assigned_user_id' => $employeePurpose === self::PURPOSE_SMS ? $employee->id : null,
+                    'sms_assigned_user_name' => $employeePurpose === self::PURPOSE_SMS ? $employee->name : null,
+                ]);
+            }
+        }
+
+        return $options->values()->all();
     }
 
     /**
@@ -62,6 +87,8 @@ class TwilioNumberAssignmentService
         }
 
         $normalized = $this->twilioCompany->normalizePhone($rawNumber);
+        $currentUser = $forUserId ? User::query()->find($forUserId) : null;
+        $alreadyTheirs = $currentUser && $currentUser->{$field} === $normalized;
 
         $record = TwilioPhoneNumber::query()
             ->where('company_id', $companyId)
@@ -69,13 +96,17 @@ class TwilioNumberAssignmentService
             ->first();
 
         if (! $record) {
+            if ($alreadyTheirs) {
+                return $normalized;
+            }
+
             throw ValidationException::withMessages([
                 $field => 'Select a Twilio number from your company inventory (Phone System → Numbers).',
             ]);
         }
 
         $assignedUserId = $this->inventoryAssigneeId($record, $purpose);
-        if ($assignedUserId && $assignedUserId !== $forUserId) {
+        if ($assignedUserId && $assignedUserId !== $forUserId && ! $alreadyTheirs) {
             throw ValidationException::withMessages([
                 $field => $purpose === self::PURPOSE_SMS
                     ? 'This Twilio number is already assigned to another employee for SMS.'
@@ -111,10 +142,14 @@ class TwilioNumberAssignmentService
             ->first();
 
         if ($record && $this->inventoryAssigneeId($record, $purpose) && $this->inventoryAssigneeId($record, $purpose) !== $user->id) {
-            User::query()
-                ->where('id', $this->inventoryAssigneeId($record, $purpose))
-                ->where($userColumn, $normalized)
-                ->update([$userColumn => null]);
+            $previousOwnerId = $this->inventoryAssigneeId($record, $purpose);
+            $previousOwner = User::query()->find($previousOwnerId);
+            if (! $previousOwner || $previousOwner->{$userColumn} !== $normalized) {
+                User::query()
+                    ->where('id', $previousOwnerId)
+                    ->where($userColumn, $normalized)
+                    ->update([$userColumn => null]);
+            }
         }
 
         $record?->update([$inventoryColumn => $user->id]);

@@ -20,6 +20,7 @@ use App\Services\WiseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
@@ -168,9 +169,22 @@ class IntegrationController extends Controller
             ]
         );
 
+        $synced = 0;
+        try {
+            $synced = app(TwilioCompanyService::class)->syncOwnedNumbers($company);
+        } catch (\Throwable $e) {
+            Log::warning('Twilio number sync after saving credentials failed', [
+                'company_id' => $company->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         return response()->json([
-            'message' => 'Twilio saved and verified successfully',
+            'message' => $synced > 0
+                ? "Twilio saved and verified successfully. Synced {$synced} phone number(s)."
+                : 'Twilio saved and verified successfully',
             'status' => 'connected',
+            'synced_numbers' => $synced,
             'integration' => $this->formatTwilioIntegration($integration),
         ]);
     }

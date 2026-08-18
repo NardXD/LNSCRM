@@ -255,6 +255,18 @@ class PhoneSystemController extends Controller
     public function numbers(Request $request): JsonResponse
     {
         $user = Auth::user();
+
+        if ($user->company && TwilioPhoneNumber::query()->where('company_id', $user->company_id)->doesntExist()) {
+            try {
+                $this->twilioCompany->syncOwnedNumbers($user->company);
+            } catch (\Throwable $e) {
+                Log::warning('Twilio number sync while loading inventory failed', [
+                    'company_id' => $user->company_id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
         $numbers = TwilioPhoneNumber::query()
             ->where('company_id', $user->company_id)
             ->with(['assignedUser:id,name,email', 'smsAssignedUser:id,name,email'])
@@ -334,34 +346,7 @@ class PhoneSystemController extends Controller
     public function syncNumbers(Request $request): JsonResponse
     {
         $user = Auth::user();
-        $credentials = $this->credentialsOrFail();
-        $twilio = new TwilioService($credentials['sid'], $credentials['token']);
-        $owned = $twilio->listOwnedNumbers();
-
-        $synced = 0;
-        $voiceUrl = route('twilio.voice');
-        $smsUrl = route('twilio.sms-webhook');
-
-        foreach ($owned as $item) {
-            $normalized = $this->twilioCompany->normalizePhone($item['phone_number']);
-            TwilioPhoneNumber::query()->updateOrCreate(
-                [
-                    'company_id' => $user->company_id,
-                    'phone_number' => $normalized,
-                ],
-                [
-                    'twilio_sid' => $item['sid'],
-                    'friendly_name' => $item['friendly_name'],
-                    'capabilities' => $item['capabilities'],
-                ]
-            );
-
-            if (! empty($item['sid'])) {
-                $twilio->updateNumberWebhooks($item['sid'], $voiceUrl, $smsUrl);
-            }
-
-            $synced++;
-        }
+        $synced = $this->twilioCompany->syncOwnedNumbers($user->company);
 
         return response()->json([
             'success' => true,

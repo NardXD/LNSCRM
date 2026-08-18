@@ -2816,11 +2816,17 @@
 
     function fillTwilioNumberSelect(select, emptyLabel, numbers, employeeId, selectedNumber, assignedKey) {
         select.innerHTML = `<option value="">${emptyLabel}</option>`;
+        const seen = new Set();
         numbers.forEach(number => {
             const assignedId = number[assignedKey];
-            if (assignedId && Number(assignedId) !== Number(employeeId)) {
+            const isCurrent = selectedNumber && number.phone_number === selectedNumber;
+            if (assignedId && Number(assignedId) !== Number(employeeId) && !isCurrent) {
                 return;
             }
+            if (seen.has(number.phone_number)) {
+                return;
+            }
+            seen.add(number.phone_number);
             const option = document.createElement('option');
             option.value = number.phone_number;
             option.textContent = number.friendly_name
@@ -2828,6 +2834,12 @@
                 : number.phone_number;
             select.appendChild(option);
         });
+        if (selectedNumber && !seen.has(selectedNumber)) {
+            const option = document.createElement('option');
+            option.value = selectedNumber;
+            option.textContent = selectedNumber;
+            select.appendChild(option);
+        }
         if (selectedNumber) {
             select.value = selectedNumber;
         }

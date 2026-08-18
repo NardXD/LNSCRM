@@ -168,4 +168,64 @@ class TwilioCompanyService
 
         return $digits;
     }
+
+    /**
+     * Import numbers owned by the company's Twilio account into local inventory.
+     */
+    public function syncOwnedNumbers(Company $company): int
+    {
+        $integration = $this->getActiveIntegration($company);
+        if (! $integration) {
+            return 0;
+        }
+
+        $credentials = $this->getCredentials($integration);
+        if (! $credentials) {
+            return 0;
+        }
+
+        $twilio = new TwilioService($credentials['sid'], $credentials['token']);
+        $owned = $twilio->listOwnedNumbers();
+        $voiceUrl = route('twilio.voice');
+        $smsUrl = route('twilio.sms-webhook');
+        $synced = 0;
+
+        foreach ($owned as $item) {
+            $normalized = $this->normalizePhone($item['phone_number']);
+            TwilioPhoneNumber::query()->updateOrCreate(
+                [
+                    'company_id' => $company->id,
+                    'phone_number' => $normalized,
+                ],
+                [
+                    'twilio_sid' => $item['sid'],
+                    'friendly_name' => $item['friendly_name'],
+                    'capabilities' => $item['capabilities'],
+                ]
+            );
+
+            if (! empty($item['sid']) && $this->canPushTwilioWebhooks($voiceUrl)) {
+                try {
+                    $twilio->updateNumberWebhooks($item['sid'], $voiceUrl, $smsUrl);
+                } catch (\Throwable $e) {
+                    Log::warning('Twilio webhook update skipped during number sync', [
+                        'company_id' => $company->id,
+                        'phone_number' => $normalized,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            $synced++;
+        }
+
+        return $synced;
+    }
+
+    protected function canPushTwilioWebhooks(string $url): bool
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+
+        return $host && ! in_array($host, ['localhost', '127.0.0.1', '::1'], true);
+    }
 }
