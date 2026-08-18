@@ -4,7 +4,7 @@
 
 @section('content')
 <div class="ch-page" id="contactHistoryApp"
-     data-api="{{ url('/api/crm/contact-history') }}"
+     data-api="/api/crm/contact-history"
      data-csrf="{{ csrf_token() }}">
     <div class="ch-header">
         <div>
@@ -160,6 +160,7 @@
             if (phone) q.set('phone', phone);
             if (email) q.set('email', email);
             const res = await fetch(api + '?' + q.toString(), {
+                credentials: 'same-origin',
                 headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
             });
             const data = await res.json();

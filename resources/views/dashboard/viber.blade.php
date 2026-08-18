@@ -320,7 +320,7 @@
 
         document.querySelector('.viber-layout')?.classList.add('with-history');
         window.LnsContactHistory?.load('#viberContactHistory', {
-            phone: conv.phone || conv.viber_user_id || '',
+            phone: conv.phone || '',
             name: conv.name || '',
             excludeChannel: 'viber',
             excludeId: conv.id,

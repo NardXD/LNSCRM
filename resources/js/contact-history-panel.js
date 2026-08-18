@@ -36,7 +36,7 @@
 .chp-badge.call{background:#f1f3f5;color:#495057}
 .chp-badge.facebook{background:#e8f1ff;color:#1877f2}
 .chp-panel .chp-body>.chp-section:first-child{padding-bottom:.5rem;border-bottom:1px solid var(--border,#e6ebf0);margin-bottom:.9rem}
-@media (max-width:1100px){.wa-layout .chp-panel,.viber-layout .chp-panel,.sms-layout .chp-panel,.fb-layout .chp-panel{display:none!important}}
+@media (max-width:900px){.wa-layout .chp-panel,.viber-layout .chp-panel,.sms-layout .chp-panel,.fb-layout .chp-panel{display:none!important}}
 `;
     document.head.appendChild(style);
 })();
@@ -149,6 +149,7 @@ async function load(rootOrSelector, opts = {}) {
 
     try {
         const res = await fetch(`${api}?${q.toString()}`, {
+            credentials: 'same-origin',
             headers: {
                 Accept: 'application/json',
                 'X-Requested-With': 'XMLHttpRequest',

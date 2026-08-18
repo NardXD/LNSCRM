@@ -252,7 +252,7 @@
             <div class="inbox-props-block">
                 <div class="inbox-props-label">Contact history (all channels)</div>
                 <div id="inboxContactHistory" class="chp-panel chp-visible" style="width:100%;max-width:none;border:0;background:transparent;height:auto;display:block;"
-                     data-api="{{ url('/api/crm/contact-history') }}">
+                     data-api="/api/crm/contact-history">
                     <div class="chp-body" id="inboxContactHistoryBody" style="padding:0;overflow:visible;">
                         <p class="chp-empty">Select a conversation to see cross-channel history.</p>
                     </div>

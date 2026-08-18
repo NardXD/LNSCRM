@@ -3,7 +3,7 @@
     $panelId = $panelId ?? 'contactHistoryPanel';
 @endphp
 <aside class="chp-panel" id="{{ $panelId }}" hidden
-       data-api="{{ url('/api/crm/contact-history') }}">
+       data-api="/api/crm/contact-history">
     <div class="chp-header">
         <strong>Contact history</strong>
         <span class="chp-hint">All channels</span>
@@ -92,7 +92,14 @@
 .chp-badge.call { background: #f1f3f5; color: #495057; }
 .chp-badge.facebook { background: #e8f1ff; color: #1877f2; }
 .chp-panel .chp-body > .chp-section:first-child { padding-bottom: 0.5rem; border-bottom: 1px solid var(--border, #e6ebf0); margin-bottom: 0.9rem; }
-@media (max-width: 1100px) {
+@media (max-width: 900px) {
     .chp-panel { display: none !important; }
 }
 </style>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    if (!window.LnsContactHistory) {
+        console.error('Contact history panel script is missing. Rebuild frontend assets with npm run build.');
+    }
+});
+</script>

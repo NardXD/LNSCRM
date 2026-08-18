@@ -320,6 +320,7 @@
         layout?.classList.add('with-history');
         window.LnsContactHistory?.load('#waContactHistory', {
             phone: conv.phone || conv.wa_id || '',
+            name: conv.name || conv.profile_name || '',
             excludeChannel: 'whatsapp',
             excludeId: conv.id,
         });

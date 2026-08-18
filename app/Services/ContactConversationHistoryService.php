@@ -15,6 +15,7 @@ use App\Models\ViberMessage;
 use App\Models\WhatsAppConversation;
 use App\Models\WhatsAppMessage;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 class ContactConversationHistoryService
 {
@@ -92,21 +93,21 @@ class ContactConversationHistoryService
         $phones = $this->collectPhones($normalizedPhone, $digits, $client);
 
         $threads = collect()
-            ->merge($this->whatsappThreads($companyId, $phones))
-            ->merge($this->viberThreads($companyId, $phones))
-            ->merge($this->smsThreads($companyId, $phones))
-            ->merge($this->inboxThreads($companyId, $emails))
-            ->merge($this->facebookThreads($companyId, $client, $lookup))
+            ->merge($this->safeChannel('whatsapp-threads', fn () => $this->whatsappThreads($companyId, $phones)))
+            ->merge($this->safeChannel('viber-threads', fn () => $this->viberThreads($companyId, $phones)))
+            ->merge($this->safeChannel('sms-threads', fn () => $this->smsThreads($companyId, $phones)))
+            ->merge($this->safeChannel('inbox-threads', fn () => $this->inboxThreads($companyId, $emails)))
+            ->merge($this->safeChannel('facebook-threads', fn () => $this->facebookThreads($companyId, $client, $lookup)))
             ->values()
             ->all();
 
         $events = collect()
-            ->merge($this->whatsappEvents($companyId, $phones, 40))
-            ->merge($this->viberEvents($companyId, $phones, 40))
-            ->merge($this->smsEvents($companyId, $phones, 40))
-            ->merge($this->inboxEvents($companyId, $emails, 40))
-            ->merge($this->callEvents($companyId, $phones, 40))
-            ->merge($this->facebookEvents($companyId, $threads, 40))
+            ->merge($this->safeChannel('whatsapp-events', fn () => $this->whatsappEvents($companyId, $phones, 40)))
+            ->merge($this->safeChannel('viber-events', fn () => $this->viberEvents($companyId, $phones, 40)))
+            ->merge($this->safeChannel('sms-events', fn () => $this->smsEvents($companyId, $phones, 40)))
+            ->merge($this->safeChannel('inbox-events', fn () => $this->inboxEvents($companyId, $emails, 40)))
+            ->merge($this->safeChannel('call-events', fn () => $this->callEvents($companyId, $phones, 40)))
+            ->merge($this->safeChannel('facebook-events', fn () => $this->facebookEvents($companyId, $threads, 40)))
             ->sortByDesc(fn (array $e) => $e['at'] ?? '')
             ->values()
             ->take(max(10, $limit))
@@ -160,19 +161,17 @@ class ContactConversationHistoryService
     protected function collectEmails(?string $email, ?Client $client, ?string $phoneContactEmail): array
     {
         $emails = [];
-        if ($email) {
-            $emails[] = strtolower($email);
-        }
-        if ($phoneContactEmail) {
-            $emails[] = strtolower(trim($phoneContactEmail));
-        }
-        if ($client?->email) {
-            $emails[] = strtolower(trim((string) $client->email));
+        foreach ([$email, $phoneContactEmail, $client?->email] as $candidate) {
+            $extracted = $this->extractEmail($candidate);
+            if ($extracted) {
+                $emails[] = $extracted;
+            }
         }
         if ($client) {
             foreach ($client->contacts as $c) {
-                if ($c->email) {
-                    $emails[] = strtolower(trim((string) $c->email));
+                $extracted = $this->extractEmail($c->email);
+                if ($extracted) {
+                    $emails[] = $extracted;
                 }
             }
         }
@@ -317,13 +316,14 @@ class ContactConversationHistoryService
 
         return InboxConversation::query()
             ->where('company_id', $companyId)
-            ->whereNotNull('from_email')
-            ->get()
-            ->filter(function (InboxConversation $c) use ($emails) {
-                $from = strtolower(trim((string) $c->from_email));
-
-                return $from !== '' && in_array($from, $emails, true);
+            ->where(function ($query) use ($emails) {
+                $this->applyInboxEmailMatch($query, $emails);
             })
+            ->with('messages')
+            ->orderByDesc('last_message_at')
+            ->limit(80)
+            ->get()
+            ->filter(fn (InboxConversation $c) => $this->inboxConversationMatchesEmails($c, $emails))
             ->map(fn (InboxConversation $c) => [
                 'channel' => 'inbox',
                 'label' => 'Inbox',
@@ -511,15 +511,14 @@ class ContactConversationHistoryService
 
         return InboxConversation::query()
             ->where('company_id', $companyId)
-            ->whereNotNull('from_email')
+            ->where(function ($query) use ($emails) {
+                $this->applyInboxEmailMatch($query, $emails);
+            })
+            ->with('messages')
             ->orderByDesc('last_message_at')
             ->limit(80)
             ->get()
-            ->filter(function (InboxConversation $c) use ($emails) {
-                $from = strtolower(trim((string) $c->from_email));
-
-                return $from !== '' && in_array($from, $emails, true);
-            })
+            ->filter(fn (InboxConversation $c) => $this->inboxConversationMatchesEmails($c, $emails))
             ->take($limit)
             ->map(fn (InboxConversation $c) => [
                 'channel' => 'inbox',
@@ -668,5 +667,85 @@ class ContactConversationHistoryService
         }
 
         return substr($normDigits, -$len) === substr($candDigits, -$len);
+    }
+
+    /**
+     * @param  callable(): Collection<int, array<string, mixed>>  $fn
+     * @return Collection<int, array<string, mixed>>
+     */
+    protected function safeChannel(string $channel, callable $fn): Collection
+    {
+        try {
+            $result = $fn();
+
+            return $result instanceof Collection ? $result : collect();
+        } catch (\Throwable $e) {
+            Log::warning('Contact history channel failed', [
+                'channel' => $channel,
+                'error' => $e->getMessage(),
+            ]);
+
+            return collect();
+        }
+    }
+
+    protected function extractEmail(mixed $value): ?string
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        $value = trim($value);
+        if (preg_match('/<([^>]+@[^>]+)>/', $value, $matches)) {
+            return strtolower(trim($matches[1]));
+        }
+
+        $lower = strtolower($value);
+
+        return str_contains($lower, '@') ? $lower : null;
+    }
+
+    /**
+     * @param  list<string>  $emails
+     */
+    protected function applyInboxEmailMatch($query, array $emails): void
+    {
+        foreach ($emails as $email) {
+            $like = '%'.$email.'%';
+            $query->orWhereRaw('LOWER(from_email) = ?', [$email])
+                ->orWhereRaw('LOWER(from_email) LIKE ?', [$like])
+                ->orWhereHas('messages', function ($messages) use ($email, $like) {
+                    $messages->whereRaw('LOWER(from_email) = ?', [$email])
+                        ->orWhereRaw('LOWER(from_email) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(to_emails) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(cc_emails) LIKE ?', [$like]);
+                });
+        }
+    }
+
+    /**
+     * @param  list<string>  $emails
+     */
+    protected function inboxConversationMatchesEmails(InboxConversation $conversation, array $emails): bool
+    {
+        $from = $this->extractEmail($conversation->from_email);
+        if ($from && in_array($from, $emails, true)) {
+            return true;
+        }
+
+        foreach ($conversation->messages as $message) {
+            $messageFrom = $this->extractEmail($message->from_email);
+            if ($messageFrom && in_array($messageFrom, $emails, true)) {
+                return true;
+            }
+            $haystack = strtolower(trim((string) $message->to_emails).' '.(string) $message->cc_emails);
+            foreach ($emails as $email) {
+                if ($email !== '' && str_contains($haystack, $email)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }
