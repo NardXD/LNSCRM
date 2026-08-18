@@ -106,8 +106,6 @@
 </style>
 <script>
 (function () {
-    if (window.LnsContactHistory) return;
-
     function esc(str) {
         return String(str ?? '').replace(/[&<>"']/g, (c) => ({
             '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -233,6 +231,15 @@
         getBody(root).innerHTML = '<p class="chp-empty">Select a conversation to see history across WhatsApp, Viber, SMS, Inbox, Calls, and Facebook.</p>';
     }
 
-    window.LnsContactHistory = { load, clear, renderPanel };
+    if (!window.LnsContactHistory) {
+        window.LnsContactHistory = { load, clear, renderPanel };
+    }
+
+    window.loadChannelContactHistory = function (selector, opts) {
+        if (window.LnsContactHistory && typeof window.LnsContactHistory.load === 'function') {
+            return window.LnsContactHistory.load(selector, opts);
+        }
+        return load(selector, opts);
+    };
 })();
 </script>

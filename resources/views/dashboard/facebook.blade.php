@@ -333,7 +333,7 @@
         window.updateHeaderNotificationsBadge?.();
 
         document.querySelector('.fb-layout')?.classList.add('with-history');
-        window.LnsContactHistory?.load('#fbContactHistory', {
+        window.loadChannelContactHistory('#fbContactHistory', {
             name: conv.name || conv.username || '',
             excludeChannel: 'facebook',
             excludeId: conv.id,

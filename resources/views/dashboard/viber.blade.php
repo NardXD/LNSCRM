@@ -319,7 +319,7 @@
         await loadConversations();
 
         document.querySelector('.viber-layout')?.classList.add('with-history');
-        window.LnsContactHistory?.load('#viberContactHistory', {
+        window.loadChannelContactHistory('#viberContactHistory', {
             phone: conv.phone || '',
             name: conv.name || '',
             excludeChannel: 'viber',

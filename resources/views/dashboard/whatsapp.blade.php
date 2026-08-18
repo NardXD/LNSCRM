@@ -318,7 +318,7 @@
 
         const layout = document.querySelector('.wa-layout');
         layout?.classList.add('with-history');
-        window.LnsContactHistory?.load('#waContactHistory', {
+        window.loadChannelContactHistory('#waContactHistory', {
             phone: conv.phone || conv.wa_id || '',
             name: conv.name || conv.profile_name || '',
             excludeChannel: 'whatsapp',

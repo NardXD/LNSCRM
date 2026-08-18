@@ -309,7 +309,7 @@
         await loadConversations();
 
         document.querySelector('.sms-layout')?.classList.add('with-history');
-        window.LnsContactHistory?.load('#smsContactHistory', {
+        window.loadChannelContactHistory('#smsContactHistory', {
             phone: conv.peer_phone || '',
             name: conv.name || '',
             excludeChannel: 'sms',
