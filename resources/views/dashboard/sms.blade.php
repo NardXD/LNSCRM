@@ -68,8 +68,10 @@
                 </div>
 
                 <footer class="sms-composer" @if(empty($canSendSms) || !$canSendSms) style="display:none;" @endif>
-                    <textarea id="smsTextInput" rows="1" placeholder="Type an SMS…" maxlength="1600"></textarea>
-                    <button type="button" class="sms-send-btn" id="smsSendBtn">Send</button>
+                    <textarea id="smsTextInput" rows="1" placeholder="Text Message" maxlength="1600"></textarea>
+                    <button type="button" class="sms-send-btn" id="smsSendBtn" title="Send" aria-label="Send">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4l-1.4 1.4 5.6 5.6H4v2h12.2l-5.6 5.6L12 20l8-8z"/></svg>
+                    </button>
                 </footer>
             </div>
         </main>
@@ -106,6 +108,9 @@
     --sms-panel: #ffffff;
     --sms-accent: #0ea5e9;
     --sms-accent-soft: #e0f2fe;
+    --sms-green: #34C759;
+    --sms-gray-bubble: #E9E9EB;
+    --sms-imessage-bg: #ffffff;
     margin: 0;
     width: 100%;
     height: calc(100vh - 64px);
@@ -202,7 +207,7 @@
 .sms-empty-card p { color: var(--text-secondary); margin: 0 0 1rem; font-size: 0.88rem; line-height: 1.45; }
 .sms-link-btn { display: inline-block; padding: 0.5rem 0.85rem; border-radius: 8px; background: var(--sms-accent); color: #fff; text-decoration: none; font-weight: 600; font-size: 0.84rem; }
 
-.sms-chat { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.sms-chat { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--sms-imessage-bg); }
 .sms-chat-header {
     display: flex; align-items: center; gap: 0.75rem;
     min-height: 64px;
@@ -221,15 +226,15 @@
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
-    padding: 0.85rem 1.15rem 1rem;
+    padding: 0.75rem 1rem 1.1rem;
     display: flex;
     flex-direction: column;
-    background: var(--sms-bg);
+    background: var(--sms-imessage-bg);
 }
 .sms-load-older {
     text-align: center;
     font-size: 0.7rem;
-    color: var(--text-secondary);
+    color: #8e8e93;
     padding: 0.35rem 0 0.5rem;
     flex-shrink: 0;
 }
@@ -237,61 +242,102 @@
     margin-top: auto;
     display: flex;
     flex-direction: column;
-    gap: 0.18rem;
+    gap: 2px;
     min-height: min-content;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
 }
-.sms-day {
+.sms-stamp {
     align-self: center;
-    font-size: 0.66rem;
+    font-size: 11px;
     font-weight: 600;
-    color: var(--text-secondary);
-    background: var(--sms-panel);
-    border: 1px solid var(--border);
-    padding: 0.12rem 0.5rem;
-    border-radius: 999px;
-    margin: 0.5rem 0 0.25rem;
-    letter-spacing: 0.01em;
+    color: #8e8e93;
+    letter-spacing: -0.01em;
+    margin: 12px 0 8px;
+    text-align: center;
+    line-height: 1.3;
 }
 .sms-bubble {
-    max-width: min(68%, 420px);
-    padding: 0.38rem 0.62rem 0.32rem;
-    border-radius: 12px;
-    font-size: 0.8rem;
-    line-height: 1.38;
+    position: relative;
+    max-width: min(72%, 460px);
+    padding: 7px 13px 8px;
+    border-radius: 18px;
+    font-size: 15px;
+    line-height: 1.32;
+    letter-spacing: -0.01em;
     word-break: break-word;
     white-space: pre-wrap;
 }
 .sms-bubble.inbound {
     align-self: flex-start;
-    background: var(--sms-panel);
-    border: 1px solid var(--border);
-    border-bottom-left-radius: 4px;
-    color: var(--text-primary);
+    background: var(--sms-gray-bubble);
+    color: #000;
+    margin-left: 10px;
 }
 .sms-bubble.outbound {
     align-self: flex-end;
-    background: var(--sms-accent);
+    background: var(--sms-green);
     color: #fff;
-    border-bottom-right-radius: 4px;
+    margin-right: 10px;
 }
-.sms-bubble.follow { margin-top: 0; }
-.sms-bubble.inbound.follow { border-top-left-radius: 6px; }
-.sms-bubble.outbound.follow { border-top-right-radius: 6px; }
-.sms-meta {
-    display: block;
-    margin-top: 0.12rem;
-    font-size: 0.62rem;
-    line-height: 1.2;
-    opacity: 0.72;
+.sms-bubble.solo,
+.sms-bubble.group-start { margin-top: 8px; }
+.sms-stamp + .sms-bubble { margin-top: 0; }
+.sms-bubble.inbound.group-start:not(.solo) { border-bottom-left-radius: 5px; }
+.sms-bubble.inbound.group-mid { border-top-left-radius: 5px; border-bottom-left-radius: 5px; }
+.sms-bubble.inbound.group-end { border-top-left-radius: 5px; }
+.sms-bubble.outbound.group-start:not(.solo) { border-bottom-right-radius: 5px; }
+.sms-bubble.outbound.group-mid { border-top-right-radius: 5px; border-bottom-right-radius: 5px; }
+.sms-bubble.outbound.group-end { border-top-right-radius: 5px; }
+.sms-bubble.inbound.tail::before,
+.sms-bubble.outbound.tail::before {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    width: 16px;
+    height: 16px;
+}
+.sms-bubble.inbound.tail::after,
+.sms-bubble.outbound.tail::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    width: 10px;
+    height: 16px;
+    background: var(--sms-imessage-bg);
+}
+.sms-bubble.inbound.tail::before {
+    left: -6px;
+    background: var(--sms-gray-bubble);
+    border-bottom-right-radius: 12px;
+}
+.sms-bubble.inbound.tail::after {
+    left: -10px;
+    border-bottom-right-radius: 8px;
+}
+.sms-bubble.outbound.tail::before {
+    right: -6px;
+    background: var(--sms-green);
+    border-bottom-left-radius: 12px;
+}
+.sms-bubble.outbound.tail::after {
+    right: -10px;
+    border-bottom-left-radius: 8px;
+}
+.sms-delivered {
+    align-self: flex-end;
+    font-size: 11px;
     font-weight: 500;
+    color: #8e8e93;
+    margin: 2px 18px 2px 0;
+    letter-spacing: -0.01em;
 }
-.sms-bubble.failed { opacity: 0.85; }
-.sms-bubble.failed .sms-meta { color: #fecaca; opacity: 1; }
+.sms-delivered.is-failed { color: #ff3b30; font-weight: 600; }
+.sms-bubble.failed { opacity: 0.9; }
 
 .sms-composer {
-    display: flex; align-items: flex-end; gap: 0.5rem;
-    padding: 0.8rem 1.15rem 0.95rem; border-top: 1px solid var(--border);
-    background: var(--sms-panel); flex-shrink: 0;
+    display: flex; align-items: flex-end; gap: 0.45rem;
+    padding: 0.55rem 0.85rem 0.75rem; border-top: 1px solid #e5e5ea;
+    background: var(--sms-imessage-bg); flex-shrink: 0;
 }
 .sms-layout .chp-header {
     min-height: 64px;
@@ -299,14 +345,18 @@
     padding: 1rem 1.15rem;
 }
 .sms-composer textarea {
-    flex: 1; resize: none; min-height: 38px; max-height: 110px;
-    padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 10px;
-    background: var(--sms-bg); color: var(--text-primary); font: inherit; font-size: 0.84rem; line-height: 1.4;
+    flex: 1; resize: none; min-height: 36px; max-height: 110px;
+    padding: 8px 14px; border: 1px solid #c7c7cc; border-radius: 20px;
+    background: #fff; color: #000; font: inherit; font-size: 15px; line-height: 1.3;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
 }
+.sms-composer textarea::placeholder { color: #8e8e93; }
 .sms-send-btn {
-    border: 0; border-radius: 10px; padding: 0.55rem 0.9rem;
-    background: var(--sms-accent); color: #fff; font-weight: 600; font-size: 0.84rem; cursor: pointer;
+    width: 32px; height: 32px; border: 0; border-radius: 50%; padding: 0;
+    background: var(--sms-green); color: #fff; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
+.sms-send-btn svg { width: 16px; height: 16px; transform: rotate(-90deg); }
 .sms-send-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .sms-icon-btn {
     width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent;
@@ -425,24 +475,36 @@
         return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
     }
 
-    function formatBubbleTime(iso) {
+    function formatStamp(iso) {
         if (!iso) return '';
-        return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    }
-
-    function formatDayLabel(iso) {
         const d = new Date(iso);
         const now = new Date();
-        if (d.toDateString() === now.toDateString()) return 'Today';
+        const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        if (d.toDateString() === now.toDateString()) return 'Today ' + time;
         const yesterday = new Date(now);
         yesterday.setDate(now.getDate() - 1);
-        if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
-        return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+        if (d.toDateString() === yesterday.toDateString()) return 'Yesterday ' + time;
+        const weekAgo = new Date(now);
+        weekAgo.setDate(now.getDate() - 6);
+        if (d > weekAgo) {
+            return d.toLocaleDateString([], { weekday: 'long' }) + ' ' + time;
+        }
+        if (d.getFullYear() === now.getFullYear()) {
+            return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' at ' + time;
+        }
+        return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) + ' at ' + time;
     }
 
     function dayKey(iso) {
         if (!iso) return '';
         return new Date(iso).toDateString();
+    }
+
+    function shouldStamp(prevIso, iso) {
+        if (!iso) return false;
+        if (!prevIso) return true;
+        if (dayKey(prevIso) !== dayKey(iso)) return true;
+        return (new Date(iso) - new Date(prevIso)) > 45 * 60 * 1000;
     }
 
     function escapeHtml(str) {
@@ -451,6 +513,11 @@
 
     function nearBottom() {
         return els.messages.scrollHeight - els.messages.scrollTop - els.messages.clientHeight < 80;
+    }
+
+    function lastBubble() {
+        const nodes = els.messageList.querySelectorAll('.sms-bubble');
+        return nodes[nodes.length - 1] || null;
     }
 
     function renderThreads() {
@@ -478,66 +545,80 @@
         });
     }
 
-    function messageMarkup(m, follow) {
-        const status = (m.status || '').toLowerCase();
-        const failed = status === 'failed' || status === 'undelivered';
-        const metaBits = [formatBubbleTime(m.sent_at || m.created_at)];
-        if (failed) metaBits.push(m.status);
-        return `<div class="sms-bubble ${m.direction}${follow ? ' follow' : ''}${failed ? ' failed' : ''}" data-id="${m.id}" data-direction="${m.direction}" data-day="${dayKey(m.sent_at || m.created_at)}">
-            ${escapeHtml(m.body || '')}
-            <span class="sms-meta">${escapeHtml(metaBits.join(' · '))}</span>
-        </div>`;
+    function stampMarkup(iso) {
+        return `<div class="sms-stamp" data-day="${dayKey(iso)}" data-ts="${iso}">${escapeHtml(formatStamp(iso))}</div>`;
     }
 
-    function appendDayIfNeeded(iso, atStart) {
-        const key = dayKey(iso);
-        if (!key) return;
-        if (atStart) {
-            if (lastDayKey === key) return;
-            els.messageList.insertAdjacentHTML('afterbegin', `<div class="sms-day" data-day="${key}">${formatDayLabel(iso)}</div>`);
-            return;
-        }
-        if (lastDayKey === key) return;
-        els.messageList.insertAdjacentHTML('beforeend', `<div class="sms-day" data-day="${key}">${formatDayLabel(iso)}</div>`);
-        lastDayKey = key;
+    function messageMarkup(m) {
+        const status = (m.status || '').toLowerCase();
+        const failed = status === 'failed' || status === 'undelivered';
+        const iso = m.sent_at || m.created_at || '';
+        return `<div class="sms-bubble ${m.direction}${failed ? ' failed' : ''}" data-id="${m.id}" data-direction="${m.direction}" data-day="${dayKey(iso)}" data-ts="${iso}" data-status="${escapeHtml(status)}">${escapeHtml(m.body || '')}</div>`;
+    }
+
+    function refreshThreadChrome() {
+        const nodes = [...els.messageList.querySelectorAll('.sms-bubble')];
+        els.messageList.querySelectorAll('.sms-delivered').forEach(n => n.remove());
+        nodes.forEach((node, i) => {
+            const prev = nodes[i - 1];
+            const next = nodes[i + 1];
+            const samePrev = prev && prev.dataset.direction === node.dataset.direction && !shouldStamp(prev.dataset.ts, node.dataset.ts);
+            const sameNext = next && next.dataset.direction === node.dataset.direction && !shouldStamp(node.dataset.ts, next.dataset.ts);
+            node.classList.toggle('solo', !samePrev && !sameNext);
+            node.classList.toggle('group-start', !samePrev && sameNext);
+            node.classList.toggle('group-mid', samePrev && sameNext);
+            node.classList.toggle('group-end', samePrev && !sameNext);
+            node.classList.toggle('tail', !sameNext);
+            node.classList.toggle('follow', !!samePrev);
+        });
+
+        const lastOut = [...nodes].reverse().find(n => n.dataset.direction === 'outbound');
+        if (!lastOut) return;
+        const st = (lastOut.dataset.status || '').toLowerCase();
+        const failed = lastOut.classList.contains('failed') || st === 'failed' || st === 'undelivered';
+        let label = 'Delivered';
+        if (failed) label = 'Not Delivered';
+        else if (st === 'queued' || st === 'accepted' || st === 'sending') label = 'Sending';
+        lastOut.insertAdjacentHTML('afterend', `<div class="sms-delivered${failed ? ' is-failed' : ''}">${label}</div>`);
     }
 
     function appendMessage(m) {
         if (messageIds.has(m.id)) return;
-        const follow = lastDirection === m.direction && lastDayKey === dayKey(m.sent_at || m.created_at);
-        appendDayIfNeeded(m.sent_at || m.created_at, false);
-        els.messageList.insertAdjacentHTML('beforeend', messageMarkup(m, follow));
+        const iso = m.sent_at || m.created_at;
+        const prev = lastBubble();
+        if (shouldStamp(prev?.dataset.ts, iso)) {
+            els.messageList.insertAdjacentHTML('beforeend', stampMarkup(iso));
+        }
+        els.messageList.insertAdjacentHTML('beforeend', messageMarkup(m));
         messageIds.add(m.id);
         lastDirection = m.direction;
+        lastDayKey = dayKey(iso);
         if (!oldestMessageId || m.id < oldestMessageId) oldestMessageId = m.id;
+        refreshThreadChrome();
     }
 
     function prependMessages(items) {
         if (!items.length) return;
-        const first = els.messageList.firstElementChild;
-        const firstDay = first?.classList.contains('sms-day') ? first.dataset.day : first?.dataset.day;
+        const firstStamp = els.messageList.firstElementChild?.classList.contains('sms-stamp')
+            ? els.messageList.firstElementChild
+            : null;
         let html = '';
-        let prevDir = null;
-        let prevDay = null;
+        let prevIso = null;
         items.forEach(m => {
             if (messageIds.has(m.id)) return;
-            const key = dayKey(m.sent_at || m.created_at);
-            if (key && key !== prevDay) {
-                html += `<div class="sms-day" data-day="${key}">${formatDayLabel(m.sent_at || m.created_at)}</div>`;
-                prevDir = null;
-            }
-            const follow = prevDir === m.direction && prevDay === key;
-            html += messageMarkup(m, follow);
+            const iso = m.sent_at || m.created_at;
+            if (shouldStamp(prevIso, iso)) html += stampMarkup(iso);
+            html += messageMarkup(m);
             messageIds.add(m.id);
-            prevDir = m.direction;
-            prevDay = key;
+            lastDirection = lastDirection || m.direction;
+            prevIso = iso;
             if (!oldestMessageId || m.id < oldestMessageId) oldestMessageId = m.id;
         });
-        if (first && first.classList.contains('sms-day') && first.dataset.day === prevDay) {
-            first.remove();
-        }
         els.messageList.insertAdjacentHTML('afterbegin', html);
-        if (!lastDayKey) lastDayKey = firstDay || prevDay;
+        if (firstStamp && prevIso && !shouldStamp(prevIso, firstStamp.dataset.ts)) {
+            firstStamp.remove();
+        }
+        refreshThreadChrome();
     }
 
     function resetMessages() {
