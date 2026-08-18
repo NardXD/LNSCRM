@@ -122,6 +122,10 @@
             <div class="phone-assign-row">
                 <select id="assignNumberSelect" class="form-input"></select>
                 <select id="assignEmployeeSelect" class="form-input"></select>
+                <select id="assignPurposeSelect" class="form-input">
+                    <option value="voice">Phone system</option>
+                    <option value="sms">SMS</option>
+                </select>
                 <button type="button" class="btn-primary btn-sm" id="assignNumberBtn">Assign</button>
             </div>
         </div>
@@ -318,7 +322,7 @@
     .phone-inline-form { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
     .phone-form-actions { display: flex; gap: 0.5rem; }
     .phone-subsection-title { font-size: 0.9rem; font-weight: 600; margin: 0.75rem 0 0.5rem; color: var(--text-primary); }
-    .phone-assign-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.5rem; align-items: end; }
+    .phone-assign-row { display: grid; grid-template-columns: 1fr 1fr 0.9fr auto; gap: 0.5rem; align-items: end; }
     .phone-sms-page-hint {
         margin: 0.85rem 0 0;
         padding-top: 0.75rem;

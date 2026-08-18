@@ -28,7 +28,7 @@ class SmsController extends Controller
 
         return view('dashboard.sms', [
             'integrationConnected' => (bool) $integration,
-            'twilioNumber' => $user?->twilio_number,
+            'twilioNumber' => $user?->twilio_sms_number,
             'canSendSms' => (bool) $user?->hasPermission('send_sms'),
         ]);
     }
@@ -44,9 +44,10 @@ class SmsController extends Controller
             'connected' => (bool) $active,
             'can_send' => $user->hasPermission('send_sms'),
             'account' => [
-                'twilio_number' => $user->twilio_number,
-                'has_number' => (bool) $user->twilio_number,
-                'is_active' => (bool) ($integration && $integration->is_active),
+                'twilio_number' => $user->twilio_sms_number,
+                'twilio_sms_number' => $user->twilio_sms_number,
+                'has_number' => (bool) $user->twilio_sms_number,
+                'is_active' => (bool) ($active && $active->is_active),
                 'integrations_url' => route('integrations'),
                 'phone_system_url' => route('twilio.call'),
             ],
@@ -71,13 +72,13 @@ class SmsController extends Controller
             });
         }
 
-        // Non-admins only see threads involving their assigned Twilio number
-        if (! $user->hasPermission('manage_twilio_numbers') && $user->twilio_number) {
-            $mine = $this->twilioCompany->normalizePhone($user->twilio_number);
+        // Non-admins only see threads involving their assigned SMS number
+        if (! $user->hasPermission('manage_twilio_numbers') && $user->twilio_sms_number) {
+            $mine = $this->twilioCompany->normalizePhone($user->twilio_sms_number);
             $query->where(function ($builder) use ($mine) {
                 $builder->where('our_number', $mine)->orWhereNull('our_number');
             });
-        } elseif (! $user->hasPermission('manage_twilio_numbers') && ! $user->twilio_number) {
+        } elseif (! $user->hasPermission('manage_twilio_numbers') && ! $user->twilio_sms_number) {
             return response()->json(['data' => []]);
         }
 
@@ -114,9 +115,9 @@ class SmsController extends Controller
             return response()->json(['message' => 'You do not have permission to send SMS.'], 403);
         }
 
-        if (! $user->twilio_number) {
+        if (! $user->twilio_sms_number) {
             return response()->json([
-                'message' => 'You need an assigned Twilio number to start an SMS conversation.',
+                'message' => 'You need an assigned SMS number to start an SMS conversation.',
             ], 422);
         }
 
@@ -126,7 +127,7 @@ class SmsController extends Controller
         ]);
 
         $peer = $this->twilioCompany->normalizePhone($validated['to']);
-        $from = $this->twilioCompany->normalizePhone($user->twilio_number);
+        $from = $this->twilioCompany->normalizePhone($user->twilio_sms_number);
 
         $conversation = $this->conversations->upsert(
             (int) $user->company_id,
@@ -147,9 +148,9 @@ class SmsController extends Controller
             return response()->json(['message' => 'You do not have permission to send SMS.'], 403);
         }
 
-        if (! $user->twilio_number) {
+        if (! $user->twilio_sms_number) {
             return response()->json([
-                'message' => 'You need an assigned Twilio number to send SMS.',
+                'message' => 'You need an assigned SMS number to send SMS.',
             ], 422);
         }
 
@@ -158,7 +159,7 @@ class SmsController extends Controller
         ]);
 
         $to = $conversation->peer_phone;
-        $from = $this->twilioCompany->normalizePhone($user->twilio_number);
+        $from = $this->twilioCompany->normalizePhone($user->twilio_sms_number);
 
         $company = $user->company;
         $integration = $company ? $this->twilioCompany->getActiveIntegration($company) : null;

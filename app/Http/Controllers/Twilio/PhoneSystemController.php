@@ -257,7 +257,7 @@ class PhoneSystemController extends Controller
         $user = Auth::user();
         $numbers = TwilioPhoneNumber::query()
             ->where('company_id', $user->company_id)
-            ->with('assignedUser:id,name,email')
+            ->with(['assignedUser:id,name,email', 'smsAssignedUser:id,name,email'])
             ->orderBy('phone_number')
             ->get()
             ->map(fn (TwilioPhoneNumber $n) => $this->formatNumber($n));
@@ -382,6 +382,7 @@ class PhoneSystemController extends Controller
                 'integer',
                 Rule::exists('users', 'id')->where('company_id', $user->company_id),
             ],
+            'purpose' => ['required', 'in:voice,sms'],
         ]);
 
         $employee = User::query()
@@ -394,7 +395,11 @@ class PhoneSystemController extends Controller
         }
 
         try {
-            $this->numberAssignment->assignInventoryRecord($twilioPhoneNumber, $employee);
+            $this->numberAssignment->assignInventoryRecord(
+                $twilioPhoneNumber,
+                $employee,
+                $validated['purpose']
+            );
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'success' => false,
@@ -405,22 +410,26 @@ class PhoneSystemController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatNumber($twilioPhoneNumber->fresh('assignedUser')),
+            'data' => $this->formatNumber($twilioPhoneNumber->fresh(['assignedUser', 'smsAssignedUser'])),
         ]);
     }
 
-    public function unassignNumber(TwilioPhoneNumber $twilioPhoneNumber): JsonResponse
+    public function unassignNumber(Request $request, TwilioPhoneNumber $twilioPhoneNumber): JsonResponse
     {
         $user = Auth::user();
         if ((int) $twilioPhoneNumber->company_id !== (int) $user->company_id) {
             return response()->json(['success' => false, 'message' => 'Number not found.'], 404);
         }
 
-        $this->numberAssignment->unassignInventoryRecord($twilioPhoneNumber);
+        $validated = $request->validate([
+            'purpose' => ['nullable', 'in:voice,sms'],
+        ]);
+
+        $this->numberAssignment->unassignInventoryRecord($twilioPhoneNumber, $validated['purpose'] ?? null);
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatNumber($twilioPhoneNumber->fresh()),
+            'data' => $this->formatNumber($twilioPhoneNumber->fresh(['assignedUser', 'smsAssignedUser'])),
         ]);
     }
 
@@ -430,12 +439,13 @@ class PhoneSystemController extends Controller
         $employees = User::query()
             ->where('company_id', $user->company_id)
             ->orderBy('name')
-            ->get(['id', 'name', 'email', 'twilio_number'])
+            ->get(['id', 'name', 'email', 'twilio_number', 'twilio_sms_number'])
             ->map(fn (User $e) => [
                 'id' => $e->id,
                 'name' => $e->name,
                 'email' => $e->email,
                 'twilio_number' => $e->twilio_number,
+                'twilio_sms_number' => $e->twilio_sms_number,
             ]);
 
         return response()->json(['success' => true, 'data' => $employees]);
@@ -445,7 +455,7 @@ class PhoneSystemController extends Controller
     {
         $user = Auth::user();
         $companyId = (int) $user->company_id;
-        $myNumber = $user->twilio_number;
+        $myNumber = $user->twilio_sms_number;
 
         $query = SmsMessage::query()
             ->where('company_id', $companyId)
@@ -470,7 +480,7 @@ class PhoneSystemController extends Controller
     public function smsThreads(Request $request): JsonResponse
     {
         $user = Auth::user();
-        $myNumber = $user->twilio_number;
+        $myNumber = $user->twilio_sms_number;
         if (! $myNumber) {
             return response()->json(['success' => true, 'data' => []]);
         }
@@ -506,10 +516,10 @@ class PhoneSystemController extends Controller
     public function sendSms(Request $request): JsonResponse
     {
         $user = Auth::user();
-        if (! $user->twilio_number) {
+        if (! $user->twilio_sms_number) {
             return response()->json([
                 'success' => false,
-                'message' => 'You need an assigned Twilio number to send SMS.',
+                'message' => 'You need an assigned SMS number to send SMS.',
             ], 422);
         }
 
@@ -519,7 +529,7 @@ class PhoneSystemController extends Controller
         ]);
 
         $to = $this->twilioCompany->normalizePhone($validated['to']);
-        $from = $this->twilioCompany->normalizePhone($user->twilio_number);
+        $from = $this->twilioCompany->normalizePhone($user->twilio_sms_number);
 
         $credentials = $this->credentialsOrFail();
         $twilio = new TwilioService($credentials['sid'], $credentials['token']);
@@ -698,6 +708,8 @@ class PhoneSystemController extends Controller
             'capabilities' => $number->capabilities,
             'assigned_user_id' => $number->assigned_user_id,
             'assigned_user_name' => $number->assignedUser?->name,
+            'sms_assigned_user_id' => $number->sms_assigned_user_id,
+            'sms_assigned_user_name' => $number->smsAssignedUser?->name,
         ];
     }
 

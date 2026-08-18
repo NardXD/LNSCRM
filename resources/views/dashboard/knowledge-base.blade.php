@@ -250,10 +250,10 @@
                         <div class="default-guide-steps">
                             <ol>
                                 <li>Connect your company <strong>Twilio</strong> account in <strong>Integrations</strong> (Account SID, Auth Token, App SID, API Key, API Secret).</li>
-                                <li>Company admins: buy or sync phone numbers in <strong>Phone System → Numbers</strong>, then assign a number to each employee.</li>
+                                <li>Company admins: buy or sync phone numbers in <strong>Phone System → Numbers</strong>, then assign a phone system number and/or SMS number to each employee. These can be the same number or two different numbers.</li>
                                 <li>In the Twilio Console, set each number’s <strong>Voice</strong> and <strong>SMS</strong> webhooks to your app URLs (shown on the Phone System setup checklist).</li>
                                 <li>Go to <strong>Phone System</strong> — use the dial pad, call history, contacts, and SMS tabs.</li>
-                                <li>Employees need an assigned Twilio number before outbound calls or SMS will work.</li>
+                                <li>Employees need an assigned phone system number for outbound calls and an assigned SMS number for texting.</li>
                             </ol>
                         </div>
                     </details>

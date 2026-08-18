@@ -23,7 +23,7 @@
                 <strong>Phone numbers</strong> — Company admins with <em>Manage Twilio Numbers</em> can search and buy numbers on the <strong>Numbers</strong> tab, or buy in the Twilio Console and click <strong>Sync</strong>.
             </li>
             <li>
-                <strong>Assign a number</strong> to each employee who will make calls or send SMS (Numbers tab → Assign, or User Management).
+                <strong>Assign numbers</strong> to each employee who will make calls or send SMS (Numbers tab → Assign Phone or SMS, or User Management). Phone system and SMS numbers can be different.
             </li>
             <li>
                 <strong>Twilio Console webhooks</strong> (required for inbound calls, call history, and SMS if numbers were not bought in-app):
@@ -41,7 +41,7 @@
                 <strong>Call recording</strong> — Calls are recorded automatically. Listen from <strong>Call History</strong> after a call completes. Inbound callers hear a short “may be recorded” notice.
             </li>
             <li>
-                <strong>Employees</strong> need an assigned Twilio number before outbound calls or SMS will work.
+                <strong>Employees</strong> need an assigned phone system number for outbound calls and an assigned SMS number for texting. They can be the same number or two different numbers.
             </li>
         </ol>
         <p class="phone-setup-note">Each company uses its own Twilio account. Trial accounts may need verified caller IDs and upgraded accounts for purchasing numbers.</p>

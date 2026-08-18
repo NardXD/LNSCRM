@@ -14,6 +14,7 @@ class TwilioPhoneNumber extends Model
         'friendly_name',
         'capabilities',
         'assigned_user_id',
+        'sms_assigned_user_id',
     ];
 
     protected function casts(): array
@@ -31,5 +32,10 @@ class TwilioPhoneNumber extends Model
     public function assignedUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_user_id');
+    }
+
+    public function smsAssignedUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'sms_assigned_user_id');
     }
 }

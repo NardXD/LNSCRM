@@ -744,14 +744,21 @@
                                 <small class="form-help">Length of each screen recording clip. Default is 0.5 (30 seconds). <span id="employeeRecordingSecondsHint"></span></small>
                             </div>
                             <div class="form-group">
-                                <label for="employeeTwilioNumber" class="form-label">Twilio Number</label>
+                                <label for="employeeTwilioNumber" class="form-label">Phone System Number</label>
                                 <select id="employeeTwilioNumber" name="twilio_number" class="form-input">
-                                    <option value="">No Twilio number</option>
+                                    <option value="">No phone system number</option>
                                 </select>
-                                <small class="form-help">Numbers come from Phone System → Numbers. Sync or buy numbers there first.</small>
+                                <small class="form-help">Used as caller ID for outbound calls. Numbers come from Phone System → Numbers.</small>
                             </div>
                         </div>
                         <div class="form-row">
+                            <div class="form-group">
+                                <label for="employeeTwilioSmsNumber" class="form-label">SMS Number</label>
+                                <select id="employeeTwilioSmsNumber" name="twilio_sms_number" class="form-input">
+                                    <option value="">No SMS number</option>
+                                </select>
+                                <small class="form-help">Used as the From number for SMS. Can be the same as or different from the phone system number.</small>
+                            </div>
                             <div class="form-group">
                                 <label for="employeeWiseAccount" class="form-label">Wise Account</label>
                                 <input type="text" id="employeeWiseAccount" name="wise_account" class="form-input" placeholder="Email or account identifier" readonly>
@@ -2785,9 +2792,10 @@
         hint.style.color = 'var(--accent)';
     }
 
-    async function loadTwilioNumberOptions(employeeId = null, selectedNumber = '') {
-        const select = document.getElementById('employeeTwilioNumber');
-        if (!select) return;
+    async function loadTwilioNumberOptions(employeeId = null, selectedVoice = '', selectedSms = '') {
+        const voiceSelect = document.getElementById('employeeTwilioNumber');
+        const smsSelect = document.getElementById('employeeTwilioSmsNumber');
+        if (!voiceSelect || !smsSelect) return;
 
         const params = new URLSearchParams();
         if (employeeId) {
@@ -2797,25 +2805,31 @@
         try {
             const response = await fetch(`{{ route('api.user-management.twilio-number-options') }}?${params}`);
             const result = await response.json();
-            select.innerHTML = '<option value="">No Twilio number</option>';
+            const numbers = (result.success && result.data) ? result.data : [];
 
-            if (result.success && result.data) {
-                result.data.forEach(number => {
-                    const option = document.createElement('option');
-                    option.value = number.phone_number;
-                    const label = number.friendly_name
-                        ? `${number.friendly_name} (${number.phone_number})`
-                        : number.phone_number;
-                    option.textContent = label;
-                    select.appendChild(option);
-                });
-            }
-
-            if (selectedNumber) {
-                select.value = selectedNumber;
-            }
+            fillTwilioNumberSelect(voiceSelect, 'No phone system number', numbers, employeeId, selectedVoice, 'assigned_user_id');
+            fillTwilioNumberSelect(smsSelect, 'No SMS number', numbers, employeeId, selectedSms, 'sms_assigned_user_id');
         } catch (error) {
             console.error('Error loading Twilio numbers:', error);
+        }
+    }
+
+    function fillTwilioNumberSelect(select, emptyLabel, numbers, employeeId, selectedNumber, assignedKey) {
+        select.innerHTML = `<option value="">${emptyLabel}</option>`;
+        numbers.forEach(number => {
+            const assignedId = number[assignedKey];
+            if (assignedId && Number(assignedId) !== Number(employeeId)) {
+                return;
+            }
+            const option = document.createElement('option');
+            option.value = number.phone_number;
+            option.textContent = number.friendly_name
+                ? `${number.friendly_name} (${number.phone_number})`
+                : number.phone_number;
+            select.appendChild(option);
+        });
+        if (selectedNumber) {
+            select.value = selectedNumber;
         }
     }
 
@@ -2896,7 +2910,7 @@
                     document.getElementById('employeeRequiredWorkHours').value = emp.required_work_hours ?? '';
                     document.getElementById('employeeRecordingDuration').value = emp.recording_duration_minutes ?? '0.5';
                     updateEmployeeRecordingSecondsHint();
-                    await loadTwilioNumberOptions(employeeId, emp.twilio_number || '');
+                    await loadTwilioNumberOptions(employeeId, emp.twilio_number || '', emp.twilio_sms_number || '');
                     document.getElementById('employeeWiseAccount').value = emp.wise_account || '';
                     document.getElementById('employeeDepartment').value = emp.department_id || '';
                     document.getElementById('employeeStatus').value = emp.status || 'active';
@@ -3149,6 +3163,7 @@
         submitFormData.append('required_work_hours', formData.get('required_work_hours') || '');
         submitFormData.append('recording_duration_minutes', formData.get('recording_duration_minutes') || '0.5');
         submitFormData.append('twilio_number', formData.get('twilio_number') || '');
+        submitFormData.append('twilio_sms_number', formData.get('twilio_sms_number') || '');
         submitFormData.append('wise_account', formData.get('wise_account') || '');
         submitFormData.append('department_id', formData.get('department_id') || '');
         submitFormData.append('role_id', formData.get('role_id') || '');

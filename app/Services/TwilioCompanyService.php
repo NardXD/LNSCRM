@@ -115,7 +115,12 @@ class TwilioCompanyService
                 return $inventory->company;
             }
 
-            $user = User::query()->where('twilio_number', $normalized)->first();
+            $user = User::query()
+                ->where(function ($query) use ($normalized) {
+                    $query->where('twilio_number', $normalized)
+                        ->orWhere('twilio_sms_number', $normalized);
+                })
+                ->first();
             if ($user?->company) {
                 return $user->company;
             }
@@ -135,13 +140,14 @@ class TwilioCompanyService
 
         $inventory = TwilioPhoneNumber::query()
             ->where('phone_number', $normalized)
-            ->whereNotNull('assigned_user_id')
+            ->whereNotNull('sms_assigned_user_id')
+            ->with('smsAssignedUser')
             ->first();
-        if ($inventory?->assignedUser) {
-            return $inventory->assignedUser;
+        if ($inventory?->smsAssignedUser) {
+            return $inventory->smsAssignedUser;
         }
 
-        return User::query()->where('twilio_number', $normalized)->first();
+        return User::query()->where('twilio_sms_number', $normalized)->first();
     }
 
     public function normalizePhone(string $number): string

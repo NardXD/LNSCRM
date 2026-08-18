@@ -267,8 +267,8 @@
                 els.emptyText.textContent = 'Add your Twilio credentials under Integrations, then assign a number to start texting.';
                 els.connectLink.style.display = '';
             } else if (!data.account?.has_number) {
-                els.emptyTitle.textContent = 'Assign a Twilio number';
-                els.emptyText.textContent = 'Your account needs an assigned Twilio number before you can send or receive SMS.';
+                els.emptyTitle.textContent = 'Assign an SMS number';
+                els.emptyText.textContent = 'Your account needs an assigned SMS number before you can send or receive texts.';
                 els.connectLink.href = root.dataset.phoneUrl;
                 els.connectLink.textContent = 'Open Phone System';
                 els.connectLink.style.display = '';

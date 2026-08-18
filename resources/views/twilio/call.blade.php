@@ -38,7 +38,7 @@
                                 <line x1="12" y1="8" x2="12" y2="12"/>
                                 <line x1="12" y1="16" x2="12.01" y2="16"/>
                             </svg>
-                            <span>Twilio number is required. Please set your Twilio number in your profile to make calls.</span>
+                            <span>A phone system number is required. Assign one in User Management or Phone System → Numbers to make outbound calls.</span>
                         </div>
                     @endif
                     <div class="form-group">

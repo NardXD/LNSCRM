@@ -187,6 +187,7 @@ class UserManagementController extends Controller
                     'allowances' => $user->allowances ?? 0,
                     'client_invoice_amount' => $user->client_invoice_amount,
                     'twilio_number' => $user->twilio_number,
+                    'twilio_sms_number' => $user->twilio_sms_number,
                     'wise_account' => $user->wise_account,
                     'wise_currency' => $user->wise_currency,
                     'required_work_hours' => $user->required_work_hours,
@@ -1013,6 +1014,7 @@ class UserManagementController extends Controller
             'allowances' => 'required|numeric|min:0',
             'client_invoice_amount' => 'required|numeric|min:0',
             'twilio_number' => 'nullable|string|max:255',
+            'twilio_sms_number' => 'nullable|string|max:255',
             'wise_account' => 'nullable|string|max:255',
             'required_work_hours' => 'required|numeric|min:0|max:999',
             'recording_duration_minutes' => 'nullable|numeric|min:0.1|max:120',
@@ -1086,7 +1088,9 @@ class UserManagementController extends Controller
         $employee->clients()->sync($validated['client_ids'] ?? []);
 
         try {
-            app(TwilioNumberAssignmentService::class)->assignToUser($employee, $request->input('twilio_number'));
+            $assignment = app(TwilioNumberAssignmentService::class);
+            $assignment->assignToUser($employee, $request->input('twilio_number'), TwilioNumberAssignmentService::PURPOSE_VOICE);
+            $assignment->assignToUser($employee, $request->input('twilio_sms_number'), TwilioNumberAssignmentService::PURPOSE_SMS);
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'success' => false,
@@ -1172,6 +1176,7 @@ class UserManagementController extends Controller
             'allowances' => 'required|numeric|min:0',
             'client_invoice_amount' => 'required|numeric|min:0',
             'twilio_number' => 'nullable|string|max:255',
+            'twilio_sms_number' => 'nullable|string|max:255',
             'wise_account' => 'nullable|string|max:255',
             'required_work_hours' => 'required|numeric|min:0|max:999',
             'recording_duration_minutes' => 'nullable|numeric|min:0.1|max:120',
@@ -1273,9 +1278,15 @@ class UserManagementController extends Controller
             $employee->clients()->sync($validated['client_ids'] ?? []);
         }
 
-        if ($request->has('twilio_number')) {
+        if ($request->has('twilio_number') || $request->has('twilio_sms_number')) {
             try {
-                app(TwilioNumberAssignmentService::class)->assignToUser($employee, $request->input('twilio_number'));
+                $assignment = app(TwilioNumberAssignmentService::class);
+                if ($request->has('twilio_number')) {
+                    $assignment->assignToUser($employee, $request->input('twilio_number'), TwilioNumberAssignmentService::PURPOSE_VOICE);
+                }
+                if ($request->has('twilio_sms_number')) {
+                    $assignment->assignToUser($employee, $request->input('twilio_sms_number'), TwilioNumberAssignmentService::PURPOSE_SMS);
+                }
             } catch (\Illuminate\Validation\ValidationException $e) {
                 return response()->json([
                     'success' => false,

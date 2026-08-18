@@ -210,6 +210,17 @@
     });
 
     // Numbers
+    function numberAssignmentSummary(n) {
+        const parts = [];
+        if (n.assigned_user_name) {
+            parts.push(`Phone: ${escapeHtml(n.assigned_user_name)}`);
+        }
+        if (n.sms_assigned_user_name) {
+            parts.push(`SMS: ${escapeHtml(n.sms_assigned_user_name)}`);
+        }
+        return parts.length ? parts.join(' · ') : '<em>Unassigned</em>';
+    }
+
     async function loadNumbersPanel() {
         const list = document.getElementById('companyNumbersList');
         const numSelect = document.getElementById('assignNumberSelect');
@@ -230,14 +241,21 @@
                     <div class="phone-list-item">
                         <div class="phone-list-item-header">
                             <span>${escapeHtml(n.phone_number)}</span>
-                            <span>${n.assigned_user_name ? escapeHtml(n.assigned_user_name) : '<em>Unassigned</em>'}</span>
+                            <span>${numberAssignmentSummary(n)}</span>
                         </div>
-                        ${n.assigned_user_id ? `<button type="button" class="btn-secondary btn-sm" data-unassign="${n.id}">Unassign</button>` : ''}
+                        <div class="phone-list-item-actions">
+                            ${n.assigned_user_id ? `<button type="button" class="btn-secondary btn-sm" data-unassign="${n.id}" data-purpose="voice">Unassign Phone</button>` : ''}
+                            ${n.sms_assigned_user_id ? `<button type="button" class="btn-secondary btn-sm" data-unassign="${n.id}" data-purpose="sms">Unassign SMS</button>` : ''}
+                        </div>
                     </div>
                 `).join('');
                 list.querySelectorAll('[data-unassign]').forEach((btn) => {
                     btn.addEventListener('click', async () => {
-                        await apiFetch(routes.numbersUnassign.replace('__ID__', btn.getAttribute('data-unassign')), { method: 'POST' });
+                        await apiFetch(routes.numbersUnassign.replace('__ID__', btn.getAttribute('data-unassign')), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ purpose: btn.getAttribute('data-purpose') }),
+                        });
                         loadNumbersPanel();
                     });
                 });
@@ -245,13 +263,13 @@
 
             if (numSelect) {
                 numSelect.innerHTML = '<option value="">Select number</option>' +
-                    numbers.filter((n) => !n.assigned_user_id).map((n) =>
+                    numbers.map((n) =>
                         `<option value="${n.id}">${escapeHtml(n.phone_number)}</option>`
                     ).join('');
             }
             if (empSelect) {
                 empSelect.innerHTML = '<option value="">Select employee</option>' +
-                    employees.filter((e) => !e.twilio_number).map((e) =>
+                    employees.map((e) =>
                         `<option value="${e.id}">${escapeHtml(e.name)}</option>`
                     ).join('');
             }
@@ -301,11 +319,12 @@
     document.getElementById('assignNumberBtn')?.addEventListener('click', async () => {
         const numId = document.getElementById('assignNumberSelect')?.value;
         const userId = document.getElementById('assignEmployeeSelect')?.value;
-        if (!numId || !userId) return alert('Select a number and employee.');
+        const purpose = document.getElementById('assignPurposeSelect')?.value || 'voice';
+        if (!numId || !userId) return alert('Select a number, employee, and purpose.');
         await apiFetch(routes.numbersAssign.replace('__ID__', numId), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: parseInt(userId, 10) }),
+            body: JSON.stringify({ user_id: parseInt(userId, 10), purpose }),
         });
         loadNumbersPanel();
     });
