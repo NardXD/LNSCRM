@@ -1187,7 +1187,7 @@
                 const errorMessage = errorData.message || `HTTP ${response.status}`;
                 
                 if (errorMessage.includes('API Key') || errorMessage.includes('App SID')) {
-                    addLogEntry('Browser calling not configured. Using API-based calling.', 'info', 'check-icon');
+                    addLogEntry('Browser calling is not configured (App SID / API Key missing). Outbound will ring the phone, then connect back to this page — add App SID, API Key, and API Secret under Integrations for in-browser audio.', 'info', 'check-icon');
                 } else {
                     addLogEntry('Browser calling unavailable: ' + errorMessage, 'info', 'check-icon');
                 }
@@ -1309,6 +1309,7 @@
             // Make the call using Voice SDK 2.x API
             const params = {
                 To: phoneNumber,
+                phone: phoneNumber,
                 user_id: '{{ auth()->id() }}'
             };
             
@@ -1320,6 +1321,15 @@
                 document.getElementById('hangupBtn').style.display = 'inline-flex';
                 
                 // Handle call events
+                activeConnection.on('ringing', () => {
+                    addLogEntry('Phone ringing...', 'calling', 'phone-icon');
+                });
+
+                activeConnection.on('accept', () => {
+                    currentCallSid = activeConnection.parameters?.CallSid || currentCallSid;
+                    addLogEntry('Call connected — you can talk from this page', 'answered', 'check-icon');
+                });
+
                 activeConnection.on('disconnect', () => {
                     activeConnection = null;
                     addLogEntry('Browser call ended', 'ended', 'check-icon');

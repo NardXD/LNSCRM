@@ -56,6 +56,42 @@ class TwilioService
     }
 
     /**
+     * Create a TwiML App used by the Voice SDK for browser calling.
+     */
+    public function createVoiceApplication(string $friendlyName, string $voiceUrl, ?string $statusCallback = null): string
+    {
+        $params = [
+            'friendlyName' => $friendlyName,
+            'voiceUrl' => $voiceUrl,
+            'voiceMethod' => 'POST',
+        ];
+
+        if ($statusCallback) {
+            $params['statusCallback'] = $statusCallback;
+            $params['statusCallbackMethod'] = 'POST';
+        }
+
+        $application = $this->twilio->applications->create($params);
+
+        return $application->sid;
+    }
+
+    /**
+     * @return array{sid: string, secret: string}
+     */
+    public function createApiKey(string $friendlyName): array
+    {
+        $key = $this->twilio->newKeys->create([
+            'friendlyName' => $friendlyName,
+        ]);
+
+        return [
+            'sid' => $key->sid,
+            'secret' => $key->secret,
+        ];
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     public function searchAvailableNumbers(string $country = 'US', ?string $areaCode = null, int $limit = 10): array

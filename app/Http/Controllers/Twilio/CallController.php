@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Twilio;
 
 use App\Http\Controllers\Controller;
 use App\Models\Company;
+use App\Models\PhoneCallLog;
 use App\Models\TwilioFlexIntegration;
 use App\Models\User;
 use App\Services\InboundCallQueueService;
@@ -12,6 +13,7 @@ use App\Services\TwilioService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
 
@@ -220,7 +222,7 @@ class CallController extends Controller
 
             // Initialize TwilioService with database credentials
             $twilio = new TwilioService($twilioSid, $twilioToken);
-            $voiceUrl = route('twilio.voice');
+            $voiceUrl = route('twilio.voice', ['agent' => $user->id]);
 
             Log::info('Making Twilio API call', [
                 'to' => $phoneNumber,
@@ -330,6 +332,10 @@ class CallController extends Controller
 
     /**
      * Twilio voice webhook — inbound calls use round-robin among available agents.
+     *
+     * REST API outbound already rang the destination; when they answer we must
+     * bridge to the agent (Client), not Dial that same number again.
+     * Browser SDK outbound is a client-originated call that should Dial the PSTN number.
      */
     public function voiceWebhook(Request $request, InboundCallQueueService $queue): Response
     {
@@ -341,20 +347,21 @@ class CallController extends Controller
 
         $called = $request->input('Called') ?: $request->input('To');
         $caller = $request->input('Caller') ?: $request->input('From');
-        $direction = $request->input('Direction', 'outbound-api');
-        $fromClient = $request->input('From');
+        $direction = (string) $request->input('Direction', 'outbound-api');
         $callSid = (string) ($request->input('CallSid') ?? '');
         $accountSid = $request->input('AccountSid');
 
-        $isInbound = $direction === 'inbound';
-        $isBrowserCall = $request->has('FromClient') || (is_numeric($fromClient) && strlen((string) $fromClient) < 10);
+        $isClientOrigin = $this->isClientOriginated($request);
+        $isOutboundApi = $this->isOutboundApi($request);
+        $isInboundPstn = $direction === 'inbound' && ! $isClientOrigin;
+        $destination = $this->resolveE164Destination($request);
 
-        if (! $isInbound && $called) {
+        if (($isClientOrigin || $isOutboundApi) && $destination) {
             $company = app(\App\Services\TwilioCompanyService::class)
-                ->resolveCompanyFromWebhook($accountSid, $called, $caller);
+                ->resolveCompanyFromWebhook($accountSid, $destination, $caller);
             if ($company) {
                 app(\App\Services\LeadAutoCreateService::class)
-                    ->fromPhoneChannel((int) $company->id, 'phone', (string) $called);
+                    ->fromPhoneChannel((int) $company->id, 'phone', $destination);
             }
         }
 
@@ -364,7 +371,11 @@ class CallController extends Controller
         $twiml = '<?xml version="1.0" encoding="UTF-8"?>'."\n";
         $twiml .= '<Response>'."\n";
 
-        if ($isInbound) {
+        if ($isClientOrigin) {
+            $twiml .= $this->buildBrowserOutboundTwiml($request, $dialRecordAttrs);
+        } elseif ($isOutboundApi) {
+            $twiml .= $this->buildRestOutboundTwiml($request, $callSid, $dialRecordAttrs);
+        } elseif ($isInboundPstn) {
             $twiml .= $this->buildInboundRoundRobinTwiml(
                 $queue,
                 $accountSid,
@@ -373,14 +384,6 @@ class CallController extends Controller
                 $callSid,
                 $dialRecordAttrs
             );
-        } elseif ($isBrowserCall && $called) {
-            $twiml .= '    <Dial timeout="60" answerOnMedia="true" '.$dialRecordAttrs.' callerId="'.htmlspecialchars((string) $caller, ENT_XML1).'">'."\n";
-            $twiml .= '        <Number>'.htmlspecialchars((string) $called, ENT_XML1).'</Number>'."\n";
-            $twiml .= '    </Dial>'."\n";
-        } elseif ($called) {
-            $twiml .= '    <Dial timeout="60" answerOnMedia="true" '.$dialRecordAttrs.'>'."\n";
-            $twiml .= '        <Number>'.htmlspecialchars((string) $called, ENT_XML1).'</Number>'."\n";
-            $twiml .= '    </Dial>'."\n";
         } else {
             $twiml .= '    <Say voice="alice">Call connected.</Say>'."\n";
         }
@@ -392,7 +395,10 @@ class CallController extends Controller
             'called' => $called,
             'caller' => $caller,
             'direction' => $direction,
-            'is_inbound' => $isInbound,
+            'is_client_origin' => $isClientOrigin,
+            'is_outbound_api' => $isOutboundApi,
+            'is_inbound_pstn' => $isInboundPstn,
+            'destination' => $destination,
         ]);
 
         return response($twiml, 200)->header('Content-Type', 'text/xml');
@@ -523,6 +529,147 @@ class CallController extends Controller
             'user_id' => $user->id,
             'user_email' => $user->email,
         ]);
+
+        return $xml;
+    }
+
+    protected function isClientOriginated(Request $request): bool
+    {
+        if ($request->filled('FromClient')) {
+            return true;
+        }
+
+        foreach (['From', 'Caller'] as $key) {
+            $value = strtolower((string) $request->input($key, ''));
+            if (str_starts_with($value, 'client:')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    protected function isOutboundApi(Request $request): bool
+    {
+        $direction = strtolower((string) $request->input('Direction', ''));
+
+        return $direction === 'outbound-api';
+    }
+
+    protected function isE164(?string $value): bool
+    {
+        return is_string($value) && preg_match('/^\+[1-9]\d{1,14}$/', $value) === 1;
+    }
+
+    protected function normalizeE164(mixed $value): ?string
+    {
+        if (! is_string($value) && ! is_numeric($value)) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+        if ($value === '') {
+            return null;
+        }
+
+        if (! str_starts_with($value, '+')) {
+            $value = '+'.$value;
+        }
+
+        return $this->isE164($value) ? $value : null;
+    }
+
+    protected function resolveE164Destination(Request $request): ?string
+    {
+        foreach (['phone', 'To', 'Called'] as $key) {
+            $normalized = $this->normalizeE164($request->input($key));
+            if ($normalized) {
+                return $normalized;
+            }
+        }
+
+        return null;
+    }
+
+    protected function resolveClientIdentity(Request $request): ?string
+    {
+        $fromClient = trim((string) $request->input('FromClient', ''));
+        if ($fromClient !== '') {
+            return $fromClient;
+        }
+
+        foreach (['From', 'Caller'] as $key) {
+            $value = (string) $request->input($key, '');
+            if (str_starts_with(strtolower($value), 'client:')) {
+                $identity = substr($value, 7);
+
+                return $identity !== '' ? $identity : null;
+            }
+        }
+
+        $userId = trim((string) $request->input('user_id', ''));
+        if ($userId !== '' && ctype_digit($userId)) {
+            return $userId;
+        }
+
+        return null;
+    }
+
+    protected function resolveOutboundAgentId(Request $request, string $callSid): ?string
+    {
+        foreach (['agent', 'user_id'] as $key) {
+            $value = trim((string) $request->input($key, ''));
+            if ($value !== '' && ctype_digit($value)) {
+                return $value;
+            }
+        }
+
+        if ($callSid !== '') {
+            $log = PhoneCallLog::query()->where('call_sid', $callSid)->first();
+            if ($log?->user_id) {
+                return (string) $log->user_id;
+            }
+        }
+
+        return $this->resolveClientIdentity($request);
+    }
+
+    protected function buildBrowserOutboundTwiml(Request $request, string $dialRecordAttrs): string
+    {
+        $destination = $this->resolveE164Destination($request);
+        $identity = $this->resolveClientIdentity($request);
+        $agent = $identity ? User::query()->find($identity) : null;
+        $callerId = $this->normalizeE164($agent?->twilio_number);
+
+        if (! $destination) {
+            return '    <Say voice="alice">No destination number was provided.</Say>'."\n";
+        }
+
+        if (! $callerId) {
+            return '    <Say voice="alice">Your phone system number is not assigned. You cannot place outbound calls.</Say>'."\n";
+        }
+
+        $xml = '    <Dial timeout="60" '.$dialRecordAttrs.' callerId="'.htmlspecialchars($callerId, ENT_XML1).'">'."\n";
+        $xml .= '        <Number>'.htmlspecialchars($destination, ENT_XML1).'</Number>'."\n";
+        $xml .= '    </Dial>'."\n";
+
+        return $xml;
+    }
+
+    protected function buildRestOutboundTwiml(Request $request, string $callSid, string $dialRecordAttrs): string
+    {
+        $agentId = $this->resolveOutboundAgentId($request, $callSid);
+        $callerId = $this->resolveE164Destination($request);
+
+        if (! $agentId) {
+            return '    <Say voice="alice">This outbound call cannot be connected to an agent.</Say>'."\n";
+        }
+
+        $callerIdAttr = $callerId ? ' callerId="'.htmlspecialchars($callerId, ENT_XML1).'"' : '';
+        $xml = '    <Dial timeout="30" '.$dialRecordAttrs.$callerIdAttr.'>'."\n";
+        $xml .= '        <Client>'.htmlspecialchars($agentId, ENT_XML1).'</Client>'."\n";
+        $xml .= '    </Dial>'."\n";
+        $xml .= '    <Say voice="alice">The agent could not be connected. Configure browser calling under Integrations.</Say>'."\n";
 
         return $xml;
     }
@@ -903,6 +1050,61 @@ class CallController extends Controller
     }
 
     /**
+     * Create a TwiML App and API key in Twilio when they were never saved in the CRM.
+     * Browser calling cannot put audio in /twilio/call without these.
+     */
+    private function ensureVoiceSdkCredentials(
+        TwilioFlexIntegration $integration,
+        string $accountSid,
+        string $authToken,
+        int $companyId
+    ): void {
+        Cache::lock('twilio-voice-sdk-provision-'.$companyId, 30)->block(20, function () use ($integration, $accountSid, $authToken, $companyId) {
+            $integration->refresh();
+
+            $needsApp = empty($integration->app_sid);
+            $needsKey = empty($integration->api_key) || empty($integration->api_secret);
+
+            if (! $needsApp && ! $needsKey) {
+                return;
+            }
+
+            $twilio = new TwilioService($accountSid, $authToken);
+            $changed = false;
+
+            if ($needsApp) {
+                $integration->app_sid = $twilio->createVoiceApplication(
+                    'LNSCRM Voice '.$companyId,
+                    route('twilio.voice'),
+                    route('twilio.status-callback')
+                );
+                $changed = true;
+
+                Log::info('Auto-created Twilio TwiML App for browser calling', [
+                    'company_id' => $companyId,
+                    'app_sid' => $integration->app_sid,
+                ]);
+            }
+
+            if ($needsKey) {
+                $key = $twilio->createApiKey('LNSCRM Voice SDK '.$companyId);
+                $integration->api_key = $key['sid'];
+                $integration->api_secret = Crypt::encryptString($key['secret']);
+                $changed = true;
+
+                Log::info('Auto-created Twilio API key for browser calling', [
+                    'company_id' => $companyId,
+                    'api_key' => $integration->api_key,
+                ]);
+            }
+
+            if ($changed) {
+                $integration->save();
+            }
+        });
+    }
+
+    /**
      * Get company from request.
      */
     private function getCompany(Request $request): ?Company
@@ -970,19 +1172,6 @@ class CallController extends Controller
                 ], 400);
             }
 
-            if (! $integration->app_sid) {
-                Log::warning('Capability token request: App SID missing', [
-                    'company_id' => $company->id,
-                    'user_id' => $user->id,
-                    'integration_id' => $integration->id,
-                ]);
-
-                return response()->json([
-                    'success' => false,
-                    'message' => 'App SID is missing. Please add your Twilio App SID in the Integrations page.',
-                ], 400);
-            }
-
             // Decrypt auth token
             try {
                 $twilioSid = $integration->account_sid;
@@ -996,6 +1185,35 @@ class CallController extends Controller
                     'success' => false,
                     'message' => 'Failed to decrypt Twilio credentials',
                 ], 500);
+            }
+
+            if (! $twilioSid || ! $twilioToken) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Twilio credentials not configured. Please configure your Twilio credentials in the Integrations page.',
+                ], 400);
+            }
+
+            try {
+                $this->ensureVoiceSdkCredentials($integration, $twilioSid, $twilioToken, (int) $company->id);
+            } catch (\Throwable $e) {
+                Log::warning('Could not auto-provision Twilio Voice SDK credentials', [
+                    'company_id' => $company->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            if (! $integration->app_sid) {
+                Log::warning('Capability token request: App SID missing', [
+                    'company_id' => $company->id,
+                    'user_id' => $user->id,
+                    'integration_id' => $integration->id,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'App SID is missing. Please add your Twilio App SID in the Integrations page.',
+                ], 400);
             }
 
             // Generate capability token for browser-based calling
