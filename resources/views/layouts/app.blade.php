@@ -95,12 +95,9 @@
 
     @include('partials.dashboard-scripts')
     @include('partials.realtime-scripts')
-    
-    <!-- DEBUG: Verify Vite bundle is loading -->
-    {{-- <script>
-        console.log('📦 Layout: About to load Vite bundle (app.js)');
-        console.log('📍 Page:', window.location.pathname);
-    </script> --}}
+
+    {{-- Classic script so browser calling works even if the Vite module is slow or missing on production. --}}
+    <script src="{{ asset('vendor/twilio-voice.min.js') }}" defer></script>
     
     @vite(['resources/js/app.js'])
     

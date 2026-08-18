@@ -4,15 +4,13 @@ console.log('📍 Page:', typeof window !== 'undefined' ? window.location.pathna
 import './bootstrap';
 console.log('✅ bootstrap imported');
 
-// Load twilio-global FIRST so it's available everywhere
+import './twilio-sdk';
+import './twilio-call';
+
+// Load twilio-global so incoming calls work on every page
 console.log('📦 app.js: About to import twilio-global...');
 import './twilio-global';
 console.log('📦 app.js: twilio-global import statement completed');
-
-// Then load twilio-call (which might have its own device)
-console.log('📦 app.js: About to import twilio-call...');
-import './twilio-call';
-console.log('📦 app.js: twilio-call import statement completed');
 
 import './contact-history-panel';
 console.log('📦 app.js: contact-history-panel imported');

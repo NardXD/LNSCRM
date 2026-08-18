@@ -1203,23 +1203,14 @@
                 return;
             }
 
-            // Use Voice SDK 2.x (loaded via npm and Vite)
-            // Wait for the SDK to be available (it's loaded via app.js which is bundled by Vite)
-            let attempts = 0;
-            const maxAttempts = 20; // Wait up to 2 seconds
-            const checkSDK = setInterval(() => {
-                attempts++;
-                if (typeof window.TwilioVoiceSDK !== 'undefined' && window.TwilioVoiceSDK && window.TwilioVoiceSDK.Device) {
-                    clearInterval(checkSDK);
-                    console.log('Twilio Voice SDK loaded, setting up device');
-                    setupTwilioDevice(data.token);
-                } else if (attempts >= maxAttempts) {
-                    clearInterval(checkSDK);
-                    console.warn('Twilio Voice SDK not loaded after waiting. window.TwilioVoiceSDK:', window.TwilioVoiceSDK);
-                    addLogEntry('Browser calling SDK not available. Using API-based calling.', 'info', 'check-icon');
-                    useBrowserCalling = false;
-                }
-            }, 100);
+            const Device = await waitForTwilioDevice();
+            if (!Device) {
+                addLogEntry('Browser calling SDK not available. Using API-based calling.', 'info', 'check-icon');
+                useBrowserCalling = false;
+                return;
+            }
+
+            setupTwilioDevice(data.token, Device);
             
         } catch (error) {
             console.error('Error initializing Twilio Device:', error);
@@ -1228,10 +1219,43 @@
         }
     }
 
-    function setupTwilioDevice(token) {
+    function getTwilioDeviceClass() {
+        if (typeof window.getTwilioDeviceClass === 'function' && window.getTwilioDeviceClass !== getTwilioDeviceClass) {
+            return window.getTwilioDeviceClass();
+        }
+
+        return window.TwilioVoiceSDK?.Device || window.Twilio?.Device || null;
+    }
+
+    function waitForTwilioDevice(timeoutMs = 20000) {
+        if (typeof window.whenTwilioVoiceSdkReady === 'function') {
+            return window.whenTwilioVoiceSdkReady(timeoutMs).catch(() => null);
+        }
+
+        return new Promise((resolve) => {
+            const existing = getTwilioDeviceClass();
+            if (existing) {
+                resolve(existing);
+                return;
+            }
+
+            const started = Date.now();
+            const timer = setInterval(() => {
+                const Device = getTwilioDeviceClass();
+                if (Device) {
+                    clearInterval(timer);
+                    resolve(Device);
+                } else if (Date.now() - started >= timeoutMs) {
+                    clearInterval(timer);
+                    resolve(null);
+                }
+            }, 50);
+        });
+    }
+
+    function setupTwilioDevice(token, DeviceClass) {
         try {
-            // Use Voice SDK 2.x
-            const { Device } = window.TwilioVoiceSDK || {};
+            const Device = DeviceClass || getTwilioDeviceClass();
             
             if (!Device) {
                 throw new Error('Twilio Voice SDK 2.x not loaded');

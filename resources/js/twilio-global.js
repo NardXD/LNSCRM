@@ -360,34 +360,39 @@ async function initializeGlobalTwilioDevice() {
             return;
         }
 
-        // console.log('Global Twilio: Capability token received, waiting for SDK...');
+        const waitForSdk = typeof window.whenTwilioVoiceSdkReady === 'function'
+            ? window.whenTwilioVoiceSdkReady(20000)
+            : new Promise((resolve, reject) => {
+                const started = Date.now();
+                const timer = setInterval(() => {
+                    const Device = window.TwilioVoiceSDK?.Device || window.Twilio?.Device || null;
+                    if (Device) {
+                        clearInterval(timer);
+                        resolve(Device);
+                    } else if (Date.now() - started >= 20000) {
+                        clearInterval(timer);
+                        reject(new Error('Twilio Voice SDK failed to load'));
+                    }
+                }, 50);
+            });
 
-        // Wait for the SDK to be available
-        let attempts = 0;
-        const maxAttempts = 20;
-        const checkSDK = setInterval(() => {
-            attempts++;
-            if (typeof window.TwilioVoiceSDK !== 'undefined' && window.TwilioVoiceSDK && window.TwilioVoiceSDK.Device) {
-                clearInterval(checkSDK);
-                // console.log('✅ Global Twilio Device: SDK loaded, setting up device');
-                // console.log('📍 Current page:', window.location.pathname);
-                setupGlobalTwilioDevice(data.token);
-            } else if (attempts >= maxAttempts) {
-                clearInterval(checkSDK);
-                console.warn('⚠️ Global Twilio Device: SDK not loaded after waiting');
-                console.warn('TwilioVoiceSDK available:', typeof window.TwilioVoiceSDK);
-                console.warn('Current page:', window.location.pathname);
-            }
-        }, 100);
+        try {
+            const Device = await waitForSdk;
+            setupGlobalTwilioDevice(data.token, Device);
+        } catch (error) {
+            console.warn('⚠️ Global Twilio Device: SDK not loaded after waiting', error);
+            console.warn('TwilioVoiceSDK available:', typeof window.TwilioVoiceSDK);
+            console.warn('Twilio.Device available:', typeof window.Twilio?.Device);
+        }
         
     } catch (error) {
         console.error('Error initializing global Twilio Device:', error);
     }
 }
 
-function setupGlobalTwilioDevice(token) {
+function setupGlobalTwilioDevice(token, DeviceClass) {
     try {
-        const { Device } = window.TwilioVoiceSDK || {};
+        const Device = DeviceClass || window.TwilioVoiceSDK?.Device || window.Twilio?.Device;
         
         if (!Device) {
             throw new Error('Twilio Voice SDK not loaded');

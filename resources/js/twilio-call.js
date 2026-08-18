@@ -1,5 +1,3 @@
-import { Device } from '@twilio/voice-sdk';
+import { bindTwilioVoiceSdk } from './twilio-sdk';
 
-// Export for use in Blade templates
-window.TwilioVoiceSDK = { Device };
-
+bindTwilioVoiceSdk();
