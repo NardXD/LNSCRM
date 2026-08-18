@@ -295,6 +295,7 @@
             <div class="inbox-props-block">
                 <div class="inbox-props-label">Contact</div>
                 <div id="propContact" class="inbox-prop-value"></div>
+                <div id="propContactLead" class="inbox-prop-lead"></div>
             </div>
             <div class="inbox-props-block">
                 <div class="inbox-props-label">Thread activity</div>
@@ -1875,6 +1876,9 @@
     width: 100%; border: 1px solid var(--inbox-border); border-radius: 8px; padding: 0.5rem 0.65rem; font-size: 0.84rem; background: #fff;
 }
 .inbox-prop-value { font-size: 0.88rem; }
+.inbox-prop-lead { margin-top: 0.5rem; }
+.inbox-prop-lead .inbox-btn { font-size: 0.78rem; padding: 0.28rem 0.7rem; }
+.inbox-props .chp-save-lead { display: inline-block; margin-top: 0.45rem; padding: 0.28rem 0.6rem; border: 1px solid #0b5cab; border-radius: 6px; background: #fff; color: #0b5cab; font-size: 0.78rem; font-weight: 600; cursor: pointer; }
 .inbox-props .chp-panel { display: block !important; width: 100%; max-width: none; border: 0; background: transparent; height: auto; min-height: 0; }
 .inbox-props .chp-body { padding: 0; overflow: visible; }
 .inbox-props .chp-name { font-weight: 700; font-size: 0.95rem; margin-bottom: 0.25rem; }
@@ -4179,6 +4183,8 @@
         el('assignSelect').value = c.assigned_to || '';
         el('propInboxName').textContent = c.inbox?.name || '—';
         el('propContact').textContent = `${c.from_name || ''} · ${c.from_email || ''}`;
+        const propLead = el('propContactLead');
+        if (propLead) propLead.innerHTML = '';
 
         el('conversationTags').innerHTML = (c.tags || []).map(t =>
             `<span class="inbox-pill" style="background:${t.color}22;color:${t.color}">${escapeHtml(t.name)} <button type="button" data-remove-tag="${t.id}" style="border:none;background:transparent;cursor:pointer;color:inherit;">×</button></span>`
@@ -4271,6 +4277,7 @@
             ${(contact.matched_emails || []).slice(0, 2).map((em) => `<div class="chp-meta">${escapeHtml(em)}</div>`).join('')}
             ${contact.lead?.crm_url ? `<a class="chp-link" href="${escapeHtml(contact.lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>` : ''}
             ${contact.client?.crm_url ? `<a class="chp-link" href="${escapeHtml(contact.client.crm_url)}" target="_blank" rel="noopener">Open client →</a>` : ''}
+            ${!contact.lead && opts.canSaveLead !== false ? `<button type="button" class="chp-save-lead" data-chp-save-lead>Save as lead</button>` : ''}
         `;
         const threadsHtml = threads.length
             ? threads.map((t) => `
@@ -4299,6 +4306,91 @@
                 ${eventsHtml}
             </div>
         `;
+        const saveBtn = root.querySelector('[data-chp-save-lead]');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => saveInboxAsLead(root, opts, contact));
+        }
+    }
+
+    function updateContactLeadAction(data, opts = {}) {
+        const wrap = el('propContactLead');
+        if (!wrap) return;
+        const canSave = el('inboxContactHistory')?.dataset.canSaveLead !== '0';
+        const contact = data?.contact || {};
+        if (contact.lead?.crm_url) {
+            wrap.innerHTML = `<a class="chp-link" href="${escapeHtml(contact.lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>`;
+            return;
+        }
+        const emails = [...(contact.matched_emails || []), opts.email].filter(Boolean);
+        const phones = [...(contact.matched_phones || []), opts.phone].filter(Boolean);
+        if (!canSave || (!emails.length && !phones.length)) {
+            wrap.innerHTML = '';
+            return;
+        }
+        wrap.innerHTML = '<button type="button" class="inbox-btn ghost" id="btnSaveAsLead">Save as lead</button>';
+        el('btnSaveAsLead')?.addEventListener('click', () => {
+            const body = el('inboxContactHistoryBody') || el('inboxContactHistory');
+            saveInboxAsLead(body, opts, contact, el('btnSaveAsLead'));
+        });
+    }
+
+    async function saveInboxAsLead(bodyEl, opts, contact, button) {
+        const extraBtn = button || el('btnSaveAsLead');
+        if (extraBtn) {
+            extraBtn.disabled = true;
+            extraBtn.textContent = 'Saving…';
+        }
+        if (window.LnsContactHistory?.saveAsLead) {
+            await window.LnsContactHistory.saveAsLead(bodyEl, opts, contact);
+            if (extraBtn?.isConnected) {
+                extraBtn.disabled = false;
+                extraBtn.textContent = 'Save as lead';
+            }
+            return;
+        }
+        const name = String(contact.display_name || opts.name || opts.email || 'New lead').trim();
+        const phones = (contact.matched_phones || []).filter(Boolean);
+        if (opts.phone && !phones.length) phones.push(opts.phone);
+        const emails = (contact.matched_emails || []).filter(Boolean);
+        if (opts.email && !emails.length) emails.push(opts.email);
+        const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        const btn = button || bodyEl?.querySelector('[data-chp-save-lead]');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Saving…';
+        }
+        try {
+            const res = await fetch('/api/leads', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    ...(token ? { 'X-CSRF-TOKEN': token } : {}),
+                },
+                body: JSON.stringify({
+                    name,
+                    phones,
+                    emails,
+                    source: 'inbox',
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok && !data.existing_lead_id) {
+                throw new Error(data.message || 'Could not save lead.');
+            }
+            if (typeof opts.onSaved === 'function') {
+                opts.onSaved(data, { existing: !res.ok });
+                return;
+            }
+        } catch (err) {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Save as lead';
+            }
+            alert(err.message || 'Could not save lead.');
+        }
     }
 
     async function loadInboxContactHistory(c) {
@@ -4309,18 +4401,31 @@
         const email = extractContactEmail(c.from_email);
         const name = String(c.from_name || '').trim();
         const phone = String(c.phone || c.from_phone || '').trim();
+        const canSaveLead = root?.dataset.canSaveLead !== '0';
+        const opts = {
+            email,
+            name,
+            phone,
+            excludeChannel: 'inbox',
+            excludeId: c.id,
+            limit: 60,
+            source: 'inbox',
+            canSaveLead,
+            onSaved: () => loadInboxContactHistory(c),
+        };
 
         if (!email && !name && !phone) {
             body.innerHTML = '<p class="chp-empty">No email or name on this conversation to look up history.</p>';
+            updateContactLeadAction(null, opts);
             return;
         }
 
         body.innerHTML = '<p class="chp-empty">Loading contact history…</p>';
 
-        const opts = { email, name, phone, excludeChannel: 'inbox', excludeId: c.id, limit: 60 };
         if (window.LnsContactHistory?.load) {
             try {
-                await window.LnsContactHistory.load(root, opts);
+                const data = await window.LnsContactHistory.load(root, opts);
+                updateContactLeadAction(data, opts);
                 return;
             } catch (e) {
                 console.warn('LnsContactHistory.load failed, using inbox fallback', e);
@@ -4348,8 +4453,10 @@
             } else {
                 renderInboxContactHistoryFallback(body, data, opts);
             }
+            updateContactLeadAction(data, opts);
         } catch (err) {
             body.innerHTML = `<p class="chp-empty">${escapeHtml(err.message || 'Could not load contact history.')}</p>`;
+            updateContactLeadAction(null, opts);
         }
     }
 

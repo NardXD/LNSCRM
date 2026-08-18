@@ -148,17 +148,25 @@ async function saveAsLead(bodyEl, opts, contact) {
                 name,
                 phones,
                 emails,
-                facebook_name: opts.name || null,
-                source: opts.source || 'contact-history',
+                facebook_name: opts.facebook_name ?? (opts.excludeChannel === 'facebook' ? opts.name : null),
+                source: opts.source || opts.excludeChannel || 'contact-history',
             }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
+            if (typeof opts.onSaved === 'function' && data.existing_lead_id) {
+                opts.onSaved(data, { existing: true });
+                return;
+            }
             if (data.existing_lead_id) {
                 window.location.href = '/leads?lead=' + data.existing_lead_id;
                 return;
             }
             throw new Error(data.message || 'Could not save lead.');
+        }
+        if (typeof opts.onSaved === 'function') {
+            opts.onSaved(data, { existing: false });
+            return;
         }
         const url = data.data?.crm_url || ('/leads?lead=' + (data.data?.id || ''));
         window.location.href = url;
@@ -238,4 +246,4 @@ function clear(rootOrSelector) {
     body.innerHTML = '<p class="chp-empty">Select a conversation to see history across WhatsApp, Viber, SMS, Inbox, Calls, and Facebook.</p>';
 }
 
-window.LnsContactHistory = { load, clear, renderPanel };
+window.LnsContactHistory = { load, clear, renderPanel, saveAsLead };

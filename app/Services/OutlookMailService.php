@@ -25,8 +25,7 @@ class OutlookMailService
 
     public function __construct(
         protected CalendarOauthSettingsService $oauthSettings,
-        protected InboxRuleEngine $ruleEngine,
-        protected LeadAutoCreateService $leadAutoCreate
+        protected InboxRuleEngine $ruleEngine
     ) {}
 
     /**
@@ -378,10 +377,6 @@ class OutlookMailService
         }
 
         $conversation->save();
-
-        if ($folder === 'inbox' && $fromEmail) {
-            $this->leadAutoCreate->fromSharedInbox($inbox, $fromName, $fromEmail);
-        }
 
         $externalMessageId = $this->truncate($msg['id'] ?? null, 512);
         if ($externalMessageId) {

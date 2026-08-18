@@ -17,7 +17,6 @@ use App\Models\User;
 use App\Notifications\InboxThreadUpdateNotification;
 use App\Services\CalendarOauthSettingsService;
 use App\Services\InboxRuleEngine;
-use App\Services\LeadAutoCreateService;
 use App\Services\OutlookMailService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -38,8 +37,7 @@ class InboxController extends Controller
     public function __construct(
         protected OutlookMailService $mailService,
         protected CalendarOauthSettingsService $oauthSettings,
-        protected InboxRuleEngine $ruleEngine,
-        protected LeadAutoCreateService $leadAutoCreate
+        protected InboxRuleEngine $ruleEngine
     ) {}
 
     public function index(): View
@@ -1048,13 +1046,6 @@ class InboxController extends Controller
             InboxRuleEngine::TRIGGER_OUTBOUND_REPLY
         );
 
-        if (! $inbox->isPersonal()) {
-            $this->leadAutoCreate->fromSharedInbox($inbox, $conversation->from_name, $conversation->from_email);
-            foreach ($this->parseEmailList($to) as $recipient) {
-                $this->leadAutoCreate->fromSharedInbox($inbox, $conversation->from_name, $recipient);
-            }
-        }
-
         return response()->json([
             'message' => $this->formatMessage($message),
             'conversation' => $this->formatConversation($conversation->fresh(['assignee', 'tags', 'inbox'])),
@@ -1297,12 +1288,6 @@ class InboxController extends Controller
             $conversation->fresh(['tags', 'inbox']),
             InboxRuleEngine::TRIGGER_OUTBOUND_MESSAGE_NEW
         );
-
-        if (! $inbox->isPersonal()) {
-            foreach ($toEmails as $recipient) {
-                $this->leadAutoCreate->fromSharedInbox($inbox, null, (string) $recipient);
-            }
-        }
 
         return response()->json([
             'conversation' => $this->formatConversation(
