@@ -4,12 +4,14 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Crypt;
 
 class FacebookIntegration extends Model
 {
     protected $fillable = [
         'company_id',
         'page_id',
+        'page_access_token',
         'webhook_key',
         'page_name',
         'instagram_business_account_id',
@@ -46,5 +48,18 @@ class FacebookIntegration extends Model
         }
 
         return (string) $this->page_id;
+    }
+
+    public function getDecryptedPageAccessToken(): ?string
+    {
+        if (! $this->page_access_token) {
+            return null;
+        }
+
+        try {
+            return Crypt::decryptString($this->page_access_token);
+        } catch (\Throwable) {
+            return $this->page_access_token;
+        }
     }
 }

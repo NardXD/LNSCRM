@@ -6,6 +6,7 @@ use App\Models\FacebookConversation;
 use App\Models\FacebookIntegration;
 use App\Models\FacebookMessage;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -43,7 +44,73 @@ class FacebookMessageSyncService
         $imported = 0;
         $skipped = 0;
         $touchedConversationIds = [];
-        $existingLookup = $this->existingMids($integration, array_keys($bySid));
+        $graphCount = 0;
+        $hint = null;
+        $existingLookup = [];
+
+        $token = $integration->getDecryptedPageAccessToken();
+        if ($token) {
+            try {
+                $graphRows = app(FacebookGraphHistoryService::class)->history(
+                    (string) $integration->page_id,
+                    $token,
+                    $after
+                );
+                $graphCount = count($graphRows);
+                $existingLookup = $this->existingMids($integration, array_column($graphRows, 'mid'));
+
+                foreach ($graphRows as $row) {
+                    if (! empty($row['media_url'])) {
+                        try {
+                            $row['media_url'] = $this->storeRemoteMedia(
+                                $integration,
+                                (string) $row['media_url'],
+                                $row['mime_type'] ?? null,
+                                (string) $row['mid']
+                            );
+                        } catch (\Throwable $e) {
+                            Log::warning('Facebook Graph history media download failed', [
+                                'mid' => $row['mid'],
+                                'error' => $e->getMessage(),
+                            ]);
+                        }
+                    }
+
+                    $result = $this->importIfNew($existingLookup, (string) $row['mid'], function () use ($integration, $row) {
+                        return $this->storeRecord(
+                            $integration,
+                            $row['channel'],
+                            $row['peer_id'],
+                            $row['name'],
+                            $row['direction'],
+                            $row['mid'],
+                            $row['text'],
+                            $row['type'],
+                            $row['media_url'],
+                            $row['mime_type'],
+                            $row['status'],
+                            $row['sent_at'],
+                            $row['raw']
+                        );
+                    });
+                    $imported += $result['imported'];
+                    $skipped += $result['skipped'];
+                    if ($result['conversation']) {
+                        $touchedConversationIds[$result['conversation']->id] = $result['conversation'];
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Facebook Graph history sync failed', ['error' => $e->getMessage()]);
+                $hint = 'Facebook inbox import failed: '.$e->getMessage();
+            }
+        } else {
+            $hint = 'Twilio only has messages that already passed through this Twilio account. Save a Facebook Page Access Token under Integrations to import the full Page inbox from Meta.';
+        }
+
+        $existingLookup = $this->existingMids(
+            $integration,
+            array_merge(array_keys($existingLookup), array_keys($bySid))
+        );
 
         foreach ($bySid as $message) {
             $result = $this->importIfNew($existingLookup, $message->sid, function () use ($integration, $twilio, $message) {
@@ -98,12 +165,14 @@ class FacebookMessageSyncService
         }
 
         return [
-            'scanned' => count($bySid) + $conversationImported,
+            'scanned' => count($bySid) + $conversationImported + $graphCount,
             'imported' => $imported,
             'skipped' => $skipped,
             'conversations' => count($touchedConversationIds),
             'days' => $days,
+            'hint' => $hint,
             'sources' => [
+                'graph' => $graphCount,
                 'messages' => count($bySid),
                 'conversations' => $conversationImported,
             ],
@@ -520,6 +589,34 @@ class FacebookMessageSyncService
         $lower = strtolower(trim($address));
 
         return str_starts_with($lower, 'messenger:') || str_starts_with($lower, 'instagram:');
+    }
+
+    protected function storeRemoteMedia(
+        FacebookIntegration $integration,
+        string $remoteUrl,
+        ?string $mimeType,
+        string $messageSid
+    ): string {
+        $response = Http::timeout(60)->get($remoteUrl);
+        if (! $response->successful()) {
+            throw new \RuntimeException('Failed to download Facebook media (HTTP '.$response->status().').');
+        }
+
+        $contentType = strtolower((string) ($response->header('Content-Type') ?: $mimeType));
+        $ext = match (true) {
+            str_contains($contentType, 'jpeg') => 'jpg',
+            str_contains($contentType, 'png') => 'png',
+            str_contains($contentType, 'webp') => 'webp',
+            str_contains($contentType, 'gif') => 'gif',
+            str_contains($contentType, 'mp4') => 'mp4',
+            str_contains($contentType, 'pdf') => 'pdf',
+            default => 'bin',
+        };
+
+        $path = 'facebook/'.$integration->company_id.'/inbound/'.date('Y/m').'/'.$messageSid.'-'.Str::random(6).'.'.$ext;
+        Storage::disk('public')->put($path, $response->body());
+
+        return public_media_url($path);
     }
 
     protected function storeMedia(

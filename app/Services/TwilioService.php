@@ -348,7 +348,7 @@ class TwilioService
             foreach (['to', 'from'] as $field) {
                 $options = $params;
                 $options[$field] = $candidate;
-                foreach ($this->twilio->messages->stream($options, $limit, 100) as $message) {
+                foreach ($this->twilio->messages->stream($options, null, 100) as $message) {
                     $bySid[$message->sid] = $message;
                 }
             }

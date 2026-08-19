@@ -62,6 +62,7 @@ class FacebookController extends Controller
                 'webhook_url' => $integration->webhookUrl(),
                 'webhook_set_at' => $integration->webhook_set_at?->toIso8601String(),
                 'twilio_connected' => $twilioReady,
+                'has_page_access_token' => (bool) $integration->getDecryptedPageAccessToken(),
                 'integrations_url' => route('integrations'),
             ] : null,
         ]);

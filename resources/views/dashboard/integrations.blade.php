@@ -1084,26 +1084,39 @@
                 d.onclick = () => { if (confirm('Disconnect Twilio?')) handleTwilioDisconnect(); };
                 footer.insertBefore(d, actionBtn);
             }
+        } else if (integration.status === 'connected' && integrationId === 'facebook') {
+            actionBtn.textContent = 'Save';
+            actionBtn.className = 'btn-primary';
+            actionBtn.onclick = () => saveFacebookIntegration();
+            const disconnectBtn = footer?.querySelector('.facebook-disconnect-btn');
+            if (disconnectBtn) disconnectBtn.style.display = '';
+            if (footer && !footer.querySelector('.facebook-disconnect-btn')) {
+                const d = document.createElement('button');
+                d.className = 'btn-secondary btn-danger facebook-disconnect-btn';
+                d.textContent = 'Disconnect';
+                d.onclick = () => { if (confirm('Disconnect Facebook?')) handleIntegrationAction(); };
+                footer.insertBefore(d, actionBtn);
+            }
         } else if (integrationId === 'calendar') {
             actionBtn.textContent = 'Save settings';
             actionBtn.className = 'btn-primary';
             actionBtn.onclick = () => handleCalendarOauthSave('google');
-            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .twilio-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
+            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .twilio-disconnect-btn, .facebook-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
         } else if (integrationId === 'outlook') {
             actionBtn.textContent = 'Save settings';
             actionBtn.className = 'btn-primary';
             actionBtn.onclick = () => handleCalendarOauthSave('outlook');
-            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .twilio-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
+            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .twilio-disconnect-btn, .facebook-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
         } else {
-            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .twilio-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
+            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .twilio-disconnect-btn, .facebook-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
         }
         if (integrationId === 'calendar' || integrationId === 'outlook') {
             // Handled above - Save settings button
-        } else if (integration.status === 'connected' && integrationId !== 'wise' && integrationId !== 'gmail' && integrationId !== 'stripe' && integrationId !== 'openai' && integrationId !== 'twilio') {
+        } else if (integration.status === 'connected' && integrationId !== 'wise' && integrationId !== 'gmail' && integrationId !== 'stripe' && integrationId !== 'openai' && integrationId !== 'twilio' && integrationId !== 'facebook') {
             actionBtn.textContent = 'Disconnect';
             actionBtn.className = 'btn-primary btn-danger';
             actionBtn.onclick = () => handleIntegrationAction();
-        } else if (integration.status !== 'connected' || (integrationId !== 'wise' && integrationId !== 'stripe' && integrationId !== 'openai' && integrationId !== 'twilio')) {
+        } else if (integration.status !== 'connected' || (integrationId !== 'wise' && integrationId !== 'stripe' && integrationId !== 'openai' && integrationId !== 'twilio' && integrationId !== 'facebook')) {
             actionBtn.textContent = 'Connect';
             actionBtn.className = 'btn-primary';
             actionBtn.onclick = () => handleIntegrationAction();
@@ -1402,6 +1415,11 @@
                     <input type="text" class="form-input" id="facebook-page-name" value="${existingData && existingData.page_name ? existingData.page_name : ''}" placeholder="Loc&amp;Stor 24/7 Self Storage Philippines">
                 </div>
                 <div class="form-group">
+                    <label class="form-label">Page Access Token (for full history)</label>
+                    <input type="password" class="form-input" id="facebook-page-access-token" value="" placeholder="${existingData && existingData.has_page_access_token ? '•••••••• (leave blank to keep)' : 'EAAB… long-lived Page token'}">
+                    <span class="form-help">Twilio does not store the Facebook Page inbox. Paste a Page access token with <code>pages_messaging</code> so Sync can import the full Messenger history from Meta. Live send/receive still uses Twilio.</span>
+                </div>
+                <div class="form-group">
                     <label class="form-label">Instagram sender ID (optional)</label>
                     <input type="text" class="form-input" id="facebook-instagram-id" value="${existingData && existingData.instagram_business_account_id ? existingData.instagram_business_account_id : ''}" placeholder="Twilio Instagram sender ID">
                     <span class="form-help">Only needed if you also connected Instagram in Twilio Console.</span>
@@ -1437,7 +1455,7 @@
                         </select>
                         <button type="button" class="btn-secondary" id="facebook-sync-btn" onclick="syncFacebookHistory(event)">Sync from Twilio</button>
                     </div>
-                    <span class="form-help" id="facebook-sync-help">Imports Messenger history that already exists in this Twilio account. Messages that never went through Twilio cannot be recovered.</span>
+                    <span class="form-help" id="facebook-sync-help">Imports the Facebook Page inbox from Meta when a Page Access Token is saved, plus any messages already in Twilio. Twilio-only sync cannot recover older Facebook chats.</span>
                 </div>` : ''}
                 <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
                     <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">How it works</strong>
@@ -2253,52 +2271,7 @@
                     alert('Error connecting WhatsApp. Please try again.');
                 }
             } else if (currentIntegration.id === 'facebook') {
-                const pageId = document.getElementById('facebook-page-id')?.value?.trim() || '';
-                const pageName = document.getElementById('facebook-page-name')?.value?.trim() || '';
-                const instagramId = document.getElementById('facebook-instagram-id')?.value?.trim() || '';
-                const instagramUsername = document.getElementById('facebook-instagram-username')?.value?.trim() || '';
-                const welcomeMessage = document.getElementById('facebook-welcome-message')?.value || '';
-
-                if (!pageId) {
-                    alert('Please enter your Facebook Page ID from Twilio Console.');
-                    return;
-                }
-
-                try {
-                    const response = await fetch('/api/integrations/facebook', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
-                        },
-                        body: JSON.stringify({
-                            page_id: pageId,
-                            page_name: pageName || null,
-                            instagram_business_account_id: instagramId || null,
-                            instagram_username: instagramUsername || null,
-                            welcome_message: welcomeMessage,
-                        })
-                    });
-                    const data = await response.json();
-                    if (response.ok) {
-                        currentIntegration.status = 'connected';
-                        let msg = 'Facebook Messenger has been connected successfully via Twilio!';
-                        if (data.integration?.page_name) {
-                            msg += '\n\nPage: ' + data.integration.page_name;
-                        }
-                        if (data.integration?.webhook_url) {
-                            msg += '\n\nPaste this webhook URL on your Twilio Facebook Messenger sender:\n' + data.integration.webhook_url;
-                        }
-                        alert(msg);
-                        closeIntegrationModal();
-                        renderIntegrations(currentCategory);
-                    } else {
-                        alert(data.error || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Error connecting Facebook.'));
-                    }
-                } catch (error) {
-                    console.error('Error:', error);
-                    alert('Error connecting Facebook. Please try again.');
-                }
+                await saveFacebookIntegration();
             } else {
                 // Simulate connection process for other integrations
                 alert(`Connecting to ${currentIntegration.name}...`);
@@ -2307,6 +2280,61 @@
                 closeIntegrationModal();
                 renderIntegrations(currentCategory);
             }
+        }
+    }
+
+    async function saveFacebookIntegration() {
+        const pageId = document.getElementById('facebook-page-id')?.value?.trim() || '';
+        const pageName = document.getElementById('facebook-page-name')?.value?.trim() || '';
+        const pageAccessToken = document.getElementById('facebook-page-access-token')?.value?.trim() || '';
+        const instagramId = document.getElementById('facebook-instagram-id')?.value?.trim() || '';
+        const instagramUsername = document.getElementById('facebook-instagram-username')?.value?.trim() || '';
+        const welcomeMessage = document.getElementById('facebook-welcome-message')?.value || '';
+
+        if (!pageId) {
+            alert('Please enter your Facebook Page ID from Twilio Console.');
+            return;
+        }
+
+        try {
+            const payload = {
+                page_id: pageId,
+                page_name: pageName || null,
+                instagram_business_account_id: instagramId || null,
+                instagram_username: instagramUsername || null,
+                welcome_message: welcomeMessage,
+            };
+            if (pageAccessToken) payload.page_access_token = pageAccessToken;
+
+            const response = await fetch('/api/integrations/facebook', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (response.ok) {
+                currentIntegration.status = 'connected';
+                let msg = 'Facebook Messenger settings saved.';
+                if (data.integration?.has_page_access_token) {
+                    msg += '\n\nPage Access Token saved. Use Sync old messages to import the full Facebook inbox.';
+                } else {
+                    msg += '\n\nAdd a Page Access Token if you want to import the full Facebook inbox. Twilio only has chats that already went through Twilio.';
+                }
+                if (data.integration?.webhook_url) {
+                    msg += '\n\nWebhook URL:\n' + data.integration.webhook_url;
+                }
+                alert(msg);
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            } else {
+                alert(data.error || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Error saving Facebook.'));
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error saving Facebook. Please try again.');
         }
     }
 
@@ -2320,7 +2348,7 @@
             btn.disabled = true;
             btn.textContent = 'Syncing…';
         }
-        if (help) help.textContent = 'Importing Twilio Messenger history… this can take a minute.';
+        if (help) help.textContent = 'Importing Facebook inbox and Twilio history… this can take a few minutes.';
         try {
             const response = await fetch('/api/facebook/sync', {
                 method: 'POST',
@@ -2340,13 +2368,15 @@
             const skipped = Number(result.skipped || 0);
             const scanned = Number(result.scanned || 0);
             const rangeLabel = Number(result.days || days) === 0 ? 'all available Twilio history' : `the last ${result.days || days} days`;
+            const hint = result.hint || '';
             const summary = imported
                 ? `Imported ${imported} message${imported === 1 ? '' : 's'} from ${rangeLabel}${skipped ? ` (${skipped} already in CRM)` : ''}.`
                 : (scanned
-                    ? `No new messages. Found ${scanned} in Twilio for ${rangeLabel}; they are already in the CRM.`
-                    : `Twilio has no Messenger messages in ${rangeLabel}. Only chats that already passed through this Twilio account can be imported.`);
-            if (help) help.textContent = summary;
-            alert(summary);
+                    ? `No new messages. Found ${scanned} in ${rangeLabel}; they are already in the CRM.`
+                    : `No Messenger history found in ${rangeLabel}.`);
+            const full = hint ? summary + '\n\n' + hint : summary;
+            if (help) help.textContent = full;
+            alert(full);
         } catch (error) {
             console.error('Error:', error);
             const msg = error.message || 'Could not sync old Facebook messages.';

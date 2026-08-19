@@ -318,6 +318,10 @@
                 els.connectLink.style.display = 'none';
                 if (els.emptySyncBtn) els.emptySyncBtn.style.display = '';
                 if (els.syncBar) els.syncBar.style.display = '';
+                if (!data.account?.has_page_access_token && els.syncStatus) {
+                    els.syncStatus.hidden = false;
+                    els.syncStatus.textContent = 'Twilio only has a few recent chats. Save a Facebook Page Access Token under Integrations, then sync again to import the full Page inbox.';
+                }
             }
         } catch (e) {
             console.error(e);
@@ -422,7 +426,7 @@
         buttons.forEach((btn) => { btn.disabled = true; btn.textContent = 'Syncing…'; });
         if (els.syncStatus) {
             els.syncStatus.hidden = false;
-            els.syncStatus.textContent = 'Importing Twilio Messenger history… this can take a minute.';
+            els.syncStatus.textContent = 'Importing Facebook inbox and Twilio history… this can take a few minutes.';
         }
         try {
             const data = await api('/sync', {
@@ -435,15 +439,15 @@
             const scanned = Number(result.scanned || 0);
             const rangeLabel = Number(result.days || days) === 0 ? 'all available Twilio history' : `the last ${result.days || days} days`;
             const sources = result.sources || {};
-            const sourceHint = (sources.messages || sources.conversations)
-                ? ` Twilio Messages: ${sources.messages || 0}, Conversations: ${sources.conversations || 0}.`
-                : '';
+            const hint = result.hint || '';
             const summary = imported
-                ? `Imported ${imported} message${imported === 1 ? '' : 's'} from ${rangeLabel}${skipped ? ` (${skipped} already in CRM)` : ''}.${sourceHint}`
+                ? `Imported ${imported} message${imported === 1 ? '' : 's'} from ${rangeLabel}${skipped ? ` (${skipped} already in CRM)` : ''}. Facebook inbox: ${sources.graph || 0}, Twilio: ${sources.messages || 0}.`
                 : (scanned
-                    ? `No new messages. Found ${scanned} in Twilio for ${rangeLabel}; they are already in the CRM.${sourceHint}`
-                    : `Twilio has no Messenger messages in ${rangeLabel}. Only chats that already passed through this Twilio account (Messages log or Conversations/Flex) can be imported — older Facebook-only history cannot.`);
-            if (els.syncStatus) els.syncStatus.textContent = summary;
+                    ? `No new messages. Found ${scanned} in ${rangeLabel}; they are already in the CRM.`
+                    : `No Messenger history found in ${rangeLabel}.`);
+            const full = hint ? summary + '\n\n' + hint : summary;
+            if (els.syncStatus) els.syncStatus.textContent = full;
+            if (hint) alert(full);
             await loadConversations();
         } catch (e) {
             if (els.syncStatus) els.syncStatus.textContent = e.message || 'Sync failed.';
