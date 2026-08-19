@@ -52,19 +52,45 @@ class LeadAutoCreateService
         );
     }
 
-    public function fromFacebookConversation(FacebookConversation $conversation): ?Lead
+    /**
+     * @param  array{phones?: list<string>, emails?: list<string>, names?: list<string>}|null  $extracted
+     */
+    public function fromFacebookConversation(FacebookConversation $conversation, ?array $extracted = null): ?Lead
     {
+        $extracted = $extracted ?? ['phones' => [], 'emails' => [], 'names' => []];
         $isIg = $conversation->channel === 'instagram';
+        $extractedName = trim((string) ($extracted['names'][0] ?? ''));
+        $extractedName = $extractedName !== '' ? $extractedName : null;
+        $facebookName = $isIg ? null : $conversation->name;
+        if (! $isIg && FacebookConversation::isPlaceholderName($facebookName)) {
+            $facebookName = $extractedName;
+        }
 
-        return $this->ensure(
+        $lead = $this->ensure(
             (int) $conversation->company_id,
             'facebook',
-            $conversation->name,
-            null,
-            null,
-            $isIg ? null : $conversation->name,
+            $extractedName ?: $conversation->name,
+            $extracted['phones'][0] ?? null,
+            $extracted['emails'][0] ?? null,
+            $facebookName,
             $isIg ? ($conversation->username ?: $conversation->name) : null
         );
+
+        if (
+            $lead
+            && $extractedName
+            && ! $this->isPlaceholderName($extractedName)
+            && (
+                $this->isPlaceholderName($lead->name)
+                || strcasecmp(trim((string) $lead->name), trim((string) $conversation->name)) === 0
+            )
+            && strcasecmp(trim((string) $lead->name), $extractedName) !== 0
+        ) {
+            $lead->name = $extractedName;
+            $lead->save();
+        }
+
+        return $lead?->fresh('identities') ?? $lead;
     }
 
     /**

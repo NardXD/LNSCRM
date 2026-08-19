@@ -29,7 +29,7 @@ class StoreLeadRequest extends FormRequest
 
         $name = trim((string) $this->input('name', ''));
         $extractedName = $extracted['names'][0] ?? null;
-        if (FacebookConversation::isPlaceholderName($name) && $extractedName) {
+        if ($extractedName && ($name === '' || FacebookConversation::isPlaceholderName($name))) {
             $name = $extractedName;
         }
         if (FacebookConversation::isPlaceholderName($facebook) && $extractedName) {

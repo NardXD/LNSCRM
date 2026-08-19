@@ -403,7 +403,7 @@ function renderPanel(root, data, opts = {}) {
     const emails = mergedEmails(contact, opts);
     const extractedName = String(opts.extracted_name || (opts.extracted_names || [])[0] || '').trim();
     const placeholder = isPlaceholderName(contact.display_name || opts.name);
-    const displayName = placeholder && extractedName ? extractedName : (contact.display_name || extractedName || 'Contact');
+    const displayName = extractedName || contact.display_name || opts.name || 'Contact';
     const foundInMessages = (opts.extracted_phones || []).length > 0
         || (opts.extracted_emails || []).length > 0
         || Boolean(extractedName);
@@ -548,7 +548,7 @@ function collectPlaceholderLeadDetails(bodyEl, placeholderName, defaults = {}) {
 async function saveAsLead(bodyEl, opts, contact) {
     let name = String(contact.display_name || opts.name || opts.phone || opts.email || 'New lead').trim();
     const extractedName = String(opts.extracted_name || (opts.extracted_names || [])[0] || '').trim();
-    if (isPlaceholderName(name) && extractedName) {
+    if (extractedName) {
         name = extractedName;
     }
     let phones = mergedPhones(contact, opts);

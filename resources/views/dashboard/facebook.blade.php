@@ -733,7 +733,7 @@
         document.querySelector('.fb-layout')?.classList.add('with-history');
         const extractedName = data.conversation?.extracted_name || (data.conversation?.extracted_names || [])[0] || '';
         const historyOpts = {
-            name: conv.name || extractedName || conv.username || '',
+            name: extractedName || conv.name || conv.username || '',
             username: conv.username || '',
             excludeChannel: 'facebook',
             excludeId: conv.id,
@@ -814,7 +814,7 @@
         activeHistoryOpts.extracted_emails = emails;
         activeHistoryOpts.extracted_name = extractedName;
         activeHistoryOpts.extracted_names = names;
-        if (extractedName && ['messenger user', 'instagram user', 'facebook user'].includes(String(activeHistoryOpts.name || '').toLowerCase())) {
+        if (extractedName) {
             activeHistoryOpts.name = extractedName;
         }
         window.loadChannelContactHistory('#fbContactHistory', activeHistoryOpts);

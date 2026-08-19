@@ -23,23 +23,41 @@ class MessageContactExtractor
             ->orderByDesc('sent_at')
             ->orderByDesc('id')
             ->limit(500)
-            ->get(['text', 'direction']);
+            ->get(['text', 'direction'])
+            ->reverse()
+            ->values();
 
         $inbound = [];
         $outbound = [];
+        $promptNames = [];
+        $awaitingName = false;
+
         foreach ($messages as $message) {
             $text = (string) $message->text;
-            if (strtolower((string) $message->direction) === 'inbound') {
+            $isInbound = strtolower((string) $message->direction) === 'inbound';
+
+            if ($awaitingName && $isInbound && ! $this->isNamePrompt($text)) {
+                foreach ($this->bareNamesIn($text) as $name) {
+                    $promptNames[$name] = $name;
+                }
+            }
+
+            $awaitingName = $this->isNamePrompt($text);
+
+            if ($isInbound) {
                 $inbound[] = $text;
             } else {
                 $outbound[] = $text;
             }
         }
 
-        $fromInbound = $this->fromTexts(array_reverse($inbound), (string) $conversation->peer_id);
+        $fromInbound = $this->fromTexts($inbound, (string) $conversation->peer_id);
         $fromOutbound = $this->fromTexts($outbound, (string) $conversation->peer_id);
 
-        $names = $fromInbound['names'];
+        $names = array_values(array_unique(array_merge(
+            array_values($promptNames),
+            $fromInbound['names']
+        )));
         if ($names === []) {
             $names = $fromOutbound['names'];
         }
@@ -177,9 +195,11 @@ class MessageContactExtractor
      */
     protected function namesIn(string $text): array
     {
+        $name = '([A-Za-zÑñ][A-Za-zÑñ.\'\-]*(?:\s+[A-Za-zÑñ][A-Za-zÑñ.\'\-]*){0,3})';
         $patterns = [
-            '/\b(?:my name is|i am|i[\x{2019}\']m|this is|name\s*[:\-]|i go by)\s+([A-Za-z][A-Za-z.\'\-]*(?:\s+[A-Za-z][A-Za-z.\'\-]*){0,3})/iu',
-            '/\b(?:ako si|pangalan ko(?:\s+ay)?|ang pangalan ko(?:\s+ay)?)\s+([A-Za-z][A-Za-z.\'\-]*(?:\s+[A-Za-z][A-Za-z.\'\-]*){0,3})/iu',
+            '/(?:^|[^\p{L}\p{N}_])(?:\*{0,2})(?:(?:full|complete|legal)\s*)?names?(?:\*{0,2})\s*[:：\-–—.]\s*(?:\*{0,2}\s*)?'.$name.'/iu',
+            '/\b(?:my name is|i am|i[\x{2019}\']m|this is|i go by)\s+'.$name.'/iu',
+            '/\b(?:ako si|pangalan ko(?:\s+ay)?|ang pangalan ko(?:\s+ay)?)\s+'.$name.'/iu',
         ];
 
         $out = [];
@@ -196,6 +216,39 @@ class MessageContactExtractor
         }
 
         return array_values($out);
+    }
+
+    /**
+     * True when the whole message is a name prompt such as "Full name:" or "Name:".
+     */
+    protected function isNamePrompt(string $text): bool
+    {
+        $normalized = strtolower(trim($text));
+        $normalized = preg_replace('/[*_`#]+/', '', $normalized) ?? $normalized;
+        $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+        $normalized = trim($normalized);
+        $normalized = trim($normalized, " \t:-–—.?!。");
+
+        return (bool) preg_match(
+            '/^(?:please\s+|kindly\s+)?(?:(?:send|provide|enter|type|give)(?:\s+(?:us|me))?\s+)?(?:your\s+)?(?:full|complete|legal)?\s*names?$/',
+            $normalized
+        );
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function bareNamesIn(string $text): array
+    {
+        $labeled = $this->namesIn($text);
+        if ($labeled !== []) {
+            return $labeled;
+        }
+
+        $firstLine = trim((string) (preg_split('/\R/u', $text)[0] ?? ''));
+        $name = $this->cleanNameCandidate($firstLine);
+
+        return $name ? [$name] : [];
     }
 
     protected function cleanNameCandidate(string $raw): ?string
