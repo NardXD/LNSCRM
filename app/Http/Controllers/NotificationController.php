@@ -3,8 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\FacebookConversation;
-use App\Models\InboxConversation;
-use App\Models\SharedInbox;
 use App\Models\SmsConversation;
 use App\Models\User;
 use App\Models\ViberConversation;
@@ -195,30 +193,6 @@ class NotificationController extends Controller
                 });
         }
 
-        $inboxIds = $this->accessibleInboxIds($user);
-        if ($inboxIds->isNotEmpty()) {
-            InboxConversation::query()
-                ->whereIn('shared_inbox_id', $inboxIds)
-                ->where('folder', 'inbox')
-                ->where('status', 'open')
-                ->where('is_read', false)
-                ->orderByDesc('last_message_at')
-                ->limit(10)
-                ->get()
-                ->each(function (InboxConversation $c) use ($items) {
-                    $from = $c->from_name ?: ($c->from_email ?: 'Unknown sender');
-                    $items->push($this->channelItem(
-                        'inbox',
-                        (int) $c->id,
-                        $from,
-                        'New email from '.$from,
-                        (string) ($c->snippet ?: ($c->subject ?: '')),
-                        url('/inbox?conversation='.$c->id),
-                        $c->last_message_at
-                    ));
-                });
-        }
-
         return $items->sortByDesc(fn (array $item) => $item['created_at'] ?? '')->values();
     }
 
@@ -262,41 +236,7 @@ class NotificationController extends Controller
                 ->count();
         }
 
-        $inboxIds = $this->accessibleInboxIds($user);
-        if ($inboxIds->isNotEmpty()) {
-            $total += InboxConversation::query()
-                ->whereIn('shared_inbox_id', $inboxIds)
-                ->where('folder', 'inbox')
-                ->where('status', 'open')
-                ->where('is_read', false)
-                ->count();
-        }
-
         return $total;
-    }
-
-    /**
-     * @return Collection<int, int>
-     */
-    private function accessibleInboxIds(User $user): Collection
-    {
-        if (! $user->hasPermission('view_inbox')) {
-            return collect();
-        }
-
-        return SharedInbox::query()
-            ->where('company_id', $user->company_id)
-            ->where('is_active', true)
-            ->where(function ($q) use ($user) {
-                $q->where(function ($personal) use ($user) {
-                    $personal->where('type', SharedInbox::TYPE_PERSONAL)
-                        ->where('created_by', $user->id);
-                })->orWhere(function ($shared) use ($user) {
-                    $shared->where('type', SharedInbox::TYPE_SHARED)
-                        ->whereHas('members', fn ($m) => $m->where('users.id', $user->id));
-                });
-            })
-            ->pluck('id');
     }
 
     /**

@@ -162,7 +162,6 @@
                 const isWhatsApp = data.type === 'whatsapp_message' || data.channel === 'whatsapp';
                 const isViber = data.type === 'viber_message' || data.channel === 'viber';
                 const isSms = data.type === 'sms_message' || data.channel === 'sms';
-                const isInbox = data.type === 'inbox_message' || data.channel === 'inbox';
                 const isFacebook = data.type === 'facebook_message' || data.channel === 'messenger' || data.channel === 'instagram' || data.channel === 'facebook';
                 let title;
                 if (isWhatsApp) {
@@ -171,8 +170,6 @@
                     title = data.summary || `New Viber message from ${data.contact_name || 'a contact'}`;
                 } else if (isSms) {
                     title = data.summary || `New SMS from ${data.contact_name || 'a contact'}`;
-                } else if (isInbox) {
-                    title = data.summary || `New email from ${data.contact_name || 'a sender'}`;
                 } else if (isFacebook) {
                     title = data.summary || `New message from ${data.contact_name || 'a contact'}`;
                 } else if (isMention) {
