@@ -388,6 +388,10 @@ async function initializeGlobalTwilioDevice() {
     if (globalTwilioDevice) {
         return globalTwilioDevice;
     }
+    if (window.globalTwilioDevice) {
+        globalTwilioDevice = window.globalTwilioDevice;
+        return globalTwilioDevice;
+    }
     if (globalTwilioInitPromise) {
         return globalTwilioInitPromise;
     }
@@ -444,6 +448,7 @@ async function initializeGlobalTwilioDevice() {
             return globalTwilioDevice;
         } catch (error) {
             console.error('Error initializing global Twilio Device:', error);
+            window.__twilioDeviceInitError = error.message || 'Browser calling failed to start.';
             return null;
         } finally {
             if (!globalTwilioDevice) {
@@ -475,6 +480,9 @@ function setupGlobalTwilioDevice(token, DeviceClass) {
             codecPreferences: ['opus', 'pcmu']
         });
         window.globalTwilioDevice = globalTwilioDevice;
+        window.dispatchEvent(new CustomEvent('lnscrm:twilio-device-ready', {
+            detail: { device: globalTwilioDevice },
+        }));
 
         // Device registered
         globalTwilioDevice.on('registered', () => {
