@@ -3,6 +3,7 @@
 @section('title', 'Facebook & Instagram')
 
 @section('content')
+<div class="fb-page-wrapper">
 <div class="fb-page" id="fbApp"
      data-api-base="{{ url('api/facebook') }}"
      data-csrf="{{ csrf_token() }}"
@@ -32,23 +33,13 @@
                     </button>
                 </div>
             </div>
-            <div class="fb-sync-bar" id="fbSyncBar" style="{{ $integrationConnected ? '' : 'display:none' }}">
-                <select id="fbSyncDays" class="fb-sync-select" title="How far back to import">
-                    <option value="30">Last 30 days</option>
-                    <option value="90" selected>Last 90 days</option>
-                    <option value="365">Last 12 months</option>
-                    <option value="0">All available in Twilio</option>
-                </select>
-                <button type="button" class="fb-sync-btn" id="fbSyncBtn">Sync old messages</button>
-            </div>
-            <p class="fb-sync-status" id="fbSyncStatus" hidden></p>
             <div class="fb-filters">
                 <button type="button" class="fb-chip active" data-channel="">All</button>
                 <button type="button" class="fb-chip" data-channel="messenger">Messenger</button>
                 <button type="button" class="fb-chip" data-channel="instagram">Instagram</button>
             </div>
             <div class="fb-search">
-                <input type="search" id="fbSearch" placeholder="Search conversations...">
+                <input type="search" id="fbSearch" placeholder="Search conversations…" autocomplete="off">
             </div>
             <div class="fb-thread-list" id="fbThreadList"></div>
         </aside>
@@ -57,9 +48,8 @@
             <div class="fb-empty" id="fbEmpty">
                 <div class="fb-empty-card">
                     <h3 id="fbEmptyTitle">Select a conversation</h3>
-                    <p id="fbEmptyText">Facebook Page and Instagram Direct messages appear here after customers message your Twilio-connected Page. You can also import history from Twilio.</p>
+                    <p id="fbEmptyText">Facebook Page and Instagram Direct messages appear here after customers message your Twilio-connected Page.</p>
                     <a href="{{ route('integrations') }}" class="fb-link-btn" id="fbConnectLink" style="{{ $integrationConnected ? 'display:none' : '' }}">Connect Facebook in Integrations</a>
-                    <button type="button" class="fb-link-btn" id="fbEmptySyncBtn" style="{{ $integrationConnected ? '' : 'display:none' }}">Sync old messages</button>
                 </div>
             </div>
 
@@ -75,7 +65,9 @@
                     </div>
                 </header>
 
-                <div class="fb-messages" id="fbMessages"></div>
+                <div class="fb-messages" id="fbMessages">
+                    <div class="fb-message-list" id="fbMessageList"></div>
+                </div>
 
                 <footer class="fb-composer">
                     <div class="fb-attach">
@@ -90,79 +82,310 @@
                         </button>
                         <input type="file" id="fbFileInput" hidden>
                     </div>
-                    <textarea id="fbTextInput" rows="1" placeholder="Type a message..."></textarea>
-                    <button type="button" class="fb-send-btn" id="fbSendBtn">Send</button>
+                    <textarea id="fbTextInput" rows="1" placeholder="Type a message…"></textarea>
+                    <button type="button" class="fb-send-btn" id="fbSendBtn" title="Send" aria-label="Send">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4l-1.4 1.4 5.6 5.6H4v2h12.2l-5.6 5.6L12 20l8-8z"/></svg>
+                    </button>
                 </footer>
             </div>
         </main>
         @include('partials.contact-history-panel', ['panelId' => 'fbContactHistory'])
     </div>
 </div>
+</div>
 
 <style>
-.fb-page { height: calc(100dvh - 140px); max-height: calc(100dvh - 140px); min-height: 420px; min-width: 0; }
-.fb-layout { display: grid; grid-template-columns: 320px 1fr; height: 100%; min-height: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--bg-card); }
-.fb-layout.with-history { grid-template-columns: 320px 1fr 300px; }
-.fb-sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg-primary); min-height: 0; min-width: 0; }
-.fb-sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.1rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.fb-header-actions { display: flex; align-items: center; gap: 0.25rem; }
-.fb-sync-bar { display: flex; gap: 0.4rem; padding: 0.55rem 1rem 0; flex-shrink: 0; }
-.fb-sync-select { flex: 1; min-width: 0; padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text-primary); font-size: 0.78rem; }
-.fb-sync-btn { border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); border-radius: 8px; padding: 0.35rem 0.65rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
-.fb-sync-btn:hover { background: var(--bg-primary); }
-.fb-sync-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-.fb-sync-status { margin: 0.35rem 1rem 0; font-size: 0.75rem; color: var(--text-secondary); flex-shrink: 0; }
-.fb-sidebar-header h2 { margin: 0; font-size: 1.05rem; }
-.fb-sub { margin: 0.15rem 0 0; color: var(--text-secondary); font-size: 0.8rem; }
-.fb-filters { display: flex; gap: 0.35rem; padding: 0.65rem 1rem 0; flex-shrink: 0; }
-.fb-chip { border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary); border-radius: 999px; padding: 0.3rem 0.7rem; font-size: 0.75rem; cursor: pointer; }
-.fb-chip.active { background: #1877f2; border-color: #1877f2; color: #fff; }
-.fb-search { padding: 0.75rem 1rem; flex-shrink: 0; }
-.fb-search input { width: 100%; padding: 0.55rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text-primary); }
-.fb-thread-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-.fb-thread { display: flex; gap: 0.75rem; padding: 0.85rem 1rem; cursor: pointer; border-bottom: 1px solid var(--border); }
-.fb-thread:hover, .fb-thread.active { background: var(--bg-card); }
+.main-content > .content:has(.fb-page-wrapper) {
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.fb-page-wrapper {
+    --fb-bg: #f4f5f7;
+    --fb-panel: #ffffff;
+    --fb-accent: #1877f2;
+    --fb-accent-soft: #e7f0fd;
+    --fb-bubble: #1877f2;
+    --fb-gray-bubble: #E9E9EB;
+    --fb-chat-bg: #ffffff;
+    margin: 0;
+    width: 100%;
+    height: calc(100vh - 64px);
+    min-height: calc(100vh - 64px);
+    padding: 10px 12px 12px;
+    background: var(--bg-primary, #fafafa);
+}
+
+.fb-page {
+    height: 100%;
+    width: 100%;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    background: var(--fb-panel);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+
+.fb-layout {
+    display: grid;
+    grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+    height: 100%;
+    width: 100%;
+    min-height: 0;
+    background: var(--fb-panel);
+}
+.fb-layout.with-history { grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) 300px; }
+
+.fb-sidebar {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    background: var(--fb-panel);
+    border-right: 1px solid var(--border);
+}
+.fb-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    min-height: 64px;
+    padding: 1rem 1.15rem;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.fb-sidebar-header h2 { margin: 0; font-size: 1rem; font-weight: 700; }
+.fb-sub { margin: 0.15rem 0 0; color: var(--text-secondary); font-size: 0.75rem; }
+.fb-header-actions { display: flex; gap: 0.15rem; }
+.fb-filters { display: flex; gap: 0.35rem; padding: 0.7rem 1.15rem 0; flex-shrink: 0; }
+.fb-chip {
+    border: 1px solid var(--border);
+    background: var(--fb-bg);
+    color: var(--text-secondary);
+    border-radius: 999px;
+    padding: 0.28rem 0.7rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.fb-chip.active { background: var(--fb-accent); border-color: var(--fb-accent); color: #fff; }
+.fb-search { padding: 0.7rem 1.15rem 0.8rem; flex-shrink: 0; }
+.fb-search input {
+    width: 100%;
+    padding: 0.45rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--fb-bg);
+    color: var(--text-primary);
+    font-size: 0.82rem;
+}
+.fb-thread-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0.35rem 0.55rem 0.75rem; }
+.fb-thread {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    padding: 0.55rem 0.65rem;
+    cursor: pointer;
+    border-radius: 10px;
+}
+.fb-thread:hover { background: var(--fb-bg); }
+.fb-thread.active { background: #eef0f3; }
+.fb-thread.unread .fb-thread-name { font-weight: 700; }
 .fb-thread-body { min-width: 0; flex: 1; }
-.fb-thread-top { display: flex; justify-content: space-between; gap: 0.5rem; }
-.fb-thread-name { font-weight: 600; font-size: 0.92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fb-thread-time { color: var(--text-secondary); font-size: 0.72rem; white-space: nowrap; }
-.fb-thread-preview { color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fb-channel-tag { display: inline-block; margin-top: 0.2rem; font-size: 0.68rem; font-weight: 600; color: #1877f2; text-transform: uppercase; letter-spacing: 0.02em; }
+.fb-thread-top { display: flex; justify-content: space-between; gap: 0.5rem; align-items: baseline; }
+.fb-thread-name { font-weight: 600; font-size: 0.84rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-primary); }
+.fb-thread-time { color: var(--text-secondary); font-size: 0.68rem; white-space: nowrap; }
+.fb-thread-preview { color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
+.fb-channel-tag { display: inline-block; margin-top: 0.15rem; font-size: 0.64rem; font-weight: 600; color: var(--fb-accent); text-transform: uppercase; letter-spacing: 0.02em; }
 .fb-channel-tag.instagram { color: #c13584; }
-.fb-badge { display: inline-flex; min-width: 1.2rem; height: 1.2rem; padding: 0 0.35rem; align-items: center; justify-content: center; border-radius: 999px; background: #1877f2; color: #fff; font-size: 0.7rem; font-weight: 700; }
-.fb-avatar { width: 40px; height: 40px; border-radius: 50%; background: #1877f2; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; background-size: cover; background-position: center; }
-.fb-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
-.fb-empty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 2rem; min-height: 0; }
-.fb-empty-card { text-align: center; max-width: 380px; }
-.fb-empty-card h3 { margin: 0 0 0.5rem; }
-.fb-empty-card p { color: var(--text-secondary); margin: 0 0 1rem; }
-.fb-link-btn { display: inline-block; padding: 0.55rem 0.9rem; border-radius: 8px; background: #1877f2; color: #fff; text-decoration: none; font-weight: 600; font-size: 0.9rem; }
-.fb-chat { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; height: 100%; overflow: hidden; }
-.fb-chat-header { display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.fb-badge {
+    display: inline-flex; min-width: 1.05rem; height: 1.05rem; padding: 0 0.3rem;
+    align-items: center; justify-content: center; border-radius: 999px;
+    background: var(--fb-accent); color: #fff; font-size: 0.64rem; font-weight: 700; flex-shrink: 0;
+}
+.fb-list-hint { text-align: center; padding: 0.7rem; font-size: 0.72rem; color: var(--text-secondary); }
+.fb-avatar {
+    width: 32px; height: 32px; border-radius: 8px; background: var(--fb-accent); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.7rem; flex-shrink: 0;
+    background-size: cover; background-position: center;
+}
+
+.fb-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--fb-bg); }
+.fb-empty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+.fb-empty-card { text-align: center; max-width: 360px; }
+.fb-empty-card h3 { margin: 0 0 0.4rem; font-size: 1.05rem; }
+.fb-empty-card p { color: var(--text-secondary); margin: 0 0 1rem; font-size: 0.88rem; line-height: 1.45; }
+.fb-link-btn { display: inline-block; padding: 0.5rem 0.85rem; border-radius: 8px; background: var(--fb-accent); color: #fff; text-decoration: none; font-weight: 600; font-size: 0.84rem; }
+
+.fb-chat { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--fb-chat-bg); }
+.fb-chat-header {
+    display: flex; align-items: center; gap: 0.75rem;
+    min-height: 64px;
+    padding: 1rem 1.15rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--fb-panel); flex-shrink: 0;
+}
 .fb-chat-meta { flex: 1; min-width: 0; }
-.fb-chat-meta h3 { margin: 0; font-size: 1rem; }
-.fb-chat-meta span { color: var(--text-secondary); font-size: 0.78rem; }
-.fb-messages { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.65rem; background: linear-gradient(180deg, var(--bg-primary), var(--bg-card)); }
-.fb-bubble { max-width: min(72%, 520px); padding: 0.65rem 0.8rem; border-radius: 14px; font-size: 0.92rem; line-height: 1.4; word-break: break-word; flex-shrink: 0; }
-.fb-bubble.inbound { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
-.fb-bubble.outbound { align-self: flex-end; background: #1877f2; color: #fff; border-bottom-right-radius: 4px; }
-.fb-bubble img, .fb-bubble video { display: block; max-width: 100%; border-radius: 8px; margin-top: 0.35rem; }
+.fb-chat-meta h3 { margin: 0; font-size: 0.92rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-chat-meta span { color: var(--text-secondary); font-size: 0.72rem; }
+
+.fb-messages {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0.75rem 1rem 1.1rem;
+    display: flex;
+    flex-direction: column;
+    background: var(--fb-chat-bg);
+}
+.fb-message-list {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-height: min-content;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+}
+.fb-stamp {
+    align-self: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: #8e8e93;
+    letter-spacing: -0.01em;
+    margin: 12px 0 8px;
+    text-align: center;
+    line-height: 1.3;
+}
+.fb-bubble {
+    position: relative;
+    max-width: min(72%, 460px);
+    padding: 7px 13px 8px;
+    border-radius: 18px;
+    font-size: 15px;
+    line-height: 1.32;
+    letter-spacing: -0.01em;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+.fb-bubble.inbound {
+    align-self: flex-start;
+    background: var(--fb-gray-bubble);
+    color: #000;
+    margin-left: 10px;
+}
+.fb-bubble.outbound {
+    align-self: flex-end;
+    background: var(--fb-bubble);
+    color: #fff;
+    margin-right: 10px;
+}
+.fb-bubble.solo,
+.fb-bubble.group-start { margin-top: 8px; }
+.fb-stamp + .fb-bubble { margin-top: 0; }
+.fb-bubble.inbound.group-start:not(.solo) { border-bottom-left-radius: 5px; }
+.fb-bubble.inbound.group-mid { border-top-left-radius: 5px; border-bottom-left-radius: 5px; }
+.fb-bubble.inbound.group-end { border-top-left-radius: 5px; }
+.fb-bubble.outbound.group-start:not(.solo) { border-bottom-right-radius: 5px; }
+.fb-bubble.outbound.group-mid { border-top-right-radius: 5px; border-bottom-right-radius: 5px; }
+.fb-bubble.outbound.group-end { border-top-right-radius: 5px; }
+.fb-bubble.inbound.tail::before,
+.fb-bubble.outbound.tail::before {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    width: 16px;
+    height: 16px;
+}
+.fb-bubble.inbound.tail::after,
+.fb-bubble.outbound.tail::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    width: 10px;
+    height: 16px;
+    background: var(--fb-chat-bg);
+}
+.fb-bubble.inbound.tail::before {
+    left: -6px;
+    background: var(--fb-gray-bubble);
+    border-bottom-right-radius: 12px;
+}
+.fb-bubble.inbound.tail::after {
+    left: -10px;
+    border-bottom-right-radius: 8px;
+}
+.fb-bubble.outbound.tail::before {
+    right: -6px;
+    background: var(--fb-bubble);
+    border-bottom-left-radius: 12px;
+}
+.fb-bubble.outbound.tail::after {
+    right: -10px;
+    border-bottom-left-radius: 8px;
+}
+.fb-bubble img, .fb-bubble video { display: block; max-width: 100%; border-radius: 12px; margin: 0.2rem 0; }
+.fb-bubble audio { width: 100%; margin-top: 0.2rem; }
 .fb-bubble a { color: inherit; text-decoration: underline; }
-.fb-meta { display: block; margin-top: 0.35rem; font-size: 0.7rem; opacity: 0.75; }
-.fb-composer { display: flex; align-items: flex-end; gap: 0.5rem; padding: 0.75rem 1rem; border-top: 1px solid var(--border); background: var(--bg-card); flex-shrink: 0; }
-.fb-attach { display: flex; gap: 0.15rem; }
-.fb-composer textarea { flex: 1; resize: none; min-height: 42px; max-height: 120px; padding: 0.65rem 0.75rem; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-primary); color: var(--text-primary); font: inherit; }
-.fb-send-btn { border: 0; border-radius: 10px; padding: 0.7rem 1rem; background: #1877f2; color: #fff; font-weight: 600; cursor: pointer; }
+.fb-delivered {
+    align-self: flex-end;
+    font-size: 11px;
+    font-weight: 500;
+    color: #8e8e93;
+    margin: 2px 18px 2px 0;
+    letter-spacing: -0.01em;
+}
+.fb-delivered.is-failed { color: #ff3b30; font-weight: 600; }
+.fb-bubble.failed { opacity: 0.9; }
+
+.fb-composer {
+    display: flex; align-items: flex-end; gap: 0.45rem;
+    padding: 0.55rem 0.85rem 0.75rem; border-top: 1px solid #e5e5ea;
+    background: var(--fb-chat-bg); flex-shrink: 0;
+}
+.fb-attach { display: flex; gap: 0.05rem; flex-shrink: 0; }
+.fb-layout .chp-header {
+    min-height: 64px;
+    align-items: center;
+    padding: 1rem 1.15rem;
+}
+.fb-composer textarea {
+    flex: 1; resize: none; min-height: 36px; max-height: 110px;
+    padding: 8px 14px; border: 1px solid #c7c7cc; border-radius: 20px;
+    background: #fff; color: #000; font: inherit; font-size: 15px; line-height: 1.3;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+}
+.fb-composer textarea::placeholder { color: #8e8e93; }
+.fb-send-btn {
+    width: 32px; height: 32px; border: 0; border-radius: 50%; padding: 0;
+    background: var(--fb-accent); color: #fff; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.fb-send-btn svg { width: 16px; height: 16px; transform: rotate(-90deg); }
 .fb-send-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-.fb-icon-btn { width: 36px; height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
-.fb-icon-btn:hover { background: var(--bg-primary); color: var(--text-primary); }
-.fb-icon-btn svg { width: 18px; height: 18px; }
+.fb-icon-btn {
+    width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent;
+    color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.fb-icon-btn:hover { background: var(--fb-bg); color: var(--text-primary); }
+.fb-icon-btn svg { width: 16px; height: 16px; }
 .fb-back { display: none; }
+
 @media (max-width: 900px) {
-    .fb-layout { grid-template-columns: 1fr; }
+    .fb-page-wrapper { padding: 8px; }
+    .fb-page-wrapper, .fb-page { height: auto; min-height: calc(100vh - 64px); overflow: visible; }
+    .fb-layout, .fb-layout.with-history { grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 80px); }
+    .fb-sidebar { min-height: calc(100vh - 64px); }
     .fb-sidebar.hidden-mobile { display: none; }
+    .fb-main { min-height: calc(100vh - 64px); }
     .fb-main.hidden-mobile { display: none; }
     .fb-back { display: inline-flex; }
+    .fb-chat { min-height: calc(100vh - 64px); }
 }
 </style>
 
@@ -180,12 +403,14 @@
     let channelFilter = '';
     let pollTimer = null;
     let uploadKind = 'file';
+    let messageIds = new Set();
 
     const els = {
         list: document.getElementById('fbThreadList'),
         empty: document.getElementById('fbEmpty'),
         chat: document.getElementById('fbChat'),
         messages: document.getElementById('fbMessages'),
+        messageList: document.getElementById('fbMessageList'),
         search: document.getElementById('fbSearch'),
         text: document.getElementById('fbTextInput'),
         send: document.getElementById('fbSendBtn'),
@@ -199,40 +424,20 @@
         emptyTitle: document.getElementById('fbEmptyTitle'),
         emptyText: document.getElementById('fbEmptyText'),
         accountLabel: document.getElementById('fbAccountLabel'),
-        syncBar: document.getElementById('fbSyncBar'),
-        syncDays: document.getElementById('fbSyncDays'),
-        syncBtn: document.getElementById('fbSyncBtn'),
-        syncStatus: document.getElementById('fbSyncStatus'),
-        emptySyncBtn: document.getElementById('fbEmptySyncBtn'),
     };
 
-    function syncErrorMessage(res, data, fallback) {
-        if (data?.message || data?.error) return data.message || data.error;
-        if (!res) return fallback;
-        if ([502, 504, 524, 408].includes(res.status)) {
-            return 'Sync timed out. The server was still talking to Twilio. Try Last 30 days, or add a Page Access Token under Integrations.';
-        }
-        if (res.status) return fallback + ' (HTTP ' + res.status + ')';
-        return fallback;
-    }
-
     async function api(path, options = {}) {
-        let res;
-        try {
-            res = await fetch(apiBase + path, {
-                ...options,
-                headers: {
-                    'Accept': 'application/json',
-                    'X-CSRF-TOKEN': csrf,
-                    ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-                    ...(options.headers || {}),
-                },
-            });
-        } catch (e) {
-            throw new Error('Could not reach the server. If Sync was still Pending, it timed out — try Last 30 days.');
-        }
+        const res = await fetch(apiBase + path, {
+            ...options,
+            headers: {
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': csrf,
+                ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+                ...(options.headers || {}),
+            },
+        });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(syncErrorMessage(res, data, 'Request failed'));
+        if (!res.ok) throw new Error(data.message || data.error || 'Request failed');
         return data;
     }
 
@@ -240,17 +445,52 @@
         return (name || 'F').split(/\s+/).map(p => p[0]).join('').slice(0, 2).toUpperCase();
     }
 
-    function formatTime(iso) {
+    function formatListTime(iso) {
         if (!iso) return '';
         const d = new Date(iso);
         if (Number.isNaN(d.getTime())) return '';
-        return d.toLocaleString([], {
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            timeZone: appTimezone,
-        });
+        const now = new Date();
+        const sameDay = d.toDateString() === now.toDateString();
+        const opts = { timeZone: appTimezone };
+        if (sameDay) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', ...opts });
+        const yesterday = new Date(now);
+        yesterday.setDate(now.getDate() - 1);
+        if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+        return d.toLocaleDateString([], { month: 'short', day: 'numeric', ...opts });
+    }
+
+    function formatStamp(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return '';
+        const now = new Date();
+        const opts = { timeZone: appTimezone };
+        const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', ...opts });
+        if (d.toDateString() === now.toDateString()) return 'Today ' + time;
+        const yesterday = new Date(now);
+        yesterday.setDate(now.getDate() - 1);
+        if (d.toDateString() === yesterday.toDateString()) return 'Yesterday ' + time;
+        const weekAgo = new Date(now);
+        weekAgo.setDate(now.getDate() - 6);
+        if (d > weekAgo) {
+            return d.toLocaleDateString([], { weekday: 'long', ...opts }) + ' ' + time;
+        }
+        if (d.getFullYear() === now.getFullYear()) {
+            return d.toLocaleDateString([], { month: 'short', day: 'numeric', ...opts }) + ' at ' + time;
+        }
+        return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric', ...opts }) + ' at ' + time;
+    }
+
+    function dayKey(iso) {
+        if (!iso) return '';
+        return new Date(iso).toDateString();
+    }
+
+    function shouldStamp(prevIso, iso) {
+        if (!iso) return false;
+        if (!prevIso) return true;
+        if (dayKey(prevIso) !== dayKey(iso)) return true;
+        return (new Date(iso) - new Date(prevIso)) > 45 * 60 * 1000;
     }
 
     function setAvatar(el, name, pic) {
@@ -271,6 +511,15 @@
         return channel === 'instagram' ? 'Instagram' : 'Messenger';
     }
 
+    function nearBottom() {
+        return els.messages.scrollHeight - els.messages.scrollTop - els.messages.clientHeight < 80;
+    }
+
+    function lastBubble() {
+        const nodes = els.messageList.querySelectorAll('.fb-bubble');
+        return nodes[nodes.length - 1] || null;
+    }
+
     function renderThreads() {
         const q = (els.search.value || '').toLowerCase();
         const items = conversations.filter(c => {
@@ -280,17 +529,17 @@
         });
 
         if (!items.length) {
-            els.list.innerHTML = `<div style="padding:1.25rem;color:var(--text-secondary);font-size:0.9rem;">No conversations yet.</div>`;
+            els.list.innerHTML = `<div class="fb-list-hint">No conversations yet.</div>`;
             return;
         }
 
         els.list.innerHTML = items.map(c => `
-            <div class="fb-thread ${c.id === activeId ? 'active' : ''}" data-id="${c.id}">
+            <div class="fb-thread ${c.id === activeId ? 'active' : ''} ${c.unread_count ? 'unread' : ''}" data-id="${c.id}">
                 <div class="fb-avatar" style="${c.profile_pic ? `background-image:url('${escapeHtml(c.profile_pic)}')` : ''}">${c.profile_pic ? '' : initials(c.name)}</div>
                 <div class="fb-thread-body">
                     <div class="fb-thread-top">
                         <div class="fb-thread-name">${escapeHtml(c.name || channelLabel(c.channel) + ' User')}</div>
-                        <div class="fb-thread-time">${formatTime(c.last_message_at)}</div>
+                        <div class="fb-thread-time">${formatListTime(c.last_message_at)}</div>
                     </div>
                     <div class="fb-thread-preview">${escapeHtml(c.last_message_preview || '')}</div>
                     <span class="fb-channel-tag ${c.channel === 'instagram' ? 'instagram' : ''}">${channelLabel(c.channel)}</span>
@@ -304,24 +553,79 @@
         });
     }
 
-    function renderMessage(m) {
-        let body = '';
-        if (m.type === 'image' && m.media_url) {
-            body = `${m.text ? `<div>${escapeHtml(m.text)}</div>` : ''}<img src="${escapeHtml(m.media_url)}" alt="Image">`;
-        } else if (m.type === 'video' && m.media_url) {
-            body = `<video controls src="${escapeHtml(m.media_url)}"></video>${m.text ? `<div>${escapeHtml(m.text)}</div>` : ''}`;
-        } else if (m.type === 'audio' && m.media_url) {
-            body = `<audio controls src="${escapeHtml(m.media_url)}"></audio>`;
-        } else if (m.type === 'file' && m.media_url) {
-            body = `<a href="${escapeHtml(m.media_url)}" target="_blank" rel="noopener">${escapeHtml(m.file_name || 'Download file')}</a>`;
-        } else {
-            body = escapeHtml(m.text || '');
-        }
+    function stampMarkup(iso) {
+        return `<div class="fb-stamp" data-day="${dayKey(iso)}" data-ts="${iso}">${escapeHtml(formatStamp(iso))}</div>`;
+    }
 
-        return `<div class="fb-bubble ${m.direction}">
-            ${body}
-            <span class="fb-meta">${formatTime(m.sent_at || m.created_at)}${m.status ? ' · ' + escapeHtml(m.status) : ''}</span>
-        </div>`;
+    function messageBody(m) {
+        if (m.type === 'image' && m.media_url) {
+            return `${m.text ? `<div>${escapeHtml(m.text)}</div>` : ''}<img src="${escapeHtml(m.media_url)}" alt="Image">`;
+        }
+        if (m.type === 'video' && m.media_url) {
+            return `<video controls src="${escapeHtml(m.media_url)}"></video>${m.text ? `<div>${escapeHtml(m.text)}</div>` : ''}`;
+        }
+        if (m.type === 'audio' && m.media_url) {
+            return `<audio controls src="${escapeHtml(m.media_url)}"></audio>`;
+        }
+        if (m.type === 'file' && m.media_url) {
+            return `<a href="${escapeHtml(m.media_url)}" target="_blank" rel="noopener">${escapeHtml(m.file_name || 'Download file')}</a>`;
+        }
+        return escapeHtml(m.text || '');
+    }
+
+    function messageMarkup(m) {
+        const status = (m.status || '').toLowerCase();
+        const failed = status === 'failed' || status === 'undelivered';
+        const iso = m.sent_at || m.created_at || '';
+        return `<div class="fb-bubble ${m.direction}${failed ? ' failed' : ''}" data-id="${m.id}" data-direction="${m.direction}" data-day="${dayKey(iso)}" data-ts="${iso}" data-status="${escapeHtml(status)}">${messageBody(m)}</div>`;
+    }
+
+    function refreshThreadChrome() {
+        const nodes = [...els.messageList.querySelectorAll('.fb-bubble')];
+        els.messageList.querySelectorAll('.fb-delivered').forEach(n => n.remove());
+        nodes.forEach((node, i) => {
+            const prev = nodes[i - 1];
+            const next = nodes[i + 1];
+            const samePrev = prev && prev.dataset.direction === node.dataset.direction && !shouldStamp(prev.dataset.ts, node.dataset.ts);
+            const sameNext = next && next.dataset.direction === node.dataset.direction && !shouldStamp(node.dataset.ts, next.dataset.ts);
+            node.classList.toggle('solo', !samePrev && !sameNext);
+            node.classList.toggle('group-start', !samePrev && sameNext);
+            node.classList.toggle('group-mid', samePrev && sameNext);
+            node.classList.toggle('group-end', samePrev && !sameNext);
+            node.classList.toggle('tail', !sameNext);
+        });
+
+        const lastOut = [...nodes].reverse().find(n => n.dataset.direction === 'outbound');
+        if (!lastOut) return;
+        const st = (lastOut.dataset.status || '').toLowerCase();
+        const failed = lastOut.classList.contains('failed') || st === 'failed' || st === 'undelivered';
+        let label = 'Sent';
+        if (failed) label = 'Not Delivered';
+        else if (st === 'queued' || st === 'accepted' || st === 'sending') label = 'Sending';
+        else if (st === 'delivered' || st === 'read') label = 'Delivered';
+        lastOut.insertAdjacentHTML('afterend', `<div class="fb-delivered${failed ? ' is-failed' : ''}">${label}</div>`);
+    }
+
+    function appendMessage(m) {
+        if (messageIds.has(m.id)) return;
+        const iso = m.sent_at || m.created_at;
+        const prev = lastBubble();
+        if (shouldStamp(prev?.dataset.ts, iso)) {
+            els.messageList.insertAdjacentHTML('beforeend', stampMarkup(iso));
+        }
+        els.messageList.insertAdjacentHTML('beforeend', messageMarkup(m));
+        messageIds.add(m.id);
+        refreshThreadChrome();
+        els.messageList.querySelectorAll('img, video').forEach((media) => {
+            media.addEventListener('load', () => {
+                if (nearBottom()) els.messages.scrollTop = els.messages.scrollHeight;
+            }, { once: true });
+        });
+    }
+
+    function resetMessages() {
+        els.messageList.innerHTML = '';
+        messageIds = new Set();
     }
 
     async function loadBootstrap() {
@@ -336,26 +640,30 @@
                 els.emptyTitle.textContent = 'Connect Facebook';
                 els.emptyText.textContent = 'Connect Twilio and your Facebook Messenger sender under Integrations to receive Page messages.';
                 els.connectLink.style.display = '';
-                if (els.emptySyncBtn) els.emptySyncBtn.style.display = 'none';
-                if (els.syncBar) els.syncBar.style.display = 'none';
             } else {
                 els.connectLink.style.display = 'none';
-                if (els.emptySyncBtn) els.emptySyncBtn.style.display = '';
-                if (els.syncBar) els.syncBar.style.display = '';
-                if (!data.account?.has_page_access_token && els.syncStatus) {
-                    els.syncStatus.hidden = false;
-                    els.syncStatus.textContent = 'Twilio only has a few recent chats. Save a Facebook Page Access Token under Integrations, then sync again to import the full Page inbox.';
-                }
             }
         } catch (e) {
             console.error(e);
         }
     }
 
-    async function loadConversations() {
+    async function loadConversations({ merge = false } = {}) {
         const qs = channelFilter ? `?channel=${encodeURIComponent(channelFilter)}` : '';
         const data = await api('/conversations' + qs);
-        conversations = data.data || [];
+        const rows = data.data || [];
+        if (merge) {
+            const byId = new Map(conversations.map(c => [c.id, c]));
+            rows.forEach(c => byId.set(c.id, c));
+            conversations = [...byId.values()].sort((a, b) => {
+                const ta = a.last_message_at || '';
+                const tb = b.last_message_at || '';
+                if (ta === tb) return (b.id || 0) - (a.id || 0);
+                return tb.localeCompare(ta);
+            });
+        } else {
+            conversations = rows;
+        }
         renderThreads();
     }
 
@@ -364,12 +672,14 @@
         const conv = conversations.find(c => c.id === id);
         if (!conv) return;
 
+        conv.unread_count = 0;
         els.empty.style.display = 'none';
         els.chat.style.display = 'flex';
         els.headerName.textContent = conv.name || (channelLabel(conv.channel) + ' User');
         els.headerStatus.textContent = channelLabel(conv.channel) + (conv.username ? ' · @' + conv.username : '');
         setAvatar(els.headerAvatar, conv.name, conv.profile_pic);
         renderThreads();
+        resetMessages();
 
         if (window.matchMedia('(max-width: 900px)').matches) {
             els.sidebar.classList.add('hidden-mobile');
@@ -377,17 +687,15 @@
         }
 
         const data = await api(`/conversations/${id}/messages`);
-        els.messages.innerHTML = (data.data || []).map(renderMessage).join('');
-        requestAnimationFrame(() => {
-            els.messages.scrollTop = els.messages.scrollHeight;
-        });
-        els.messages.querySelectorAll('img, video').forEach((media) => {
-            media.addEventListener('load', () => {
-                els.messages.scrollTop = els.messages.scrollHeight;
-            }, { once: true });
-        });
-        await loadConversations();
+        (data.data || []).forEach(appendMessage);
+        els.messages.scrollTop = els.messages.scrollHeight;
         window.updateHeaderNotificationsBadge?.();
+
+        if (data.conversation) {
+            const idx = conversations.findIndex(c => c.id === id);
+            if (idx >= 0) conversations[idx] = { ...conversations[idx], ...data.conversation, unread_count: 0 };
+            renderThreads();
+        }
 
         document.querySelector('.fb-layout')?.classList.add('with-history');
         window.loadChannelContactHistory('#fbContactHistory', {
@@ -397,18 +705,32 @@
         });
     }
 
+    async function pollActiveMessages() {
+        if (!activeId) return;
+        const data = await api(`/conversations/${activeId}/messages`);
+        const incoming = data.data || [];
+        const newer = incoming.filter(m => !messageIds.has(m.id));
+        if (!newer.length) return;
+        const pin = nearBottom();
+        newer.forEach(appendMessage);
+        if (pin) els.messages.scrollTop = els.messages.scrollHeight;
+    }
+
     async function sendText() {
         if (!activeId) return;
         const text = els.text.value.trim();
         if (!text) return;
         els.send.disabled = true;
         try {
-            await api(`/conversations/${activeId}/messages`, {
+            const data = await api(`/conversations/${activeId}/messages`, {
                 method: 'POST',
                 body: JSON.stringify({ type: 'text', text }),
             });
             els.text.value = '';
-            await openConversation(activeId);
+            els.text.style.height = 'auto';
+            if (data.data) appendMessage(data.data);
+            els.messages.scrollTop = els.messages.scrollHeight;
+            await loadConversations({ merge: true });
         } catch (e) {
             alert(e.message);
         } finally {
@@ -425,7 +747,7 @@
         try {
             const uploaded = await api('/media', { method: 'POST', body: form, headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' } });
             const media = uploaded.data;
-            await api(`/conversations/${activeId}/messages`, {
+            const data = await api(`/conversations/${activeId}/messages`, {
                 method: 'POST',
                 body: JSON.stringify({
                     type: kind,
@@ -434,50 +756,14 @@
                     file_size: media.file_size,
                 }),
             });
-            await openConversation(activeId);
+            if (data.data) appendMessage(data.data);
+            els.messages.scrollTop = els.messages.scrollHeight;
+            await loadConversations({ merge: true });
         } catch (e) {
             alert(e.message);
         } finally {
             els.send.disabled = false;
             els.file.value = '';
-        }
-    }
-
-    async function syncOldMessages() {
-        if (!connected) return;
-        const days = els.syncDays?.value || '90';
-        const buttons = [els.syncBtn, els.emptySyncBtn].filter(Boolean);
-        buttons.forEach((btn) => { btn.disabled = true; btn.textContent = 'Syncing…'; });
-        if (els.syncStatus) {
-            els.syncStatus.hidden = false;
-            els.syncStatus.textContent = 'Importing Facebook inbox and Twilio history… this can take a few minutes.';
-        }
-        try {
-            const data = await api('/sync', {
-                method: 'POST',
-                body: JSON.stringify({ days: Number(days), limit: 2000 }),
-            });
-            const result = data.data || {};
-            const imported = Number(result.imported || 0);
-            const skipped = Number(result.skipped || 0);
-            const scanned = Number(result.scanned || 0);
-            const rangeLabel = Number(result.days || days) === 0 ? 'all available Twilio history' : `the last ${result.days || days} days`;
-            const sources = result.sources || {};
-            const hint = result.hint || '';
-            const summary = imported
-                ? `Imported ${imported} message${imported === 1 ? '' : 's'} from ${rangeLabel}${skipped ? ` (${skipped} already in CRM)` : ''}. Facebook inbox: ${sources.graph || 0}, Twilio: ${sources.messages || 0}.`
-                : (scanned
-                    ? `No new messages. Found ${scanned} in ${rangeLabel}; they are already in the CRM.`
-                    : `No Messenger history found in ${rangeLabel}.`);
-            const full = hint ? summary + '\n\n' + hint : summary;
-            if (els.syncStatus) els.syncStatus.textContent = full;
-            if (hint) alert(full);
-            await loadConversations();
-        } catch (e) {
-            if (els.syncStatus) els.syncStatus.textContent = e.message || 'Sync failed.';
-            alert(e.message || 'Could not sync old messages.');
-        } finally {
-            buttons.forEach((btn) => { btn.disabled = false; btn.textContent = 'Sync old messages'; });
         }
     }
 
@@ -494,6 +780,10 @@
             sendText();
         }
     });
+    els.text.addEventListener('input', () => {
+        els.text.style.height = 'auto';
+        els.text.style.height = Math.min(els.text.scrollHeight, 110) + 'px';
+    });
     document.querySelectorAll('.fb-chip').forEach(chip => {
         chip.addEventListener('click', () => {
             document.querySelectorAll('.fb-chip').forEach(c => c.classList.remove('active'));
@@ -506,8 +796,6 @@
     document.getElementById('fbAttachVideo').addEventListener('click', () => { uploadKind = 'video'; els.file.accept = 'video/mp4,.mp4'; els.file.click(); });
     document.getElementById('fbAttachFile').addEventListener('click', () => { uploadKind = 'file'; els.file.accept = '*/*'; els.file.click(); });
     els.file.addEventListener('change', () => uploadAndSend(els.file.files[0], uploadKind));
-    els.syncBtn?.addEventListener('click', syncOldMessages);
-    els.emptySyncBtn?.addEventListener('click', syncOldMessages);
 
     (async function init() {
         await loadBootstrap();
@@ -518,7 +806,10 @@
             if (openId && conversations.some(c => c.id === openId)) {
                 await openConversation(openId);
             }
-            pollTimer = setInterval(() => loadConversations().catch(() => {}), 15000);
+            pollTimer = setInterval(() => {
+                loadConversations({ merge: true }).catch(() => {});
+                pollActiveMessages().catch(() => {});
+            }, 12000);
         }
     })();
 })();
