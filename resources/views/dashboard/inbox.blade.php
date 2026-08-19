@@ -3744,6 +3744,7 @@
             }
         }
         renderThread();
+        window.updateHeaderNotificationsBadge?.();
     }
 
     function formatThreadTime(iso) {

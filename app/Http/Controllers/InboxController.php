@@ -16,8 +16,10 @@ use App\Models\OutlookMailAccount;
 use App\Models\SharedInbox;
 use App\Models\SharedInboxMember;
 use App\Models\User;
+use App\Notifications\InboxMessageNotification;
 use App\Notifications\InboxThreadUpdateNotification;
 use App\Services\CalendarOauthSettingsService;
+use App\Services\ChannelUnreadNotifier;
 use App\Services\FlexCrmLookupService;
 use App\Services\InboxRuleEngine;
 use App\Services\LeadActivityService;
@@ -43,7 +45,8 @@ class InboxController extends Controller
         protected CalendarOauthSettingsService $oauthSettings,
         protected InboxRuleEngine $ruleEngine,
         protected FlexCrmLookupService $crmLookup,
-        protected LeadActivityService $leadActivity
+        protected LeadActivityService $leadActivity,
+        protected ChannelUnreadNotifier $unreadNotifier
     ) {}
 
     public function index(): View
@@ -665,6 +668,11 @@ class InboxController extends Controller
         if (! $conversation->is_read) {
             $conversation->update(['is_read' => true]);
         }
+        $this->unreadNotifier->markConversationRead(
+            $request->user(),
+            InboxMessageNotification::class,
+            (int) $conversation->id
+        );
 
         return response()->json([
             'conversation' => $this->formatConversation($conversation, true),

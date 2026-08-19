@@ -6,6 +6,7 @@ use App\Models\InboxConversation;
 use App\Models\InboxMessage;
 use App\Models\OutlookMailAccount;
 use App\Models\SharedInbox;
+use App\Notifications\InboxMessageNotification;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -25,7 +26,8 @@ class OutlookMailService
 
     public function __construct(
         protected CalendarOauthSettingsService $oauthSettings,
-        protected InboxRuleEngine $ruleEngine
+        protected InboxRuleEngine $ruleEngine,
+        protected ChannelUnreadNotifier $unreadNotifier
     ) {}
 
     /**
@@ -445,6 +447,18 @@ class OutlookMailService
                     ]
                     : [InboxRuleEngine::TRIGGER_INBOUND_MESSAGE];
                 $this->ruleEngine->apply($conversation->fresh(['tags', 'inbox']), $triggers);
+
+                if (! $conversation->is_read) {
+                    $fresh = $conversation->fresh(['inbox']);
+                    if ($fresh) {
+                        $this->unreadNotifier->notifyUsers(
+                            $this->unreadNotifier->inboxRecipients($fresh),
+                            InboxMessageNotification::class,
+                            (int) $fresh->id,
+                            new InboxMessageNotification($fresh)
+                        );
+                    }
+                }
             }
 
             return true;

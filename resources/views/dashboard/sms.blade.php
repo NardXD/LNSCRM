@@ -806,6 +806,7 @@
 
         document.querySelector('.sms-layout')?.classList.add('with-history');
         window.loadChannelContactHistory('#smsContactHistory', contactHistoryOpts(conv));
+        window.updateHeaderNotificationsBadge?.();
     }
 
     async function pollActiveMessages() {
@@ -917,6 +918,11 @@
         await loadBootstrap();
         if (connected) {
             await loadConversations();
+            const params = new URLSearchParams(window.location.search);
+            const openId = Number(params.get('conversation') || 0);
+            if (openId && conversations.some(c => c.id === openId)) {
+                await openConversation(openId);
+            }
             pollTimer = setInterval(() => {
                 loadConversations({ merge: true }).catch(() => {});
                 pollActiveMessages().catch(() => {});

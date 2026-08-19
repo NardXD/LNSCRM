@@ -160,10 +160,19 @@
                 const data = item.data || {};
                 const isMention = !!(data.is_mention || data.type === 'inbox_comment_mention');
                 const isWhatsApp = data.type === 'whatsapp_message' || data.channel === 'whatsapp';
-                const isFacebook = data.type === 'facebook_message' || data.channel === 'messenger' || data.channel === 'instagram';
+                const isViber = data.type === 'viber_message' || data.channel === 'viber';
+                const isSms = data.type === 'sms_message' || data.channel === 'sms';
+                const isInbox = data.type === 'inbox_message' || data.channel === 'inbox';
+                const isFacebook = data.type === 'facebook_message' || data.channel === 'messenger' || data.channel === 'instagram' || data.channel === 'facebook';
                 let title;
                 if (isWhatsApp) {
                     title = data.summary || `New WhatsApp message from ${data.contact_name || 'a contact'}`;
+                } else if (isViber) {
+                    title = data.summary || `New Viber message from ${data.contact_name || 'a contact'}`;
+                } else if (isSms) {
+                    title = data.summary || `New SMS from ${data.contact_name || 'a contact'}`;
+                } else if (isInbox) {
+                    title = data.summary || `New email from ${data.contact_name || 'a sender'}`;
                 } else if (isFacebook) {
                     title = data.summary || `New message from ${data.contact_name || 'a contact'}`;
                 } else if (isMention) {
@@ -231,15 +240,18 @@
 
         markAll?.addEventListener('click', async (e) => {
             e.stopPropagation();
-            await fetch('{{ url("api/notifications/read-all") }}', {
-                method: 'POST',
-                headers: {
-                    'Accept': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'X-CSRF-TOKEN': csrf(),
-                },
-            });
-            setBadge(0);
+            try {
+                const res = await fetch('{{ url("api/notifications/read-all") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': csrf(),
+                    },
+                });
+                const data = await res.json();
+                setBadge(Number(data?.data?.unread_count || 0));
+            } catch (_) {}
             loadNotifications();
         });
 

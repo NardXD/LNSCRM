@@ -363,6 +363,7 @@
 
         document.querySelector('.viber-layout')?.classList.add('with-history');
         window.loadChannelContactHistory('#viberContactHistory', contactHistoryOpts(conv));
+        window.updateHeaderNotificationsBadge?.();
     }
 
     async function sendText() {
@@ -466,6 +467,11 @@
         await loadBootstrap();
         if (connected) {
             await loadConversations();
+            const params = new URLSearchParams(window.location.search);
+            const openId = Number(params.get('conversation') || 0);
+            if (openId && conversations.some(c => c.id === openId)) {
+                await openConversation(openId);
+            }
             pollTimer = setInterval(() => loadConversations().catch(() => {}), 15000);
         }
     })();
