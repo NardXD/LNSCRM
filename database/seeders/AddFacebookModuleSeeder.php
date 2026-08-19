@@ -16,7 +16,7 @@ class AddFacebookModuleSeeder extends Seeder
             ['slug' => 'facebook'],
             [
                 'name' => 'Facebook & Instagram',
-                'description' => 'Facebook Page Messenger and Instagram Direct messaging',
+                'description' => 'Twilio Facebook Messenger and Instagram Direct messaging',
                 'route' => 'facebook',
                 'sort_order' => 11,
                 'is_active' => true,

@@ -44,7 +44,7 @@
             <div class="fb-empty" id="fbEmpty">
                 <div class="fb-empty-card">
                     <h3 id="fbEmptyTitle">Select a conversation</h3>
-                    <p id="fbEmptyText">Facebook Page and Instagram Direct messages appear here after customers message your connected Page.</p>
+                    <p id="fbEmptyText">Facebook Page and Instagram Direct messages appear here after customers message your Twilio-connected Page.</p>
                     <a href="{{ route('integrations') }}" class="fb-link-btn" id="fbConnectLink" style="{{ $integrationConnected ? 'display:none' : '' }}">Connect Facebook in Integrations</a>
                 </div>
             </div>
@@ -285,7 +285,7 @@
             if (parts.length) els.accountLabel.textContent = parts.join(' · ');
             if (!connected) {
                 els.emptyTitle.textContent = 'Connect Facebook';
-                els.emptyText.textContent = 'Connect your Facebook Page under Integrations to receive Messenger and Instagram Direct messages.';
+                els.emptyText.textContent = 'Connect Twilio and your Facebook Messenger sender under Integrations to receive Page messages.';
                 els.connectLink.style.display = '';
             } else {
                 els.connectLink.style.display = 'none';

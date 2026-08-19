@@ -13,8 +13,8 @@ use App\Models\ViberIntegration;
 use App\Models\FacebookIntegration;
 use App\Models\WhatsAppIntegration;
 use App\Models\WiseIntegration;
-use App\Services\FacebookGraphService;
 use App\Services\TwilioCompanyService;
+use App\Services\TwilioService;
 use App\Services\TwilioIntegrationValidator;
 use App\Services\WiseService;
 use Illuminate\Http\JsonResponse;
@@ -474,7 +474,7 @@ class IntegrationController extends Controller
     }
 
     /**
-     * Get Facebook / Instagram messaging integration for the current company.
+     * Get Facebook / Instagram (Twilio Messaging) integration for the current company.
      */
     public function getFacebookIntegration(Request $request): JsonResponse
     {
@@ -485,26 +485,24 @@ class IntegrationController extends Controller
         }
 
         $integration = FacebookIntegration::where('company_id', $company->id)->first();
+        $twilioReady = (bool) app(TwilioCompanyService::class)->getActiveIntegration($company);
 
         if ($integration) {
-            $connected = $integration->is_active && $integration->page_id && $integration->getDecryptedPageAccessToken();
+            $connected = $integration->is_active && $integration->page_id && $twilioReady;
 
             return response()->json([
                 'integration' => [
                     'id' => $integration->id,
                     'company_id' => $integration->company_id,
                     'page_id' => $integration->page_id,
-                    'app_id' => $integration->app_id,
                     'page_name' => $integration->page_name,
                     'instagram_business_account_id' => $integration->instagram_business_account_id,
                     'instagram_username' => $integration->instagram_username,
                     'welcome_message' => $integration->welcome_message,
                     'webhook_url' => $integration->webhookUrl(),
-                    'webhook_verify_token' => $integration->webhook_verify_token,
                     'webhook_set_at' => $integration->webhook_set_at,
                     'is_active' => $integration->is_active,
-                    'has_page_access_token' => (bool) $integration->getDecryptedPageAccessToken(),
-                    'has_app_secret' => (bool) $integration->getDecryptedAppSecret(),
+                    'twilio_connected' => $twilioReady,
                     'created_at' => $integration->created_at,
                     'updated_at' => $integration->updated_at,
                 ],
@@ -515,11 +513,12 @@ class IntegrationController extends Controller
         return response()->json([
             'integration' => null,
             'status' => 'disconnected',
+            'twilio_connected' => $twilioReady,
         ]);
     }
 
     /**
-     * Store or update Facebook / Instagram messaging integration.
+     * Store or update Facebook / Instagram (Twilio Messaging) integration.
      */
     public function storeFacebookIntegration(Request $request): JsonResponse
     {
@@ -529,14 +528,17 @@ class IntegrationController extends Controller
             return response()->json(['error' => 'Company not found'], 404);
         }
 
-        $existing = FacebookIntegration::where('company_id', $company->id)->first();
+        if (! app(TwilioCompanyService::class)->getActiveIntegration($company)) {
+            return response()->json([
+                'error' => 'Connect Twilio first under Integrations, then configure your Facebook Messenger sender.',
+            ], 422);
+        }
 
         $validator = Validator::make($request->all(), [
             'page_id' => ['required', 'string', 'max:64'],
-            'page_access_token' => [$existing ? 'nullable' : 'required', 'string', 'max:4000'],
-            'app_id' => ['nullable', 'string', 'max:64'],
-            'app_secret' => ['nullable', 'string', 'max:255'],
-            'webhook_verify_token' => ['nullable', 'string', 'max:128'],
+            'page_name' => ['nullable', 'string', 'max:255'],
+            'instagram_business_account_id' => ['nullable', 'string', 'max:64'],
+            'instagram_username' => ['nullable', 'string', 'max:255'],
             'welcome_message' => ['nullable', 'string', 'max:1000'],
         ]);
 
@@ -544,43 +546,23 @@ class IntegrationController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $pageAccessToken = $request->filled('page_access_token')
-            ? (string) $request->input('page_access_token')
-            : $existing?->getDecryptedPageAccessToken();
-
-        if (! $pageAccessToken) {
-            return response()->json(['error' => 'Page access token is required.'], 422);
-        }
-
-        $appSecret = $request->filled('app_secret')
-            ? (string) $request->input('app_secret')
-            : $existing?->getDecryptedAppSecret();
-
-        $pageId = trim((string) $request->input('page_id'));
-
-        try {
-            $graph = new FacebookGraphService($pageAccessToken, $pageId, $appSecret);
-            $pageInfo = $graph->getPageInfo();
-        } catch (\Throwable $e) {
-            return response()->json(['error' => $e->getMessage()], 422);
-        }
-
-        $ig = $pageInfo['instagram_business_account'] ?? null;
+        $existing = FacebookIntegration::where('company_id', $company->id)->first();
         $webhookKey = $existing?->webhook_key ?: Str::random(40);
-        $verifyToken = trim((string) ($request->input('webhook_verify_token') ?: $existing?->webhook_verify_token ?: Str::random(32)));
+        $pageId = TwilioService::stripChannelPrefix((string) $request->input('page_id'));
+        $instagramSender = $request->filled('instagram_business_account_id')
+            ? TwilioService::stripChannelPrefix((string) $request->input('instagram_business_account_id'))
+            : ($existing?->instagram_business_account_id);
 
         $integration = FacebookIntegration::updateOrCreate(
             ['company_id' => $company->id],
             [
-                'page_id' => (string) ($pageInfo['id'] ?? $pageId),
-                'page_access_token' => Crypt::encryptString($pageAccessToken),
-                'app_id' => $request->input('app_id') ?: $existing?->app_id,
-                'app_secret' => $appSecret ? Crypt::encryptString($appSecret) : null,
-                'webhook_verify_token' => $verifyToken,
+                'page_id' => $pageId,
                 'webhook_key' => $webhookKey,
-                'page_name' => $pageInfo['name'] ?? $existing?->page_name,
-                'instagram_business_account_id' => is_array($ig) ? ($ig['id'] ?? null) : null,
-                'instagram_username' => is_array($ig) ? ($ig['username'] ?? null) : null,
+                'page_name' => $request->input('page_name') ?: ($existing?->page_name),
+                'instagram_business_account_id' => $instagramSender ?: null,
+                'instagram_username' => $request->has('instagram_username')
+                    ? ($request->input('instagram_username') ?: null)
+                    : ($existing?->instagram_username),
                 'welcome_message' => $request->has('welcome_message')
                     ? $request->input('welcome_message')
                     : ($existing?->welcome_message),
@@ -589,21 +571,17 @@ class IntegrationController extends Controller
         );
 
         return response()->json([
-            'message' => 'Facebook & Instagram messaging connected successfully',
+            'message' => 'Facebook Messenger connected successfully via Twilio',
             'integration' => [
                 'id' => $integration->id,
                 'page_id' => $integration->page_id,
-                'app_id' => $integration->app_id,
                 'page_name' => $integration->page_name,
                 'instagram_business_account_id' => $integration->instagram_business_account_id,
                 'instagram_username' => $integration->instagram_username,
                 'welcome_message' => $integration->welcome_message,
                 'webhook_url' => $integration->webhookUrl(),
-                'webhook_verify_token' => $integration->webhook_verify_token,
                 'webhook_set_at' => $integration->webhook_set_at,
                 'is_active' => $integration->is_active,
-                'has_page_access_token' => true,
-                'has_app_secret' => (bool) $integration->getDecryptedAppSecret(),
             ],
             'status' => 'connected',
         ]);

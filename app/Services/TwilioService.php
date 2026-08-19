@@ -213,11 +213,69 @@ class TwilioService
         );
     }
 
+    public function sendMessenger(
+        string $fromPageId,
+        string $toPeerId,
+        string $channel = 'messenger',
+        ?string $body = null,
+        ?string $statusCallback = null,
+        ?string $mediaUrl = null
+    ): \Twilio\Rest\Api\V2010\Account\MessageInstance {
+        return $this->sendMessage(
+            $this->messengerAddress($fromPageId, $channel),
+            $this->messengerAddress($toPeerId, $channel),
+            $body,
+            $statusCallback,
+            $mediaUrl
+        );
+    }
+
     public function whatsappAddress(string $number): string
     {
         $normalized = $this->normalizeE164($number);
 
         return 'whatsapp:'.$normalized;
+    }
+
+    public function messengerAddress(string $id, string $channel = 'messenger'): string
+    {
+        $id = self::stripChannelPrefix($id);
+        $prefix = $channel === 'instagram' ? 'instagram:' : 'messenger:';
+
+        return $prefix.$id;
+    }
+
+    /**
+     * @return array{channel: string, id: string}
+     */
+    public static function parseMessengerAddress(string $address): array
+    {
+        $trimmed = trim($address);
+        $lower = strtolower($trimmed);
+
+        if (str_starts_with($lower, 'messenger:')) {
+            return ['channel' => 'messenger', 'id' => substr($trimmed, strlen('messenger:'))];
+        }
+
+        if (str_starts_with($lower, 'instagram:')) {
+            return ['channel' => 'instagram', 'id' => substr($trimmed, strlen('instagram:'))];
+        }
+
+        return ['channel' => 'messenger', 'id' => $trimmed];
+    }
+
+    public static function stripChannelPrefix(string $value): string
+    {
+        $trimmed = trim($value);
+        $lower = strtolower($trimmed);
+
+        foreach (['messenger:', 'instagram:', 'whatsapp:'] as $prefix) {
+            if (str_starts_with($lower, $prefix)) {
+                return trim(substr($trimmed, strlen($prefix)));
+            }
+        }
+
+        return $trimmed;
     }
 
     public function normalizeE164(string $number): string
