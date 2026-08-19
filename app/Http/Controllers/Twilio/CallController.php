@@ -322,7 +322,9 @@ class CallController extends Controller
 
         $callLogService->upsertFromWebhook($payload);
 
-        if ($callSid && in_array($callStatus, ['completed', 'busy', 'no-answer', 'failed', 'canceled'], true)) {
+        // Only end queue assignment when the caller actually hangs up or the call fully completes.
+        // busy/no-answer/failed during Dial are handled by dialAction so a page refresh can retry the same agent.
+        if ($callSid && in_array($callStatus, ['completed', 'canceled'], true)) {
             $queue->releaseFromCall($callSid);
             $queue->forgetAssignment($callSid);
         }
@@ -411,6 +413,7 @@ class CallController extends Controller
     {
         $callSid = (string) ($request->input('CallSid') ?? '');
         $dialStatus = (string) ($request->input('DialCallStatus') ?? '');
+        $dialDuration = (int) ($request->input('DialCallDuration') ?? 0);
         $called = $request->input('Called') ?: $request->input('To');
         $caller = $request->input('Caller') ?: $request->input('From');
         $accountSid = $request->input('AccountSid');
@@ -418,6 +421,7 @@ class CallController extends Controller
         Log::info('Twilio dial action callback', [
             'call_sid' => $callSid,
             'dial_status' => $dialStatus,
+            'dial_duration' => $dialDuration,
             'params' => $request->all(),
         ]);
 
@@ -435,17 +439,60 @@ class CallController extends Controller
             return response($twiml, 200)->header('Content-Type', 'text/xml');
         }
 
-        // Agent did not answer — free them and try the next available agent.
-        $queue->releaseFromCall($callSid);
+        // Caller hung up while we were still ringing the agent.
+        if ($dialStatus === 'canceled') {
+            $queue->releaseFromCall($callSid);
+            $queue->forgetAssignment($callSid);
+            $twiml .= '</Response>';
+
+            return response($twiml, 200)->header('Content-Type', 'text/xml');
+        }
 
         $assignment = $callSid ? $queue->getAssignment($callSid) : null;
         $attempted = array_map('intval', $assignment['attempted_user_ids'] ?? []);
         $companyId = (int) ($assignment['company_id'] ?? 0);
+        $currentUserId = (int) ($assignment['current_user_id'] ?? 0);
+        $clientRetries = (int) ($assignment['client_retries'] ?? 0);
 
         if ($companyId <= 0) {
             $company = $queue->resolveCompanyForInbound($accountSid, $called, $caller);
             $companyId = (int) ($company?->id ?? 0);
         }
+
+        // Page refresh unregisters the browser Device and Twilio reports busy/failed (or a very short no-answer).
+        // Ring the same agent again instead of sending the caller to someone else.
+        if (
+            $companyId > 0
+            && $callSid !== ''
+            && $currentUserId > 0
+            && $this->shouldRetrySameClient($dialStatus, $dialDuration, $clientRetries)
+        ) {
+            $sameAgent = User::query()->find($currentUserId);
+            if ($sameAgent) {
+                $queue->markBusy($sameAgent, $callSid);
+                $queue->rememberAssignment(
+                    $callSid,
+                    $companyId,
+                    (int) $sameAgent->id,
+                    $attempted,
+                    $clientRetries + 1
+                );
+                $twiml .= $this->dialClientTwiml($sameAgent, $dialRecordAttrs, 20);
+                $twiml .= '</Response>';
+
+                Log::info('Retrying same queued agent after client disconnect', [
+                    'call_sid' => $callSid,
+                    'user_id' => $sameAgent->id,
+                    'dial_status' => $dialStatus,
+                    'dial_duration' => $dialDuration,
+                    'client_retries' => $clientRetries + 1,
+                ]);
+
+                return response($twiml, 200)->header('Content-Type', 'text/xml');
+            }
+        }
+
+        $queue->releaseFromCall($callSid);
 
         if ($companyId > 0 && $callSid !== '') {
             $next = $queue->pickNextAgent($companyId, $attempted);
@@ -518,16 +565,32 @@ class CallController extends Controller
         }
     }
 
-    protected function dialClientTwiml(User $user, string $dialRecordAttrs): string
+    protected function shouldRetrySameClient(string $dialStatus, int $dialDuration, int $clientRetries): bool
     {
+        if ($clientRetries >= 4) {
+            return false;
+        }
+
+        if (in_array($dialStatus, ['busy', 'failed'], true)) {
+            return true;
+        }
+
+        // A refresh during ring often comes back as no-answer with a very short Dial.
+        return $dialStatus === 'no-answer' && $dialDuration < 8;
+    }
+
+    protected function dialClientTwiml(User $user, string $dialRecordAttrs, int $timeout = 30): string
+    {
+        $timeout = max(10, min(60, $timeout));
         $action = htmlspecialchars(route('twilio.dial-action'), ENT_XML1);
-        $xml = '    <Dial timeout="30" answerOnMedia="true" '.$dialRecordAttrs.' action="'.$action.'">'."\n";
+        $xml = '    <Dial timeout="'.$timeout.'" answerOnMedia="true" '.$dialRecordAttrs.' action="'.$action.'">'."\n";
         $xml .= '        <Client>'.htmlspecialchars((string) $user->id, ENT_XML1).'</Client>'."\n";
         $xml .= '    </Dial>'."\n";
 
         Log::info('Dialing queued client', [
             'user_id' => $user->id,
             'user_email' => $user->email,
+            'timeout' => $timeout,
         ]);
 
         return $xml;

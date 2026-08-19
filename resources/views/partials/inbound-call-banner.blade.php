@@ -125,6 +125,12 @@
 
     var restored = window.__lnscrmReadCallBanner();
     if (restored) {
+        // A full reload drops the browser connection. Keep the ringing banner, never the green "ongoing" one.
+        if (restored.status === 'answered') {
+            restored.status = 'ringing';
+            restored.startedAt = null;
+            window.__lnscrmWriteCallBanner(restored);
+        }
         window.__lnscrmBannerRestoreAt = Date.now();
         window.__lnscrmApplyCallBanner(restored);
     }

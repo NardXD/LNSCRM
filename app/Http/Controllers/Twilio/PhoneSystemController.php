@@ -93,15 +93,18 @@ class PhoneSystemController extends Controller
         $userId = (int) $presence->user_id;
         $myQueue = collect($snapshot['queue_order'])->firstWhere('id', $userId);
 
+        $currentLog = $presence->current_call_sid
+            ? PhoneCallLog::query()->where('call_sid', $presence->current_call_sid)->first()
+            : null;
+
         return [
             'me' => [
                 'id' => $userId,
                 'status' => $presence->status,
                 'last_heartbeat_at' => $presence->last_heartbeat_at?->toIso8601String(),
                 'current_call_sid' => $presence->current_call_sid,
-                'current_from_number' => $presence->current_call_sid
-                    ? PhoneCallLog::query()->where('call_sid', $presence->current_call_sid)->value('from_number')
-                    : null,
+                'current_from_number' => $currentLog?->from_number,
+                'current_call_status' => $currentLog?->status,
                 'queue_position' => isset($myQueue['position']) ? (int) $myQueue['position'] : null,
                 'is_next' => (bool) ($myQueue['is_next'] ?? false),
             ],

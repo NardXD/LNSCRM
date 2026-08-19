@@ -319,7 +319,7 @@ class InboundCallQueueService
     /**
      * @param  array<int>  $attemptedUserIds
      */
-    public function rememberAssignment(string $callSid, int $companyId, int $userId, array $attemptedUserIds = []): void
+    public function rememberAssignment(string $callSid, int $companyId, int $userId, array $attemptedUserIds = [], int $clientRetries = 0): void
     {
         $attempted = array_values(array_unique(array_map('intval', array_merge($attemptedUserIds, [$userId]))));
 
@@ -327,6 +327,7 @@ class InboundCallQueueService
             'company_id' => $companyId,
             'current_user_id' => $userId,
             'attempted_user_ids' => $attempted,
+            'client_retries' => max(0, $clientRetries),
         ], now()->addHours(2));
 
         $log = PhoneCallLog::query()->firstOrNew(['call_sid' => $callSid]);
@@ -341,7 +342,7 @@ class InboundCallQueueService
     }
 
     /**
-     * @return array{company_id: int, current_user_id: int|null, attempted_user_ids: array<int>}|null
+     * @return array{company_id: int, current_user_id: int|null, attempted_user_ids: array<int>, client_retries: int}|null
      */
     public function getAssignment(string $callSid): ?array
     {

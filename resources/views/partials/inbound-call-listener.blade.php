@@ -103,9 +103,9 @@
 
         var from = callerFromCall(call);
         var sid = callSidFromCall(call);
-        var restored = readBanner();
-        if (restored && restored.status === 'answered') {
-            persistAnswered(from, sid || restored.callSid);
+        var liveStatus = typeof call.status === 'function' ? String(call.status()) : '';
+        if (liveStatus === 'open' || liveStatus === 'connecting') {
+            persistAnswered(from, sid);
         } else {
             persistRinging(from, sid);
         }
@@ -160,14 +160,8 @@
     }
 
     document.addEventListener('click', function (event) {
-        var answer = event.target.closest('#answerCallBtn');
         var decline = event.target.closest('#declineCallBtn');
         var hangup = event.target.closest('#hangupCallBtn');
-        if (answer) {
-            var ringing = readBanner() || {};
-            persistAnswered(ringing.from, ringing.callSid);
-            return;
-        }
         if (decline) {
             clearBanner();
             return;
@@ -308,17 +302,13 @@
 
     var restored = readBanner();
     if (restored) {
+        if (restored.status === 'answered') {
+            persistRinging(restored.from, restored.callSid);
+            restored = readBanner();
+        }
         window.__lnscrmBannerRestoreAt = Date.now();
         applyBanner(restored);
-        if (restored.status === 'answered') {
-            startDurationTimer();
-        }
     }
-
-    setInterval(function () {
-        var state = readBanner();
-        if (state) applyBanner(state);
-    }, 400);
 
     fetch(presenceUrl, {
         method: 'GET',
@@ -329,17 +319,21 @@
     }).then(function (payload) {
         var me = payload && payload.data && payload.data.me;
         if (!me) return;
+        if (me.status !== 'busy' || !me.current_call_sid) {
+            if (!window.globalActiveCall && !window.__twilioActiveCall) {
+                setTimeout(function () {
+                    if (!window.globalActiveCall && !window.__twilioActiveCall) {
+                        clearBanner();
+                    }
+                }, 12000);
+            }
+            return;
+        }
         var existing = readBanner();
-        if (me.status !== 'busy') {
-            return;
-        }
-        if (existing && existing.status === 'ringing') {
-            persistRinging(existing.from || me.current_from_number, me.current_call_sid || existing.callSid);
-            return;
-        }
-        if (me.current_call_sid || me.current_from_number) {
-            persistAnswered(me.current_from_number || (existing && existing.from) || 'Unknown', me.current_call_sid);
-        }
+        persistRinging(
+            me.current_from_number || (existing && existing.from) || 'Unknown',
+            me.current_call_sid || (existing && existing.callSid) || null
+        );
     }).catch(function () {});
 
     window.ensureLnscrmTwilioDevice();
