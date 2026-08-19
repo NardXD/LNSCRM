@@ -100,7 +100,7 @@
                 return;
             }
             list.innerHTML = rows.map((row) => `
-                <div class="phone-list-item">
+                <div class="phone-list-item" data-history-phone="${escapeHtml(row.direction?.includes('inbound') ? row.from : row.to)}">
                     <div class="phone-list-item-header">
                         <span>${escapeHtml(row.direction || 'call')}</span>
                         <span class="status-badge ${escapeHtml(row.status || '')}">${escapeHtml(row.status || '')}</span>
@@ -122,7 +122,16 @@
                 </div>
             `).join('');
             list.querySelectorAll('[data-dial]').forEach((btn) => {
-                btn.addEventListener('click', () => dialFromPanel(btn.getAttribute('data-dial')));
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    dialFromPanel(btn.getAttribute('data-dial'));
+                });
+            });
+            list.querySelectorAll('[data-history-phone]').forEach((item) => {
+                item.style.cursor = 'pointer';
+                item.addEventListener('click', () => {
+                    window.loadPhoneContactHistory?.(item.getAttribute('data-history-phone'));
+                });
             });
         } catch (e) {
             list.innerHTML = `<p class="phone-empty-msg">${escapeHtml(e.message)}</p>`;
@@ -464,5 +473,56 @@
     window.addEventListener('lnscrm:call-queue-changed', () => {
         loadAgentPresence();
     });
+
+    window.refreshPhoneCallHistory = loadCallHistory;
+
+    let phoneHistoryTimer = null;
+    let lastPhoneHistory = '';
+    const originalShowCallLead = window.__lnscrmShowCallLead;
+
+    window.loadPhoneContactHistory = function (phone, force) {
+        const value = String(phone || '').trim();
+        if (!value || value === '+' || value === 'Unknown') {
+            lastPhoneHistory = '';
+            window.LnsContactHistory?.clear('#phoneContactHistory');
+            const body = document.querySelector('#phoneContactHistory .chp-body');
+            if (body) body.innerHTML = '<p class="chp-empty">Enter a number, start a call, or pick a call from history to assign and add labels.</p>';
+            document.getElementById('phoneContactHistory')?.classList.add('chp-visible');
+            document.getElementById('phoneContactHistory')?.removeAttribute('hidden');
+            return;
+        }
+        if (!force && value === lastPhoneHistory && document.querySelector('#phoneContactHistory [data-chp-assign], #phoneContactHistory [data-chp-save-lead]')) {
+            return;
+        }
+        lastPhoneHistory = value;
+        window.loadChannelContactHistory('#phoneContactHistory', {
+            phone: value,
+            excludeChannel: 'call',
+            canEditLead: true,
+            onLeadUpdated() {
+                if (flags.history) loadCallHistory();
+                if (typeof originalShowCallLead === 'function') originalShowCallLead(value);
+            },
+            onSaved() {
+                window.loadPhoneContactHistory(value, true);
+                if (flags.history) loadCallHistory();
+            },
+        });
+    };
+
+    const phoneInput = document.getElementById('phoneNumber');
+    phoneInput?.addEventListener('input', () => {
+        clearTimeout(phoneHistoryTimer);
+        phoneHistoryTimer = setTimeout(() => {
+            window.loadPhoneContactHistory(phoneInput.value);
+        }, 400);
+    });
+
+    window.__lnscrmShowCallLead = function (phone) {
+        if (typeof originalShowCallLead === 'function') originalShowCallLead(phone);
+        if (phone) window.loadPhoneContactHistory(phone);
+    };
+
+    window.loadPhoneContactHistory(phoneInput?.value);
 })();
 </script>

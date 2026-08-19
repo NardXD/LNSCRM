@@ -216,6 +216,35 @@
         return (name ? ' · Assigned to ' + name : '') + (labels.length ? ' · ' + labels.join(', ') : '');
     }
 
+    function applyLeadToActive(lead) {
+        if (!activeId || !lead) return;
+        const payload = window.LnsAssignedLead?.compact ? window.LnsAssignedLead.compact(lead) : lead;
+        const idx = conversations.findIndex(c => c.id === activeId);
+        if (idx < 0) return;
+        conversations[idx] = { ...conversations[idx], lead: payload };
+        const conv = conversations[idx];
+        renderThreads();
+        els.headerStatus.textContent = (conv.within_window
+            ? ('Within 24h window · ' + (conv.phone || conv.wa_id || ''))
+            : ('Outside 24h window · ' + (conv.phone || conv.wa_id || ''))) + assignedLeadSuffix(conv);
+    }
+
+    function contactHistoryOpts(conv) {
+        return {
+            phone: conv.phone || conv.wa_id || '',
+            name: conv.name || conv.profile_name || '',
+            excludeChannel: 'whatsapp',
+            excludeId: conv.id,
+            canEditLead: true,
+            onLeadUpdated: applyLeadToActive,
+            onSaved(data) {
+                if (data?.data) applyLeadToActive(data.data);
+                const current = conversations.find(c => c.id === activeId) || conv;
+                window.loadChannelContactHistory('#waContactHistory', contactHistoryOpts(current));
+            },
+        };
+    }
+
     function renderThreads() {
         const q = (els.search.value || '').toLowerCase();
         const items = conversations.filter(c => {
@@ -334,12 +363,7 @@
 
         const layout = document.querySelector('.wa-layout');
         layout?.classList.add('with-history');
-        window.loadChannelContactHistory('#waContactHistory', {
-            phone: conv.phone || conv.wa_id || '',
-            name: conv.name || conv.profile_name || '',
-            excludeChannel: 'whatsapp',
-            excludeId: conv.id,
-        });
+        window.loadChannelContactHistory('#waContactHistory', contactHistoryOpts(conv));
     }
 
     async function sendText() {

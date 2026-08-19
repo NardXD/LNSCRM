@@ -255,6 +255,33 @@
         return (name ? ' · Assigned to ' + name : '') + (labels.length ? ' · ' + labels.join(', ') : '');
     }
 
+    function applyLeadToActive(lead) {
+        if (!activeId || !lead) return;
+        const payload = window.LnsAssignedLead?.compact ? window.LnsAssignedLead.compact(lead) : lead;
+        const idx = conversations.findIndex(c => c.id === activeId);
+        if (idx < 0) return;
+        conversations[idx] = { ...conversations[idx], lead: payload };
+        const conv = conversations[idx];
+        renderThreads();
+        els.headerStatus.textContent = (conv.is_subscribed ? 'Subscribed' : 'Unsubscribed') + assignedLeadSuffix(conv);
+    }
+
+    function contactHistoryOpts(conv) {
+        return {
+            phone: conv.phone || '',
+            name: conv.name || '',
+            excludeChannel: 'viber',
+            excludeId: conv.id,
+            canEditLead: true,
+            onLeadUpdated: applyLeadToActive,
+            onSaved(data) {
+                if (data?.data) applyLeadToActive(data.data);
+                const current = conversations.find(c => c.id === activeId) || conv;
+                window.loadChannelContactHistory('#viberContactHistory', contactHistoryOpts(current));
+            },
+        };
+    }
+
     function renderMessage(m) {
         let body = '';
         if (m.type === 'picture' && m.media_url) {
@@ -335,12 +362,7 @@
         await loadConversations();
 
         document.querySelector('.viber-layout')?.classList.add('with-history');
-        window.loadChannelContactHistory('#viberContactHistory', {
-            phone: conv.phone || '',
-            name: conv.name || '',
-            excludeChannel: 'viber',
-            excludeId: conv.id,
-        });
+        window.loadChannelContactHistory('#viberContactHistory', contactHistoryOpts(conv));
     }
 
     async function sendText() {

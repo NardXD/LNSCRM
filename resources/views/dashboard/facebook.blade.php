@@ -523,6 +523,17 @@
         return (name ? ' · Assigned to ' + name : '') + (labels.length ? ' · ' + labels.join(', ') : '');
     }
 
+    function applyLeadToActive(lead) {
+        if (!activeId || !lead) return;
+        const payload = window.LnsAssignedLead?.compact ? window.LnsAssignedLead.compact(lead) : lead;
+        const idx = conversations.findIndex(c => c.id === activeId);
+        if (idx < 0) return;
+        conversations[idx] = { ...conversations[idx], lead: payload };
+        const conv = conversations[idx];
+        renderThreads();
+        els.headerStatus.textContent = channelLabel(conv.channel) + (conv.username ? ' · @' + conv.username : '') + assignedLeadSuffix(conv);
+    }
+
     function channelLabel(channel) {
         return channel === 'instagram' ? 'Instagram' : 'Messenger';
     }
@@ -736,6 +747,8 @@
             extracted_name: extractedName,
             extracted_names: data.conversation?.extracted_names || [],
             needsLeadDetails: wasPlaceholder,
+            canEditLead: true,
+            onLeadUpdated: applyLeadToActive,
             onSaved(data, extra) {
                 if (extra?.existing && data.existing_lead_id) {
                     window.location.href = '/leads?lead=' + data.existing_lead_id;
@@ -753,6 +766,7 @@
                     historyOpts.extracted_name = newName;
                     historyOpts.needsLeadDetails = false;
                 }
+                if (data.data) applyLeadToActive(data.data);
                 window.loadChannelContactHistory('#fbContactHistory', historyOpts);
             },
         };

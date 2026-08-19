@@ -119,6 +119,13 @@
 
             <!-- Phone system panel (tabs: Live, History, Contacts, Numbers) -->
             @include('twilio.partials.phone-panel')
+
+            <div class="call-card phone-lead-card">
+                <div class="call-card-header">
+                    <h2 class="call-card-title">Lead</h2>
+                </div>
+                @include('partials.contact-history-panel', ['panelId' => 'phoneContactHistory'])
+            </div>
         </div>
     </div>
 @endsection
@@ -134,7 +141,7 @@
 
     .call-cards-row {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(280px, 320px);
         gap: 1.5rem;
     }
 
@@ -590,9 +597,45 @@
         }
     }
 
+    .phone-lead-card {
+        min-width: 0;
+        padding: 0;
+        overflow: hidden;
+    }
+    .phone-lead-card .call-card-header {
+        padding: 1.5rem 1.5rem 1rem;
+        margin-bottom: 0;
+    }
+    .phone-lead-card .chp-panel,
+    .phone-lead-card .chp-panel[hidden],
+    .phone-lead-card .chp-panel.chp-visible,
+    .phone-lead-card .chp-panel:not([hidden]) {
+        display: flex !important;
+        width: 100%;
+        max-width: none;
+        min-width: 0;
+        height: auto;
+        min-height: 280px;
+        border: 0;
+        background: transparent;
+    }
+    .phone-lead-card .chp-header { display: none; }
+
+    @media (max-width: 1200px) {
+        .call-cards-row {
+            grid-template-columns: 1fr 1fr;
+        }
+        .phone-lead-card {
+            grid-column: 1 / -1;
+        }
+    }
+
     @media (max-width: 1024px) {
         .call-cards-row {
             grid-template-columns: 1fr;
+        }
+        .phone-lead-card {
+            grid-column: auto;
         }
     }
 

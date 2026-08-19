@@ -75,6 +75,22 @@
     font-weight: 600;
     cursor: pointer;
 }
+.chp-select {
+    width: 100%;
+    margin: 0.15rem 0 0.45rem;
+    padding: 0.38rem 0.5rem;
+    border: 1px solid var(--border, #d8dee6);
+    border-radius: 6px;
+    font-size: 0.84rem;
+    background: #fff;
+    color: var(--text-primary, #1a2332);
+}
+.chp-lead-edit .chp-label { margin-top: 0.7rem; }
+.chp-label-pills { display: flex; flex-wrap: wrap; gap: 0.25rem; min-height: 1.2rem; margin-bottom: 0.35rem; }
+.chp-lead-label-add { display: flex; gap: 0.4rem; align-items: stretch; margin-top: 0.35rem; }
+.chp-lead-label-add input { flex: 1; min-width: 0; margin: 0; }
+.chp-lead-label-add .chp-save-lead { margin-top: 0; flex-shrink: 0; }
+.channel-label-chip button { border: none; background: transparent; cursor: pointer; color: inherit; font-size: 0.8rem; line-height: 1; margin-left: 0.15rem; padding: 0; }
 .chp-lead-form { margin-top: 0.65rem; display: flex; flex-direction: column; gap: 0.45rem; }
 .chp-lead-form .chp-empty { margin-bottom: 0.15rem; }
 .chp-field {
@@ -190,21 +206,238 @@
         }).join('')}</div>`;
     }
 
-    function assignedLeadPanelHtml(lead) {
+    function assignedLeadPanelHtml(lead, canEdit) {
         if (!lead) return '';
-        const assignee = lead.assigned_user && lead.assigned_user.name;
-        const line = assignee
-            ? `<div class="chp-assigned">Assigned to ${esc(assignee)}${lead.status ? ' · ' + esc(lead.status) : ''}</div>`
-            : `<div class="chp-meta">Lead${lead.status ? ' · ' + esc(lead.status) : ''} · Unassigned</div>`;
-        const chips = leadLabelChipsHtml(lead.labels);
         const link = lead.crm_url
             ? `<a class="chp-link" href="${esc(lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>`
             : '';
-        return line + chips + link;
+        if (!canEdit) {
+            const assignee = lead.assigned_user && lead.assigned_user.name;
+            const line = assignee
+                ? `<div class="chp-assigned">Assigned to ${esc(assignee)}${lead.status ? ' · ' + esc(lead.status) : ''}</div>`
+                : `<div class="chp-meta">Lead${lead.status ? ' · ' + esc(lead.status) : ''} · Unassigned</div>`;
+            return line + leadLabelChipsHtml(lead.labels) + link;
+        }
+        const items = Array.isArray(lead.labels) ? lead.labels.filter((label) => label && label.name) : [];
+        const pills = items.length
+            ? items.map((label) => {
+                const color = label.color || '#4338ca';
+                return `<span class="channel-label-chip" style="background:${esc(color)};color:${chipTextColor(color)}">${esc(label.name)} <button type="button" data-chp-remove-label="${label.id}" title="Remove">×</button></span>`;
+            }).join('')
+            : '<span class="chp-empty">No labels</span>';
+        return `
+            <div class="chp-lead-edit">
+                <div class="chp-label">Assignee</div>
+                <select class="chp-select" data-chp-assign><option value="">Unassigned</option></select>
+                <div class="chp-label">Labels</div>
+                <div class="chp-label-pills" data-chp-labels>${pills}</div>
+                <select class="chp-select" data-chp-add-label><option value="">Add existing label…</option></select>
+                <div class="chp-lead-label-add">
+                    <input type="text" class="chp-select" data-chp-new-label maxlength="50" placeholder="New label">
+                    <button type="button" class="chp-save-lead" data-chp-add-label-btn>Add</button>
+                </div>
+                ${link}
+            </div>
+        `;
     }
 
     function getBody(root) {
         return root.querySelector('.chp-body') || root;
+    }
+
+    const leadOptionsCache = { assignees: [], labels: [], loaded: false };
+
+    function leadCsrfHeaders() {
+        const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        return {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            ...(token ? { 'X-CSRF-TOKEN': token } : {}),
+        };
+    }
+
+    async function ensureLeadOptions() {
+        if (leadOptionsCache.loaded) return leadOptionsCache;
+        try {
+            const [assigneesRes, labelsRes] = await Promise.all([
+                fetch('/api/leads/assignees', { credentials: 'same-origin', headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } }),
+                fetch('/api/leads/labels', { credentials: 'same-origin', headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } }),
+            ]);
+            const assigneesData = await assigneesRes.json().catch(() => ({}));
+            const labelsData = await labelsRes.json().catch(() => ({}));
+            leadOptionsCache.assignees = assigneesData.data || [];
+            leadOptionsCache.labels = labelsData.data || [];
+            leadOptionsCache.loaded = assigneesRes.ok && labelsRes.ok;
+        } catch (_) {
+            leadOptionsCache.assignees = [];
+            leadOptionsCache.labels = [];
+        }
+        return leadOptionsCache;
+    }
+
+    async function leadApi(path, options) {
+        options = options || {};
+        const res = await fetch('/api/leads' + path, Object.assign({
+            credentials: 'same-origin',
+            headers: leadCsrfHeaders(),
+        }, options));
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.message || 'Request failed.');
+        return data;
+    }
+
+    function fillAssigneeSelect(select, lead) {
+        const users = leadOptionsCache.assignees.slice();
+        if (lead.assigned_user && lead.assigned_user.id && !users.some((user) => String(user.id) === String(lead.assigned_user.id))) {
+            users.push(lead.assigned_user);
+        }
+        const selected = lead.assigned_to == null || lead.assigned_to === '' ? '' : String(lead.assigned_to);
+        select.innerHTML = '<option value="">Unassigned</option>' + users.map((user) =>
+            `<option value="${user.id}"${String(user.id) === selected ? ' selected' : ''}>${esc(user.name)}</option>`
+        ).join('');
+    }
+
+    function fillAddLabelSelect(select, lead) {
+        const used = new Set((lead.labels || []).map((label) => Number(label.id)));
+        select.innerHTML = '<option value="">Add existing label…</option>' +
+            leadOptionsCache.labels.filter((label) => !used.has(Number(label.id)))
+                .map((label) => `<option value="${label.id}">${esc(label.name)}</option>`).join('');
+    }
+
+    function renderEditableLabelPills(container, lead) {
+        const items = Array.isArray(lead.labels) ? lead.labels.filter((label) => label && label.name) : [];
+        container.innerHTML = items.length
+            ? items.map((label) => {
+                const color = label.color || '#4338ca';
+                return `<span class="channel-label-chip" style="background:${esc(color)};color:${chipTextColor(color)}">${esc(label.name)} <button type="button" data-chp-remove-label="${label.id}" title="Remove">×</button></span>`;
+            }).join('')
+            : '<span class="chp-empty">No labels</span>';
+    }
+
+    function compactLead(lead) {
+        if (!lead) return null;
+        return {
+            id: lead.id,
+            name: lead.name,
+            status: lead.status,
+            crm_url: lead.crm_url,
+            assigned_to: lead.assigned_to,
+            assigned_user: lead.assigned_user || null,
+            labels: Array.isArray(lead.labels) ? lead.labels : [],
+        };
+    }
+
+    function bindLeadEditors(root, opts, contact) {
+        const lead = contact.lead;
+        if (!lead || !lead.id || opts.canEditLead !== true || opts.canSaveLead === false) return;
+
+        const assignSelect = root.querySelector('[data-chp-assign]');
+        const addSelect = root.querySelector('[data-chp-add-label]');
+        const pills = root.querySelector('[data-chp-labels]');
+        const nameInput = root.querySelector('[data-chp-new-label]');
+        const addBtn = root.querySelector('[data-chp-add-label-btn]');
+
+        const notify = () => {
+            if (typeof opts.onLeadUpdated === 'function') opts.onLeadUpdated(compactLead(contact.lead));
+        };
+        const applyLabels = (labels) => {
+            contact.lead.labels = labels;
+            if (pills) renderEditableLabelPills(pills, contact.lead);
+            if (addSelect) fillAddLabelSelect(addSelect, contact.lead);
+            notify();
+        };
+
+        ensureLeadOptions().then(() => {
+            if (assignSelect) fillAssigneeSelect(assignSelect, contact.lead);
+            if (addSelect) fillAddLabelSelect(addSelect, contact.lead);
+        });
+
+        assignSelect && assignSelect.addEventListener('change', async () => {
+            try {
+                assignSelect.disabled = true;
+                const data = await leadApi('/' + lead.id + '/assign', {
+                    method: 'PATCH',
+                    body: JSON.stringify({ assigned_to: assignSelect.value || null }),
+                });
+                const updated = data.data || {};
+                contact.lead.assigned_to = updated.assigned_to ?? (assignSelect.value ? Number(assignSelect.value) : null);
+                contact.lead.assigned_user = updated.assigned_user || (assignSelect.value
+                    ? (leadOptionsCache.assignees.find((user) => String(user.id) === String(assignSelect.value)) || null)
+                    : null);
+                if (updated.labels) contact.lead.labels = updated.labels;
+                notify();
+            } catch (err) {
+                alert(err.message || 'Could not assign lead.');
+                fillAssigneeSelect(assignSelect, contact.lead);
+            } finally {
+                assignSelect.disabled = false;
+            }
+        });
+
+        addSelect && addSelect.addEventListener('change', async () => {
+            const labelId = addSelect.value;
+            if (!labelId) return;
+            try {
+                addSelect.disabled = true;
+                const data = await leadApi('/' + lead.id + '/labels', {
+                    method: 'POST',
+                    body: JSON.stringify({ label_id: Number(labelId) }),
+                });
+                if (data.data && !leadOptionsCache.labels.some((label) => String(label.id) === String(data.data.id))) {
+                    leadOptionsCache.labels.push(data.data);
+                }
+                applyLabels(data.labels || contact.lead.labels);
+            } catch (err) {
+                alert(err.message || 'Could not add label.');
+            } finally {
+                addSelect.disabled = false;
+                addSelect.value = '';
+            }
+        });
+
+        const addByName = async () => {
+            const name = String(nameInput && nameInput.value || '').trim();
+            if (!name) {
+                nameInput && nameInput.focus();
+                return;
+            }
+            try {
+                if (addBtn) addBtn.disabled = true;
+                const data = await leadApi('/' + lead.id + '/labels', {
+                    method: 'POST',
+                    body: JSON.stringify({ name }),
+                });
+                if (data.data && !leadOptionsCache.labels.some((label) => String(label.id) === String(data.data.id))) {
+                    leadOptionsCache.labels.push(data.data);
+                }
+                if (nameInput) nameInput.value = '';
+                applyLabels(data.labels || contact.lead.labels);
+            } catch (err) {
+                alert(err.message || 'Could not add label.');
+            } finally {
+                if (addBtn) addBtn.disabled = false;
+            }
+        };
+
+        addBtn && addBtn.addEventListener('click', addByName);
+        nameInput && nameInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addByName();
+            }
+        });
+
+        pills && pills.addEventListener('click', async (e) => {
+            const btn = e.target.closest('[data-chp-remove-label]');
+            if (!btn) return;
+            try {
+                const data = await leadApi('/' + lead.id + '/labels/' + btn.dataset.chpRemoveLabel, { method: 'DELETE' });
+                applyLabels(data.labels || (contact.lead.labels || []).filter((label) => String(label.id) !== String(btn.dataset.chpRemoveLabel)));
+            } catch (err) {
+                alert(err.message || 'Could not remove label.');
+            }
+        });
     }
 
     function renderPanel(root, data, opts) {
@@ -241,7 +474,7 @@
             ${uniqueList([...(contact.matched_emails || []), ...(opts.extracted_emails || []), opts.email]).slice(0, 3).map((em) => `<div class="chp-meta">${esc(em)}</div>`).join('')}
             ${foundInMessages ? '<div class="chp-meta">Found in conversation messages</div>' : ''}
             ${placeholderHint}
-            ${assignedLeadPanelHtml(contact.lead)}
+            ${assignedLeadPanelHtml(contact.lead, opts.canEditLead === true && opts.canSaveLead !== false)}
             ${contact.client?.crm_url ? `<a class="chp-link" href="${esc(contact.client.crm_url)}" target="_blank" rel="noopener">Open client →</a>` : ''}
             ${!contact.lead && (opts.canSaveLead !== false) ? `<button type="button" class="chp-save-lead" data-chp-save-lead>Save as lead</button>` : ''}
         `;
@@ -277,6 +510,7 @@
         if (saveBtn) {
             saveBtn.addEventListener('click', () => saveAsLead(root, opts, contact));
         }
+        bindLeadEditors(root, opts, contact);
     }
 
     function uniqueList(items) {

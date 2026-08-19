@@ -526,6 +526,33 @@
         return (name ? ' · Assigned to ' + name : '') + (labels.length ? ' · ' + labels.join(', ') : '');
     }
 
+    function applyLeadToActive(lead) {
+        if (!activeId || !lead) return;
+        const payload = window.LnsAssignedLead?.compact ? window.LnsAssignedLead.compact(lead) : lead;
+        const idx = conversations.findIndex(c => c.id === activeId);
+        if (idx < 0) return;
+        conversations[idx] = { ...conversations[idx], lead: payload };
+        const conv = conversations[idx];
+        renderThreads();
+        els.headerStatus.textContent = (conv.peer_phone || 'SMS') + assignedLeadSuffix(conv);
+    }
+
+    function contactHistoryOpts(conv) {
+        return {
+            phone: conv.peer_phone || '',
+            name: conv.name || '',
+            excludeChannel: 'sms',
+            excludeId: conv.id,
+            canEditLead: true,
+            onLeadUpdated: applyLeadToActive,
+            onSaved(data) {
+                if (data?.data) applyLeadToActive(data.data);
+                const current = conversations.find(c => c.id === activeId) || conv;
+                window.loadChannelContactHistory('#smsContactHistory', contactHistoryOpts(current));
+            },
+        };
+    }
+
     function nearBottom() {
         return els.messages.scrollHeight - els.messages.scrollTop - els.messages.clientHeight < 80;
     }
@@ -778,12 +805,7 @@
         }
 
         document.querySelector('.sms-layout')?.classList.add('with-history');
-        window.loadChannelContactHistory('#smsContactHistory', {
-            phone: conv.peer_phone || '',
-            name: conv.name || '',
-            excludeChannel: 'sms',
-            excludeId: conv.id,
-        });
+        window.loadChannelContactHistory('#smsContactHistory', contactHistoryOpts(conv));
     }
 
     async function pollActiveMessages() {

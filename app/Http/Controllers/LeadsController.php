@@ -12,6 +12,7 @@ use App\Models\LeadLabel;
 use App\Models\LeadNote;
 use App\Models\User;
 use App\Services\ContactConversationHistoryService;
+use App\Services\FlexCrmLookupService;
 use App\Services\LeadActivityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,7 +22,8 @@ use Illuminate\View\View;
 class LeadsController extends Controller
 {
     public function __construct(
-        protected LeadActivityService $leadActivity
+        protected LeadActivityService $leadActivity,
+        protected FlexCrmLookupService $crmLookup
     ) {}
 
     public function index(): View
@@ -251,6 +253,7 @@ class LeadsController extends Controller
         $toId = $this->assignedToForCompany((int) $lead->company_id, $validated['assigned_to'] ?? null);
         $lead->update(['assigned_to' => $toId]);
         $this->leadActivity->recordAssignment($lead, $fromId, $toId);
+        $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
         $lead->load(['identities', 'assignedUser:id,name', 'labels']);
 
         return response()->json([
@@ -301,23 +304,37 @@ class LeadsController extends Controller
     {
         $lead = $this->leadForUser($lead);
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:50'],
+            'label_id' => ['nullable', 'integer', 'exists:lead_labels,id'],
+            'name' => ['nullable', 'required_without:label_id', 'string', 'max:50'],
             'color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
         ]);
 
-        $name = trim($validated['name']);
         $companyId = (int) $lead->company_id;
-        $label = LeadLabel::query()
-            ->where('company_id', $companyId)
-            ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
-            ->first();
+        $label = null;
+        if (! empty($validated['label_id'])) {
+            $label = LeadLabel::query()
+                ->where('company_id', $companyId)
+                ->whereKey($validated['label_id'])
+                ->first();
+        }
+
+        $name = trim((string) ($validated['name'] ?? ''));
+        if (! $label && $name !== '') {
+            $label = LeadLabel::query()
+                ->where('company_id', $companyId)
+                ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+                ->first();
+            if (! $label) {
+                $label = LeadLabel::create([
+                    'company_id' => $companyId,
+                    'name' => $name,
+                    'color' => $validated['color'] ?? $this->nextLabelColor($companyId),
+                ]);
+            }
+        }
 
         if (! $label) {
-            $label = LeadLabel::create([
-                'company_id' => $companyId,
-                'name' => $name,
-                'color' => $validated['color'] ?? $this->nextLabelColor($companyId),
-            ]);
+            return response()->json(['message' => 'Choose or type a label.'], 422);
         }
 
         $alreadyAttached = $lead->labels()->where('lead_labels.id', $label->id)->exists();
@@ -327,6 +344,7 @@ class LeadsController extends Controller
         }
         $lead->load('labels');
         $lead->touch();
+        $this->crmLookup->forgetLeadIndexes($companyId);
 
         return response()->json([
             'success' => true,
@@ -347,6 +365,7 @@ class LeadsController extends Controller
         $this->leadActivity->recordLabel($lead, $leadLabel->name, false);
         $lead->load('labels');
         $lead->touch();
+        $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
 
         return response()->json([
             'success' => true,
