@@ -355,7 +355,8 @@ async function bootstrapCallQueuePresence() {
     const csrfToken = document.querySelector('meta[name="csrf-token"]');
     if (!csrfToken) return;
 
-    if (readPersistedCallQueueAvailable()) {
+    const persistedOn = readPersistedCallQueueAvailable();
+    if (persistedOn) {
         window.syncCallQueuePresence(true, 'available');
     }
 
@@ -367,12 +368,26 @@ async function bootstrapCallQueuePresence() {
                 'Accept': 'application/json',
             },
         });
-        if (!response.ok) return;
+        if (!response.ok) {
+            if (persistedOn) {
+                await window.setCallQueueAvailable(true).catch(() => {});
+            }
+            return;
+        }
         const data = await response.json();
         const status = data?.data?.me?.status;
-        window.syncCallQueuePresence(status === 'available' || status === 'busy', status);
+        const serverOn = status === 'available' || status === 'busy';
+
+        if (persistedOn && !serverOn) {
+            await window.setCallQueueAvailable(true).catch(() => {});
+            return;
+        }
+
+        window.syncCallQueuePresence(serverOn, status);
     } catch (error) {
-        // User may not have phone permission on this page.
+        if (persistedOn) {
+            await window.setCallQueueAvailable(true).catch(() => {});
+        }
     }
 }
 

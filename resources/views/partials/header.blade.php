@@ -192,23 +192,29 @@
         </div>
 
         @if(auth()->user()?->hasPermission('view_phone_system'))
+        @php
+            $headerQueuePresence = \App\Models\CallAgentPresence::query()->where('user_id', auth()->id())->first();
+            $headerQueueStatus = $headerQueuePresence?->status ?? 'offline';
+            $headerQueueOn = in_array($headerQueueStatus, ['available', 'busy'], true);
+            $headerQueueLabel = $headerQueueStatus === 'busy' ? 'On call' : ($headerQueueOn ? 'Available' : 'Offline');
+        @endphp
         <div class="header-agent-queue" id="headerAgentQueue" title="Receive inbound calls on any CRM page while available">
             <button type="button"
                 class="header-agent-queue-toggle"
                 id="headerAgentAvailableToggle"
                 role="switch"
-                aria-checked="false"
+                aria-checked="{{ $headerQueueOn ? 'true' : 'false' }}"
                 aria-label="Available for inbound calls">
                 <span class="agent-queue-toggle-ui"></span>
-                <span class="agent-queue-toggle-label" id="headerAgentAvailableLabel">Offline</span>
+                <span class="agent-queue-toggle-label" id="headerAgentAvailableLabel">{{ $headerQueueLabel }}</span>
             </button>
         </div>
         <script>
             (function () {
                 const toggle = document.getElementById('headerAgentAvailableToggle');
-                if (!toggle || toggle.dataset.bound === '1') return;
-                toggle.dataset.bound = '1';
+                if (!toggle) return;
 
+                const storageKey = 'lnscrm.callQueueAvailable';
                 const csrfHeaders = function () {
                     return {
                         'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
@@ -217,59 +223,136 @@
                     };
                 };
 
-                const setUi = function (on) {
+                const persist = function (on) {
+                    try { localStorage.setItem(storageKey, on ? '1' : '0'); } catch (e) {}
+                };
+
+                const readPersisted = function () {
+                    try { return localStorage.getItem(storageKey) === '1'; } catch (e) { return false; }
+                };
+
+                const setUi = function (on, status) {
                     toggle.setAttribute('aria-checked', on ? 'true' : 'false');
                     const label = document.getElementById('headerAgentAvailableLabel');
-                    if (label) label.textContent = on ? 'Available' : 'Offline';
+                    if (label) {
+                        label.textContent = status === 'busy' ? 'On call' : (on ? 'Available' : 'Offline');
+                    }
                     const phoneToggle = document.getElementById('agentAvailableToggle');
                     if (phoneToggle) phoneToggle.checked = !!on;
                     const phoneLabel = document.getElementById('agentAvailableLabel');
-                    if (phoneLabel) phoneLabel.textContent = on ? 'Available' : 'Offline';
+                    if (phoneLabel) {
+                        phoneLabel.textContent = status === 'busy' ? 'On call' : (on ? 'Available' : 'Offline');
+                    }
                 };
 
-                toggle.addEventListener('click', async function () {
-                    if (toggle.dataset.busy === '1') return;
-                    const on = toggle.getAttribute('aria-checked') !== 'true';
-                    setUi(on);
-                    toggle.dataset.busy = '1';
-                    try {
-                        if (typeof window.setCallQueueAvailable === 'function') {
-                            await window.setCallQueueAvailable(on);
-                        } else {
-                            const response = await fetch('/twilio/agent-presence', {
-                                method: 'POST',
-                                headers: csrfHeaders(),
-                                body: JSON.stringify({ status: on ? 'available' : 'offline' }),
-                            });
-                            const data = await response.json().catch(function () { return {}; });
-                            if (!response.ok || !data.success) {
-                                throw new Error(data.message || 'Failed to update availability');
-                            }
-                            try {
-                                localStorage.setItem('lnscrm.callQueueAvailable', on ? '1' : '0');
-                            } catch (e) {}
-                            if (window.__headerQueueHeartbeat) {
-                                clearInterval(window.__headerQueueHeartbeat);
-                                window.__headerQueueHeartbeat = null;
-                            }
-                            if (on) {
-                                const beat = function () {
-                                    fetch('/twilio/agent-presence/heartbeat', {
-                                        method: 'POST',
-                                        headers: csrfHeaders(),
-                                        keepalive: true,
-                                    }).catch(function () {});
-                                };
-                                beat();
-                                window.__headerQueueHeartbeat = setInterval(beat, 20000);
-                            }
-                        }
-                    } catch (error) {
-                        setUi(!on);
-                        alert(error.message || 'Failed to update availability');
-                    } finally {
-                        toggle.dataset.busy = '0';
+                const stopHeartbeat = function () {
+                    if (window.__headerQueueHeartbeat) {
+                        clearInterval(window.__headerQueueHeartbeat);
+                        window.__headerQueueHeartbeat = null;
                     }
+                };
+
+                const startHeartbeat = function () {
+                    stopHeartbeat();
+                    const beat = function () {
+                        fetch('/twilio/agent-presence/heartbeat', {
+                            method: 'POST',
+                            headers: csrfHeaders(),
+                            keepalive: true,
+                        }).catch(function () {});
+                    };
+                    beat();
+                    window.__headerQueueHeartbeat = setInterval(beat, 20000);
+                };
+
+                const setAvailable = async function (on) {
+                    if (typeof window.setCallQueueAvailable === 'function') {
+                        await window.setCallQueueAvailable(on);
+                        persist(on);
+                        if (on) startHeartbeat();
+                        else stopHeartbeat();
+                        return;
+                    }
+                    const response = await fetch('/twilio/agent-presence', {
+                        method: 'POST',
+                        headers: csrfHeaders(),
+                        body: JSON.stringify({ status: on ? 'available' : 'offline' }),
+                    });
+                    const data = await response.json().catch(function () { return {}; });
+                    if (!response.ok || !data.success) {
+                        throw new Error(data.message || 'Failed to update availability');
+                    }
+                    persist(on);
+                    if (on) startHeartbeat();
+                    else stopHeartbeat();
+                };
+
+                const restorePresence = async function () {
+                    const persistedOn = readPersisted();
+                    if (persistedOn || toggle.getAttribute('aria-checked') === 'true') {
+                        setUi(true);
+                        startHeartbeat();
+                    }
+
+                    try {
+                        const response = await fetch('/twilio/agent-presence', {
+                            method: 'GET',
+                            headers: csrfHeaders(),
+                        });
+                        if (!response.ok) {
+                            if (persistedOn) await setAvailable(true);
+                            return;
+                        }
+                        const data = await response.json();
+                        const status = data?.data?.me?.status;
+                        const serverOn = status === 'available' || status === 'busy';
+
+                        if (persistedOn && !serverOn) {
+                            await setAvailable(true);
+                            setUi(true, 'available');
+                            return;
+                        }
+
+                        setUi(serverOn, status);
+                        persist(serverOn);
+                        if (serverOn) startHeartbeat();
+                        else stopHeartbeat();
+                    } catch (e) {
+                        if (persistedOn) {
+                            try { await setAvailable(true); } catch (err) {}
+                        }
+                    }
+                };
+
+                if (toggle.dataset.bound !== '1') {
+                    toggle.dataset.bound = '1';
+                    toggle.addEventListener('click', async function () {
+                        if (toggle.dataset.busy === '1') return;
+                        const on = toggle.getAttribute('aria-checked') !== 'true';
+                        setUi(on);
+                        persist(on);
+                        toggle.dataset.busy = '1';
+                        try {
+                            await setAvailable(on);
+                        } catch (error) {
+                            setUi(!on);
+                            persist(!on);
+                            alert(error.message || 'Failed to update availability');
+                        } finally {
+                            toggle.dataset.busy = '0';
+                        }
+                    });
+                }
+
+                restorePresence();
+
+                window.addEventListener('pagehide', function () {
+                    if (toggle.getAttribute('aria-checked') !== 'true') return;
+                    fetch('/twilio/agent-presence/heartbeat', {
+                        method: 'POST',
+                        headers: csrfHeaders(),
+                        keepalive: true,
+                    }).catch(function () {});
                 });
             })();
         </script>
