@@ -329,6 +329,47 @@ class TwilioService
     }
 
     /**
+     * @return array<int, \Twilio\Rest\Api\V2010\Account\MessageInstance>
+     */
+    public function listChannelMessages(string $address, ?\DateTimeInterface $after = null, int $limit = 500): array
+    {
+        $params = [];
+        if ($after) {
+            $params['dateSentAfter'] = $after;
+        }
+
+        $bySid = [];
+        foreach (['to', 'from'] as $field) {
+            $options = $params;
+            $options[$field] = $address;
+            foreach ($this->twilio->messages->stream($options, $limit, 100) as $message) {
+                $bySid[$message->sid] = $message;
+            }
+        }
+
+        return array_values($bySid);
+    }
+
+    /**
+     * @return array{url: string, content_type: ?string}|null
+     */
+    public function firstMessageMedia(string $messageSid): ?array
+    {
+        $media = $this->twilio->messages($messageSid)->media->read([], 1);
+        if ($media === []) {
+            return null;
+        }
+
+        $item = $media[0];
+        $uri = preg_replace('/\.json$/', '', (string) $item->uri) ?: (string) $item->uri;
+
+        return [
+            'url' => 'https://api.twilio.com'.$uri,
+            'content_type' => $item->contentType ?? null,
+        ];
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     public function listOwnedNumbers(): array

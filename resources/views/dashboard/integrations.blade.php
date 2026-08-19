@@ -1425,6 +1425,19 @@
                     <code style="display:block;background:var(--bg-primary);padding:0.5rem 0.65rem;border-radius:6px;font-size:0.78rem;word-break:break-all;">${existingData && existingData.webhook_url ? existingData.webhook_url : 'Saved after you connect — must be public HTTPS'}</code>
                     <span class="form-help">Paste this as the inbound webhook URL on your Twilio Facebook Messenger sender. Status callbacks use the shared Twilio SMS status URL.</span>
                 </div>
+                ${existingData && existingData.page_id ? `
+                <div class="form-group">
+                    <label class="form-label">Sync old messages</label>
+                    <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                        <select class="form-input" id="facebook-sync-days" style="max-width:11rem;">
+                            <option value="30">Last 30 days</option>
+                            <option value="90" selected>Last 90 days</option>
+                            <option value="365">Last 12 months</option>
+                        </select>
+                        <button type="button" class="btn-secondary" id="facebook-sync-btn" onclick="syncFacebookHistory(event)">Sync from Twilio</button>
+                    </div>
+                    <span class="form-help" id="facebook-sync-help">Imports Messenger history that already exists in this Twilio account. Messages that never went through Twilio cannot be recovered.</span>
+                </div>` : ''}
                 <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
                     <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">How it works</strong>
                     <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
@@ -2292,6 +2305,55 @@
                 alert(`${currentIntegration.name} has been connected successfully!`);
                 closeIntegrationModal();
                 renderIntegrations(currentCategory);
+            }
+        }
+    }
+
+    async function syncFacebookHistory(event) {
+        event?.preventDefault();
+        const days = document.getElementById('facebook-sync-days')?.value || '90';
+        const btn = document.getElementById('facebook-sync-btn');
+        const help = document.getElementById('facebook-sync-help');
+        const original = btn?.textContent;
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Syncing…';
+        }
+        if (help) help.textContent = 'Importing Twilio Messenger history… this can take a minute.';
+        try {
+            const response = await fetch('/api/facebook/sync', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                },
+                body: JSON.stringify({ days: Number(days), limit: 500 })
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.message || data.error || 'Sync failed.');
+            }
+            const result = data.data || {};
+            const imported = Number(result.imported || 0);
+            const skipped = Number(result.skipped || 0);
+            const scanned = Number(result.scanned || 0);
+            const summary = imported
+                ? `Imported ${imported} message${imported === 1 ? '' : 's'} from the last ${result.days || days} days${skipped ? ` (${skipped} already in CRM)` : ''}.`
+                : (scanned
+                    ? `No new messages. Twilio returned ${scanned} in this range; they are already in the CRM.`
+                    : `Twilio has no Messenger messages in the last ${result.days || days} days.`);
+            if (help) help.textContent = summary;
+            alert(summary);
+        } catch (error) {
+            console.error('Error:', error);
+            const msg = error.message || 'Could not sync old Facebook messages.';
+            if (help) help.textContent = msg;
+            alert(msg);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = original || 'Sync from Twilio';
             }
         }
     }

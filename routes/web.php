@@ -490,6 +490,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/conversations/{conversation}/messages', [FacebookController::class, 'messages'])->name('api.facebook.messages');
         Route::post('/conversations/{conversation}/messages', [FacebookController::class, 'sendMessage'])->name('api.facebook.messages.store');
         Route::post('/media', [FacebookController::class, 'uploadMedia'])->name('api.facebook.media.store');
+        Route::post('/sync', [FacebookController::class, 'syncHistory'])->name('api.facebook.sync');
     });
 
     Route::get('/sms', [SmsController::class, 'index'])

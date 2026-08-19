@@ -25,10 +25,21 @@
                         @endif
                     </p>
                 </div>
-                <button type="button" class="fb-icon-btn" id="fbRefreshBtn" title="Refresh">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                </button>
+                <div class="fb-header-actions">
+                    <button type="button" class="fb-icon-btn" id="fbRefreshBtn" title="Refresh">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    </button>
+                </div>
             </div>
+            <div class="fb-sync-bar" id="fbSyncBar" style="{{ $integrationConnected ? '' : 'display:none' }}">
+                <select id="fbSyncDays" class="fb-sync-select" title="How far back to import">
+                    <option value="30">Last 30 days</option>
+                    <option value="90" selected>Last 90 days</option>
+                    <option value="365">Last 12 months</option>
+                </select>
+                <button type="button" class="fb-sync-btn" id="fbSyncBtn">Sync old messages</button>
+            </div>
+            <p class="fb-sync-status" id="fbSyncStatus" hidden></p>
             <div class="fb-filters">
                 <button type="button" class="fb-chip active" data-channel="">All</button>
                 <button type="button" class="fb-chip" data-channel="messenger">Messenger</button>
@@ -44,8 +55,9 @@
             <div class="fb-empty" id="fbEmpty">
                 <div class="fb-empty-card">
                     <h3 id="fbEmptyTitle">Select a conversation</h3>
-                    <p id="fbEmptyText">Facebook Page and Instagram Direct messages appear here after customers message your Twilio-connected Page.</p>
+                    <p id="fbEmptyText">Facebook Page and Instagram Direct messages appear here after customers message your Twilio-connected Page. You can also import history from Twilio.</p>
                     <a href="{{ route('integrations') }}" class="fb-link-btn" id="fbConnectLink" style="{{ $integrationConnected ? 'display:none' : '' }}">Connect Facebook in Integrations</a>
+                    <button type="button" class="fb-link-btn" id="fbEmptySyncBtn" style="{{ $integrationConnected ? '' : 'display:none' }}">Sync old messages</button>
                 </div>
             </div>
 
@@ -91,6 +103,13 @@
 .fb-layout.with-history { grid-template-columns: 320px 1fr 300px; }
 .fb-sidebar { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg-primary); min-height: 0; min-width: 0; }
 .fb-sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.1rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.fb-header-actions { display: flex; align-items: center; gap: 0.25rem; }
+.fb-sync-bar { display: flex; gap: 0.4rem; padding: 0.55rem 1rem 0; flex-shrink: 0; }
+.fb-sync-select { flex: 1; min-width: 0; padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text-primary); font-size: 0.78rem; }
+.fb-sync-btn { border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); border-radius: 8px; padding: 0.35rem 0.65rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.fb-sync-btn:hover { background: var(--bg-primary); }
+.fb-sync-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.fb-sync-status { margin: 0.35rem 1rem 0; font-size: 0.75rem; color: var(--text-secondary); flex-shrink: 0; }
 .fb-sidebar-header h2 { margin: 0; font-size: 1.05rem; }
 .fb-sub { margin: 0.15rem 0 0; color: var(--text-secondary); font-size: 0.8rem; }
 .fb-filters { display: flex; gap: 0.35rem; padding: 0.65rem 1rem 0; flex-shrink: 0; }
@@ -177,6 +196,11 @@
         emptyTitle: document.getElementById('fbEmptyTitle'),
         emptyText: document.getElementById('fbEmptyText'),
         accountLabel: document.getElementById('fbAccountLabel'),
+        syncBar: document.getElementById('fbSyncBar'),
+        syncDays: document.getElementById('fbSyncDays'),
+        syncBtn: document.getElementById('fbSyncBtn'),
+        syncStatus: document.getElementById('fbSyncStatus'),
+        emptySyncBtn: document.getElementById('fbEmptySyncBtn'),
     };
 
     async function api(path, options = {}) {
@@ -287,8 +311,12 @@
                 els.emptyTitle.textContent = 'Connect Facebook';
                 els.emptyText.textContent = 'Connect Twilio and your Facebook Messenger sender under Integrations to receive Page messages.';
                 els.connectLink.style.display = '';
+                if (els.emptySyncBtn) els.emptySyncBtn.style.display = 'none';
+                if (els.syncBar) els.syncBar.style.display = 'none';
             } else {
                 els.connectLink.style.display = 'none';
+                if (els.emptySyncBtn) els.emptySyncBtn.style.display = '';
+                if (els.syncBar) els.syncBar.style.display = '';
             }
         } catch (e) {
             console.error(e);
@@ -386,6 +414,39 @@
         }
     }
 
+    async function syncOldMessages() {
+        if (!connected) return;
+        const days = els.syncDays?.value || '90';
+        const buttons = [els.syncBtn, els.emptySyncBtn].filter(Boolean);
+        buttons.forEach((btn) => { btn.disabled = true; btn.textContent = 'Syncing…'; });
+        if (els.syncStatus) {
+            els.syncStatus.hidden = false;
+            els.syncStatus.textContent = 'Importing Twilio Messenger history… this can take a minute.';
+        }
+        try {
+            const data = await api('/sync', {
+                method: 'POST',
+                body: JSON.stringify({ days: Number(days), limit: 500 }),
+            });
+            const result = data.data || {};
+            const imported = Number(result.imported || 0);
+            const skipped = Number(result.skipped || 0);
+            const scanned = Number(result.scanned || 0);
+            const summary = imported
+                ? `Imported ${imported} message${imported === 1 ? '' : 's'} from the last ${result.days || days} days${skipped ? ` (${skipped} already in CRM)` : ''}.`
+                : (scanned
+                    ? `No new messages. Twilio returned ${scanned} in this range; they are already in the CRM.`
+                    : `Twilio has no Messenger messages in the last ${result.days || days} days. Only messages that already passed through this Twilio account can be imported.`);
+            if (els.syncStatus) els.syncStatus.textContent = summary;
+            await loadConversations();
+        } catch (e) {
+            if (els.syncStatus) els.syncStatus.textContent = e.message || 'Sync failed.';
+            alert(e.message || 'Could not sync old messages.');
+        } finally {
+            buttons.forEach((btn) => { btn.disabled = false; btn.textContent = 'Sync old messages'; });
+        }
+    }
+
     document.getElementById('fbRefreshBtn').addEventListener('click', () => loadConversations().catch(console.error));
     document.getElementById('fbBackBtn').addEventListener('click', () => {
         els.sidebar.classList.remove('hidden-mobile');
@@ -411,6 +472,8 @@
     document.getElementById('fbAttachVideo').addEventListener('click', () => { uploadKind = 'video'; els.file.accept = 'video/mp4,.mp4'; els.file.click(); });
     document.getElementById('fbAttachFile').addEventListener('click', () => { uploadKind = 'file'; els.file.accept = '*/*'; els.file.click(); });
     els.file.addEventListener('change', () => uploadAndSend(els.file.files[0], uploadKind));
+    els.syncBtn?.addEventListener('click', syncOldMessages);
+    els.emptySyncBtn?.addEventListener('click', syncOldMessages);
 
     (async function init() {
         await loadBootstrap();

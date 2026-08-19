@@ -8,6 +8,7 @@ use App\Models\FacebookIntegration;
 use App\Models\FacebookMessage;
 use App\Models\User;
 use App\Notifications\FacebookMessageNotification;
+use App\Services\FacebookMessageSyncService;
 use App\Services\LeadAutoCreateService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
@@ -24,7 +25,8 @@ class FacebookController extends Controller
 {
     public function __construct(
         protected TwilioCompanyService $twilioCompany,
-        protected LeadAutoCreateService $leadAutoCreate
+        protected LeadAutoCreateService $leadAutoCreate,
+        protected FacebookMessageSyncService $facebookSync
     ) {}
 
     public function index()
@@ -100,6 +102,7 @@ class FacebookController extends Controller
 
         $messages = FacebookMessage::query()
             ->where('facebook_conversation_id', $conversation->id)
+            ->orderBy('sent_at')
             ->orderBy('created_at')
             ->orderBy('id')
             ->limit(2000)
@@ -214,6 +217,36 @@ class FacebookController extends Controller
                 'kind' => $kind,
             ],
         ], 201);
+    }
+
+    public function syncHistory(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'days' => ['nullable', 'integer', 'in:30,90,365'],
+            'limit' => ['nullable', 'integer', 'min:50', 'max:2000'],
+        ]);
+
+        $integration = $this->requireActiveIntegration();
+        $twilio = $this->twilioClientForCompany(Auth::user()->company);
+
+        @set_time_limit(180);
+
+        try {
+            $result = $this->facebookSync->sync(
+                $integration,
+                $twilio,
+                (int) ($validated['days'] ?? 90),
+                (int) ($validated['limit'] ?? 500)
+            );
+        } catch (\Throwable $e) {
+            Log::error('Facebook history sync failed', ['error' => $e->getMessage()]);
+
+            return response()->json([
+                'message' => $e->getMessage() ?: 'Could not sync old Facebook messages from Twilio.',
+            ], 422);
+        }
+
+        return response()->json(['data' => $result]);
     }
 
     public function webhook(Request $request, string $webhookKey): Response
