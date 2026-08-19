@@ -359,6 +359,44 @@
     .header-agent-queue {
         display: flex;
         align-items: center;
+        position: relative;
+        z-index: 6;
+        flex-shrink: 0;
+    }
+
+    .header-agent-queue-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        cursor: pointer;
+        user-select: none;
+        flex-shrink: 0;
+        border: none;
+        background: transparent;
+        padding: 0.3rem 0.4rem;
+        border-radius: 999px;
+        font: inherit;
+        color: inherit;
+    }
+
+    .header-agent-queue-toggle:hover {
+        background: var(--bg-primary);
+    }
+
+    .header-agent-queue-toggle .agent-queue-toggle-ui {
+        pointer-events: none;
+    }
+
+    .header-agent-queue-toggle[aria-checked="true"] .agent-queue-toggle-ui {
+        background: #16a34a;
+    }
+
+    .header-agent-queue-toggle[aria-checked="true"] .agent-queue-toggle-ui::after {
+        transform: translateX(18px);
+    }
+
+    .header-agent-queue-toggle[aria-checked="true"] .agent-queue-toggle-label {
+        color: #166534;
     }
 
     .agent-queue-toggle {

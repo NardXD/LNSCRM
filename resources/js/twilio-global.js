@@ -254,10 +254,19 @@ function readPersistedCallQueueAvailable() {
 }
 
 function applyCallQueuePresenceUi(isOn, status) {
-    const statusText = status === 'busy' ? 'On call' : (isOn ? 'Available' : 'Offline');
-    document.querySelectorAll('#agentAvailableToggle, #headerAgentAvailableToggle').forEach((el) => {
-        el.checked = !!isOn;
+    const on = !!isOn;
+    const statusText = status === 'busy' ? 'On call' : (on ? 'Available' : 'Offline');
+    document.querySelectorAll('#agentAvailableToggle').forEach((el) => {
+        el.checked = on;
     });
+    const headerToggle = document.getElementById('headerAgentAvailableToggle');
+    if (headerToggle) {
+        if (headerToggle.hasAttribute('aria-checked') || headerToggle.getAttribute('role') === 'switch') {
+            headerToggle.setAttribute('aria-checked', on ? 'true' : 'false');
+        } else {
+            headerToggle.checked = on;
+        }
+    }
     document.querySelectorAll('#agentAvailableLabel, #headerAgentAvailableLabel').forEach((el) => {
         el.textContent = statusText;
     });
@@ -371,14 +380,21 @@ function bindHeaderAgentQueueToggle() {
     const toggle = document.getElementById('headerAgentAvailableToggle');
     if (!toggle || toggle.dataset.bound === '1') return;
     toggle.dataset.bound = '1';
-    toggle.addEventListener('change', async (event) => {
-        const on = !!event.target.checked;
+    const eventName = toggle.getAttribute('role') === 'switch' ? 'click' : 'change';
+    toggle.addEventListener(eventName, async (event) => {
+        if (toggle.dataset.busy === '1') return;
+        const on = eventName === 'click'
+            ? toggle.getAttribute('aria-checked') !== 'true'
+            : !!event.target.checked;
         applyCallQueuePresenceUi(on, on ? 'available' : 'offline');
+        toggle.dataset.busy = '1';
         try {
-            await window.setCallQueueAvailable(on, { requestMic: true });
+            await window.setCallQueueAvailable(on);
         } catch (error) {
             applyCallQueuePresenceUi(!on, !on ? 'offline' : 'available');
             alert(error.message || 'Failed to update availability');
+        } finally {
+            toggle.dataset.busy = '0';
         }
     });
 }

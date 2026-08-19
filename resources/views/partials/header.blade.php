@@ -193,12 +193,86 @@
 
         @if(auth()->user()?->hasPermission('view_phone_system'))
         <div class="header-agent-queue" id="headerAgentQueue" title="Receive inbound calls on any CRM page while available">
-            <label class="agent-queue-toggle header-agent-queue-toggle">
-                <input type="checkbox" id="headerAgentAvailableToggle" aria-label="Available for inbound calls">
+            <button type="button"
+                class="header-agent-queue-toggle"
+                id="headerAgentAvailableToggle"
+                role="switch"
+                aria-checked="false"
+                aria-label="Available for inbound calls">
                 <span class="agent-queue-toggle-ui"></span>
                 <span class="agent-queue-toggle-label" id="headerAgentAvailableLabel">Offline</span>
-            </label>
+            </button>
         </div>
+        <script>
+            (function () {
+                const toggle = document.getElementById('headerAgentAvailableToggle');
+                if (!toggle || toggle.dataset.bound === '1') return;
+                toggle.dataset.bound = '1';
+
+                const csrfHeaders = function () {
+                    return {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                    };
+                };
+
+                const setUi = function (on) {
+                    toggle.setAttribute('aria-checked', on ? 'true' : 'false');
+                    const label = document.getElementById('headerAgentAvailableLabel');
+                    if (label) label.textContent = on ? 'Available' : 'Offline';
+                    const phoneToggle = document.getElementById('agentAvailableToggle');
+                    if (phoneToggle) phoneToggle.checked = !!on;
+                    const phoneLabel = document.getElementById('agentAvailableLabel');
+                    if (phoneLabel) phoneLabel.textContent = on ? 'Available' : 'Offline';
+                };
+
+                toggle.addEventListener('click', async function () {
+                    if (toggle.dataset.busy === '1') return;
+                    const on = toggle.getAttribute('aria-checked') !== 'true';
+                    setUi(on);
+                    toggle.dataset.busy = '1';
+                    try {
+                        if (typeof window.setCallQueueAvailable === 'function') {
+                            await window.setCallQueueAvailable(on);
+                        } else {
+                            const response = await fetch('/twilio/agent-presence', {
+                                method: 'POST',
+                                headers: csrfHeaders(),
+                                body: JSON.stringify({ status: on ? 'available' : 'offline' }),
+                            });
+                            const data = await response.json().catch(function () { return {}; });
+                            if (!response.ok || !data.success) {
+                                throw new Error(data.message || 'Failed to update availability');
+                            }
+                            try {
+                                localStorage.setItem('lnscrm.callQueueAvailable', on ? '1' : '0');
+                            } catch (e) {}
+                            if (window.__headerQueueHeartbeat) {
+                                clearInterval(window.__headerQueueHeartbeat);
+                                window.__headerQueueHeartbeat = null;
+                            }
+                            if (on) {
+                                const beat = function () {
+                                    fetch('/twilio/agent-presence/heartbeat', {
+                                        method: 'POST',
+                                        headers: csrfHeaders(),
+                                        keepalive: true,
+                                    }).catch(function () {});
+                                };
+                                beat();
+                                window.__headerQueueHeartbeat = setInterval(beat, 20000);
+                            }
+                        }
+                    } catch (error) {
+                        setUi(!on);
+                        alert(error.message || 'Failed to update availability');
+                    } finally {
+                        toggle.dataset.busy = '0';
+                    }
+                });
+            })();
+        </script>
         @endif
 
         @if(auth()->user()?->hasPermission('view_messaging'))
