@@ -9,7 +9,6 @@ use App\Models\FacebookMessage;
 use App\Models\User;
 use App\Notifications\FacebookMessageNotification;
 use App\Services\FacebookMessageSyncService;
-use App\Services\LeadAutoCreateService;
 use App\Services\TimezoneService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
@@ -26,7 +25,6 @@ class FacebookController extends Controller
 {
     public function __construct(
         protected TwilioCompanyService $twilioCompany,
-        protected LeadAutoCreateService $leadAutoCreate,
         protected FacebookMessageSyncService $facebookSync
     ) {}
 
@@ -186,13 +184,6 @@ class FacebookController extends Controller
         ]);
 
         $this->touchConversation($conversation, $message);
-
-        $this->leadAutoCreate->fromFacebook(
-            (int) $conversation->company_id,
-            (string) $conversation->channel,
-            $conversation->name,
-            $conversation->username
-        );
 
         return response()->json(['data' => $this->formatMessage($message)], 201);
     }
@@ -467,13 +458,6 @@ class FacebookController extends Controller
         }
 
         $conversation->save();
-
-        $this->leadAutoCreate->fromFacebook(
-            (int) $integration->company_id,
-            $channel,
-            $conversation->name,
-            $conversation->username
-        );
 
         return $conversation;
     }

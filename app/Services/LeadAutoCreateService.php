@@ -40,18 +40,6 @@ class LeadAutoCreateService
         return $this->ensure($companyId, $source, $name, $phone, null);
     }
 
-    public function fromFacebook(
-        int $companyId,
-        string $channel,
-        ?string $name,
-        ?string $username = null
-    ): ?Lead {
-        $facebook = $channel === 'instagram' ? null : $name;
-        $instagram = $channel === 'instagram' ? ($username ?: $name) : $username;
-
-        return $this->ensure($companyId, $channel === 'instagram' ? 'instagram' : 'facebook', $name, null, null, $facebook, $instagram);
-    }
-
     /**
      * Find or create a lead from channel contact details. Existing leads are not overwritten;
      * new phones/emails are appended so agents can fill in the rest.

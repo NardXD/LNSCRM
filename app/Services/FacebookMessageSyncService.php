@@ -15,9 +15,6 @@ use Twilio\Rest\Client;
 
 class FacebookMessageSyncService
 {
-    public function __construct(
-        protected LeadAutoCreateService $leadAutoCreate
-    ) {}
 
     /**
      * Import historical Twilio Messenger / Instagram messages into the CRM inbox.
@@ -523,13 +520,6 @@ class FacebookMessageSyncService
         }
 
         $conversation->save();
-
-        $this->leadAutoCreate->fromFacebook(
-            (int) $integration->company_id,
-            $channel,
-            $conversation->name,
-            $conversation->username
-        );
 
         return $conversation;
     }
