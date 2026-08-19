@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Lead;
+use App\Models\LeadActivity;
 use App\Models\LeadLabel;
 use App\Models\LeadRule;
 use App\Models\User;
@@ -58,7 +59,7 @@ class LeadRuleEngine
             self::TRIGGER_INBOUND_CALL => 'Inbound call is received',
             self::TRIGGER_OUTBOUND_CALL => 'Outbound call is placed',
             self::TRIGGER_LEAD_ASSIGNED => 'Lead is assigned',
-            self::TRIGGER_LEAD_LABELED => 'Lead is labeled',
+            self::TRIGGER_LEAD_LABELED => 'Label added',
             self::TRIGGER_LEAD_NOTE_ADDED => 'Note is added to lead',
         ];
     }
@@ -114,7 +115,7 @@ class LeadRuleEngine
 
     /**
      * @param  string|array<int, string>  $triggers
-     * @param  array{contact_name?: ?string, phone?: ?string, email?: ?string, subject?: ?string, message?: ?string}  $context
+     * @param  array{contact_name?: ?string, phone?: ?string, email?: ?string, subject?: ?string, message?: ?string, added_label?: ?string, added_label_id?: int|string|null}  $context
      */
     public function apply(?Lead $lead, string $channel, string|array $triggers, array $context = []): void
     {
@@ -147,6 +148,7 @@ class LeadRuleEngine
                     continue;
                 }
                 $this->runActions($lead, $rule->actions ?? []);
+                LeadRule::whereKey($rule->id)->update(['last_applied_at' => now()]);
                 if ($rule->stop_processing) {
                     break;
                 }
@@ -171,7 +173,7 @@ class LeadRuleEngine
 
     /**
      * @param  array<int, array{field?: string, operator?: string, value?: mixed}>  $conditions
-     * @param  array{contact_name?: ?string, phone?: ?string, email?: ?string, subject?: ?string, message?: ?string}  $context
+     * @param  array{contact_name?: ?string, phone?: ?string, email?: ?string, subject?: ?string, message?: ?string, added_label?: ?string, added_label_id?: int|string|null}  $context
      */
     public function matches(Lead $lead, string $channel, array $conditions, array $context): bool
     {
@@ -221,6 +223,22 @@ class LeadRuleEngine
                 continue;
             }
 
+            if ($field === 'label_added') {
+                $addedName = mb_strtolower(trim((string) ($context['added_label'] ?? '')));
+                $addedId = trim((string) ($context['added_label_id'] ?? ''));
+                if ($addedName === '' && $addedId === '') {
+                    continue;
+                }
+                $wanted = trim((string) $value);
+                $wantedLower = mb_strtolower($wanted);
+                $matched = ($addedId !== '' && $addedId === $wanted)
+                    || ($addedName !== '' && $addedName === $wantedLower);
+                if (! $matched) {
+                    return false;
+                }
+                continue;
+            }
+
             $haystack = match ($field) {
                 'contact_name' => (string) ($context['contact_name'] ?? $lead->name),
                 'phone' => (string) ($context['phone'] ?? $leadPhones),
@@ -253,6 +271,7 @@ class LeadRuleEngine
                     'add_label' => $this->addLabel($lead, $value),
                     'set_status' => $this->setStatus($lead, $value),
                     'notify_assignee' => $this->notifyAssignee($lead),
+                    'reopen_after_days' => $this->scheduleReopen($lead, $value),
                     default => null,
                 };
             } catch (\Throwable $e) {
@@ -335,7 +354,7 @@ class LeadRuleEngine
         $already = $lead->labels()->where('lead_labels.id', $label->id)->exists();
         $lead->labels()->syncWithoutDetaching([$label->id]);
         if (! $already) {
-            $this->leadActivity->recordLabel($lead, $label->name, true);
+            $this->leadActivity->recordLabel($lead, $label->name, true, labelId: $label->id);
             $lead->unsetRelation('labels');
             $lead->load('labels');
         }
@@ -344,14 +363,48 @@ class LeadRuleEngine
     private function setStatus(Lead $lead, mixed $status): void
     {
         $status = strtolower(trim((string) $status));
-        if (! in_array($status, Lead::STATUSES, true) || $lead->status === $status) {
+        if ($status === Lead::STATUS_SNOOZED || ! in_array($status, Lead::STATUSES, true) || $lead->status === $status) {
             return;
         }
 
         $before = $this->leadActivity->snapshot($lead);
         $lead->status = $status;
+        $lead->reopen_at = null;
+        $lead->reopen_status = null;
         $lead->save();
         $this->leadActivity->recordDiff($lead, $before);
+    }
+
+    private function scheduleReopen(Lead $lead, mixed $days): void
+    {
+        $days = (int) $days;
+        if ($days < 1) {
+            return;
+        }
+        if ($days > 365) {
+            $days = 365;
+        }
+
+        if ($lead->status !== Lead::STATUS_SNOOZED) {
+            $lead->reopen_status = $lead->status ?: 'new';
+        }
+
+        $lead->status = Lead::STATUS_SNOOZED;
+        $lead->reopen_at = now()->addDays($days);
+        $lead->save();
+
+        $until = $lead->reopen_at?->toFormattedDateString() ?: $lead->reopen_at;
+        $this->leadActivity->record(
+            $lead,
+            LeadActivity::SNOOZED,
+            'Lead snoozed for '.$days.' '.($days === 1 ? 'day' : 'days').'; will reopen '.$until,
+            [
+                'source' => 'reopen_after_days',
+                'days' => $days,
+                'reopen_at' => $lead->reopen_at?->toIso8601String(),
+                'reopen_status' => $lead->reopen_status,
+            ]
+        );
     }
 
     private function notifyAssignee(Lead $lead): void

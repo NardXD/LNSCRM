@@ -993,7 +993,7 @@ class InboxController extends Controller
         $alreadyAttached = $lead->labels()->where('lead_labels.id', $label->id)->exists();
         $lead->labels()->syncWithoutDetaching([$label->id]);
         if (! $alreadyAttached) {
-            $this->leadActivity->recordLabel($lead, $label->name, true);
+            $this->leadActivity->recordLabel($lead, $label->name, true, labelId: $label->id);
         }
         $this->crmLookup->forgetLeadIndexes($companyId);
 

@@ -26,6 +26,7 @@ class LeadRule extends Model
         'conditions' => 'array',
         'actions' => 'array',
         'priority' => 'integer',
+        'last_applied_at' => 'datetime',
     ];
 
     public function company(): BelongsTo

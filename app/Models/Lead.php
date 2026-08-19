@@ -9,7 +9,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Lead extends Model
 {
-    public const STATUSES = ['new', 'contacted', 'qualified', 'converted', 'lost'];
+    public const STATUSES = ['new', 'contacted', 'qualified', 'converted', 'lost', 'snoozed'];
+
+    public const STATUS_SNOOZED = 'snoozed';
 
     protected $fillable = [
         'company_id',
@@ -20,6 +22,12 @@ class Lead extends Model
         'status',
         'source',
         'notes',
+        'reopen_at',
+        'reopen_status',
+    ];
+
+    protected $casts = [
+        'reopen_at' => 'datetime',
     ];
 
     public function company(): BelongsTo

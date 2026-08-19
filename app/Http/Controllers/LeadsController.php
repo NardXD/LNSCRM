@@ -155,13 +155,19 @@ class LeadsController extends Controller
             return $this->conflictResponse($conflict);
         }
 
-        $lead->update([
+        $status = $request->input('status') ?: $lead->status;
+        $payload = [
             'assigned_to' => $this->assignedToForCompany((int) $lead->company_id, $request->input('assigned_to')),
             'name' => $request->string('name')->toString(),
             'company_name' => $request->input('company_name'),
-            'status' => $request->input('status') ?: $lead->status,
+            'status' => $status,
             'source' => $request->input('source'),
-        ]);
+        ];
+        if ($status !== Lead::STATUS_SNOOZED) {
+            $payload['reopen_at'] = null;
+            $payload['reopen_status'] = null;
+        }
+        $lead->update($payload);
 
         $lead->syncIdentities($identities);
         $this->leadActivity->recordDiff($lead, $before);
@@ -242,7 +248,7 @@ class LeadsController extends Controller
             return response()->json(['success' => true, 'data' => $this->serializeRule($leadRule->fresh())]);
         }
 
-        $validated = $this->validateRule($request, true);
+        $validated = $this->validateRule($request);
         $leadRule->update($validated);
 
         return response()->json(['success' => true, 'data' => $this->serializeRule($leadRule->fresh())]);
@@ -418,7 +424,7 @@ class LeadsController extends Controller
         $alreadyAttached = $lead->labels()->where('lead_labels.id', $label->id)->exists();
         $lead->labels()->syncWithoutDetaching([$label->id]);
         if (! $alreadyAttached) {
-            $this->leadActivity->recordLabel($lead, $label->name, true);
+            $this->leadActivity->recordLabel($lead, $label->name, true, labelId: $label->id);
         }
         $lead->load('labels');
         $lead->touch();
@@ -466,6 +472,8 @@ class LeadsController extends Controller
             'initials' => $lead->initials,
             'company_name' => $lead->company_name,
             'status' => $lead->status,
+            'reopen_at' => $lead->reopen_at?->toIso8601String(),
+            'reopen_status' => $lead->reopen_status,
             'source' => $lead->source,
             'assigned_to' => $lead->assigned_to,
             'assigned_user' => $lead->assignedUser ? [
@@ -735,11 +743,11 @@ class LeadsController extends Controller
             'triggers' => [$required, 'array', 'min:1'],
             'triggers.*' => ['required', 'string', 'in:'.$triggerKeys],
             'conditions' => [$required, 'array', 'min:1'],
-            'conditions.*.field' => ['required', 'in:channel,contact_name,phone,email,subject,message,lead_status,lead_label'],
+            'conditions.*.field' => ['required', 'in:channel,contact_name,phone,email,subject,message,lead_status,lead_label,label_added'],
             'conditions.*.operator' => ['required', 'in:contains,equals,starts_with,in'],
             'conditions.*.value' => ['nullable'],
             'actions' => [$required, 'array', 'min:1'],
-            'actions.*.type' => ['required', 'in:assign,add_label,set_status,notify_assignee'],
+            'actions.*.type' => ['required', 'in:assign,add_label,set_status,notify_assignee,reopen_after_days'],
             'actions.*.value' => ['nullable'],
         ]);
 
@@ -767,8 +775,17 @@ class LeadsController extends Controller
             if (in_array($type, ['assign', 'add_label', 'set_status'], true) && ($action['value'] === null || $action['value'] === '')) {
                 abort(response()->json(['message' => 'That action needs a value.'], 422));
             }
-            if ($type === 'set_status' && ! in_array((string) $action['value'], Lead::STATUSES, true)) {
-                abort(response()->json(['message' => 'Choose a valid lead status.'], 422));
+            if ($type === 'set_status') {
+                $status = (string) $action['value'];
+                if ($status === Lead::STATUS_SNOOZED || ! in_array($status, Lead::STATUSES, true)) {
+                    abort(response()->json(['message' => 'Choose a valid lead status.'], 422));
+                }
+            }
+            if ($type === 'reopen_after_days') {
+                $days = (int) $action['value'];
+                if ($days < 1 || $days > 365) {
+                    abort(response()->json(['message' => 'Choose how many days before reopen (1–365).'], 422));
+                }
             }
         }
 
@@ -793,7 +810,9 @@ class LeadsController extends Controller
             'triggers' => $rule->triggers ?? [],
             'conditions' => $rule->conditions ?? [],
             'actions' => $rule->actions ?? [],
+            'last_applied_at' => $rule->last_applied_at?->toIso8601String(),
             'created_at' => $rule->created_at?->toIso8601String(),
+            'updated_at' => $rule->updated_at?->toIso8601String(),
         ];
     }
 }

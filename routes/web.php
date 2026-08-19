@@ -174,16 +174,18 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/rules', [LeadsController::class, 'storeRule'])->name('api.leads.rules.store');
         Route::patch('/rules/{leadRule}', [LeadsController::class, 'updateRule'])->name('api.leads.rules.update');
         Route::delete('/rules/{leadRule}', [LeadsController::class, 'destroyRule'])->name('api.leads.rules.destroy');
-        Route::get('/{lead}/activity-log', [LeadsController::class, 'listActivities'])->name('api.leads.activities');
-        Route::get('/{lead}/history', [LeadsController::class, 'history'])->name('api.leads.history');
-        Route::patch('/{lead}/assign', [LeadsController::class, 'assign'])->name('api.leads.assign');
-        Route::post('/{lead}/notes', [LeadsController::class, 'storeNote'])->name('api.leads.notes.store');
-        Route::delete('/{lead}/notes/{note}', [LeadsController::class, 'destroyNote'])->name('api.leads.notes.destroy');
-        Route::post('/{lead}/labels', [LeadsController::class, 'attachLabel'])->name('api.leads.labels.attach');
-        Route::delete('/{lead}/labels/{leadLabel}', [LeadsController::class, 'detachLabel'])->name('api.leads.labels.detach');
-        Route::get('/{lead}', [LeadsController::class, 'show'])->name('api.leads.show');
-        Route::match(['PUT', 'PATCH'], '/{lead}', [LeadsController::class, 'update'])->name('api.leads.update');
-        Route::delete('/{lead}', [LeadsController::class, 'destroy'])->name('api.leads.destroy');
+        Route::whereNumber('lead')->group(function () {
+            Route::get('/{lead}/activity-log', [LeadsController::class, 'listActivities'])->name('api.leads.activities');
+            Route::get('/{lead}/history', [LeadsController::class, 'history'])->name('api.leads.history');
+            Route::patch('/{lead}/assign', [LeadsController::class, 'assign'])->name('api.leads.assign');
+            Route::post('/{lead}/notes', [LeadsController::class, 'storeNote'])->name('api.leads.notes.store');
+            Route::delete('/{lead}/notes/{note}', [LeadsController::class, 'destroyNote'])->name('api.leads.notes.destroy');
+            Route::post('/{lead}/labels', [LeadsController::class, 'attachLabel'])->name('api.leads.labels.attach');
+            Route::delete('/{lead}/labels/{leadLabel}', [LeadsController::class, 'detachLabel'])->name('api.leads.labels.detach');
+            Route::get('/{lead}', [LeadsController::class, 'show'])->name('api.leads.show');
+            Route::match(['PUT', 'PATCH'], '/{lead}', [LeadsController::class, 'update'])->name('api.leads.update');
+            Route::delete('/{lead}', [LeadsController::class, 'destroy'])->name('api.leads.destroy');
+        });
     });
 
     // Time Tracking API Routes

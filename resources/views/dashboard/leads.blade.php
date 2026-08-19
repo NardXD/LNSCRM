@@ -32,6 +32,7 @@
             <button type="button" class="leads-tab" data-status="qualified">Qualified</button>
             <button type="button" class="leads-tab" data-status="converted">Converted</button>
             <button type="button" class="leads-tab" data-status="lost">Lost</button>
+            <button type="button" class="leads-tab" data-status="snoozed">Snoozed</button>
         </div>
     </div>
 
@@ -90,6 +91,7 @@
                                 <option value="qualified">Qualified</option>
                                 <option value="converted">Converted</option>
                                 <option value="lost">Lost</option>
+                                <option value="snoozed">Snoozed</option>
                             </select>
                         </div>
                     </div>
@@ -192,13 +194,15 @@
     <div class="modal-overlay" id="leadRulesModal">
         <div class="modal-content leads-rules-modal">
             <div class="modal-header">
-                <h3>Lead rules</h3>
+                <h3 id="leadRulesModalTitle">Lead rules</h3>
                 <button type="button" class="modal-close-btn" id="closeLeadRulesModal">&times;</button>
             </div>
             <div class="leads-rules-body">
-                <p class="leads-rules-help">When something happens on Phone, Inbox, Viber, WhatsApp, Facebook, or SMS, run actions on the matching lead.</p>
-                <div id="leadRuleList" class="leads-rule-list"></div>
-                <div id="leadRuleBuilder">
+                <p class="leads-rules-help" id="leadRulesHelp">When something happens on Phone, Inbox, Viber, WhatsApp, Facebook, or SMS, run actions on the matching lead.</p>
+                <div id="leadRuleListView">
+                    <div id="leadRuleList" class="leads-rule-list"></div>
+                </div>
+                <div id="leadRuleBuilder" hidden>
                     <label class="leads-rule-name-label">Name
                         <input type="text" id="leadRuleName" placeholder="Enter a name for this rule" maxlength="120">
                     </label>
@@ -237,7 +241,8 @@
             </div>
             <div class="modal-actions leads-rules-actions">
                 <button type="button" class="btn btn-secondary" id="cancelLeadRuleBtn">Close</button>
-                <button type="button" class="btn btn-primary" id="saveLeadRuleBtn">Create rule</button>
+                <button type="button" class="btn btn-primary" id="newLeadRuleBtn">New rule</button>
+                <button type="button" class="btn btn-primary" id="saveLeadRuleBtn" hidden>Create rule</button>
             </div>
         </div>
     </div>
@@ -269,6 +274,7 @@
 .lead-badge.qualified { background: #dcfce7; color: #166534; }
 .lead-badge.converted { background: #d1fae5; color: #065f46; }
 .lead-badge.lost { background: #fee2e2; color: #991b1b; }
+.lead-badge.snoozed { background: #fef3c7; color: #92400e; }
 .lead-assign { max-width: 160px; font-size: 0.8rem; padding: 0.3rem 0.45rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); color: var(--text-primary); }
 .lead-assign:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .lead-label-list, .lead-notes-list { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.45rem; }
@@ -327,9 +333,12 @@
 .leads-rules-modal { background: var(--bg-card); border-radius: 12px; width: min(720px, 96vw); max-height: 92vh; overflow: hidden; display: flex; flex-direction: column; }
 .leads-rules-body { padding: 1rem 1.25rem; overflow-y: auto; max-height: calc(92vh - 130px); }
 .leads-rules-help { margin: 0 0 1rem; font-size: 0.85rem; color: var(--text-secondary); }
-.leads-rule-list { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1.1rem; }
-.leads-rule-row { display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); }
-.leads-rule-row span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; }
+.leads-rule-list { display: flex; flex-direction: column; gap: 0.45rem; margin-bottom: 0.25rem; }
+.leads-rule-row { display: flex; align-items: flex-start; gap: 0.45rem; padding: 0.65rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); }
+.leads-rule-row-main { flex: 1; min-width: 0; }
+.leads-rule-row-name { font-size: 0.88rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.leads-rule-row-meta { margin-top: 0.2rem; font-size: 0.75rem; color: var(--text-muted); }
+.leads-rule-row-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; flex-shrink: 0; }
 .leads-rule-name-label { display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.75rem; }
 .leads-rule-name-label input { width: 100%; margin-top: 0.3rem; padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; }
 .leads-rule-section { margin: 1rem 0 0.75rem; }
@@ -343,7 +352,9 @@
 .leads-rule-channel-option:hover { background: var(--bg-primary); }
 .leads-rule-extra-list { display: flex; flex-direction: column; gap: 0.45rem; margin: 0.5rem 0; }
 .leads-rule-extra-card { display: grid; grid-template-columns: 1fr 1fr minmax(0, 1.2fr) auto; gap: 0.4rem; align-items: start; padding: 0.5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); }
-.leads-rule-extra-card.is-trigger { grid-template-columns: 1fr auto; }
+.leads-rule-extra-card.is-trigger { grid-template-columns: minmax(0, 1fr) auto; }
+.leads-rule-trigger-fields { display: grid; gap: 0.4rem; }
+.leads-rule-trigger-fields.has-label { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
 .leads-rule-extra-card.is-action { grid-template-columns: 1fr 1fr auto; }
 .leads-rule-extra-card select, .leads-rule-extra-card input { width: 100%; padding: 0.4rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.82rem; background: var(--bg-card); }
 .leads-rule-trigger-help { margin: 0.3rem 0 0; font-size: 0.75rem; color: var(--text-muted); }
@@ -366,7 +377,7 @@
 (function () {
     const api = '/api/leads';
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
-    const state = { page: 1, status: 'all', search: '', labelIds: [], editingId: null, labels: [], notes: [], companyLabels: [], assignees: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }} };
+    const state = { page: 1, status: 'all', search: '', labelIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], assignees: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }} };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -386,6 +397,17 @@
     function formatAt(iso) {
         if (!iso) return '—';
         try { return new Date(iso).toLocaleString(); } catch { return iso; }
+    }
+    function formatDate(iso) {
+        if (!iso) return '';
+        try { return new Date(iso).toLocaleDateString(); } catch { return iso; }
+    }
+    function statusBadge(lead) {
+        const status = lead.status || 'new';
+        const label = status === 'snoozed' && lead.reopen_at
+            ? 'snoozed until ' + formatDate(lead.reopen_at)
+            : status;
+        return `<span class="lead-badge ${esc(status)}">${esc(label)}</span>`;
     }
     function chipText(hex) {
         const c = String(hex || '#4338ca').replace('#', '');
@@ -647,7 +669,7 @@
                         ${assigneeOptions(lead.assigned_to, lead.assigned_user)}
                     </select>
                 </td>
-                <td><span class="lead-badge ${esc(lead.status)}">${esc(lead.status)}</span></td>
+                <td>${statusBadge(lead)}</td>
                 <td class="lead-meta">${esc(formatAt(lead.updated_at))}</td>
                 <td><button type="button" class="btn btn-secondary btn-sm" data-open="${lead.id}">Open</button></td>
             </tr>
@@ -1067,7 +1089,7 @@
         { value: 'inbound_call', label: 'Inbound call is received', help: 'When a phone call comes in.' },
         { value: 'outbound_call', label: 'Outbound call is placed', help: 'When an outbound phone call is placed.' },
         { value: 'lead_assigned', label: 'Lead is assigned', help: 'When a teammate is assigned to the lead.' },
-        { value: 'lead_labeled', label: 'Lead is labeled', help: 'When a label is added to the lead.' },
+        { value: 'lead_labeled', label: 'Label added', help: 'When this label is added to the lead.' },
         { value: 'lead_note_added', label: 'Note is added to lead', help: 'When a note is saved on the lead.' },
     ];
     const RULE_CHANNELS = [
@@ -1080,14 +1102,54 @@
     ];
 
     const rulesModal = document.getElementById('leadRulesModal');
+    function showRuleList() {
+        state.editingRuleId = null;
+        const listView = document.getElementById('leadRuleListView');
+        const builder = document.getElementById('leadRuleBuilder');
+        const help = document.getElementById('leadRulesHelp');
+        const title = document.getElementById('leadRulesModalTitle');
+        const saveBtn = document.getElementById('saveLeadRuleBtn');
+        const newBtn = document.getElementById('newLeadRuleBtn');
+        const cancelBtn = document.getElementById('cancelLeadRuleBtn');
+        if (listView) listView.hidden = false;
+        if (builder) builder.hidden = true;
+        if (help) help.hidden = false;
+        if (title) title.textContent = 'Lead rules';
+        if (saveBtn) saveBtn.hidden = true;
+        if (newBtn) newBtn.hidden = !state.canManageRules;
+        if (cancelBtn) cancelBtn.textContent = 'Close';
+        const menu = document.getElementById('leadRuleChannelMenu');
+        if (menu) menu.hidden = true;
+        renderRuleList();
+    }
+    function showRuleEditor() {
+        const listView = document.getElementById('leadRuleListView');
+        const builder = document.getElementById('leadRuleBuilder');
+        const help = document.getElementById('leadRulesHelp');
+        const title = document.getElementById('leadRulesModalTitle');
+        const saveBtn = document.getElementById('saveLeadRuleBtn');
+        const newBtn = document.getElementById('newLeadRuleBtn');
+        const cancelBtn = document.getElementById('cancelLeadRuleBtn');
+        if (listView) listView.hidden = true;
+        if (builder) builder.hidden = false;
+        if (help) help.hidden = true;
+        if (title) title.textContent = state.editingRuleId ? 'Edit rule' : 'New rule';
+        if (saveBtn) {
+            saveBtn.hidden = !state.canManageRules;
+            saveBtn.textContent = state.editingRuleId ? 'Save changes' : 'Create rule';
+        }
+        if (newBtn) newBtn.hidden = true;
+        if (cancelBtn) cancelBtn.textContent = 'Back';
+        renderRuleChannelPicker();
+    }
     function openRulesModal() {
         rulesModal.classList.add('open');
-        resetRuleBuilder();
-        renderRuleList();
+        showRuleList();
         renderRuleChannelPicker();
     }
     function closeRulesModal() {
         rulesModal.classList.remove('open');
+        state.editingRuleId = null;
         const menu = document.getElementById('leadRuleChannelMenu');
         if (menu) menu.hidden = true;
     }
@@ -1096,9 +1158,7 @@
         const data = await res.json().catch(() => ({}));
         state.rules = data.data || [];
         if (data.meta && typeof data.meta.can_manage === 'boolean') state.canManageRules = data.meta.can_manage;
-        const btn = document.getElementById('saveLeadRuleBtn');
-        if (btn) btn.style.display = state.canManageRules ? '' : 'none';
-        renderRuleList();
+        if (!document.getElementById('leadRuleListView')?.hidden) showRuleList();
     }
     function renderRuleList() {
         const list = document.getElementById('leadRuleList');
@@ -1109,11 +1169,17 @@
         }
         list.innerHTML = state.rules.map(rule => `
             <div class="leads-rule-row" title="${esc(rule.name)}">
-                <span>${esc(rule.name)}</span>
+                <div class="leads-rule-row-main">
+                    <div class="leads-rule-row-name">${esc(rule.name)}</div>
+                    <div class="leads-rule-row-meta">${rule.is_active ? 'On' : 'Off'} · Last applied ${rule.last_applied_at ? formatAt(rule.last_applied_at) : 'never'}</div>
+                </div>
                 ${state.canManageRules ? `
-                    <button type="button" class="btn btn-secondary btn-sm" data-toggle-lead-rule="${rule.id}">${rule.is_active ? 'On' : 'Off'}</button>
-                    <button type="button" class="btn btn-secondary btn-sm" data-delete-lead-rule="${rule.id}">Delete</button>
-                ` : `<span class="lead-meta">${rule.is_active ? 'On' : 'Off'}</span>`}
+                    <div class="leads-rule-row-actions">
+                        <button type="button" class="btn btn-secondary btn-sm" data-edit-lead-rule="${rule.id}">Edit</button>
+                        <button type="button" class="btn btn-secondary btn-sm" data-toggle-lead-rule="${rule.id}">${rule.is_active ? 'On' : 'Off'}</button>
+                        <button type="button" class="btn btn-secondary btn-sm" data-delete-lead-rule="${rule.id}">Delete</button>
+                    </div>
+                ` : ''}
             </div>
         `).join('');
     }
@@ -1161,7 +1227,8 @@
             ['subject', 'Subject'],
             ['message', 'Message'],
             ['lead_status', 'Lead status'],
-            ['lead_label', 'Lead label'],
+            ['lead_label', 'Lead has label'],
+            ['label_added', 'Label added'],
         ];
         return fields.map(([value, label]) =>
             `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`
@@ -1174,14 +1241,14 @@
     }
     function conditionValueControl(field, selected = '') {
         if (field === 'lead_status') {
-            const statuses = ['new', 'contacted', 'qualified', 'converted', 'lost'];
+            const statuses = ['new', 'contacted', 'qualified', 'converted', 'lost', 'snoozed'];
             return `<select data-rule-cond-value>${statuses.map(s =>
                 `<option value="${s}" ${selected === s ? 'selected' : ''}>${s}</option>`
             ).join('')}</select>`;
         }
-        if (field === 'lead_label') {
+        if (field === 'lead_label' || field === 'label_added') {
             return `<select data-rule-cond-value>${(state.companyLabels || []).map(l =>
-                `<option value="${esc(l.name)}" ${String(selected) === String(l.name) ? 'selected' : ''}>${esc(l.name)}</option>`
+                `<option value="${field === 'label_added' ? l.id : esc(l.name)}" ${String(selected) === String(l.id) || String(selected) === String(l.name) ? 'selected' : ''}>${esc(l.name)}</option>`
             ).join('') || '<option value="">No labels</option>'}</select>`;
         }
         return `<input type="text" data-rule-cond-value placeholder="Value" value="${esc(selected || '')}">`;
@@ -1191,6 +1258,7 @@
             ['assign', 'Assign lead to'],
             ['add_label', 'Add label'],
             ['set_status', 'Set status'],
+            ['reopen_after_days', 'Reopen after days'],
             ['notify_assignee', 'Notify assignee'],
         ].map(([value, label]) =>
             `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`
@@ -1213,17 +1281,50 @@
                 `<option value="${s}" ${selectedStatus === s ? 'selected' : ''}>${s}</option>`
             ).join('');
         }
+        if (type === 'reopen_after_days') {
+            const days = [1, 2, 3, 5, 7, 14, 30, 60, 90];
+            const selectedDay = String(selected || '3');
+            const opts = days.map(d =>
+                `<option value="${d}" ${selectedDay === String(d) ? 'selected' : ''}>${d} day${d === 1 ? '' : 's'}</option>`
+            ).join('');
+            return opts + (days.includes(Number(selectedDay)) ? '' : `<option value="${esc(selectedDay)}" selected>${esc(selectedDay)} days</option>`);
+        }
         return '<option value="">—</option>';
+    }
+    function triggerLabelOptions(selected = '') {
+        const labels = state.companyLabels || [];
+        const opts = labels.map(l =>
+            `<option value="${l.id}" ${String(selected) === String(l.id) || String(selected) === String(l.name) ? 'selected' : ''}>${esc(l.name)}</option>`
+        ).join('');
+        return `<option value="">Select label…</option>` + (opts || '<option value="" disabled>No labels yet</option>');
+    }
+    function syncTriggerLabelSelect(row) {
+        const type = row?.querySelector('[data-rule-trigger]')?.value;
+        const fields = row?.querySelector('.leads-rule-trigger-fields');
+        const labelSel = row?.querySelector('[data-rule-trigger-label]');
+        if (!labelSel) return;
+        const show = type === 'lead_labeled';
+        labelSel.hidden = !show;
+        labelSel.disabled = !show;
+        fields?.classList.toggle('has-label', show);
+        if (show) {
+            const prev = labelSel.value;
+            labelSel.innerHTML = triggerLabelOptions(prev);
+        }
     }
     function addRuleTriggerRow(preset = {}) {
         const wrap = document.getElementById('leadRuleTriggers');
         if (!wrap) return;
         const value = preset.value || 'inbound_message';
+        const showLabel = value === 'lead_labeled';
         const row = document.createElement('div');
         row.className = 'leads-rule-extra-card is-trigger';
         row.innerHTML = `
             <div>
-                <select data-rule-trigger>${triggerOptions(value)}</select>
+                <div class="leads-rule-trigger-fields${showLabel ? ' has-label' : ''}">
+                    <select data-rule-trigger>${triggerOptions(value)}</select>
+                    <select data-rule-trigger-label ${showLabel ? '' : 'hidden disabled'}>${triggerLabelOptions(preset.label || '')}</select>
+                </div>
                 <p class="leads-rule-trigger-help">${esc(triggerHelp(value))}</p>
             </div>
             <button type="button" class="leads-rule-remove" data-remove-rule-row title="Remove">×</button>
@@ -1249,16 +1350,18 @@
         if (!wrap) return;
         const type = preset.type || 'assign';
         const needsValue = type !== 'notify_assignee';
+        const defaultValue = preset.value || (type === 'reopen_after_days' ? '3' : '');
         const row = document.createElement('div');
         row.className = 'leads-rule-extra-card is-action';
         row.innerHTML = `
             <select data-rule-action-type>${actionTypeOptions(type)}</select>
-            <select data-rule-action-value ${needsValue ? '' : 'disabled'}>${actionValueOptions(type, preset.value || '')}</select>
+            <select data-rule-action-value ${needsValue ? '' : 'disabled'}>${actionValueOptions(type, defaultValue)}</select>
             <button type="button" class="leads-rule-remove" data-remove-rule-row title="Remove">×</button>
         `;
         wrap.appendChild(row);
     }
     function resetRuleBuilder() {
+        state.editingRuleId = null;
         const name = document.getElementById('leadRuleName');
         const stop = document.getElementById('leadRuleStopProcessing');
         if (name) name.value = '';
@@ -1266,10 +1369,42 @@
         document.getElementById('leadRuleTriggers').innerHTML = '';
         document.getElementById('leadRuleConditions').innerHTML = '';
         document.getElementById('leadRuleActions').innerHTML = '';
+        renderRuleChannelPicker();
         document.querySelectorAll('#leadRuleChannelMenu input[type="checkbox"]').forEach(cb => { cb.checked = false; });
         updateRuleChannelLabel();
         addRuleTriggerRow({ value: 'inbound_message' });
         addRuleActionRow();
+    }
+    function fillRuleBuilder(rule) {
+        state.editingRuleId = rule.id;
+        const name = document.getElementById('leadRuleName');
+        const stop = document.getElementById('leadRuleStopProcessing');
+        if (name) name.value = rule.name || '';
+        if (stop) stop.checked = !!rule.stop_processing;
+        document.getElementById('leadRuleTriggers').innerHTML = '';
+        document.getElementById('leadRuleConditions').innerHTML = '';
+        document.getElementById('leadRuleActions').innerHTML = '';
+        const conditions = Array.isArray(rule.conditions) ? rule.conditions : [];
+        const channel = conditions.find(c => c.field === 'channel');
+        const addedLabel = conditions.find(c => c.field === 'label_added');
+        renderRuleChannelPicker();
+        const selected = new Set((Array.isArray(channel?.value) ? channel.value : []).map(String));
+        document.querySelectorAll('#leadRuleChannelMenu input[type="checkbox"]').forEach(cb => {
+            cb.checked = selected.has(cb.value);
+        });
+        updateRuleChannelLabel();
+        const triggers = Array.isArray(rule.triggers) ? rule.triggers : [];
+        if (!triggers.length) addRuleTriggerRow({ value: 'inbound_message' });
+        else triggers.forEach(trigger => addRuleTriggerRow({
+            value: trigger,
+            label: trigger === 'lead_labeled' ? (addedLabel?.value || '') : '',
+        }));
+        conditions
+            .filter(c => c.field && c.field !== 'channel' && c.field !== 'label_added')
+            .forEach(c => addRuleConditionRow(c));
+        const actions = Array.isArray(rule.actions) ? rule.actions : [];
+        if (!actions.length) addRuleActionRow();
+        else actions.forEach(action => addRuleActionRow(action));
     }
     function collectRulePayload() {
         const triggers = [];
@@ -1277,6 +1412,12 @@
             if (sel.value && !triggers.includes(sel.value)) triggers.push(sel.value);
         });
         const conditions = [{ field: 'channel', operator: 'in', value: selectedRuleChannels() }];
+        document.querySelectorAll('#leadRuleTriggers .leads-rule-extra-card').forEach(row => {
+            const sel = row.querySelector('[data-rule-trigger]');
+            if (sel?.value !== 'lead_labeled') return;
+            const labelVal = row.querySelector('[data-rule-trigger-label]')?.value;
+            if (labelVal) conditions.push({ field: 'label_added', operator: 'equals', value: labelVal });
+        });
         document.querySelectorAll('#leadRuleConditions .leads-rule-extra-card').forEach(row => {
             const field = row.querySelector('[data-rule-cond-field]')?.value;
             const operator = row.querySelector('[data-rule-cond-operator]')?.value;
@@ -1304,7 +1445,15 @@
         openRulesModal();
     });
     document.getElementById('closeLeadRulesModal')?.addEventListener('click', closeRulesModal);
-    document.getElementById('cancelLeadRuleBtn')?.addEventListener('click', closeRulesModal);
+    document.getElementById('cancelLeadRuleBtn')?.addEventListener('click', () => {
+        if (document.getElementById('leadRuleBuilder')?.hidden) closeRulesModal();
+        else showRuleList();
+    });
+    document.getElementById('newLeadRuleBtn')?.addEventListener('click', () => {
+        if (!state.canManageRules) return alert('You do not have permission to add rules.');
+        resetRuleBuilder();
+        showRuleEditor();
+    });
     document.getElementById('btnAddLeadRuleTrigger')?.addEventListener('click', () => {
         const used = new Set([...document.querySelectorAll('#leadRuleTriggers [data-rule-trigger]')].map(s => s.value));
         const next = RULE_TRIGGERS.find(t => !used.has(t.value));
@@ -1321,8 +1470,10 @@
     document.getElementById('leadRuleTriggers')?.addEventListener('change', (e) => {
         const sel = e.target.closest('[data-rule-trigger]');
         if (!sel) return;
-        const help = sel.parentElement?.querySelector('.leads-rule-trigger-help');
+        const row = sel.closest('.leads-rule-extra-card');
+        const help = row?.querySelector('.leads-rule-trigger-help');
         if (help) help.textContent = triggerHelp(sel.value);
+        syncTriggerLabelSelect(row);
     });
     document.getElementById('leadRuleConditions')?.addEventListener('change', (e) => {
         const fieldSel = e.target.closest('[data-rule-cond-field]');
@@ -1341,7 +1492,8 @@
         if (!valueSel) return;
         const type = typeSel.value;
         const needsValue = type !== 'notify_assignee';
-        valueSel.innerHTML = actionValueOptions(type, type === 'set_status' ? 'contacted' : '');
+        const fallback = type === 'set_status' ? 'contacted' : (type === 'reopen_after_days' ? '3' : '');
+        valueSel.innerHTML = actionValueOptions(type, fallback);
         valueSel.disabled = !needsValue;
     });
     document.getElementById('leadRuleBuilder')?.addEventListener('click', (e) => {
@@ -1370,6 +1522,14 @@
             });
             if (!res.ok) return alert('Could not update rule.');
             await loadRules();
+            return;
+        }
+        const edit = e.target.closest('[data-edit-lead-rule]');
+        if (edit) {
+            const rule = state.rules.find(r => String(r.id) === String(edit.dataset.editLeadRule));
+            if (!rule) return;
+            fillRuleBuilder(rule);
+            showRuleEditor();
         }
     });
     document.getElementById('saveLeadRuleBtn')?.addEventListener('click', async () => {
@@ -1377,6 +1537,12 @@
         const payload = collectRulePayload();
         if (!payload.name) return alert('Enter a name for this rule.');
         if (!payload.triggers.length) return alert('Add at least one trigger.');
+        if (payload.triggers.includes('lead_labeled')) {
+            const labeled = payload.conditions.find(c => c.field === 'label_added');
+            if (!labeled || !String(labeled.value || '').trim()) {
+                return alert('Choose which label was added.');
+            }
+        }
         const extra = payload.conditions.filter(c => c.field !== 'channel');
         if (extra.some(c => !String(c.value || '').trim())) return alert('Each condition needs a value.');
         if (!payload.actions.length) return alert('Add at least one action.');
@@ -1384,18 +1550,28 @@
             if (['assign', 'add_label', 'set_status'].includes(action.type) && (action.value === null || action.value === '')) {
                 return alert('That action needs a value.');
             }
+            if (action.type === 'reopen_after_days') {
+                const days = Number(action.value);
+                if (!Number.isFinite(days) || days < 1 || days > 365) {
+                    return alert('Choose how many days before reopen (1–365).');
+                }
+            }
         }
         const btn = document.getElementById('saveLeadRuleBtn');
         btn.disabled = true;
+        const editingId = state.editingRuleId;
         try {
-            const res = await fetch(api + '/rules', {
-                method: 'POST', credentials: 'same-origin', headers: headers(true),
+            const res = await fetch(editingId ? api + '/rules/' + editingId : api + '/rules', {
+                method: editingId ? 'PATCH' : 'POST',
+                credentials: 'same-origin',
+                headers: headers(true),
                 body: JSON.stringify(payload),
             });
             const data = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(data.message || 'Failed to create rule');
-            resetRuleBuilder();
+            if (!res.ok) throw new Error(data.message || (editingId ? 'Failed to update rule' : 'Failed to create rule'));
+            state.editingRuleId = null;
             await loadRules();
+            showRuleList();
         } catch (err) {
             alert(err.message);
         } finally {

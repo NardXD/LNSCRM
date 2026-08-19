@@ -196,19 +196,22 @@ class LeadActivityService
         }
     }
 
-    public function recordLabel(Lead $lead, string $labelName, bool $added, ?int $userId = null): void
+    public function recordLabel(Lead $lead, string $labelName, bool $added, ?int $userId = null, ?int $labelId = null): void
     {
         $actor = $this->actorName($userId ?? Auth::id());
         $this->record(
             $lead,
             $added ? LeadActivity::LABEL_ADDED : LeadActivity::LABEL_REMOVED,
             $actor.' '.($added ? 'added' : 'removed').' label '.$labelName,
-            ['label' => $labelName],
+            ['label' => $labelName, 'label_id' => $labelId],
             $userId
         );
 
         if ($added) {
-            app(LeadRuleEngine::class)->apply($lead, '', [LeadRuleEngine::TRIGGER_LEAD_LABELED]);
+            app(LeadRuleEngine::class)->apply($lead, '', [LeadRuleEngine::TRIGGER_LEAD_LABELED], [
+                'added_label' => $labelName,
+                'added_label_id' => $labelId,
+            ]);
         }
     }
 

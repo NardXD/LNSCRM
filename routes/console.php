@@ -10,3 +10,4 @@ Artisan::command('inspire', function () {
 
 Schedule::command('live-view:cleanup')->everyFiveMinutes();
 Schedule::command('inbox:process-reopens')->everyFiveMinutes();
+Schedule::command('leads:process-reopens')->everyFiveMinutes();
