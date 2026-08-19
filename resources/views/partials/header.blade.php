@@ -200,13 +200,18 @@
             $headerQueueLabel = $headerQueueStatus === 'busy' ? 'On call' : ($headerQueueOn ? 'Available' : 'Offline');
             $headerQueueSnapshot = app(\App\Services\InboundCallQueueService::class)
                 ->queueSnapshot((int) $headerQueueUser->company_id);
+            $headerQueueAvailable = (int) ($headerQueueSnapshot['counts']['available'] ?? 0);
             $headerQueueNext = $headerQueueSnapshot['next_agent'] ?? null;
-            if (! empty($headerQueueNext['name'])) {
-                $headerQueueMeta = 'Next(#1 '.$headerQueueNext['name'].')';
+            $headerQueueNextName = trim((string) ($headerQueueNext['name'] ?? ''));
+            if ($headerQueueAvailable > 0) {
+                $headerQueueMeta = $headerQueueAvailable === 1 ? '1 available' : $headerQueueAvailable.' available';
+                if ($headerQueueNextName !== '') {
+                    $headerQueueMeta .= ' · '.$headerQueueNextName;
+                }
             } elseif ($headerQueueStatus === 'busy') {
                 $headerQueueMeta = 'On call';
             } else {
-                $headerQueueMeta = 'Queue empty';
+                $headerQueueMeta = '0 available';
             }
         @endphp
         <div class="header-agent-queue" id="headerAgentQueue" title="Receive inbound calls on any CRM page while available">
@@ -248,11 +253,12 @@
                 const updateQueueMeta = function (payload) {
                     if (!metaEl || !payload) return;
                     const me = payload.me || {};
-                    const next = payload.next_agent || null;
-                    const nextName = String((next && next.name) || '').trim();
-                    let text = 'Queue empty';
-                    if (nextName) {
-                        text = 'Next(#1 ' + nextName + ')';
+                    const available = Number((payload.counts && payload.counts.available) || 0);
+                    const nextName = String((payload.next_agent && payload.next_agent.name) || '').trim();
+                    let text = '0 available';
+                    if (available > 0) {
+                        text = available === 1 ? '1 available' : available + ' available';
+                        if (nextName) text += ' · ' + nextName;
                     } else if (me.status === 'busy') {
                         text = 'On call';
                     }
