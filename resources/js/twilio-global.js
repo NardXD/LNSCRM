@@ -343,6 +343,9 @@ window.setCallQueueAvailable = async function (available, options = {}) {
         }
         const status = data?.data?.me?.status || (available ? 'available' : 'offline');
         window.syncCallQueuePresence(available, status);
+        if (typeof window.updateHeaderQueueMeta === 'function' && data.data) {
+            window.updateHeaderQueueMeta(data.data);
+        }
         window.dispatchEvent(new CustomEvent('lnscrm:call-queue-changed', { detail: data }));
         return data;
     } catch (error) {

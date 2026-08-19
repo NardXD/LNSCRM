@@ -193,10 +193,31 @@
 
         @if(auth()->user()?->hasPermission('view_phone_system'))
         @php
-            $headerQueuePresence = \App\Models\CallAgentPresence::query()->where('user_id', auth()->id())->first();
+            $headerQueueUser = auth()->user();
+            $headerQueuePresence = \App\Models\CallAgentPresence::query()->where('user_id', $headerQueueUser->id)->first();
             $headerQueueStatus = $headerQueuePresence?->status ?? 'offline';
             $headerQueueOn = in_array($headerQueueStatus, ['available', 'busy'], true);
             $headerQueueLabel = $headerQueueStatus === 'busy' ? 'On call' : ($headerQueueOn ? 'Available' : 'Offline');
+            $headerQueueSnapshot = app(\App\Services\InboundCallQueueService::class)
+                ->queueSnapshot((int) $headerQueueUser->company_id);
+            $headerQueueCount = (int) ($headerQueueSnapshot['counts']['in_queue'] ?? 0);
+            $headerQueueMine = collect($headerQueueSnapshot['queue_order'] ?? [])
+                ->firstWhere('id', (int) $headerQueueUser->id);
+            $headerQueuePosition = $headerQueueMine['position'] ?? null;
+            $headerQueueIsNext = (bool) ($headerQueueMine['is_next'] ?? false);
+            if ($headerQueueStatus === 'busy') {
+                $headerQueueMeta = $headerQueueCount === 1
+                    ? '1 in queue · on call'
+                    : $headerQueueCount.' in queue · on call';
+            } elseif ($headerQueuePosition) {
+                $headerQueueMeta = $headerQueueIsNext
+                    ? $headerQueueCount.' in queue · Next (#'.$headerQueuePosition.')'
+                    : $headerQueueCount.' in queue · #'.$headerQueuePosition;
+            } elseif ($headerQueueCount > 0) {
+                $headerQueueMeta = $headerQueueCount === 1 ? '1 in queue' : $headerQueueCount.' in queue';
+            } else {
+                $headerQueueMeta = 'Queue empty';
+            }
         @endphp
         <div class="header-agent-queue" id="headerAgentQueue" title="Receive inbound calls on any CRM page while available">
             <button type="button"
@@ -208,11 +229,14 @@
                 <span class="agent-queue-toggle-ui"></span>
                 <span class="agent-queue-toggle-label" id="headerAgentAvailableLabel">{{ $headerQueueLabel }}</span>
             </button>
+            <span class="header-agent-queue-meta" id="headerAgentQueueMeta">{{ $headerQueueMeta }}</span>
         </div>
         <script>
             (function () {
                 const toggle = document.getElementById('headerAgentAvailableToggle');
+                const metaEl = document.getElementById('headerAgentQueueMeta');
                 if (!toggle) return;
+                const currentUserId = {{ (int) auth()->id() }};
 
                 const storageKey = 'lnscrm.callQueueAvailable';
                 const csrfHeaders = function () {
@@ -230,6 +254,29 @@
                 const readPersisted = function () {
                     try { return localStorage.getItem(storageKey) === '1'; } catch (e) { return false; }
                 };
+
+                const updateQueueMeta = function (payload) {
+                    if (!metaEl || !payload) return;
+                    const counts = payload.counts || {};
+                    const inQueue = Number(counts.in_queue ?? 0);
+                    const me = payload.me || {};
+                    const order = payload.queue_order || [];
+                    const mine = order.find(function (agent) { return Number(agent.id) === currentUserId; }) || null;
+                    const position = me.queue_position || (mine && mine.position) || null;
+                    const isNext = !!(me.is_next || (mine && mine.is_next));
+                    let text = 'Queue empty';
+                    if (me.status === 'busy' || (inQueue > 0 && me.status === 'busy')) {
+                        text = inQueue + ' in queue · on call';
+                    } else if (position) {
+                        text = isNext
+                            ? inQueue + ' in queue · Next (#' + position + ')'
+                            : inQueue + ' in queue · #' + position;
+                    } else if (inQueue > 0) {
+                        text = inQueue === 1 ? '1 in queue' : inQueue + ' in queue';
+                    }
+                    metaEl.textContent = text;
+                };
+                window.updateHeaderQueueMeta = updateQueueMeta;
 
                 const setUi = function (on, status) {
                     toggle.setAttribute('aria-checked', on ? 'true' : 'false');
@@ -265,13 +312,35 @@
                     window.__headerQueueHeartbeat = setInterval(beat, 20000);
                 };
 
+                const applyPresencePayload = function (payload) {
+                    if (!payload) return;
+                    const status = payload.me?.status;
+                    const on = status === 'available' || status === 'busy';
+                    setUi(on, status);
+                    persist(on);
+                    updateQueueMeta(payload);
+                    if (on) startHeartbeat();
+                    else stopHeartbeat();
+                };
+
+                const fetchPresence = async function () {
+                    const response = await fetch('/twilio/agent-presence', {
+                        method: 'GET',
+                        headers: csrfHeaders(),
+                    });
+                    if (!response.ok) return null;
+                    const body = await response.json();
+                    return body.data || null;
+                };
+
                 const setAvailable = async function (on) {
                     if (typeof window.setCallQueueAvailable === 'function') {
-                        await window.setCallQueueAvailable(on);
+                        const result = await window.setCallQueueAvailable(on);
                         persist(on);
+                        if (result && result.data) updateQueueMeta(result.data);
                         if (on) startHeartbeat();
                         else stopHeartbeat();
-                        return;
+                        return result;
                     }
                     const response = await fetch('/twilio/agent-presence', {
                         method: 'POST',
@@ -283,8 +352,10 @@
                         throw new Error(data.message || 'Failed to update availability');
                     }
                     persist(on);
+                    if (data.data) updateQueueMeta(data.data);
                     if (on) startHeartbeat();
                     else stopHeartbeat();
+                    return data;
                 };
 
                 const restorePresence = async function () {
@@ -295,28 +366,22 @@
                     }
 
                     try {
-                        const response = await fetch('/twilio/agent-presence', {
-                            method: 'GET',
-                            headers: csrfHeaders(),
-                        });
-                        if (!response.ok) {
+                        const payload = await fetchPresence();
+                        if (!payload) {
                             if (persistedOn) await setAvailable(true);
                             return;
                         }
-                        const data = await response.json();
-                        const status = data?.data?.me?.status;
+                        const status = payload.me?.status;
                         const serverOn = status === 'available' || status === 'busy';
 
                         if (persistedOn && !serverOn) {
-                            await setAvailable(true);
-                            setUi(true, 'available');
+                            const result = await setAvailable(true);
+                            if (result && result.data) applyPresencePayload(result.data);
+                            else setUi(true, 'available');
                             return;
                         }
 
-                        setUi(serverOn, status);
-                        persist(serverOn);
-                        if (serverOn) startHeartbeat();
-                        else stopHeartbeat();
+                        applyPresencePayload(payload);
                     } catch (e) {
                         if (persistedOn) {
                             try { await setAvailable(true); } catch (err) {}
@@ -333,7 +398,8 @@
                         persist(on);
                         toggle.dataset.busy = '1';
                         try {
-                            await setAvailable(on);
+                            const result = await setAvailable(on);
+                            if (result && result.data) updateQueueMeta(result.data);
                         } catch (error) {
                             setUi(!on);
                             persist(!on);
@@ -345,6 +411,15 @@
                 }
 
                 restorePresence();
+                setInterval(function () {
+                    fetchPresence().then(function (payload) {
+                        if (payload) applyPresencePayload(payload);
+                    }).catch(function () {});
+                }, 15000);
+
+                window.addEventListener('lnscrm:call-queue-changed', function (event) {
+                    if (event.detail && event.detail.data) applyPresencePayload(event.detail.data);
+                });
 
                 window.addEventListener('pagehide', function () {
                     if (toggle.getAttribute('aria-checked') !== 'true') return;

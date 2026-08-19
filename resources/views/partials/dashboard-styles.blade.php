@@ -399,6 +399,19 @@
         color: #166534;
     }
 
+    .header-agent-queue-meta {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        white-space: nowrap;
+        line-height: 1.2;
+        margin-left: 0.15rem;
+    }
+
+    .header-agent-queue-toggle[aria-checked="true"] ~ .header-agent-queue-meta {
+        color: #166534;
+    }
+
     .agent-queue-toggle {
         display: inline-flex;
         align-items: center;

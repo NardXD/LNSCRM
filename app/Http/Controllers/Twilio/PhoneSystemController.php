@@ -90,11 +90,17 @@ class PhoneSystemController extends Controller
      */
     protected function formatPresencePayload(CallAgentPresence $presence, array $snapshot): array
     {
+        $userId = (int) $presence->user_id;
+        $myQueue = collect($snapshot['queue_order'])->firstWhere('id', $userId);
+
         return [
             'me' => [
+                'id' => $userId,
                 'status' => $presence->status,
                 'last_heartbeat_at' => $presence->last_heartbeat_at?->toIso8601String(),
                 'current_call_sid' => $presence->current_call_sid,
+                'queue_position' => isset($myQueue['position']) ? (int) $myQueue['position'] : null,
+                'is_next' => (bool) ($myQueue['is_next'] ?? false),
             ],
             'counts' => $snapshot['counts'],
             'available_agents' => $snapshot['available_agents'],
