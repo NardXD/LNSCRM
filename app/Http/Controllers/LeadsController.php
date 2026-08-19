@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreLeadRequest;
 use App\Http\Requests\UpdateLeadRequest;
+use App\Models\FacebookConversation;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\LeadIdentity;
@@ -110,6 +111,7 @@ class LeadsController extends Controller
         }
 
         $lead->syncIdentities($identities);
+        $this->applyFacebookConversationName($lead, $request);
         $this->leadActivity->recordCreated($lead, $request->input('source') ?: 'manual');
         if ($lead->assigned_to) {
             $this->leadActivity->recordAssignment($lead, null, $lead->assigned_to);
@@ -442,7 +444,7 @@ class LeadsController extends Controller
         }
 
         $facebook = trim((string) $request->input('facebook_name', ''));
-        if ($facebook !== '') {
+        if ($facebook !== '' && ! FacebookConversation::isPlaceholderName($facebook)) {
             $items[] = [
                 'type' => LeadIdentity::TYPE_FACEBOOK,
                 'value' => $facebook,
@@ -452,7 +454,7 @@ class LeadsController extends Controller
         }
 
         $instagram = trim((string) $request->input('instagram_username', ''));
-        if ($instagram !== '') {
+        if ($instagram !== '' && ! FacebookConversation::isPlaceholderName($instagram)) {
             $items[] = [
                 'type' => LeadIdentity::TYPE_INSTAGRAM,
                 'value' => $instagram,
@@ -556,6 +558,25 @@ class LeadsController extends Controller
         $count = LeadLabel::query()->where('company_id', $companyId)->count();
 
         return $palette[$count % count($palette)];
+    }
+
+    protected function applyFacebookConversationName(Lead $lead, StoreLeadRequest $request): void
+    {
+        $conversationId = (int) $request->input('facebook_conversation_id', 0);
+        if ($conversationId < 1) {
+            return;
+        }
+
+        $conversation = FacebookConversation::query()
+            ->where('company_id', $lead->company_id)
+            ->find($conversationId);
+
+        if (! $conversation || ! FacebookConversation::isPlaceholderName($conversation->name)) {
+            return;
+        }
+
+        $conversation->name = $lead->name;
+        $conversation->save();
     }
 
     protected function assignedToForCompany(int $companyId, mixed $assignedTo): ?int

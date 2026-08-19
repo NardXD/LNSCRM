@@ -9,6 +9,7 @@ use App\Models\FacebookMessage;
 use App\Models\User;
 use App\Notifications\FacebookMessageNotification;
 use App\Services\FacebookMessageSyncService;
+use App\Services\MessageContactExtractor;
 use App\Services\TimezoneService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
@@ -26,7 +27,8 @@ class FacebookController extends Controller
 {
     public function __construct(
         protected TwilioCompanyService $twilioCompany,
-        protected FacebookMessageSyncService $facebookSync
+        protected FacebookMessageSyncService $facebookSync,
+        protected MessageContactExtractor $messageContacts
     ) {}
 
     public function index()
@@ -146,8 +148,13 @@ class FacebookController extends Controller
         $conversation->update(['unread_count' => 0]);
         $this->markConversationNotificationsRead($conversation);
 
+        $extracted = $this->messageContacts->fromFacebookConversation($conversation);
+
         return response()->json([
-            'conversation' => $this->formatConversation($conversation->fresh()),
+            'conversation' => array_merge($this->formatConversation($conversation->fresh()), [
+                'extracted_phones' => $extracted['phones'],
+                'extracted_emails' => $extracted['emails'],
+            ]),
             'data' => $messages,
         ]);
     }

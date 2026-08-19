@@ -179,6 +179,7 @@ class Lead extends Model
             ->merge([$this->name])
             ->filter()
             ->map(fn ($name) => strtolower(trim((string) $name)))
+            ->filter(fn ($name) => $name !== '' && ! FacebookConversation::isPlaceholderName($name))
             ->unique()
             ->values()
             ->all();

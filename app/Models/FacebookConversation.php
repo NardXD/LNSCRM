@@ -8,6 +8,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class FacebookConversation extends Model
 {
+    public const PLACEHOLDER_NAMES = [
+        'messenger user',
+        'instagram user',
+        'facebook user',
+    ];
+
     protected $fillable = [
         'company_id',
         'channel',
@@ -23,6 +29,11 @@ class FacebookConversation extends Model
     protected $casts = [
         'last_message_at' => 'datetime',
     ];
+
+    public static function isPlaceholderName(?string $name): bool
+    {
+        return in_array(strtolower(trim((string) $name)), self::PLACEHOLDER_NAMES, true);
+    }
 
     public function company(): BelongsTo
     {

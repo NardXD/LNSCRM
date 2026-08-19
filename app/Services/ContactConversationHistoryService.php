@@ -40,8 +40,29 @@ class ContactConversationHistoryService
         $phone = $phone !== null && trim($phone) !== '' ? trim($phone) : null;
         $email = $email !== null && trim($email) !== '' ? strtolower(trim($email)) : null;
         $name = $name !== null && trim($name) !== '' ? trim($name) : null;
+        $requestedName = $name;
+        if (FacebookConversation::isPlaceholderName($name)) {
+            $name = null;
+        }
 
         if (! $phone && ! $email && ! $name && ! $leadId) {
+            if ($requestedName) {
+                return [
+                    'query' => ['phone' => null, 'email' => null, 'name' => $requestedName, 'lead_id' => null],
+                    'contact' => [
+                        'found' => false,
+                        'display_name' => $requestedName,
+                        'lead' => null,
+                        'client' => null,
+                        'matched_phones' => [],
+                        'matched_emails' => [],
+                    ],
+                    'threads' => [],
+                    'events' => [],
+                    'notes' => ['This Messenger contact has no real name yet. Add a name and a phone or email to save as a lead.'],
+                ];
+            }
+
             return [
                 'query' => ['phone' => null, 'email' => null, 'name' => null, 'lead_id' => null],
                 'contact' => ['found' => false, 'display_name' => null],
@@ -145,7 +166,8 @@ class ContactConversationHistoryService
             ?? ($lookup['display_name'] ?? null)
             ?? ($lookup['phone_contact']['name'] ?? null)
             ?? $normalizedPhone
-            ?? ($emails[0] ?? null);
+            ?? ($emails[0] ?? null)
+            ?? $requestedName;
 
         return [
             'query' => [
@@ -404,7 +426,13 @@ class ContactConversationHistoryService
                     strtolower(trim((string) $c->username)),
                 ]);
                 foreach ($candidates as $cand) {
+                    if (FacebookConversation::isPlaceholderName($cand)) {
+                        continue;
+                    }
                     foreach ($names as $name) {
+                        if (FacebookConversation::isPlaceholderName($name)) {
+                            continue;
+                        }
                         if ($cand === $name || str_contains($cand, $name) || str_contains($name, $cand)) {
                             return true;
                         }

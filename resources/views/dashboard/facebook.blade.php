@@ -400,6 +400,7 @@
     let connected = root.dataset.connected === '1';
     let conversations = [];
     let activeId = null;
+    let activeHistoryOpts = null;
     let channelFilter = '';
     let pollTimer = null;
     let uploadKind = 'file';
@@ -698,11 +699,38 @@
         }
 
         document.querySelector('.fb-layout')?.classList.add('with-history');
-        window.loadChannelContactHistory('#fbContactHistory', {
+        const historyOpts = {
             name: conv.name || conv.username || '',
+            username: conv.username || '',
             excludeChannel: 'facebook',
             excludeId: conv.id,
-        });
+            source: conv.channel === 'instagram' ? 'instagram' : 'facebook',
+            facebook_name: conv.channel === 'instagram' ? null : conv.name,
+            instagram_username: conv.channel === 'instagram' ? (conv.username || conv.name) : null,
+            phone: (data.conversation?.extracted_phones || [])[0] || '',
+            email: (data.conversation?.extracted_emails || [])[0] || '',
+            extracted_phones: data.conversation?.extracted_phones || [],
+            extracted_emails: data.conversation?.extracted_emails || [],
+            onSaved(data, extra) {
+                if (extra?.existing && data.existing_lead_id) {
+                    window.location.href = '/leads?lead=' + data.existing_lead_id;
+                    return;
+                }
+                const newName = data.data?.name;
+                if (newName) {
+                    const idx = conversations.findIndex(c => c.id === id);
+                    if (idx >= 0) conversations[idx] = { ...conversations[idx], name: newName };
+                    els.headerName.textContent = newName;
+                    renderThreads();
+                    historyOpts.name = newName;
+                    historyOpts.facebook_name = conv.channel === 'instagram' ? null : newName;
+                    historyOpts.instagram_username = conv.channel === 'instagram' ? (conv.username || newName) : null;
+                }
+                window.loadChannelContactHistory('#fbContactHistory', historyOpts);
+            },
+        };
+        activeHistoryOpts = historyOpts;
+        window.loadChannelContactHistory('#fbContactHistory', historyOpts);
     }
 
     async function pollActiveMessages() {
@@ -710,10 +738,29 @@
         const data = await api(`/conversations/${activeId}/messages`);
         const incoming = data.data || [];
         const newer = incoming.filter(m => !messageIds.has(m.id));
-        if (!newer.length) return;
-        const pin = nearBottom();
-        newer.forEach(appendMessage);
-        if (pin) els.messages.scrollTop = els.messages.scrollHeight;
+        if (newer.length) {
+            const pin = nearBottom();
+            newer.forEach(appendMessage);
+            if (pin) els.messages.scrollTop = els.messages.scrollHeight;
+        }
+
+        const phones = data.conversation?.extracted_phones || [];
+        const emails = data.conversation?.extracted_emails || [];
+        if (!activeHistoryOpts || document.querySelector('#fbContactHistory .chp-lead-form')) {
+            return;
+        }
+        const nextPhone = phones[0] || '';
+        const nextEmail = emails[0] || '';
+        const samePhones = JSON.stringify(phones) === JSON.stringify(activeHistoryOpts.extracted_phones || []);
+        const sameEmails = JSON.stringify(emails) === JSON.stringify(activeHistoryOpts.extracted_emails || []);
+        if (samePhones && sameEmails && nextPhone === (activeHistoryOpts.phone || '') && nextEmail === (activeHistoryOpts.email || '')) {
+            return;
+        }
+        activeHistoryOpts.phone = nextPhone;
+        activeHistoryOpts.email = nextEmail;
+        activeHistoryOpts.extracted_phones = phones;
+        activeHistoryOpts.extracted_emails = emails;
+        window.loadChannelContactHistory('#fbContactHistory', activeHistoryOpts);
     }
 
     async function sendText() {

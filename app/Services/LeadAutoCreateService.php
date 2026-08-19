@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\FacebookConversation;
 use App\Models\Lead;
 use App\Models\LeadIdentity;
 use App\Models\SharedInbox;
@@ -313,8 +314,7 @@ class LeadAutoCreateService
             return null;
         }
 
-        $lower = strtolower($value);
-        if (in_array($lower, ['messenger user', 'instagram user', 'facebook user'], true)) {
+        if (FacebookConversation::isPlaceholderName($value)) {
             return null;
         }
 

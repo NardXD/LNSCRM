@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Client;
 use App\Models\ClientContact;
+use App\Models\FacebookConversation;
 use App\Models\Lead;
 use App\Models\LeadIdentity;
 use App\Models\PhoneCallLog;
@@ -102,7 +103,7 @@ class FlexCrmLookupService
     public function findLeadByName(int $companyId, string $name): ?Lead
     {
         $name = trim($name);
-        if ($name === '') {
+        if ($name === '' || FacebookConversation::isPlaceholderName($name)) {
             return null;
         }
 

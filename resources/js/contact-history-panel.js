@@ -20,6 +20,13 @@
 .chp-meta{font-size:.8rem;color:var(--text-secondary,#5b6b7c);margin:.15rem 0;word-break:break-all}
 .chp-link{display:inline-block;margin-top:.45rem;margin-right:.65rem;font-size:.82rem;font-weight:600;color:#0b5cab;text-decoration:none}
 .chp-save-lead{display:inline-block;margin-top:.45rem;padding:.28rem .6rem;border:1px solid #0b5cab;border-radius:6px;background:#fff;color:#0b5cab;font-size:.78rem;font-weight:600;cursor:pointer}
+.chp-lead-form{margin-top:.65rem;display:flex;flex-direction:column;gap:.45rem}
+.chp-lead-form .chp-empty{margin-bottom:.15rem}
+.chp-field{display:flex;flex-direction:column;gap:.2rem;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-secondary,#5b6b7c)}
+.chp-field input{padding:.38rem .5rem;border:1px solid var(--border,#d8dee6);border-radius:6px;font-size:.84rem;font-weight:400;text-transform:none;letter-spacing:normal;color:var(--text-primary,#1a2332);background:#fff}
+.chp-lead-error{font-size:.78rem;color:#b42318;margin:0}
+.chp-lead-actions{display:flex;gap:.45rem;align-items:center;flex-wrap:wrap}
+.chp-lead-cancel{margin-top:.45rem;padding:.28rem .6rem;border:0;background:transparent;color:var(--text-secondary,#5b6b7c);font-size:.78rem;font-weight:600;cursor:pointer}
 .chp-item{display:block;text-decoration:none;color:inherit;padding:.55rem 0;border-bottom:1px solid var(--border,#e6ebf0)}
 .chp-item:last-child{border-bottom:0}
 .chp-item:hover .chp-item-title{color:#0b5cab}
@@ -65,6 +72,36 @@ function formatAt(iso) {
     }
 }
 
+function uniqueList(items) {
+    const seen = new Set();
+    const out = [];
+    for (const item of items) {
+        const value = String(item || '').trim();
+        if (!value) continue;
+        const key = value.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(value);
+    }
+    return out;
+}
+
+function mergedPhones(contact, opts) {
+    return uniqueList([
+        ...(contact.matched_phones || []),
+        ...(opts.extracted_phones || []),
+        opts.phone,
+    ]);
+}
+
+function mergedEmails(contact, opts) {
+    return uniqueList([
+        ...(contact.matched_emails || []),
+        ...(opts.extracted_emails || []),
+        opts.email,
+    ]);
+}
+
 function renderPanel(root, data, opts = {}) {
     const excludeChannel = opts.excludeChannel || null;
     const excludeId = opts.excludeId != null ? Number(opts.excludeId) : null;
@@ -76,11 +113,23 @@ function renderPanel(root, data, opts = {}) {
         return true;
     });
     const events = (data.events || []).slice(0, 25);
+    const phones = mergedPhones(contact, opts);
+    const emails = mergedEmails(contact, opts);
+    const placeholder = isPlaceholderName(contact.display_name || opts.name);
+    const foundInMessages = (opts.extracted_phones || []).length > 0 || (opts.extracted_emails || []).length > 0;
+    let placeholderHint = '';
+    if (placeholder && !contact.lead) {
+        placeholderHint = foundInMessages
+            ? '<p class="chp-empty">No real name on this thread. Phone or email was found in the messages — add a name to save as a lead.</p>'
+            : '<p class="chp-empty">No real name on this thread. You can still save as an individual lead — a name and a phone or email are required.</p>';
+    }
 
     const contactHtml = `
         <div class="chp-name">${esc(contact.display_name || 'Contact')}</div>
-        ${(contact.matched_phones || []).slice(0, 2).map((p) => `<div class="chp-meta">${esc(p)}</div>`).join('')}
-        ${(contact.matched_emails || []).slice(0, 2).map((em) => `<div class="chp-meta">${esc(em)}</div>`).join('')}
+        ${phones.slice(0, 3).map((p) => `<div class="chp-meta">${esc(p)}</div>`).join('')}
+        ${emails.slice(0, 3).map((em) => `<div class="chp-meta">${esc(em)}</div>`).join('')}
+        ${foundInMessages && (phones.length || emails.length) ? '<div class="chp-meta">Found in conversation messages</div>' : ''}
+        ${placeholderHint}
         ${contact.lead?.crm_url ? `<a class="chp-link" href="${esc(contact.lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>` : ''}
         ${contact.client?.crm_url ? `<a class="chp-link" href="${esc(contact.client.crm_url)}" target="_blank" rel="noopener">Open client →</a>` : ''}
         ${!contact.lead && opts.canSaveLead !== false ? `<button type="button" class="chp-save-lead" data-chp-save-lead>Save as lead</button>` : ''}
@@ -122,18 +171,110 @@ function renderPanel(root, data, opts = {}) {
     }
 }
 
+function isPlaceholderName(name) {
+    return ['messenger user', 'instagram user', 'facebook user'].includes(String(name || '').trim().toLowerCase());
+}
+
+function collectPlaceholderLeadDetails(bodyEl, placeholderName, defaults = {}) {
+    return new Promise((resolve) => {
+        const btn = bodyEl.querySelector('[data-chp-save-lead]');
+        if (!btn) {
+            resolve(null);
+            return;
+        }
+
+        const existing = bodyEl.querySelector('.chp-lead-form');
+        if (existing) existing.remove();
+
+        const channelLabel = /instagram/i.test(placeholderName) ? 'Instagram' : 'Messenger';
+        const foundContact = Boolean(defaults.phone || defaults.email);
+        const form = document.createElement('div');
+        form.className = 'chp-lead-form';
+        form.innerHTML = `
+            <p class="chp-empty">${foundContact
+                ? `This ${esc(channelLabel)} contact has no real name. Phone or email was found in the messages — add a name to save as an individual lead.`
+                : `This ${esc(channelLabel)} contact has no real name. Add a name and a phone or email to save as an individual lead.`}</p>
+            <label class="chp-field"><span>Name</span><input type="text" data-chp-lead-name autocomplete="name"></label>
+            <label class="chp-field"><span>Phone</span><input type="tel" data-chp-lead-phone autocomplete="tel"></label>
+            <label class="chp-field"><span>Email</span><input type="email" data-chp-lead-email autocomplete="email"></label>
+            <p class="chp-lead-error" data-chp-lead-error hidden></p>
+            <div class="chp-lead-actions">
+                <button type="button" class="chp-save-lead" data-chp-lead-submit>Save lead</button>
+                <button type="button" class="chp-lead-cancel" data-chp-lead-cancel>Cancel</button>
+            </div>
+        `;
+        btn.hidden = true;
+        btn.insertAdjacentElement('afterend', form);
+        const nameInput = form.querySelector('[data-chp-lead-name]');
+        const phoneInput = form.querySelector('[data-chp-lead-phone]');
+        const emailInput = form.querySelector('[data-chp-lead-email]');
+        if (phoneInput) phoneInput.value = defaults.phone || '';
+        if (emailInput) emailInput.value = defaults.email || '';
+        nameInput?.focus();
+
+        const errorEl = form.querySelector('[data-chp-lead-error]');
+        const showError = (message) => {
+            errorEl.hidden = false;
+            errorEl.textContent = message;
+        };
+
+        form.querySelector('[data-chp-lead-cancel]').addEventListener('click', () => {
+            form.remove();
+            btn.hidden = false;
+            resolve(null);
+        });
+
+        form.querySelector('[data-chp-lead-submit]').addEventListener('click', () => {
+            const name = String(form.querySelector('[data-chp-lead-name]')?.value || '').trim();
+            const phone = String(form.querySelector('[data-chp-lead-phone]')?.value || '').trim();
+            const email = String(form.querySelector('[data-chp-lead-email]')?.value || '').trim();
+            if (!name || isPlaceholderName(name)) {
+                showError('Enter the person’s real name.');
+                return;
+            }
+            if (!phone && !email) {
+                showError('Add a phone number or an email.');
+                return;
+            }
+            if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                showError('Enter a valid email address.');
+                return;
+            }
+            form.remove();
+            btn.hidden = false;
+            resolve({ name, phone, email });
+        });
+    });
+}
+
 async function saveAsLead(bodyEl, opts, contact) {
-    const name = String(contact.display_name || opts.name || opts.phone || opts.email || 'New lead').trim();
-    const phones = (contact.matched_phones || []).filter(Boolean);
-    if (opts.phone && !phones.length) phones.push(opts.phone);
-    const emails = (contact.matched_emails || []).filter(Boolean);
-    if (opts.email && !emails.length) emails.push(opts.email);
+    let name = String(contact.display_name || opts.name || opts.phone || opts.email || 'New lead').trim();
+    let phones = mergedPhones(contact, opts);
+    let emails = mergedEmails(contact, opts);
+
+    if (isPlaceholderName(name)) {
+        const details = await collectPlaceholderLeadDetails(bodyEl, name, {
+            phone: phones[0] || '',
+            email: emails[0] || '',
+        });
+        if (!details) return;
+        name = details.name;
+        phones = uniqueList([details.phone, ...phones]);
+        emails = uniqueList([details.email, ...emails]);
+    }
+
     const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
     const btn = bodyEl.querySelector('[data-chp-save-lead]');
     if (btn) {
         btn.disabled = true;
         btn.textContent = 'Saving…';
     }
+
+    let facebookName = opts.facebook_name ?? (opts.excludeChannel === 'facebook' && opts.source !== 'instagram' ? opts.name : null);
+    let instagramUsername = opts.instagram_username ?? (opts.source === 'instagram' ? (opts.username || opts.name) : null);
+    if (isPlaceholderName(facebookName)) facebookName = name;
+    if (isPlaceholderName(instagramUsername)) instagramUsername = opts.username && !isPlaceholderName(opts.username) ? opts.username : name;
+
     try {
         const res = await fetch('/api/leads', {
             method: 'POST',
@@ -148,7 +289,9 @@ async function saveAsLead(bodyEl, opts, contact) {
                 name,
                 phones,
                 emails,
-                facebook_name: opts.facebook_name ?? (opts.excludeChannel === 'facebook' ? opts.name : null),
+                facebook_name: facebookName,
+                instagram_username: instagramUsername,
+                facebook_conversation_id: opts.excludeChannel === 'facebook' ? opts.excludeId : null,
                 source: opts.source || opts.excludeChannel || 'contact-history',
             }),
         });
