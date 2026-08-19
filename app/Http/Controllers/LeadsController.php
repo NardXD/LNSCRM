@@ -10,10 +10,12 @@ use App\Models\LeadActivity;
 use App\Models\LeadIdentity;
 use App\Models\LeadLabel;
 use App\Models\LeadNote;
+use App\Models\LeadRule;
 use App\Models\User;
 use App\Services\ContactConversationHistoryService;
 use App\Services\FlexCrmLookupService;
 use App\Services\LeadActivityService;
+use App\Services\LeadRuleEngine;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -28,7 +30,9 @@ class LeadsController extends Controller
 
     public function index(): View
     {
-        return view('dashboard.leads');
+        return view('dashboard.leads', [
+            'canManageLeadRules' => Auth::user()?->hasPermission('create_lead_rules') ?? false,
+        ]);
     }
 
     public function list(Request $request): JsonResponse
@@ -119,7 +123,7 @@ class LeadsController extends Controller
             $this->leadActivity->recordAssignment($lead, null, $lead->assigned_to);
         }
         if ($legacyNote !== '') {
-            $this->leadActivity->recordNote($lead, true);
+            $this->leadActivity->recordNote($lead, true, note: $legacyNote);
         }
         $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
 
@@ -179,6 +183,80 @@ class LeadsController extends Controller
             'success' => true,
             'message' => 'Lead deleted.',
         ]);
+    }
+
+    public function listRules(): JsonResponse
+    {
+        $companyId = (int) Auth::user()->company_id;
+        $rules = LeadRule::query()
+            ->where('company_id', $companyId)
+            ->orderBy('priority')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (LeadRule $rule) => $this->serializeRule($rule));
+
+        return response()->json([
+            'success' => true,
+            'data' => $rules,
+            'meta' => [
+                'can_manage' => Auth::user()->hasPermission('create_lead_rules'),
+                'triggers' => LeadRuleEngine::triggerLabels(),
+                'channels' => LeadRuleEngine::CHANNELS,
+                'statuses' => Lead::STATUSES,
+            ],
+        ]);
+    }
+
+    public function storeRule(Request $request): JsonResponse
+    {
+        if ($denied = $this->denyUnlessLeadRulePermission()) {
+            return $denied;
+        }
+
+        $validated = $this->validateRule($request);
+        $rule = LeadRule::create([
+            'company_id' => Auth::user()->company_id,
+            'name' => $validated['name'],
+            'priority' => $validated['priority'] ?? 100,
+            'is_active' => $validated['is_active'] ?? true,
+            'stop_processing' => $validated['stop_processing'] ?? false,
+            'triggers' => array_values(array_unique($validated['triggers'])),
+            'conditions' => $validated['conditions'],
+            'actions' => $validated['actions'],
+            'created_by' => Auth::id(),
+        ]);
+
+        return response()->json(['success' => true, 'data' => $this->serializeRule($rule)], 201);
+    }
+
+    public function updateRule(Request $request, LeadRule $leadRule): JsonResponse
+    {
+        if ($denied = $this->denyUnlessLeadRulePermission()) {
+            return $denied;
+        }
+        $this->leadRuleForUser($leadRule);
+
+        if ($request->exists('is_active') && count($request->except(['_token', '_method'])) <= 1) {
+            $leadRule->update(['is_active' => $request->boolean('is_active')]);
+
+            return response()->json(['success' => true, 'data' => $this->serializeRule($leadRule->fresh())]);
+        }
+
+        $validated = $this->validateRule($request, true);
+        $leadRule->update($validated);
+
+        return response()->json(['success' => true, 'data' => $this->serializeRule($leadRule->fresh())]);
+    }
+
+    public function destroyRule(LeadRule $leadRule): JsonResponse
+    {
+        if ($denied = $this->denyUnlessLeadRulePermission()) {
+            return $denied;
+        }
+        $this->leadRuleForUser($leadRule);
+        $leadRule->delete();
+
+        return response()->json(['success' => true]);
     }
 
     public function history(Lead $lead, ContactConversationHistoryService $history): JsonResponse
@@ -276,7 +354,7 @@ class LeadsController extends Controller
             'note' => $validated['note'],
         ]);
         $note->load('user:id,name');
-        $this->leadActivity->recordNote($lead, true);
+        $this->leadActivity->recordNote($lead, true, note: $validated['note']);
         $lead->touch();
 
         return response()->json([
@@ -619,5 +697,103 @@ class LeadsController extends Controller
         }
 
         return $lead;
+    }
+
+    protected function leadRuleForUser(LeadRule $rule): LeadRule
+    {
+        if ((int) $rule->company_id !== (int) Auth::user()->company_id) {
+            abort(404);
+        }
+
+        return $rule;
+    }
+
+    protected function denyUnlessLeadRulePermission(): ?JsonResponse
+    {
+        if (Auth::user()?->hasPermission('create_lead_rules')) {
+            return null;
+        }
+
+        return response()->json([
+            'message' => 'You do not have permission to manage lead rules.',
+        ], 403);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function validateRule(Request $request, bool $partial = false): array
+    {
+        $triggerKeys = implode(',', array_keys(LeadRuleEngine::triggerLabels()));
+        $required = $partial ? 'sometimes' : 'required';
+
+        $validated = $request->validate([
+            'name' => [$required, 'string', 'max:120'],
+            'priority' => ['nullable', 'integer', 'min:1', 'max:9999'],
+            'is_active' => ['boolean'],
+            'stop_processing' => ['boolean'],
+            'triggers' => [$required, 'array', 'min:1'],
+            'triggers.*' => ['required', 'string', 'in:'.$triggerKeys],
+            'conditions' => [$required, 'array', 'min:1'],
+            'conditions.*.field' => ['required', 'in:channel,contact_name,phone,email,subject,message,lead_status,lead_label'],
+            'conditions.*.operator' => ['required', 'in:contains,equals,starts_with,in'],
+            'conditions.*.value' => ['nullable'],
+            'actions' => [$required, 'array', 'min:1'],
+            'actions.*.type' => ['required', 'in:assign,add_label,set_status,notify_assignee'],
+            'actions.*.value' => ['nullable'],
+        ]);
+
+        foreach ($validated['conditions'] ?? [] as $condition) {
+            $field = $condition['field'] ?? '';
+            if ($field === 'channel') {
+                $ids = collect(is_array($condition['value'] ?? null) ? $condition['value'] : [])
+                    ->map(fn ($id) => LeadRuleEngine::normalizeChannel((string) $id))
+                    ->filter(fn ($id) => array_key_exists($id, LeadRuleEngine::CHANNELS));
+                if ($ids->count() !== count((array) ($condition['value'] ?? []))) {
+                    abort(response()->json(['message' => 'Choose valid channels.'], 422));
+                }
+                continue;
+            }
+            if (trim((string) ($condition['value'] ?? '')) === '') {
+                abort(response()->json(['message' => 'Each condition needs a value.'], 422));
+            }
+            if ($field === 'lead_status' && ! in_array((string) $condition['value'], Lead::STATUSES, true)) {
+                abort(response()->json(['message' => 'Choose a valid lead status.'], 422));
+            }
+        }
+
+        foreach ($validated['actions'] ?? [] as $action) {
+            $type = $action['type'] ?? '';
+            if (in_array($type, ['assign', 'add_label', 'set_status'], true) && ($action['value'] === null || $action['value'] === '')) {
+                abort(response()->json(['message' => 'That action needs a value.'], 422));
+            }
+            if ($type === 'set_status' && ! in_array((string) $action['value'], Lead::STATUSES, true)) {
+                abort(response()->json(['message' => 'Choose a valid lead status.'], 422));
+            }
+        }
+
+        if (! empty($validated['triggers'])) {
+            $validated['triggers'] = array_values(array_unique($validated['triggers']));
+        }
+
+        return $validated;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function serializeRule(LeadRule $rule): array
+    {
+        return [
+            'id' => $rule->id,
+            'name' => $rule->name,
+            'priority' => $rule->priority,
+            'is_active' => $rule->is_active,
+            'stop_processing' => $rule->stop_processing,
+            'triggers' => $rule->triggers ?? [],
+            'conditions' => $rule->conditions ?? [],
+            'actions' => $rule->actions ?? [],
+            'created_at' => $rule->created_at?->toIso8601String(),
+        ];
     }
 }

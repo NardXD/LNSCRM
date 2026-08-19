@@ -499,6 +499,13 @@ class RegisterController extends Controller
                 'description' => 'Access to the leads module',
                 'category' => 'main',
             ],
+            'create_lead_rules' => [
+                'name' => 'create_lead_rules',
+                'slug' => 'create_lead_rules',
+                'display_name' => 'Add Lead Rules',
+                'description' => 'Create, edit, and delete lead automation rules',
+                'category' => 'main',
+            ],
             'tickets' => [
                 'name' => 'view_tickets',
                 'slug' => 'view_tickets',

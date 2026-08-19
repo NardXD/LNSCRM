@@ -170,6 +170,10 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/', [LeadsController::class, 'store'])->name('api.leads.store');
         Route::get('/labels', [LeadsController::class, 'labels'])->name('api.leads.labels');
         Route::get('/assignees', [LeadsController::class, 'assignees'])->name('api.leads.assignees');
+        Route::get('/rules', [LeadsController::class, 'listRules'])->name('api.leads.rules.index');
+        Route::post('/rules', [LeadsController::class, 'storeRule'])->name('api.leads.rules.store');
+        Route::patch('/rules/{leadRule}', [LeadsController::class, 'updateRule'])->name('api.leads.rules.update');
+        Route::delete('/rules/{leadRule}', [LeadsController::class, 'destroyRule'])->name('api.leads.rules.destroy');
         Route::get('/{lead}/activity-log', [LeadsController::class, 'listActivities'])->name('api.leads.activities');
         Route::get('/{lead}/history', [LeadsController::class, 'history'])->name('api.leads.history');
         Route::patch('/{lead}/assign', [LeadsController::class, 'assign'])->name('api.leads.assign');
@@ -579,9 +583,6 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::put('/templates/{template}', [InboxController::class, 'updateTemplate'])->name('api.inbox.templates.update');
         Route::delete('/templates/{template}', [InboxController::class, 'destroyTemplate'])->name('api.inbox.templates.destroy');
         Route::post('/templates/import', [InboxController::class, 'importTemplates'])->name('api.inbox.templates.import');
-        Route::post('/rules', [InboxController::class, 'storeRule'])->name('api.inbox.rules.store');
-        Route::patch('/rules/{rule}', [InboxController::class, 'updateRule'])->name('api.inbox.rules.update');
-        Route::delete('/rules/{rule}', [InboxController::class, 'destroyRule'])->name('api.inbox.rules.destroy');
     });
 
     Route::prefix('api/notifications')->group(function () {

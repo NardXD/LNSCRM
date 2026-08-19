@@ -172,6 +172,8 @@
                     title = data.summary || `New SMS from ${data.contact_name || 'a contact'}`;
                 } else if (isFacebook) {
                     title = data.summary || `New message from ${data.contact_name || 'a contact'}`;
+                } else if (data.type === 'lead_rule') {
+                    title = data.summary || `Lead rule: ${data.contact_name || 'a lead'}`;
                 } else if (isMention) {
                     title = `${data.author_name || 'Someone'} mentioned you`;
                 } else {

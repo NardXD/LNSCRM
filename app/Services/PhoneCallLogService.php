@@ -66,12 +66,25 @@ class PhoneCallLogService
 
         $log->save();
 
-        $this->leadAutoCreate->fromCallLegs(
+        $isNew = $log->wasRecentlyCreated;
+        $lead = $this->leadAutoCreate->fromCallLegs(
             (int) $company->id,
             $log->from_number,
             $log->to_number,
             $log->direction
         );
+        if ($isNew) {
+            $outbound = str_contains(strtolower((string) $log->direction), 'outbound');
+            $this->leadAutoCreate->applyRules(
+                $lead,
+                'phone',
+                LeadRuleEngine::callTriggers($outbound, true),
+                [
+                    'contact_name' => $lead?->name,
+                    'phone' => $outbound ? $log->to_number : $log->from_number,
+                ]
+            );
+        }
 
         return $log;
     }
@@ -94,6 +107,16 @@ class PhoneCallLogService
             ]
         );
 
+        $lead = $this->leadAutoCreate->fromCallLegs($companyId, $from, $to, 'outbound-api');
+        $this->leadAutoCreate->applyRules(
+            $lead,
+            'phone',
+            LeadRuleEngine::callTriggers(true, true),
+            [
+                'contact_name' => $lead?->name,
+                'phone' => $to,
+            ]
+        );
         $this->leadAutoCreate->assignFromCall($companyId, $userId, $from, $to, 'outbound-api');
 
         return $log;

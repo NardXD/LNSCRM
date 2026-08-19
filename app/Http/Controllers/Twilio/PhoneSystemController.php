@@ -579,6 +579,19 @@ class PhoneSystemController extends Controller
 
         $this->smsConversations->touch($conversation, $record);
 
+        $isNew = SmsMessage::query()->where('sms_conversation_id', $conversation->id)->count() <= 1;
+        $leads = app(\App\Services\LeadAutoCreateService::class);
+        $leads->applyRules(
+            $leads->fromPhoneChannel((int) $user->company_id, 'sms', $to, $conversation->name),
+            'sms',
+            \App\Services\LeadRuleEngine::outboundTriggers($isNew),
+            [
+                'contact_name' => $conversation->name,
+                'phone' => $to,
+                'message' => $validated['body'],
+            ]
+        );
+
         return response()->json([
             'success' => true,
             'data' => $this->formatSms($record),

@@ -6,6 +6,7 @@ use App\Models\PhoneContact;
 use App\Models\SmsConversation;
 use App\Models\SmsMessage;
 use App\Notifications\SmsMessageNotification;
+use App\Services\LeadRuleEngine;
 use Illuminate\Support\Str;
 
 class SmsConversationService
@@ -67,6 +68,22 @@ class SmsConversationService
                 SmsMessageNotification::class,
                 (int) $conversation->id,
                 new SmsMessageNotification($conversation, $message)
+            );
+            $isNew = SmsMessage::query()->where('sms_conversation_id', $conversation->id)->count() <= 1;
+            $this->leadAutoCreate->applyRules(
+                $this->leadAutoCreate->fromPhoneChannel(
+                    (int) $conversation->company_id,
+                    'sms',
+                    $conversation->peer_phone,
+                    $conversation->name
+                ),
+                'sms',
+                LeadRuleEngine::inboundTriggers($isNew),
+                [
+                    'contact_name' => $conversation->name,
+                    'phone' => $conversation->peer_phone,
+                    'message' => (string) $message->body,
+                ]
             );
         }
     }

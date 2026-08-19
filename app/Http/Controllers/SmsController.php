@@ -8,6 +8,7 @@ use App\Notifications\SmsMessageNotification;
 use App\Services\ChannelUnreadNotifier;
 use App\Services\FlexCrmLookupService;
 use App\Services\LeadAutoCreateService;
+use App\Services\LeadRuleEngine;
 use App\Services\SmsConversationService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
@@ -247,12 +248,18 @@ class SmsController extends Controller
 
         $this->conversations->touch($conversation, $message);
 
-        $this->leadAutoCreate->fromPhoneChannel(
+        $lead = $this->leadAutoCreate->fromPhoneChannel(
             (int) $conversation->company_id,
             'sms',
             $conversation->peer_phone,
             $conversation->name
         );
+        $isNew = SmsMessage::query()->where('sms_conversation_id', $conversation->id)->count() <= 1;
+        $this->leadAutoCreate->applyRules($lead, 'sms', LeadRuleEngine::outboundTriggers($isNew), [
+            'contact_name' => $conversation->name,
+            'phone' => $conversation->peer_phone,
+            'message' => $validated['body'],
+        ]);
 
         return response()->json(['data' => $this->formatMessage($message)], 201);
     }

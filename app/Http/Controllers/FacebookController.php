@@ -10,6 +10,8 @@ use App\Models\User;
 use App\Notifications\FacebookMessageNotification;
 use App\Services\FacebookMessageSyncService;
 use App\Services\FlexCrmLookupService;
+use App\Services\LeadAutoCreateService;
+use App\Services\LeadRuleEngine;
 use App\Services\MessageContactExtractor;
 use App\Services\TimezoneService;
 use App\Services\TwilioCompanyService;
@@ -30,7 +32,8 @@ class FacebookController extends Controller
         protected TwilioCompanyService $twilioCompany,
         protected FacebookMessageSyncService $facebookSync,
         protected MessageContactExtractor $messageContacts,
-        protected FlexCrmLookupService $crmLookup
+        protected FlexCrmLookupService $crmLookup,
+        protected LeadAutoCreateService $leadAutoCreate
     ) {}
 
     public function index()
@@ -246,6 +249,13 @@ class FacebookController extends Controller
         ]);
 
         $this->touchConversation($conversation, $message);
+
+        $lead = $this->leadAutoCreate->fromFacebookConversation($conversation);
+        $isNew = FacebookMessage::query()->where('facebook_conversation_id', $conversation->id)->count() <= 1;
+        $this->leadAutoCreate->applyRules($lead, 'facebook', LeadRuleEngine::outboundTriggers($isNew), [
+            'contact_name' => $conversation->name,
+            'message' => (string) ($validated['text'] ?? ''),
+        ]);
 
         return response()->json(['data' => $this->formatMessage($message)], 201);
     }
@@ -472,6 +482,12 @@ class FacebookController extends Controller
         $this->touchConversation($conversation, $record);
         $this->messageContacts->applyToConversation($conversation);
         $this->notifyUnread($conversation, $record);
+
+        $lead = $this->leadAutoCreate->fromFacebookConversation($conversation);
+        $this->leadAutoCreate->applyRules($lead, 'facebook', LeadRuleEngine::inboundTriggers($isNewConversation), [
+            'contact_name' => $conversation->name,
+            'message' => $text,
+        ]);
 
         if ($isNewConversation) {
             $this->maybeSendWelcome($integration, $conversation);

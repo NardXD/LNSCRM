@@ -6,7 +6,6 @@ use App\Models\InboxConversation;
 use App\Models\InboxConversationActivity;
 use App\Models\InboxConversationComment;
 use App\Models\InboxMessage;
-use App\Models\InboxRule;
 use App\Models\InboxTag;
 use App\Models\InboxTemplate;
 use App\Models\InboxUserSetting;
@@ -21,8 +20,9 @@ use App\Notifications\InboxThreadUpdateNotification;
 use App\Services\CalendarOauthSettingsService;
 use App\Services\ChannelUnreadNotifier;
 use App\Services\FlexCrmLookupService;
-use App\Services\InboxRuleEngine;
 use App\Services\LeadActivityService;
+use App\Services\LeadAutoCreateService;
+use App\Services\LeadRuleEngine;
 use App\Services\OutlookMailService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -43,10 +43,10 @@ class InboxController extends Controller
     public function __construct(
         protected OutlookMailService $mailService,
         protected CalendarOauthSettingsService $oauthSettings,
-        protected InboxRuleEngine $ruleEngine,
         protected FlexCrmLookupService $crmLookup,
         protected LeadActivityService $leadActivity,
-        protected ChannelUnreadNotifier $unreadNotifier
+        protected ChannelUnreadNotifier $unreadNotifier,
+        protected LeadAutoCreateService $leadAutoCreate
     ) {}
 
     public function index(): View
@@ -105,10 +105,6 @@ class InboxController extends Controller
                 'color' => $tag->color,
                 'unread_count' => (int) ($tag->unread_count ?? 0),
             ]);
-        $rules = InboxRule::where('company_id', $companyId)
-            ->orderBy('priority')
-            ->get();
-
         $templates = InboxTemplate::where('company_id', $companyId)
             ->orderBy('name')
             ->get()
@@ -154,13 +150,11 @@ class InboxController extends Controller
                 ->orderBy('name')
                 ->get(['id', 'name', 'color']),
             'templates' => $templates,
-            'rules' => $rules,
             'members' => $members,
             'pinned_tag_ids' => $pinnedTagIds,
             'permissions' => [
                 'create_tags' => $user->hasPermission('create_inbox_tags'),
                 'create_templates' => $user->hasPermission('create_inbox_templates'),
-                'create_rules' => $user->hasPermission('create_inbox_rules'),
             ],
             'redirect_url_outlook_mail' => rtrim(config('app.url'), '/').'/inbox/connect/outlook/callback',
         ]);
@@ -777,13 +771,6 @@ class InboxController extends Controller
             );
         }
 
-        if ($assignee) {
-            $this->ruleEngine->apply(
-                $conversation->fresh(['tags', 'inbox']),
-                InboxRuleEngine::TRIGGER_CONVERSATION_ASSIGNED
-            );
-        }
-
         return response()->json(['conversation' => $this->formatConversation($conversation)]);
     }
 
@@ -957,13 +944,6 @@ class InboxController extends Controller
             );
         }
 
-        if ($addedIds) {
-            $this->ruleEngine->apply(
-                $conversation->fresh(['tags', 'inbox']),
-                InboxRuleEngine::TRIGGER_CONVERSATION_TAGGED
-            );
-        }
-
         return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'inbox', 'assignee']))]);
     }
 
@@ -1133,10 +1113,7 @@ class InboxController extends Controller
             ['message_id' => $message->id]
         );
 
-        $this->ruleEngine->apply(
-            $conversation->fresh(['tags', 'inbox']),
-            InboxRuleEngine::TRIGGER_OUTBOUND_REPLY
-        );
+        $this->applyLeadRules($conversation, LeadRuleEngine::TRIGGER_OUTBOUND_REPLY);
 
         return response()->json([
             'message' => $this->formatMessage($message),
@@ -1238,11 +1215,6 @@ class InboxController extends Controller
                 'attachment_count' => count($storedAttachments),
                 'snippet' => $plain,
             ]
-        );
-
-        $this->ruleEngine->apply(
-            $conversation->fresh(['tags', 'inbox']),
-            InboxRuleEngine::TRIGGER_COMMENT_ADDED
         );
 
         return response()->json([
@@ -1376,10 +1348,7 @@ class InboxController extends Controller
             'sent_at' => now(),
         ]);
 
-        $this->ruleEngine->apply(
-            $conversation->fresh(['tags', 'inbox']),
-            InboxRuleEngine::TRIGGER_OUTBOUND_MESSAGE_NEW
-        );
+        $this->applyLeadRules($conversation, LeadRuleEngine::TRIGGER_OUTBOUND_MESSAGE_NEW);
 
         return response()->json([
             'conversation' => $this->formatConversation(
@@ -1904,120 +1873,6 @@ class InboxController extends Controller
         ]);
     }
 
-    public function storeRule(Request $request): JsonResponse
-    {
-        if ($denied = $this->denyUnlessPermission($request, 'create_inbox_rules')) {
-            return $denied;
-        }
-
-        $validated = $request->validate([
-            'name' => ['required', 'string', 'max:120'],
-            'shared_inbox_id' => ['nullable', 'integer'],
-            'priority' => ['nullable', 'integer', 'min:1', 'max:9999'],
-            'is_active' => ['boolean'],
-            'stop_processing' => ['boolean'],
-            'triggers' => ['required', 'array', 'min:1'],
-            'triggers.*' => ['required', 'string', 'in:'.implode(',', array_keys(InboxRuleEngine::triggerLabels()))],
-            'conditions' => ['required', 'array', 'min:1'],
-            'conditions.*.field' => ['required', 'in:inbox,from_email,from_name,subject,snippet'],
-            'conditions.*.operator' => ['required', 'in:contains,equals,starts_with,in'],
-            'conditions.*.value' => ['nullable'],
-            'actions' => ['required', 'array', 'min:1'],
-            'actions.*.type' => ['required', 'in:assign,tag,archive,reopen,reopen_after_days,notify_assignee,mark_read,mark_unread'],
-            'actions.*.value' => ['nullable'],
-        ]);
-
-        if (! empty($validated['shared_inbox_id'])) {
-            $inbox = SharedInbox::find($validated['shared_inbox_id']);
-            if (! $inbox || ! $inbox->userCanAccess($request->user())) {
-                return response()->json(['message' => 'Invalid inbox.'], 422);
-            }
-        }
-
-        foreach ($validated['conditions'] as $condition) {
-            if (($condition['field'] ?? '') === 'inbox') {
-                $ids = collect(is_array($condition['value'] ?? null) ? $condition['value'] : [])
-                    ->map(fn ($id) => (int) $id)
-                    ->filter()
-                    ->values();
-                foreach ($ids as $inboxId) {
-                    $inbox = SharedInbox::find($inboxId);
-                    if (! $inbox || ! $inbox->userCanAccess($request->user())) {
-                        return response()->json(['message' => 'Invalid inbox in conditions.'], 422);
-                    }
-                }
-            } elseif (($condition['field'] ?? '') !== 'inbox' && trim((string) ($condition['value'] ?? '')) === '') {
-                return response()->json(['message' => 'Each condition needs a value.'], 422);
-            }
-        }
-
-        foreach ($validated['actions'] as $action) {
-            if (in_array($action['type'], ['assign', 'tag'], true) && ($action['value'] === null || $action['value'] === '')) {
-                return response()->json(['message' => 'Assign and tag actions need a value.'], 422);
-            }
-            if (($action['type'] ?? '') === 'reopen_after_days') {
-                $days = (int) ($action['value'] ?? 0);
-                if ($days < 1 || $days > 365) {
-                    return response()->json(['message' => 'Reopen after days must be between 1 and 365.'], 422);
-                }
-            }
-        }
-
-        $rule = InboxRule::create([
-            'company_id' => $request->user()->company_id,
-            'shared_inbox_id' => $validated['shared_inbox_id'] ?? null,
-            'name' => $validated['name'],
-            'priority' => $validated['priority'] ?? 100,
-            'is_active' => $validated['is_active'] ?? true,
-            'stop_processing' => $validated['stop_processing'] ?? false,
-            'triggers' => array_values(array_unique($validated['triggers'])),
-            'conditions' => $validated['conditions'],
-            'actions' => $validated['actions'],
-            'created_by' => $request->user()->id,
-        ]);
-
-        return response()->json(['rule' => $rule], 201);
-    }
-
-    public function updateRule(Request $request, InboxRule $rule): JsonResponse
-    {
-        if ($denied = $this->denyUnlessPermission($request, 'create_inbox_rules')) {
-            return $denied;
-        }
-
-        if ($rule->company_id !== $request->user()->company_id) {
-            return response()->json(['message' => 'Forbidden.'], 403);
-        }
-
-        $validated = $request->validate([
-            'name' => ['sometimes', 'string', 'max:120'],
-            'priority' => ['sometimes', 'integer', 'min:1', 'max:9999'],
-            'is_active' => ['sometimes', 'boolean'],
-            'stop_processing' => ['sometimes', 'boolean'],
-            'conditions' => ['sometimes', 'array', 'min:1'],
-            'actions' => ['sometimes', 'array', 'min:1'],
-            'shared_inbox_id' => ['nullable', 'integer'],
-        ]);
-
-        $rule->update($validated);
-
-        return response()->json(['rule' => $rule->fresh()]);
-    }
-
-    public function destroyRule(Request $request, InboxRule $rule): JsonResponse
-    {
-        if ($denied = $this->denyUnlessPermission($request, 'create_inbox_rules')) {
-            return $denied;
-        }
-
-        if ($rule->company_id !== $request->user()->company_id) {
-            return response()->json(['message' => 'Forbidden.'], 403);
-        }
-        $rule->delete();
-
-        return response()->json(['deleted' => true]);
-    }
-
     private function denyUnlessPermission(Request $request, string $slug): ?JsonResponse
     {
         if ($request->user()?->hasPermission($slug)) {
@@ -2458,12 +2313,30 @@ class InboxController extends Controller
 
     private function fireConversationStatusRules(InboxConversation $conversation, string $status): void
     {
-        $triggers = [InboxRuleEngine::TRIGGER_CONVERSATION_MOVED];
-        if ($status === 'archived') {
-            $triggers[] = InboxRuleEngine::TRIGGER_CONVERSATION_ARCHIVED;
+        // Inbox archive/move rules now live on Leads as channel conditions + lead status.
+    }
+
+    /**
+     * @param  string|array<int, string>  $triggers
+     */
+    private function applyLeadRules(InboxConversation $conversation, string|array $triggers): void
+    {
+        $fresh = $conversation->fresh(['inbox']);
+        if (! $fresh) {
+            return;
         }
 
-        $this->ruleEngine->apply($conversation, $triggers);
+        $this->leadAutoCreate->applyRules(
+            $this->leadAutoCreate->fromInboxConversation($fresh),
+            'inbox',
+            $triggers,
+            [
+                'contact_name' => $fresh->from_name,
+                'email' => $fresh->from_email,
+                'subject' => $fresh->subject,
+                'message' => $fresh->snippet,
+            ]
+        );
     }
 
     private function recordStatusActivity(

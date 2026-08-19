@@ -10,6 +10,7 @@ use App\Notifications\ViberMessageNotification;
 use App\Services\ChannelUnreadNotifier;
 use App\Services\FlexCrmLookupService;
 use App\Services\LeadAutoCreateService;
+use App\Services\LeadRuleEngine;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -212,12 +213,18 @@ class ViberController extends Controller
 
         $this->touchConversation($conversation, $message);
 
-        $this->leadAutoCreate->fromPhoneChannel(
+        $lead = $this->leadAutoCreate->fromPhoneChannel(
             (int) $conversation->company_id,
             'viber',
             $conversation->phone ?: $conversation->viber_user_id,
             $conversation->name
         );
+        $isNew = ViberMessage::query()->where('viber_conversation_id', $conversation->id)->count() <= 1;
+        $this->leadAutoCreate->applyRules($lead, 'viber', LeadRuleEngine::outboundTriggers($isNew), [
+            'contact_name' => $conversation->name,
+            'phone' => $conversation->phone ?: $conversation->viber_user_id,
+            'message' => (string) ($validated['text'] ?? ''),
+        ]);
 
         return response()->json(['data' => $this->formatMessage($message)], 201);
     }
@@ -405,6 +412,18 @@ class ViberController extends Controller
             (int) $conversation->id,
             new ViberMessageNotification($conversation, $record)
         );
+
+        $lead = $this->leadAutoCreate->fromPhoneChannel(
+            (int) $conversation->company_id,
+            'viber',
+            $conversation->phone ?: $conversation->viber_user_id,
+            $conversation->name
+        );
+        $this->leadAutoCreate->applyRules($lead, 'viber', LeadRuleEngine::inboundTriggers($isNewConversation), [
+            'contact_name' => $conversation->name,
+            'phone' => $conversation->phone ?: $conversation->viber_user_id,
+            'message' => $text,
+        ]);
 
         if ($isNewConversation) {
             $this->maybeSendWelcome($integration, $conversation);

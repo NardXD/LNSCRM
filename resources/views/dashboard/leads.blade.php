@@ -8,10 +8,13 @@
             <h1 class="page-title">Leads</h1>
             <p class="page-subtitle">Store a customer’s phones, emails, and social names so Phone, Inbox, Viber, WhatsApp, Facebook, and SMS share one Contact history.</p>
         </div>
-        <button type="button" class="btn btn-primary" id="newLeadBtn">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            New Lead
-        </button>
+        <div class="leads-header-actions">
+            <button type="button" class="btn btn-secondary" id="leadRulesBtn">Rules</button>
+            <button type="button" class="btn btn-primary" id="newLeadBtn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New Lead
+            </button>
+        </div>
     </div>
 
     <div class="leads-toolbar">
@@ -185,11 +188,65 @@
             </div>
         </div>
     </div>
+
+    <div class="modal-overlay" id="leadRulesModal">
+        <div class="modal-content leads-rules-modal">
+            <div class="modal-header">
+                <h3>Lead rules</h3>
+                <button type="button" class="modal-close-btn" id="closeLeadRulesModal">&times;</button>
+            </div>
+            <div class="leads-rules-body">
+                <p class="leads-rules-help">When something happens on Phone, Inbox, Viber, WhatsApp, Facebook, or SMS, run actions on the matching lead.</p>
+                <div id="leadRuleList" class="leads-rule-list"></div>
+                <div id="leadRuleBuilder">
+                    <label class="leads-rule-name-label">Name
+                        <input type="text" id="leadRuleName" placeholder="Enter a name for this rule" maxlength="120">
+                    </label>
+                    <div class="leads-rule-section">
+                        <div class="leads-rule-section-title">When</div>
+                        <div id="leadRuleTriggers" class="leads-rule-extra-list"></div>
+                        <button type="button" class="link-btn" id="btnAddLeadRuleTrigger">+ Add trigger</button>
+                    </div>
+                    <div class="leads-rule-section">
+                        <div class="leads-rule-section-title">If</div>
+                        <div class="leads-rule-card">
+                            <div class="leads-rule-pill-row">
+                                <span>Channel is</span>
+                                <div class="leads-rule-channel-picker" id="leadRuleChannelPicker">
+                                    <button type="button" class="leads-rule-channel-toggle" id="leadRuleChannelToggle">
+                                        <span id="leadRuleChannelToggleLabel">All channels</span>
+                                        <span>▾</span>
+                                    </button>
+                                    <div class="leads-rule-channel-menu" id="leadRuleChannelMenu" hidden></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="leadRuleConditions" class="leads-rule-extra-list"></div>
+                        <button type="button" class="link-btn" id="btnAddLeadRuleCondition">+ Add condition</button>
+                    </div>
+                    <div class="leads-rule-section">
+                        <div class="leads-rule-section-title">Then</div>
+                        <div id="leadRuleActions" class="leads-rule-extra-list"></div>
+                        <button type="button" class="link-btn" id="btnAddLeadRuleAction">+ Add action</button>
+                    </div>
+                    <label class="leads-rule-stop">
+                        <input type="checkbox" id="leadRuleStopProcessing">
+                        <span>Stop processing other rules</span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-actions leads-rules-actions">
+                <button type="button" class="btn btn-secondary" id="cancelLeadRuleBtn">Close</button>
+                <button type="button" class="btn btn-primary" id="saveLeadRuleBtn">Create rule</button>
+            </div>
+        </div>
+    </div>
 @endsection
 
 @push('styles')
 <style>
 .leads-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+.leads-header-actions { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
 .leads-toolbar { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
 .leads-search { flex: 1; min-width: 220px; padding: 0.55rem 0.85rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; background: var(--bg-card); }
 .leads-label-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; min-width: 220px; padding: 0.3rem 0.45rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); }
@@ -267,6 +324,35 @@
 .lh-preview { font-size: 0.78rem; color: var(--text-secondary); }
 .lh-link { font-size: 0.78rem; font-weight: 600; color: var(--accent); text-decoration: none; }
 .chp-empty { font-size: 0.84rem; color: var(--text-secondary); }
+.leads-rules-modal { background: var(--bg-card); border-radius: 12px; width: min(720px, 96vw); max-height: 92vh; overflow: hidden; display: flex; flex-direction: column; }
+.leads-rules-body { padding: 1rem 1.25rem; overflow-y: auto; max-height: calc(92vh - 130px); }
+.leads-rules-help { margin: 0 0 1rem; font-size: 0.85rem; color: var(--text-secondary); }
+.leads-rule-list { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1.1rem; }
+.leads-rule-row { display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); }
+.leads-rule-row span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; }
+.leads-rule-name-label { display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.75rem; }
+.leads-rule-name-label input { width: 100%; margin-top: 0.3rem; padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; }
+.leads-rule-section { margin: 1rem 0 0.75rem; }
+.leads-rule-section-title { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); margin-bottom: 0.45rem; }
+.leads-rule-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.75rem; background: var(--bg-primary); }
+.leads-rule-pill-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; font-size: 0.85rem; }
+.leads-rule-channel-picker { position: relative; min-width: 200px; }
+.leads-rule-channel-toggle { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; width: 100%; padding: 0.4rem 0.65rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); cursor: pointer; font-size: 0.85rem; }
+.leads-rule-channel-menu { position: absolute; z-index: 5; top: calc(100% + 4px); left: 0; right: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+.leads-rule-channel-option { display: flex; align-items: center; gap: 0.45rem; padding: 0.35rem 0.45rem; border-radius: 6px; font-size: 0.84rem; cursor: pointer; }
+.leads-rule-channel-option:hover { background: var(--bg-primary); }
+.leads-rule-extra-list { display: flex; flex-direction: column; gap: 0.45rem; margin: 0.5rem 0; }
+.leads-rule-extra-card { display: grid; grid-template-columns: 1fr 1fr minmax(0, 1.2fr) auto; gap: 0.4rem; align-items: start; padding: 0.5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); }
+.leads-rule-extra-card.is-trigger { grid-template-columns: 1fr auto; }
+.leads-rule-extra-card.is-action { grid-template-columns: 1fr 1fr auto; }
+.leads-rule-extra-card select, .leads-rule-extra-card input { width: 100%; padding: 0.4rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.82rem; background: var(--bg-card); }
+.leads-rule-trigger-help { margin: 0.3rem 0 0; font-size: 0.75rem; color: var(--text-muted); }
+.leads-rule-remove { border: none; background: none; color: #b91c1c; font-size: 1.1rem; cursor: pointer; padding: 0.2rem 0.35rem; }
+.leads-rule-stop { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; margin: 0.75rem 0 0; }
+.leads-rules-actions { padding: 0.85rem 1.25rem 1.1rem; margin: 0; border-top: 1px solid var(--border); }
+@media (max-width: 700px) {
+    .leads-rule-extra-card, .leads-rule-extra-card.is-action { grid-template-columns: 1fr; }
+}
 @media (max-width: 860px) {
     .leads-modal-grid { grid-template-columns: 1fr; }
     .leads-history { border-left: 0; border-top: 1px solid var(--border); }
@@ -280,7 +366,7 @@
 (function () {
     const api = '/api/leads';
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
-    const state = { page: 1, status: 'all', search: '', labelIds: [], editingId: null, labels: [], notes: [], companyLabels: [], assignees: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0 };
+    const state = { page: 1, status: 'all', search: '', labelIds: [], editingId: null, labels: [], notes: [], companyLabels: [], assignees: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }} };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -971,6 +1057,350 @@
         renderLabels(data.labels || state.labels.filter(label => String(label.id) !== String(labelId)));
         refreshActivities(state.editingId);
         loadLeads();
+    });
+
+    const RULE_TRIGGERS = [
+        { value: 'inbound_message', label: 'Inbound message is received', help: 'Any inbound Inbox, Viber, WhatsApp, Facebook, or SMS message.' },
+        { value: 'inbound_message_new', label: 'Inbound message is received (new conversation)', help: 'Only the first inbound message that starts a conversation.' },
+        { value: 'outbound_message_new', label: 'Outbound message is sent (new conversation)', help: 'When you start a new Inbox, Viber, WhatsApp, Facebook, or SMS thread.' },
+        { value: 'outbound_reply', label: 'Outbound reply is sent', help: 'When a reply is sent on an existing conversation.' },
+        { value: 'inbound_call', label: 'Inbound call is received', help: 'When a phone call comes in.' },
+        { value: 'outbound_call', label: 'Outbound call is placed', help: 'When an outbound phone call is placed.' },
+        { value: 'lead_assigned', label: 'Lead is assigned', help: 'When a teammate is assigned to the lead.' },
+        { value: 'lead_labeled', label: 'Lead is labeled', help: 'When a label is added to the lead.' },
+        { value: 'lead_note_added', label: 'Note is added to lead', help: 'When a note is saved on the lead.' },
+    ];
+    const RULE_CHANNELS = [
+        ['phone', 'Phone'],
+        ['inbox', 'Inbox'],
+        ['viber', 'Viber'],
+        ['whatsapp', 'WhatsApp'],
+        ['facebook', 'Facebook'],
+        ['sms', 'SMS'],
+    ];
+
+    const rulesModal = document.getElementById('leadRulesModal');
+    function openRulesModal() {
+        rulesModal.classList.add('open');
+        resetRuleBuilder();
+        renderRuleList();
+        renderRuleChannelPicker();
+    }
+    function closeRulesModal() {
+        rulesModal.classList.remove('open');
+        const menu = document.getElementById('leadRuleChannelMenu');
+        if (menu) menu.hidden = true;
+    }
+    async function loadRules() {
+        const res = await fetch(api + '/rules', { credentials: 'same-origin', headers: headers() });
+        const data = await res.json().catch(() => ({}));
+        state.rules = data.data || [];
+        if (data.meta && typeof data.meta.can_manage === 'boolean') state.canManageRules = data.meta.can_manage;
+        const btn = document.getElementById('saveLeadRuleBtn');
+        if (btn) btn.style.display = state.canManageRules ? '' : 'none';
+        renderRuleList();
+    }
+    function renderRuleList() {
+        const list = document.getElementById('leadRuleList');
+        if (!list) return;
+        if (!state.rules.length) {
+            list.innerHTML = '<div class="chp-empty">No rules yet.</div>';
+            return;
+        }
+        list.innerHTML = state.rules.map(rule => `
+            <div class="leads-rule-row" title="${esc(rule.name)}">
+                <span>${esc(rule.name)}</span>
+                ${state.canManageRules ? `
+                    <button type="button" class="btn btn-secondary btn-sm" data-toggle-lead-rule="${rule.id}">${rule.is_active ? 'On' : 'Off'}</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-delete-lead-rule="${rule.id}">Delete</button>
+                ` : `<span class="lead-meta">${rule.is_active ? 'On' : 'Off'}</span>`}
+            </div>
+        `).join('');
+    }
+    function selectedRuleChannels() {
+        return [...document.querySelectorAll('#leadRuleChannelMenu input[type="checkbox"]:checked')]
+            .map(cb => cb.value)
+            .filter(Boolean);
+    }
+    function updateRuleChannelLabel() {
+        const ids = selectedRuleChannels();
+        const label = document.getElementById('leadRuleChannelToggleLabel');
+        if (!label) return;
+        if (!ids.length) {
+            label.textContent = 'All channels';
+            return;
+        }
+        const names = RULE_CHANNELS.filter(([id]) => ids.includes(id)).map(([, name]) => name);
+        label.textContent = names.length <= 2 ? names.join(', ') : `${names.length} channels selected`;
+    }
+    function renderRuleChannelPicker() {
+        const menu = document.getElementById('leadRuleChannelMenu');
+        if (!menu) return;
+        const prev = new Set(selectedRuleChannels());
+        menu.innerHTML = RULE_CHANNELS.map(([id, name]) => `
+            <label class="leads-rule-channel-option">
+                <input type="checkbox" value="${id}" ${prev.has(id) ? 'checked' : ''}>
+                <span>${esc(name)}</span>
+            </label>
+        `).join('');
+        updateRuleChannelLabel();
+    }
+    function triggerOptions(selected = 'inbound_message') {
+        return RULE_TRIGGERS.map(t =>
+            `<option value="${t.value}" ${t.value === selected ? 'selected' : ''}>${esc(t.label)}</option>`
+        ).join('');
+    }
+    function triggerHelp(value) {
+        return RULE_TRIGGERS.find(t => t.value === value)?.help || '';
+    }
+    function conditionFieldOptions(selected = 'contact_name') {
+        const fields = [
+            ['contact_name', 'Contact name'],
+            ['phone', 'Phone'],
+            ['email', 'Email'],
+            ['subject', 'Subject'],
+            ['message', 'Message'],
+            ['lead_status', 'Lead status'],
+            ['lead_label', 'Lead label'],
+        ];
+        return fields.map(([value, label]) =>
+            `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`
+        ).join('');
+    }
+    function conditionOperatorOptions(selected = 'contains') {
+        return [['contains', 'contains'], ['equals', 'equals'], ['starts_with', 'starts with']]
+            .map(([value, label]) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`)
+            .join('');
+    }
+    function conditionValueControl(field, selected = '') {
+        if (field === 'lead_status') {
+            const statuses = ['new', 'contacted', 'qualified', 'converted', 'lost'];
+            return `<select data-rule-cond-value>${statuses.map(s =>
+                `<option value="${s}" ${selected === s ? 'selected' : ''}>${s}</option>`
+            ).join('')}</select>`;
+        }
+        if (field === 'lead_label') {
+            return `<select data-rule-cond-value>${(state.companyLabels || []).map(l =>
+                `<option value="${esc(l.name)}" ${String(selected) === String(l.name) ? 'selected' : ''}>${esc(l.name)}</option>`
+            ).join('') || '<option value="">No labels</option>'}</select>`;
+        }
+        return `<input type="text" data-rule-cond-value placeholder="Value" value="${esc(selected || '')}">`;
+    }
+    function actionTypeOptions(selected = 'assign') {
+        return [
+            ['assign', 'Assign lead to'],
+            ['add_label', 'Add label'],
+            ['set_status', 'Set status'],
+            ['notify_assignee', 'Notify assignee'],
+        ].map(([value, label]) =>
+            `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`
+        ).join('');
+    }
+    function actionValueOptions(type, selected = '') {
+        if (type === 'assign') {
+            return (state.assignees || []).map(m =>
+                `<option value="${m.id}" ${String(selected) === String(m.id) ? 'selected' : ''}>${esc(m.name)}</option>`
+            ).join('') || '<option value="">No teammates</option>';
+        }
+        if (type === 'add_label') {
+            return (state.companyLabels || []).map(l =>
+                `<option value="${l.id}" ${String(selected) === String(l.id) || String(selected) === String(l.name) ? 'selected' : ''}>${esc(l.name)}</option>`
+            ).join('') || '<option value="">No labels</option>';
+        }
+        if (type === 'set_status') {
+            const selectedStatus = selected || 'contacted';
+            return ['new', 'contacted', 'qualified', 'converted', 'lost'].map(s =>
+                `<option value="${s}" ${selectedStatus === s ? 'selected' : ''}>${s}</option>`
+            ).join('');
+        }
+        return '<option value="">—</option>';
+    }
+    function addRuleTriggerRow(preset = {}) {
+        const wrap = document.getElementById('leadRuleTriggers');
+        if (!wrap) return;
+        const value = preset.value || 'inbound_message';
+        const row = document.createElement('div');
+        row.className = 'leads-rule-extra-card is-trigger';
+        row.innerHTML = `
+            <div>
+                <select data-rule-trigger>${triggerOptions(value)}</select>
+                <p class="leads-rule-trigger-help">${esc(triggerHelp(value))}</p>
+            </div>
+            <button type="button" class="leads-rule-remove" data-remove-rule-row title="Remove">×</button>
+        `;
+        wrap.appendChild(row);
+    }
+    function addRuleConditionRow(preset = {}) {
+        const wrap = document.getElementById('leadRuleConditions');
+        if (!wrap) return;
+        const field = preset.field || 'contact_name';
+        const row = document.createElement('div');
+        row.className = 'leads-rule-extra-card';
+        row.innerHTML = `
+            <select data-rule-cond-field>${conditionFieldOptions(field)}</select>
+            <select data-rule-cond-operator>${conditionOperatorOptions(preset.operator || 'contains')}</select>
+            ${conditionValueControl(field, preset.value || '')}
+            <button type="button" class="leads-rule-remove" data-remove-rule-row title="Remove">×</button>
+        `;
+        wrap.appendChild(row);
+    }
+    function addRuleActionRow(preset = {}) {
+        const wrap = document.getElementById('leadRuleActions');
+        if (!wrap) return;
+        const type = preset.type || 'assign';
+        const needsValue = type !== 'notify_assignee';
+        const row = document.createElement('div');
+        row.className = 'leads-rule-extra-card is-action';
+        row.innerHTML = `
+            <select data-rule-action-type>${actionTypeOptions(type)}</select>
+            <select data-rule-action-value ${needsValue ? '' : 'disabled'}>${actionValueOptions(type, preset.value || '')}</select>
+            <button type="button" class="leads-rule-remove" data-remove-rule-row title="Remove">×</button>
+        `;
+        wrap.appendChild(row);
+    }
+    function resetRuleBuilder() {
+        const name = document.getElementById('leadRuleName');
+        const stop = document.getElementById('leadRuleStopProcessing');
+        if (name) name.value = '';
+        if (stop) stop.checked = false;
+        document.getElementById('leadRuleTriggers').innerHTML = '';
+        document.getElementById('leadRuleConditions').innerHTML = '';
+        document.getElementById('leadRuleActions').innerHTML = '';
+        document.querySelectorAll('#leadRuleChannelMenu input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+        updateRuleChannelLabel();
+        addRuleTriggerRow({ value: 'inbound_message' });
+        addRuleActionRow();
+    }
+    function collectRulePayload() {
+        const triggers = [];
+        document.querySelectorAll('#leadRuleTriggers [data-rule-trigger]').forEach(sel => {
+            if (sel.value && !triggers.includes(sel.value)) triggers.push(sel.value);
+        });
+        const conditions = [{ field: 'channel', operator: 'in', value: selectedRuleChannels() }];
+        document.querySelectorAll('#leadRuleConditions .leads-rule-extra-card').forEach(row => {
+            const field = row.querySelector('[data-rule-cond-field]')?.value;
+            const operator = row.querySelector('[data-rule-cond-operator]')?.value;
+            const value = row.querySelector('[data-rule-cond-value]')?.value?.trim() || '';
+            if (field && operator) conditions.push({ field, operator, value });
+        });
+        const actions = [];
+        document.querySelectorAll('#leadRuleActions .leads-rule-extra-card').forEach(row => {
+            const type = row.querySelector('[data-rule-action-type]')?.value;
+            const valueSel = row.querySelector('[data-rule-action-value]');
+            if (!type) return;
+            actions.push({ type, value: valueSel && !valueSel.disabled ? (valueSel.value || null) : null });
+        });
+        return {
+            name: document.getElementById('leadRuleName')?.value.trim() || '',
+            stop_processing: !!document.getElementById('leadRuleStopProcessing')?.checked,
+            triggers,
+            conditions,
+            actions,
+        };
+    }
+
+    document.getElementById('leadRulesBtn')?.addEventListener('click', () => {
+        loadRules().catch(() => {});
+        openRulesModal();
+    });
+    document.getElementById('closeLeadRulesModal')?.addEventListener('click', closeRulesModal);
+    document.getElementById('cancelLeadRuleBtn')?.addEventListener('click', closeRulesModal);
+    document.getElementById('btnAddLeadRuleTrigger')?.addEventListener('click', () => {
+        const used = new Set([...document.querySelectorAll('#leadRuleTriggers [data-rule-trigger]')].map(s => s.value));
+        const next = RULE_TRIGGERS.find(t => !used.has(t.value));
+        addRuleTriggerRow({ value: next?.value || 'inbound_message' });
+    });
+    document.getElementById('btnAddLeadRuleCondition')?.addEventListener('click', () => addRuleConditionRow());
+    document.getElementById('btnAddLeadRuleAction')?.addEventListener('click', () => addRuleActionRow());
+    document.getElementById('leadRuleChannelToggle')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        const menu = document.getElementById('leadRuleChannelMenu');
+        if (menu) menu.hidden = !menu.hidden;
+    });
+    document.getElementById('leadRuleChannelMenu')?.addEventListener('change', updateRuleChannelLabel);
+    document.getElementById('leadRuleTriggers')?.addEventListener('change', (e) => {
+        const sel = e.target.closest('[data-rule-trigger]');
+        if (!sel) return;
+        const help = sel.parentElement?.querySelector('.leads-rule-trigger-help');
+        if (help) help.textContent = triggerHelp(sel.value);
+    });
+    document.getElementById('leadRuleConditions')?.addEventListener('change', (e) => {
+        const fieldSel = e.target.closest('[data-rule-cond-field]');
+        if (!fieldSel) return;
+        const row = fieldSel.closest('.leads-rule-extra-card');
+        const current = row.querySelector('[data-rule-cond-value]');
+        const wrap = document.createElement('div');
+        wrap.innerHTML = conditionValueControl(fieldSel.value, '');
+        current?.replaceWith(wrap.firstElementChild);
+    });
+    document.getElementById('leadRuleActions')?.addEventListener('change', (e) => {
+        const typeSel = e.target.closest('[data-rule-action-type]');
+        if (!typeSel) return;
+        const row = typeSel.closest('.leads-rule-extra-card');
+        const valueSel = row?.querySelector('[data-rule-action-value]');
+        if (!valueSel) return;
+        const type = typeSel.value;
+        const needsValue = type !== 'notify_assignee';
+        valueSel.innerHTML = actionValueOptions(type, type === 'set_status' ? 'contacted' : '');
+        valueSel.disabled = !needsValue;
+    });
+    document.getElementById('leadRuleBuilder')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-remove-rule-row]');
+        if (btn) btn.closest('.leads-rule-extra-card')?.remove();
+    });
+    document.getElementById('leadRuleList')?.addEventListener('click', async (e) => {
+        if (!state.canManageRules) return;
+        const del = e.target.closest('[data-delete-lead-rule]');
+        if (del) {
+            if (!confirm('Delete this rule?')) return;
+            const res = await fetch(api + '/rules/' + del.dataset.deleteLeadRule, {
+                method: 'DELETE', credentials: 'same-origin', headers: headers(),
+            });
+            if (!res.ok) return alert('Could not delete rule.');
+            await loadRules();
+            return;
+        }
+        const toggle = e.target.closest('[data-toggle-lead-rule]');
+        if (toggle) {
+            const rule = state.rules.find(r => String(r.id) === String(toggle.dataset.toggleLeadRule));
+            if (!rule) return;
+            const res = await fetch(api + '/rules/' + rule.id, {
+                method: 'PATCH', credentials: 'same-origin', headers: headers(true),
+                body: JSON.stringify({ is_active: !rule.is_active }),
+            });
+            if (!res.ok) return alert('Could not update rule.');
+            await loadRules();
+        }
+    });
+    document.getElementById('saveLeadRuleBtn')?.addEventListener('click', async () => {
+        if (!state.canManageRules) return alert('You do not have permission to add rules.');
+        const payload = collectRulePayload();
+        if (!payload.name) return alert('Enter a name for this rule.');
+        if (!payload.triggers.length) return alert('Add at least one trigger.');
+        const extra = payload.conditions.filter(c => c.field !== 'channel');
+        if (extra.some(c => !String(c.value || '').trim())) return alert('Each condition needs a value.');
+        if (!payload.actions.length) return alert('Add at least one action.');
+        for (const action of payload.actions) {
+            if (['assign', 'add_label', 'set_status'].includes(action.type) && (action.value === null || action.value === '')) {
+                return alert('That action needs a value.');
+            }
+        }
+        const btn = document.getElementById('saveLeadRuleBtn');
+        btn.disabled = true;
+        try {
+            const res = await fetch(api + '/rules', {
+                method: 'POST', credentials: 'same-origin', headers: headers(true),
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.message || 'Failed to create rule');
+            resetRuleBuilder();
+            await loadRules();
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            btn.disabled = false;
+        }
     });
 
     resetForm();

@@ -190,6 +190,10 @@ class LeadActivityService
             'to_user_name' => $toName,
             'reason' => $reason,
         ], $userId);
+
+        if ($toId) {
+            app(LeadRuleEngine::class)->apply($lead, '', [LeadRuleEngine::TRIGGER_LEAD_ASSIGNED]);
+        }
     }
 
     public function recordLabel(Lead $lead, string $labelName, bool $added, ?int $userId = null): void
@@ -202,18 +206,28 @@ class LeadActivityService
             ['label' => $labelName],
             $userId
         );
+
+        if ($added) {
+            app(LeadRuleEngine::class)->apply($lead, '', [LeadRuleEngine::TRIGGER_LEAD_LABELED]);
+        }
     }
 
-    public function recordNote(Lead $lead, bool $added, ?int $userId = null): void
+    public function recordNote(Lead $lead, bool $added, ?int $userId = null, ?string $note = null): void
     {
         $actor = $this->actorName($userId ?? Auth::id());
         $this->record(
             $lead,
             $added ? LeadActivity::NOTE_ADDED : LeadActivity::NOTE_REMOVED,
             $actor.' '.($added ? 'added a note' : 'deleted a note'),
-            null,
+            $note !== null && $note !== '' ? ['note' => mb_substr($note, 0, 200)] : null,
             $userId
         );
+
+        if ($added) {
+            app(LeadRuleEngine::class)->apply($lead, '', [LeadRuleEngine::TRIGGER_LEAD_NOTE_ADDED], [
+                'message' => $note,
+            ]);
+        }
     }
 
     protected function actorName(?int $userId): string

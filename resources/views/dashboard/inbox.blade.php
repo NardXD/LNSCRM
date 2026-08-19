@@ -95,17 +95,6 @@
                         </div>
                         <div class="inbox-tool-group-body" id="signatureList"></div>
                     </div>
-
-                    <div class="inbox-tool-group" data-tool-group="rules">
-                        <div class="inbox-tool-group-head">
-                            <button type="button" class="inbox-tool-group-toggle" data-tool-toggle="rules">
-                                <svg class="inbox-tool-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-                                <span>Rules</span>
-                            </button>
-                            <button type="button" class="inbox-mini-btn" id="btnNewRule" title="New rule">+</button>
-                        </div>
-                        <div class="inbox-tool-group-body" id="ruleList"></div>
-                    </div>
                 </div>
             </div>
 
@@ -141,7 +130,7 @@
                 <div class="inbox-placeholder-card">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
                     <h3>Your shared inbox</h3>
-                    <p>Connect personal or shared Outlook mailboxes, assign teammates, and automate with rules — Front-style.</p>
+                    <p>Connect personal or shared Outlook mailboxes and keep teammate assignment in sync with leads.</p>
                 </div>
             </div>
 
@@ -437,53 +426,6 @@
         <div class="inbox-modal-actions">
             <button type="button" class="inbox-btn ghost" data-close-modal>Cancel</button>
             <button type="button" class="inbox-btn primary" id="btnSaveSignature">Create</button>
-        </div>
-    </div>
-
-    <div class="inbox-modal inbox-modal-wide" id="modalRule" style="display:none;">
-        <h3>Create rule</h3>
-        <label class="inbox-rule-name-label">Name
-            <input type="text" id="ruleName" class="form-input inbox-rule-name-input" placeholder="Enter a name for this rule">
-        </label>
-
-        <div class="inbox-rule-section">
-            <div class="inbox-rule-section-title">When</div>
-            <div id="ruleTriggers" class="inbox-rule-extra-list"></div>
-            <button type="button" class="inbox-rule-add" id="btnAddRuleTrigger">+ Add trigger</button>
-        </div>
-
-        <div class="inbox-rule-section">
-            <div class="inbox-rule-section-title">If</div>
-            <div class="inbox-rule-card">
-                <div class="inbox-rule-pill-row inbox-rule-inbox-row">
-                    <span class="inbox-rule-pill-text">Conversation is in</span>
-                    <div class="inbox-rule-inbox-picker" id="ruleInboxPicker">
-                        <button type="button" class="inbox-rule-inbox-toggle" id="ruleInboxToggle">
-                            <span id="ruleInboxToggleLabel">Select inboxes</span>
-                            <span class="inbox-rule-chevron">▾</span>
-                        </button>
-                        <div class="inbox-rule-inbox-menu" id="ruleInboxMenu" hidden></div>
-                    </div>
-                </div>
-            </div>
-            <div id="ruleExtraConditions" class="inbox-rule-extra-list"></div>
-            <button type="button" class="inbox-rule-add" id="btnAddRuleCondition">+ Add condition</button>
-        </div>
-
-        <div class="inbox-rule-section">
-            <div class="inbox-rule-section-title">Then</div>
-            <div id="ruleActions" class="inbox-rule-extra-list"></div>
-            <button type="button" class="inbox-rule-add" id="btnAddRuleAction">+ Add action</button>
-        </div>
-
-        <label class="inbox-rule-stop">
-            <input type="checkbox" id="ruleStopProcessing">
-            <span>Stop processing other rules</span>
-        </label>
-
-        <div class="inbox-modal-actions">
-            <button type="button" class="inbox-btn ghost" data-close-modal>Cancel</button>
-            <button type="button" class="inbox-btn primary" id="btnSaveRule">Create rule</button>
         </div>
     </div>
 
@@ -3134,16 +3076,6 @@
         `;
         }).join('') || '<div class="inbox-tool-empty">No signatures</div>';
 
-        el('ruleList').innerHTML = state.rules.map(rule => `
-            <div class="inbox-rule-row" title="${escapeHtml(rule.name)}">
-                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(rule.name)}</span>
-                ${state.permissions.create_rules ? `
-                    <button type="button" class="inbox-mini-btn" data-toggle-rule="${rule.id}" title="Toggle">${rule.is_active ? '●' : '○'}</button>
-                    <button type="button" class="inbox-mini-btn" data-delete-rule="${rule.id}" title="Delete">×</button>
-                ` : `<span class="inbox-mini-btn" title="${rule.is_active ? 'Active' : 'Inactive'}" style="pointer-events:none;opacity:.7;">${rule.is_active ? '●' : '○'}</span>`}
-            </div>
-        `).join('') || '<div class="inbox-tool-empty">No rules</div>';
-
         // Keep tool-group expand state in sync with render
         document.querySelectorAll('[data-tool-group]').forEach(group => {
             const key = group.dataset.toolGroup;
@@ -4476,7 +4408,7 @@
         }
     });
 
-    el('ruleList').addEventListener('click', async (e) => {
+        el('ruleList')?.addEventListener('click', async (e) => {
         const del = e.target.closest('[data-delete-rule]');
         if (del) {
             if (!state.permissions.create_rules) return;
@@ -5339,7 +5271,7 @@
         openModal('modalSignature');
         setTimeout(() => el('newSignatureName')?.focus(), 50);
     });
-    el('btnNewRule').addEventListener('click', () => {
+    el('btnNewRule')?.addEventListener('click', () => {
         if (!state.permissions.create_rules) return;
         openRuleModal();
     });
@@ -5689,7 +5621,7 @@
         }
     });
 
-    el('btnSaveRule').addEventListener('click', async () => {
+    el('btnSaveRule')?.addEventListener('click', async () => {
         if (!state.permissions.create_rules) return alert('You do not have permission to add rules.');
         const payload = collectRulePayload();
         if (!payload.name) return alert('Enter a name for this rule.');

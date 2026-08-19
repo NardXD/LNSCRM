@@ -10,6 +10,7 @@ use App\Models\WhatsAppMessage;
 use App\Notifications\WhatsAppMessageNotification;
 use App\Services\FlexCrmLookupService;
 use App\Services\LeadAutoCreateService;
+use App\Services\LeadRuleEngine;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -187,12 +188,18 @@ class WhatsAppController extends Controller
 
         $this->touchConversation($conversation, $message);
 
-        $this->leadAutoCreate->fromPhoneChannel(
+        $lead = $this->leadAutoCreate->fromPhoneChannel(
             (int) $conversation->company_id,
             'whatsapp',
             $conversation->wa_id ?: $conversation->phone,
             $conversation->name
         );
+        $isNew = WhatsAppMessage::query()->where('whatsapp_conversation_id', $conversation->id)->count() <= 1;
+        $this->leadAutoCreate->applyRules($lead, 'whatsapp', LeadRuleEngine::outboundTriggers($isNew), [
+            'contact_name' => $conversation->name,
+            'phone' => $conversation->wa_id ?: $conversation->phone,
+            'message' => (string) ($validated['text'] ?? $body ?? ''),
+        ]);
 
         return response()->json(['data' => $this->formatMessage($message)], 201);
     }
@@ -373,6 +380,18 @@ class WhatsAppController extends Controller
         $conversation->unread_count = (int) $conversation->unread_count + 1;
         $this->touchConversation($conversation, $record);
         $this->notifyUnread($conversation, $record);
+
+        $lead = $this->leadAutoCreate->fromPhoneChannel(
+            (int) $conversation->company_id,
+            'whatsapp',
+            $conversation->wa_id ?: $conversation->phone,
+            $conversation->name
+        );
+        $this->leadAutoCreate->applyRules($lead, 'whatsapp', LeadRuleEngine::inboundTriggers($isNewConversation), [
+            'contact_name' => $conversation->name,
+            'phone' => $conversation->wa_id ?: $conversation->phone,
+            'message' => $text,
+        ]);
 
         if ($isNewConversation) {
             $this->maybeSendWelcome($integration, $conversation);

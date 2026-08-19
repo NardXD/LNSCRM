@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\FacebookConversation;
+use App\Models\InboxConversation;
 use App\Models\Lead;
 use App\Models\LeadIdentity;
 use App\Models\SharedInbox;
@@ -21,7 +22,11 @@ class LeadAutoCreateService
     public function fromSharedInbox(SharedInbox $inbox, ?string $fromName, ?string $fromEmail): ?Lead
     {
         if ($inbox->isPersonal()) {
-            return null;
+            $email = $this->cleanEmail((int) $inbox->company_id, $fromEmail);
+
+            return $email
+                ? $this->findExisting((int) $inbox->company_id, null, $email, null, null)
+                : null;
         }
 
         return $this->ensure(
@@ -31,6 +36,48 @@ class LeadAutoCreateService
             null,
             $fromEmail
         );
+    }
+
+    public function fromInboxConversation(InboxConversation $conversation): ?Lead
+    {
+        $conversation->loadMissing('inbox');
+        if (! $conversation->inbox) {
+            return null;
+        }
+
+        return $this->fromSharedInbox(
+            $conversation->inbox,
+            $conversation->from_name,
+            $conversation->from_email
+        );
+    }
+
+    public function fromFacebookConversation(FacebookConversation $conversation): ?Lead
+    {
+        $isIg = $conversation->channel === 'instagram';
+
+        return $this->ensure(
+            (int) $conversation->company_id,
+            'facebook',
+            $conversation->name,
+            null,
+            null,
+            $isIg ? null : $conversation->name,
+            $isIg ? ($conversation->username ?: $conversation->name) : null
+        );
+    }
+
+    /**
+     * @param  string|array<int, string>  $triggers
+     * @param  array{contact_name?: ?string, phone?: ?string, email?: ?string, subject?: ?string, message?: ?string}  $context
+     */
+    public function applyRules(?Lead $lead, string $channel, string|array $triggers, array $context = []): ?Lead
+    {
+        if ($lead) {
+            app(LeadRuleEngine::class)->apply($lead, $channel, $triggers, $context);
+        }
+
+        return $lead;
     }
 
     public function fromPhoneChannel(

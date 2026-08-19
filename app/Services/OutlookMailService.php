@@ -26,8 +26,8 @@ class OutlookMailService
 
     public function __construct(
         protected CalendarOauthSettingsService $oauthSettings,
-        protected InboxRuleEngine $ruleEngine,
-        protected ChannelUnreadNotifier $unreadNotifier
+        protected ChannelUnreadNotifier $unreadNotifier,
+        protected LeadAutoCreateService $leadAutoCreate
     ) {}
 
     /**
@@ -440,13 +440,20 @@ class OutlookMailService
 
             $messageDirection = ($msg['isDraft'] ?? false) ? 'outbound' : $direction;
             if ($folder === 'inbox' && $messageDirection === 'inbound') {
-                $triggers = $isNew
-                    ? [
-                        InboxRuleEngine::TRIGGER_INBOUND_MESSAGE,
-                        InboxRuleEngine::TRIGGER_INBOUND_MESSAGE_NEW,
-                    ]
-                    : [InboxRuleEngine::TRIGGER_INBOUND_MESSAGE];
-                $this->ruleEngine->apply($conversation->fresh(['tags', 'inbox']), $triggers);
+                $fresh = $conversation->fresh(['inbox']);
+                if ($fresh) {
+                    $this->leadAutoCreate->applyRules(
+                        $this->leadAutoCreate->fromInboxConversation($fresh),
+                        'inbox',
+                        LeadRuleEngine::inboundTriggers($isNew),
+                        [
+                            'contact_name' => $fresh->from_name,
+                            'email' => $fresh->from_email,
+                            'subject' => $fresh->subject,
+                            'message' => $fresh->snippet,
+                        ]
+                    );
+                }
 
                 if (! $conversation->is_read) {
                     $fresh = $conversation->fresh(['inbox']);
