@@ -409,13 +409,19 @@ async function initializeGlobalTwilioDevice() {
             });
 
             if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                window.__twilioDeviceInitError = errorData.message
+                    || `Browser calling unavailable (HTTP ${response.status}).`;
                 return null;
             }
 
             const data = await response.json();
             if (!data.success || !data.token) {
+                window.__twilioDeviceInitError = data.message
+                    || 'Browser calling is not configured.';
                 return null;
             }
+            window.__twilioDeviceInitError = null;
 
             const waitForSdk = typeof window.whenTwilioVoiceSdkReady === 'function'
                 ? window.whenTwilioVoiceSdkReady(20000)
@@ -450,34 +456,9 @@ async function initializeGlobalTwilioDevice() {
 }
 
 window.ensureGlobalTwilioDevice = initializeGlobalTwilioDevice;
-window.whenGlobalTwilioDeviceReady = async function (timeoutMs = 20000) {
-    const started = Date.now();
+window.whenGlobalTwilioDeviceReady = async function () {
     const device = await initializeGlobalTwilioDevice();
-    if (!device) {
-        return null;
-    }
-    if (device.state === 'registered') {
-        return device;
-    }
-    return new Promise((resolve) => {
-        const onRegistered = () => {
-            cleanup();
-            resolve(device);
-        };
-        const timer = setTimeout(() => {
-            cleanup();
-            resolve(device.state === 'registered' ? device : null);
-        }, Math.max(0, timeoutMs - (Date.now() - started)));
-        const cleanup = () => {
-            clearTimeout(timer);
-            device.off?.('registered', onRegistered);
-        };
-        device.once?.('registered', onRegistered);
-        if (device.state === 'registered') {
-            cleanup();
-            resolve(device);
-        }
-    });
+    return device || window.globalTwilioDevice || globalTwilioDevice || null;
 };
 
 function setupGlobalTwilioDevice(token, DeviceClass) {

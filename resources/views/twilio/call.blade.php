@@ -1170,15 +1170,40 @@
     let activeConnection = null;
     let useBrowserCalling = false; // Toggle between API calls and browser calls
 
+    function waitForValue(getter, timeoutMs = 20000) {
+        const existing = getter();
+        if (existing) {
+            return Promise.resolve(existing);
+        }
+
+        return new Promise((resolve) => {
+            const started = Date.now();
+            const timer = setInterval(() => {
+                const value = getter();
+                if (value || Date.now() - started >= timeoutMs) {
+                    clearInterval(timer);
+                    resolve(value || null);
+                }
+            }, 50);
+        });
+    }
+
     // Initialize Twilio Device for browser-based calling using Voice SDK 2.x
     async function initializeTwilioDevice() {
         try {
+            await waitForValue(
+                () => typeof window.whenGlobalTwilioDeviceReady === 'function' || window.globalTwilioDevice,
+                20000
+            );
+
             const device = typeof window.whenGlobalTwilioDeviceReady === 'function'
-                ? await window.whenGlobalTwilioDeviceReady(20000)
+                ? await window.whenGlobalTwilioDeviceReady()
                 : (window.globalTwilioDevice || null);
 
             if (!device) {
-                addLogEntry('Browser calling is not configured (App SID / API Key missing). Outbound will ring the phone, then connect back to this page — add App SID, API Key, and API Secret under Integrations for in-browser audio.', 'info', 'check-icon');
+                const detail = window.__twilioDeviceInitError
+                    || 'Browser calling is not ready yet. Refresh the page and try again.';
+                addLogEntry(detail, 'info', 'check-icon');
                 useBrowserCalling = false;
                 return;
             }
