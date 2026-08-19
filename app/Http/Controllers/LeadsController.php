@@ -62,6 +62,15 @@ class LeadsController extends Controller
             $query->where('status', $request->get('status'));
         }
 
+        $source = trim((string) $request->get('source', ''));
+        if ($source === '__none__') {
+            $query->where(function ($q) {
+                $q->whereNull('source')->orWhere('source', '');
+            });
+        } elseif ($source !== '') {
+            $query->where('source', $source);
+        }
+
         $labelIds = $request->input('label_ids', $request->input('label_id'));
         if (! is_array($labelIds)) {
             $labelIds = $labelIds !== null && $labelIds !== ''
@@ -79,6 +88,15 @@ class LeadsController extends Controller
         return response()->json([
             'success' => true,
             'data' => collect($leads->items())->map(fn (Lead $lead) => $this->serialize($lead))->all(),
+            'sources' => Lead::query()
+                ->where('company_id', $companyId)
+                ->whereNotNull('source')
+                ->where('source', '!=', '')
+                ->distinct()
+                ->orderBy('source')
+                ->pluck('source')
+                ->values()
+                ->all(),
             'pagination' => [
                 'current_page' => $leads->currentPage(),
                 'last_page' => $leads->lastPage(),
