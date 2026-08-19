@@ -200,21 +200,11 @@
             $headerQueueLabel = $headerQueueStatus === 'busy' ? 'On call' : ($headerQueueOn ? 'Available' : 'Offline');
             $headerQueueSnapshot = app(\App\Services\InboundCallQueueService::class)
                 ->queueSnapshot((int) $headerQueueUser->company_id);
-            $headerQueueCount = (int) ($headerQueueSnapshot['counts']['in_queue'] ?? 0);
-            $headerQueueMine = collect($headerQueueSnapshot['queue_order'] ?? [])
-                ->firstWhere('id', (int) $headerQueueUser->id);
-            $headerQueuePosition = $headerQueueMine['position'] ?? null;
-            $headerQueueIsNext = (bool) ($headerQueueMine['is_next'] ?? false);
-            if ($headerQueueStatus === 'busy') {
-                $headerQueueMeta = $headerQueueCount === 1
-                    ? '1 in queue · on call'
-                    : $headerQueueCount.' in queue · on call';
-            } elseif ($headerQueuePosition) {
-                $headerQueueMeta = $headerQueueIsNext
-                    ? $headerQueueCount.' in queue · Next ('.($headerQueueSnapshot['next_agent']['name'] ?? $headerQueueUser->name).')'
-                    : $headerQueueCount.' in queue · #'.$headerQueuePosition;
-            } elseif ($headerQueueCount > 0) {
-                $headerQueueMeta = $headerQueueCount === 1 ? '1 in queue' : $headerQueueCount.' in queue';
+            $headerQueueNext = $headerQueueSnapshot['next_agent'] ?? null;
+            if (! empty($headerQueueNext['name'])) {
+                $headerQueueMeta = 'Next(#1 '.$headerQueueNext['name'].')';
+            } elseif ($headerQueueStatus === 'busy') {
+                $headerQueueMeta = 'On call';
             } else {
                 $headerQueueMeta = 'Queue empty';
             }
@@ -229,7 +219,7 @@
                 <span class="agent-queue-toggle-ui"></span>
                 <span class="agent-queue-toggle-label" id="headerAgentAvailableLabel">{{ $headerQueueLabel }}</span>
             </button>
-            <span class="header-agent-queue-meta" id="headerAgentQueueMeta">{{ $headerQueueMeta }}</span>
+            <span class="header-agent-queue-meta" id="headerAgentQueueMeta" title="{{ $headerQueueMeta }}">{{ $headerQueueMeta }}</span>
         </div>
         <script>
             (function () {
@@ -257,27 +247,17 @@
 
                 const updateQueueMeta = function (payload) {
                     if (!metaEl || !payload) return;
-                    const counts = payload.counts || {};
-                    const inQueue = Number(counts.in_queue ?? 0);
                     const me = payload.me || {};
-                    const order = payload.queue_order || [];
-                    const mine = order.find(function (agent) { return Number(agent.id) === currentUserId; }) || null;
-                    const position = me.queue_position || (mine && mine.position) || null;
-                    const isNext = !!(me.is_next || (mine && mine.is_next));
-                    const nextName = (payload.next_agent && payload.next_agent.name)
-                        || (mine && mine.name)
-                        || '';
+                    const next = payload.next_agent || null;
+                    const nextName = String((next && next.name) || '').trim();
                     let text = 'Queue empty';
-                    if (me.status === 'busy') {
-                        text = inQueue + ' in queue · on call';
-                    } else if (isNext && nextName) {
-                        text = inQueue + ' in queue · Next (' + nextName + ')';
-                    } else if (position) {
-                        text = inQueue + ' in queue · #' + position;
-                    } else if (inQueue > 0) {
-                        text = inQueue === 1 ? '1 in queue' : inQueue + ' in queue';
+                    if (nextName) {
+                        text = 'Next(#1 ' + nextName + ')';
+                    } else if (me.status === 'busy') {
+                        text = 'On call';
                     }
                     metaEl.textContent = text;
+                    metaEl.setAttribute('title', text);
                 };
                 window.updateHeaderQueueMeta = updateQueueMeta;
 

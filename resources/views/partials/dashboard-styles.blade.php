@@ -406,6 +406,9 @@
         white-space: nowrap;
         line-height: 1.2;
         margin-left: 0.15rem;
+        max-width: 22rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .header-agent-queue-toggle[aria-checked="true"] ~ .header-agent-queue-meta {
