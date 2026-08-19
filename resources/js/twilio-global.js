@@ -422,6 +422,14 @@ async function initializeGlobalTwilioDevice() {
     if (globalTwilioDevice) {
         return globalTwilioDevice;
     }
+    if (typeof window.ensureLnscrmTwilioDevice === 'function') {
+        const device = await window.ensureLnscrmTwilioDevice();
+        if (device) {
+            globalTwilioDevice = device;
+            window.globalTwilioDevice = device;
+            return globalTwilioDevice;
+        }
+    }
     if (window.globalTwilioDevice) {
         globalTwilioDevice = window.globalTwilioDevice;
         return globalTwilioDevice;

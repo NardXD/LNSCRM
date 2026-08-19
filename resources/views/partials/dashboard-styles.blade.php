@@ -479,7 +479,24 @@
         }
     }
 
-    /* Inbound Call Notification */
+    /* Inbound Call Notification — fixed overlay so it is visible on every CRM page */
+    .inbound-call-banner-layer {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        z-index: 10050;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.75rem;
+        pointer-events: none;
+    }
+
+    .inbound-call-notification,
+    .ongoing-call-notification {
+        pointer-events: auto;
+    }
+
     .inbound-call-notification {
         background: linear-gradient(135deg, #5f61e6 0%, #4f51d6 100%);
         border-radius: 12px;
@@ -1267,9 +1284,18 @@
             display: none;
         }
 
-        .inbound-call-notification {
-            min-width: 280px;
-            max-width: calc(100vw - 2rem);
+        .inbound-call-banner-layer {
+            top: 8px;
+            right: 8px;
+            left: 8px;
+            align-items: stretch;
+        }
+
+        .inbound-call-notification,
+        .ongoing-call-notification {
+            min-width: 0;
+            max-width: none;
+            width: 100%;
             padding: 0.75rem 1rem;
         }
 

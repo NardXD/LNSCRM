@@ -1218,7 +1218,8 @@
 
     function setupTwilioDevice(token, DeviceClass) {
         try {
-            if (window.globalTwilioDevice && adoptTwilioDevice(window.globalTwilioDevice)) {
+            if (window.globalTwilioDevice) {
+                adoptTwilioDevice(window.globalTwilioDevice);
                 return;
             }
 
@@ -1263,7 +1264,16 @@
 
     async function initializeTwilioDevice() {
         try {
-            if (window.globalTwilioDevice && adoptTwilioDevice(window.globalTwilioDevice)) {
+            if (typeof window.ensureLnscrmTwilioDevice === 'function') {
+                const device = await window.ensureLnscrmTwilioDevice();
+                if (device) {
+                    adoptTwilioDevice(device);
+                    return;
+                }
+            }
+
+            if (window.globalTwilioDevice) {
+                adoptTwilioDevice(window.globalTwilioDevice);
                 return;
             }
 
@@ -1295,7 +1305,8 @@
                 return;
             }
 
-            if (window.globalTwilioDevice && adoptTwilioDevice(window.globalTwilioDevice)) {
+            if (window.globalTwilioDevice) {
+                adoptTwilioDevice(window.globalTwilioDevice);
                 return;
             }
 

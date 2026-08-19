@@ -99,6 +99,9 @@ class PhoneSystemController extends Controller
                 'status' => $presence->status,
                 'last_heartbeat_at' => $presence->last_heartbeat_at?->toIso8601String(),
                 'current_call_sid' => $presence->current_call_sid,
+                'current_from_number' => $presence->current_call_sid
+                    ? PhoneCallLog::query()->where('call_sid', $presence->current_call_sid)->value('from_number')
+                    : null,
                 'queue_position' => isset($myQueue['position']) ? (int) $myQueue['position'] : null,
                 'is_next' => (bool) ($myQueue['is_next'] ?? false),
             ],

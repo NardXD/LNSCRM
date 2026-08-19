@@ -93,12 +93,19 @@
         </div>
     </div>
 
+    @if(auth()->user()?->hasPermission('view_phone_system'))
+        @include('partials.inbound-call-banner')
+    @endif
+
     @include('partials.dashboard-scripts')
     @include('partials.realtime-scripts')
 
     {{-- Classic script so browser calling works even if the Vite module is slow or missing on production. --}}
     <script src="{{ asset('vendor/twilio-voice.min.js') }}" defer></script>
-    
+    @if(auth()->user()?->hasPermission('view_phone_system'))
+        @include('partials.inbound-call-listener')
+    @endif
+
     @vite(['resources/js/app.js'])
     
     <!-- FALLBACK: Direct script to verify execution -->
