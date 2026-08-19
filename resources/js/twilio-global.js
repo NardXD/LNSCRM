@@ -894,22 +894,38 @@ function updateCallDuration() {
 
 // Hangup ongoing call
 window.hangupOngoingCall = function() {
+    if (typeof window.endEntireCall === 'function') {
+        window.endEntireCall();
+        return;
+    }
+
     const activeCall = globalActiveCall || (typeof window !== 'undefined' ? window.globalActiveCall : null);
-    
+    const sid = (typeof window.__lnscrmReadCallBanner === 'function' && window.__lnscrmReadCallBanner()?.callSid)
+        || activeCall?.parameters?.parent_call_sid
+        || activeCall?.parameters?.ParentCallSid
+        || activeCall?.parameters?.CallSid
+        || null;
+
+    if (sid) {
+        fetch('/twilio/hangup', {
+            method: 'POST',
+            headers: csrfHeaders(),
+            credentials: 'same-origin',
+            keepalive: true,
+            body: JSON.stringify({ call_sid: sid }),
+        }).catch(() => {});
+    }
+
     if (!activeCall) {
-        console.error('No active call to hangup');
+        hideOngoingCallNotification();
         window.isCallAnswered = false;
         return;
     }
-    
+
     try {
         if (typeof activeCall.disconnect === 'function') {
             activeCall.disconnect();
-            console.log('Call hung up');
-        } else {
-            console.warn('Call object does not have disconnect method');
         }
-        
         hideOngoingCallNotification();
         window.isCallAnswered = false;
         globalActiveCall = null;

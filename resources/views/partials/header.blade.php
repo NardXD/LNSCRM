@@ -116,27 +116,18 @@
             // Hangup ongoing call function
             if (typeof window.hangupOngoingCall === 'undefined') {
                 window.hangupOngoingCall = function() {
-                    const call = window.globalActiveCall || window.__twilioActiveCall;
-                    if (!call) {
-                        console.error('No active call to hangup');
+                    if (typeof window.endEntireCall === 'function') {
+                        window.endEntireCall();
                         return;
                     }
-                    try {
-                        if (call.disconnect) {
-                            call.disconnect();
-                        }
-                        const notification = document.getElementById('ongoingCallNotification');
-                        if (notification) notification.style.display = 'none';
-                        window.globalActiveCall = null;
-                        window.__twilioActiveCall = null;
-                        console.log('Call hung up');
-                    } catch (error) {
-                        console.error('Error hanging up call:', error);
-                        const notification = document.getElementById('ongoingCallNotification');
-                        if (notification) notification.style.display = 'none';
-                        window.globalActiveCall = null;
-                        window.__twilioActiveCall = null;
+                    const call = window.globalActiveCall || window.__twilioActiveCall;
+                    if (call && call.disconnect) {
+                        call.disconnect();
                     }
+                    const notification = document.getElementById('ongoingCallNotification');
+                    if (notification) notification.style.display = 'none';
+                    window.globalActiveCall = null;
+                    window.__twilioActiveCall = null;
                 };
             }
         </script>

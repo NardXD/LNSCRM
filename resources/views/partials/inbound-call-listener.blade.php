@@ -3,6 +3,7 @@
 (function () {
     var hangupUrl = @json(route('twilio.hangup'));
     var presenceUrl = @json(route('twilio.agent-presence'));
+    var endedUrl = @json(route('twilio.agent-ended-call'));
 
     function csrfHeaders() {
         return {
@@ -28,23 +29,27 @@
         }
     }
 
-    function persistRinging(from, callSid) {
+    function persistRinging(from, callSid, extra) {
         var current = readBanner() || {};
+        extra = extra || {};
         writeBanner({
             status: 'ringing',
             from: from || current.from || 'Unknown',
             callSid: callSid || current.callSid || null,
+            connectToken: extra.connectToken || current.connectToken || null,
             startedAt: null,
         });
         applyBanner(readBanner());
     }
 
-    function persistAnswered(from, callSid) {
+    function persistAnswered(from, callSid, extra) {
         var current = readBanner() || {};
+        extra = extra || {};
         writeBanner({
             status: 'answered',
             from: from || current.from || 'Unknown',
             callSid: callSid || current.callSid || null,
+            connectToken: extra.connectToken || (typeof extra.connectToken === 'string' ? extra.connectToken : current.connectToken) || null,
             startedAt: current.status === 'answered' && current.startedAt ? current.startedAt : Date.now(),
         });
         applyBanner(readBanner());
@@ -86,11 +91,60 @@
             || 'Unknown';
     }
 
-    function callSidFromCall(call) {
-        return (call && call.parameters && call.parameters.CallSid)
-            || (call && call.parameters && call.parameters.CallSid)
-            || (call && call.sid)
-            || null;
+    function parentSidFromCall(call) {
+        if (call && call.customParameters && typeof call.customParameters.get === 'function') {
+            var custom = call.customParameters.get('parent_call_sid');
+            if (custom) return custom;
+        }
+        if (call && call.parameters) {
+            return call.parameters.parent_call_sid || call.parameters.ParentCallSid || call.parameters.CallSid || null;
+        }
+        return callSidFromCall(call);
+    }
+
+    function connectTokenFromCall(call) {
+        try {
+            return (call && call.connectToken) || null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function markAgentEnded(callSid) {
+        if (!callSid) return;
+        fetch(endedUrl, {
+            method: 'POST',
+            headers: csrfHeaders(),
+            credentials: 'same-origin',
+            keepalive: true,
+            body: JSON.stringify({ call_sid: callSid }),
+        }).catch(function () {});
+    }
+
+    function autoReconnectAnsweredCall(call) {
+        var from = callerFromCall(call);
+        var sid = parentSidFromCall(call);
+        window.globalActiveCall = call;
+        window.__twilioActiveCall = call;
+        window.isCallAnswered = true;
+        persistAnswered(from, sid, { connectToken: connectTokenFromCall(call) });
+        var accept = function () {
+            try {
+                call.accept();
+            } catch (e) {
+                console.error('Failed to re-answer call after refresh', e);
+            }
+        };
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+                stream.getTracks().forEach(function (track) { track.stop(); });
+                accept();
+            }).catch(function () {
+                accept();
+            });
+        } else {
+            accept();
+        }
     }
 
     function withinRestoreGrace() {
@@ -102,25 +156,27 @@
         call.__lnscrmBannerBound = true;
 
         var from = callerFromCall(call);
-        var sid = callSidFromCall(call);
+        var sid = parentSidFromCall(call);
+        var token = connectTokenFromCall(call);
         var liveStatus = typeof call.status === 'function' ? String(call.status()) : '';
-        if (liveStatus === 'open' || liveStatus === 'connecting') {
-            persistAnswered(from, sid);
+        var restored = readBanner();
+        if (liveStatus === 'open' || liveStatus === 'connecting' || (restored && restored.status === 'answered')) {
+            persistAnswered(from, sid, { connectToken: token });
         } else {
-            persistRinging(from, sid);
+            persistRinging(from, sid, { connectToken: token });
         }
 
         if (typeof call.accept === 'function') {
             var origAccept = call.accept.bind(call);
             call.accept = function () {
-                persistAnswered(from, callSidFromCall(call) || sid);
+                persistAnswered(from, parentSidFromCall(call) || sid, { connectToken: connectTokenFromCall(call) || token });
                 return origAccept.apply(this, arguments);
             };
         }
 
         if (typeof call.on === 'function') {
             call.on('accept', function () {
-                persistAnswered(from, callSidFromCall(call) || sid);
+                persistAnswered(from, parentSidFromCall(call) || sid, { connectToken: connectTokenFromCall(call) || token });
             });
             call.on('cancel', function () {
                 if (window.isCallAnswered || (readBanner() && readBanner().status === 'answered')) {
@@ -155,9 +211,44 @@
             method: 'POST',
             headers: csrfHeaders(),
             credentials: 'same-origin',
+            keepalive: true,
             body: JSON.stringify({ call_sid: callSid }),
         }).catch(function () {});
     }
+
+    function resolveParentSid(call) {
+        var state = readBanner() || {};
+        return state.callSid || parentSidFromCall(call) || null;
+    }
+
+    function endEntireCall() {
+        var liveCall = window.globalActiveCall || window.__twilioActiveCall;
+        var sid = resolveParentSid(liveCall);
+        markAgentEnded(sid);
+        hangupViaApi(sid);
+        try {
+            if (liveCall && typeof liveCall.disconnect === 'function') {
+                liveCall.disconnect();
+            }
+        } catch (e) {}
+        try {
+            if (window.globalTwilioDevice && typeof window.globalTwilioDevice.disconnectAll === 'function') {
+                window.globalTwilioDevice.disconnectAll();
+            }
+        } catch (e) {}
+        window.globalActiveCall = null;
+        window.__twilioActiveCall = null;
+        window.isCallAnswered = false;
+        clearBanner();
+    }
+
+    window.hangupOngoingCall = endEntireCall;
+    window.endEntireCall = endEntireCall;
+    window.addEventListener('load', function () {
+        window.hangupOngoingCall = endEntireCall;
+    });
+    setTimeout(function () { window.hangupOngoingCall = endEntireCall; }, 500);
+    setTimeout(function () { window.hangupOngoingCall = endEntireCall; }, 2000);
 
     document.addEventListener('click', function (event) {
         var decline = event.target.closest('#declineCallBtn');
@@ -167,12 +258,9 @@
             return;
         }
         if (hangup) {
-            var state = readBanner();
-            var liveCall = window.globalActiveCall || window.__twilioActiveCall;
-            if ((!liveCall || typeof liveCall.disconnect !== 'function') && state && state.callSid) {
-                hangupViaApi(state.callSid);
-            }
-            clearBanner();
+            event.preventDefault();
+            event.stopPropagation();
+            endEntireCall();
         }
     }, true);
 
@@ -212,6 +300,28 @@
         };
     }
 
+    function tryReconnectWithConnectToken(device) {
+        var state = readBanner();
+        if (!device || !state || state.status !== 'answered' || !state.connectToken) {
+            return;
+        }
+        if (window.globalActiveCall) {
+            return;
+        }
+        if (typeof device.connect !== 'function') {
+            return;
+        }
+        device.connect({ connectToken: state.connectToken }).then(function (call) {
+            window.globalActiveCall = call;
+            window.__twilioActiveCall = call;
+            window.isCallAnswered = true;
+            attachCallPersistence(call);
+            persistAnswered(state.from, state.callSid, { connectToken: state.connectToken });
+        }).catch(function () {
+            // Incoming re-dial will auto-accept instead.
+        });
+    }
+
     function bindIncoming(device) {
         if (!device || window.__lnscrmIncomingBound) {
             return;
@@ -220,6 +330,12 @@
         device.on('incoming', function (call) {
             window.globalActiveCall = call;
             window.__twilioActiveCall = call;
+            var state = readBanner();
+            if (state && state.status === 'answered') {
+                autoReconnectAnsweredCall(call);
+                attachCallPersistence(call);
+                return;
+            }
             attachCallPersistence(call);
             if (typeof window.handleIncomingCall === 'function') {
                 window.handleIncomingCall(call);
@@ -288,6 +404,9 @@
                 window.dispatchEvent(new CustomEvent('lnscrm:twilio-device-ready', {
                     detail: { device: device },
                 }));
+                device.on('registered', function () {
+                    tryReconnectWithConnectToken(device);
+                });
                 device.register();
                 return device;
             } catch (error) {
@@ -302,12 +421,11 @@
 
     var restored = readBanner();
     if (restored) {
-        if (restored.status === 'answered') {
-            persistRinging(restored.from, restored.callSid);
-            restored = readBanner();
-        }
         window.__lnscrmBannerRestoreAt = Date.now();
         applyBanner(restored);
+        if (restored.status === 'answered') {
+            startDurationTimer();
+        }
     }
 
     fetch(presenceUrl, {
@@ -319,17 +437,26 @@
     }).then(function (payload) {
         var me = payload && payload.data && payload.data.me;
         if (!me) return;
+        var existing = readBanner();
+        if (existing && existing.status === 'answered') {
+            if (me.current_call_sid && !existing.callSid) {
+                persistAnswered(existing.from, me.current_call_sid);
+            }
+            return;
+        }
         if (me.status !== 'busy' || !me.current_call_sid) {
-            if (!window.globalActiveCall && !window.__twilioActiveCall) {
+            if (!window.globalActiveCall && !window.__twilioActiveCall && (!existing || existing.status !== 'answered')) {
                 setTimeout(function () {
                     if (!window.globalActiveCall && !window.__twilioActiveCall) {
-                        clearBanner();
+                        var latest = readBanner();
+                        if (!latest || latest.status !== 'answered') {
+                            clearBanner();
+                        }
                     }
                 }, 12000);
             }
             return;
         }
-        var existing = readBanner();
         persistRinging(
             me.current_from_number || (existing && existing.from) || 'Unknown',
             me.current_call_sid || (existing && existing.callSid) || null

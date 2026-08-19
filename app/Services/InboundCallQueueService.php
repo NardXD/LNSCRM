@@ -328,6 +328,7 @@ class InboundCallQueueService
             'current_user_id' => $userId,
             'attempted_user_ids' => $attempted,
             'client_retries' => max(0, $clientRetries),
+            'ended_by_agent' => false,
         ], now()->addHours(2));
 
         $log = PhoneCallLog::query()->firstOrNew(['call_sid' => $callSid]);
@@ -342,13 +343,27 @@ class InboundCallQueueService
     }
 
     /**
-     * @return array{company_id: int, current_user_id: int|null, attempted_user_ids: array<int>, client_retries: int}|null
+     * @return array{company_id: int, current_user_id: int|null, attempted_user_ids: array<int>, client_retries: int, ended_by_agent: bool}|null
      */
     public function getAssignment(string $callSid): ?array
     {
         $data = Cache::get($this->assignmentCacheKey($callSid));
 
         return is_array($data) ? $data : null;
+    }
+
+    public function markEndedByAgent(?string $callSid, ?User $user = null): void
+    {
+        $sids = array_values(array_filter(array_unique(array_map('strval', array_filter([
+            $callSid,
+            $user?->id ? $this->getOrCreatePresence($user)->current_call_sid : null,
+        ])))));
+
+        foreach ($sids as $sid) {
+            $data = $this->getAssignment($sid) ?? [];
+            $data['ended_by_agent'] = true;
+            Cache::put($this->assignmentCacheKey($sid), $data, now()->addHours(2));
+        }
     }
 
     public function forgetAssignment(string $callSid): void

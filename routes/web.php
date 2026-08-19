@@ -290,6 +290,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/call', [CallController::class, 'index'])->name('twilio.call');
         Route::get('/call-status', [CallController::class, 'callStatus'])->name('twilio.call-status');
         Route::post('/hangup', [CallController::class, 'hangup'])->name('twilio.hangup');
+        Route::post('/agent-ended-call', [CallController::class, 'markAgentEndedCall'])->name('twilio.agent-ended-call');
         Route::post('/send-digits', [CallController::class, 'sendDigits'])->name('twilio.send-digits');
         Route::get('/capability-token', [CallController::class, 'getCapabilityToken'])->name('twilio.capability-token');
 

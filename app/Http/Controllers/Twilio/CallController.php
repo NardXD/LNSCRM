@@ -431,32 +431,63 @@ class CallController extends Controller
         $twiml = '<?xml version="1.0" encoding="UTF-8"?>'."\n";
         $twiml .= '<Response>'."\n";
 
-        if (in_array($dialStatus, ['completed', 'answered'], true)) {
-            $queue->releaseFromCall($callSid);
-            $queue->forgetAssignment($callSid);
-            $twiml .= '</Response>';
-
-            return response($twiml, 200)->header('Content-Type', 'text/xml');
-        }
-
-        // Caller hung up while we were still ringing the agent.
-        if ($dialStatus === 'canceled') {
-            $queue->releaseFromCall($callSid);
-            $queue->forgetAssignment($callSid);
-            $twiml .= '</Response>';
-
-            return response($twiml, 200)->header('Content-Type', 'text/xml');
-        }
-
         $assignment = $callSid ? $queue->getAssignment($callSid) : null;
         $attempted = array_map('intval', $assignment['attempted_user_ids'] ?? []);
         $companyId = (int) ($assignment['company_id'] ?? 0);
         $currentUserId = (int) ($assignment['current_user_id'] ?? 0);
         $clientRetries = (int) ($assignment['client_retries'] ?? 0);
+        $endedByAgent = ! empty($assignment['ended_by_agent']);
 
         if ($companyId <= 0) {
             $company = $queue->resolveCompanyForInbound($accountSid, $called, $caller);
             $companyId = (int) ($company?->id ?? 0);
+        }
+
+        if ($endedByAgent || $dialStatus === 'canceled') {
+            $queue->releaseFromCall($callSid);
+            $queue->forgetAssignment($callSid);
+            $twiml .= '</Response>';
+
+            return response($twiml, 200)->header('Content-Type', 'text/xml');
+        }
+
+        if (in_array($dialStatus, ['completed', 'answered'], true)) {
+            if (
+                $companyId > 0
+                && $callSid !== ''
+                && $currentUserId > 0
+                && $clientRetries < 4
+            ) {
+                $sameAgent = User::query()->find($currentUserId);
+                if ($sameAgent) {
+                    $queue->markBusy($sameAgent, $callSid);
+                    $queue->rememberAssignment(
+                        $callSid,
+                        $companyId,
+                        (int) $sameAgent->id,
+                        $attempted,
+                        $clientRetries + 1
+                    );
+                    $twiml .= $this->dialClientTwiml($sameAgent, $dialRecordAttrs, 20, $callSid);
+                    $twiml .= '</Response>';
+
+                    Log::info('Reconnecting queued agent after answered-call disconnect', [
+                        'call_sid' => $callSid,
+                        'user_id' => $sameAgent->id,
+                        'dial_status' => $dialStatus,
+                        'dial_duration' => $dialDuration,
+                        'client_retries' => $clientRetries + 1,
+                    ]);
+
+                    return response($twiml, 200)->header('Content-Type', 'text/xml');
+                }
+            }
+
+            $queue->releaseFromCall($callSid);
+            $queue->forgetAssignment($callSid);
+            $twiml .= '</Response>';
+
+            return response($twiml, 200)->header('Content-Type', 'text/xml');
         }
 
         // Page refresh unregisters the browser Device and Twilio reports busy/failed (or a very short no-answer).
@@ -477,7 +508,7 @@ class CallController extends Controller
                     $attempted,
                     $clientRetries + 1
                 );
-                $twiml .= $this->dialClientTwiml($sameAgent, $dialRecordAttrs, 20);
+                $twiml .= $this->dialClientTwiml($sameAgent, $dialRecordAttrs, 20, $callSid);
                 $twiml .= '</Response>';
 
                 Log::info('Retrying same queued agent after client disconnect', [
@@ -499,7 +530,7 @@ class CallController extends Controller
             if ($next) {
                 $queue->markBusy($next, $callSid);
                 $queue->rememberAssignment($callSid, $companyId, (int) $next->id, $attempted);
-                $twiml .= $this->dialClientTwiml($next, $dialRecordAttrs);
+                $twiml .= $this->dialClientTwiml($next, $dialRecordAttrs, 30, $callSid);
 
                 $twiml .= '</Response>';
 
@@ -552,7 +583,7 @@ class CallController extends Controller
             }
 
             $xml = '    <Say voice="alice">This call may be recorded.</Say>'."\n";
-            $xml .= $this->dialClientTwiml($agent, $dialRecordAttrs);
+            $xml .= $this->dialClientTwiml($agent, $dialRecordAttrs, 30, $callSid);
 
             return $xml;
         } catch (\Throwable $e) {
@@ -579,18 +610,26 @@ class CallController extends Controller
         return $dialStatus === 'no-answer' && $dialDuration < 8;
     }
 
-    protected function dialClientTwiml(User $user, string $dialRecordAttrs, int $timeout = 30): string
+    protected function dialClientTwiml(User $user, string $dialRecordAttrs, int $timeout = 30, string $parentCallSid = ''): string
     {
         $timeout = max(10, min(60, $timeout));
         $action = htmlspecialchars(route('twilio.dial-action'), ENT_XML1);
+        $identity = htmlspecialchars((string) $user->id, ENT_XML1);
+        $parent = htmlspecialchars($parentCallSid, ENT_XML1);
         $xml = '    <Dial timeout="'.$timeout.'" answerOnMedia="true" '.$dialRecordAttrs.' action="'.$action.'">'."\n";
-        $xml .= '        <Client>'.htmlspecialchars((string) $user->id, ENT_XML1).'</Client>'."\n";
+        $xml .= '        <Client>'."\n";
+        $xml .= '            <Identity>'.$identity.'</Identity>'."\n";
+        if ($parent !== '') {
+            $xml .= '            <Parameter name="parent_call_sid" value="'.$parent.'"/>'."\n";
+        }
+        $xml .= '        </Client>'."\n";
         $xml .= '    </Dial>'."\n";
 
         Log::info('Dialing queued client', [
             'user_id' => $user->id,
             'user_email' => $user->email,
             'timeout' => $timeout,
+            'parent_call_sid' => $parentCallSid,
         ]);
 
         return $xml;
@@ -755,7 +794,15 @@ class CallController extends Controller
         return response('OK', 200);
     }
 
-    public function hangup(Request $request)
+    public function markAgentEndedCall(Request $request, InboundCallQueueService $queue)
+    {
+        $callSid = (string) ($request->input('call_sid') ?? '');
+        $queue->markEndedByAgent($callSid, Auth::user());
+
+        return response()->json(['success' => true]);
+    }
+
+    public function hangup(Request $request, InboundCallQueueService $queue)
     {
         $callSid = $request->input('call_sid');
 
@@ -765,6 +812,8 @@ class CallController extends Controller
                 'message' => 'Call SID is required',
             ], 400);
         }
+
+        $queue->markEndedByAgent($callSid, Auth::user());
 
         try {
             Log::info('Hanging up call', [
@@ -843,20 +892,41 @@ class CallController extends Controller
                 ], 500);
             }
 
-            // Initialize TwilioService and terminate the call
+            // Initialize TwilioService and terminate the parent and child legs.
             $twilio = new TwilioService($twilioSid, $twilioToken);
-            $call = $twilio->getTwilioClient()->calls($callSid)->update(['status' => 'completed']);
+            $client = $twilio->getTwilioClient();
+            $presenceSid = Auth::user()
+                ? $queue->getOrCreatePresence(Auth::user())->current_call_sid
+                : null;
+            $sids = array_values(array_unique(array_filter([$callSid, $presenceSid])));
+            $lastStatus = null;
 
-            Log::info('Call terminated successfully', [
-                'call_sid' => $callSid,
-                'status' => $call->status,
-            ]);
+            foreach ($sids as $sid) {
+                try {
+                    $ended = $client->calls($sid)->update(['status' => 'completed']);
+                    $lastStatus = $ended->status;
+                    Log::info('Call leg terminated', [
+                        'call_sid' => $sid,
+                        'status' => $ended->status,
+                    ]);
+                } catch (\Twilio\Exceptions\RestException $e) {
+                    Log::warning('Call leg already ended or not found during hangup', [
+                        'call_sid' => $sid,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            foreach ($sids as $sid) {
+                $queue->releaseFromCall($sid);
+                $queue->forgetAssignment($sid);
+            }
 
             return response()->json([
                 'success' => true,
                 'message' => 'Call ended successfully',
                 'call_sid' => $callSid,
-                'status' => $call->status,
+                'status' => $lastStatus ?? 'completed',
             ]);
         } catch (\Twilio\Exceptions\RestException $e) {
             Log::error('Twilio REST API error during hangup', [
