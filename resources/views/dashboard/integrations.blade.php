@@ -1433,6 +1433,7 @@
                             <option value="30">Last 30 days</option>
                             <option value="90" selected>Last 90 days</option>
                             <option value="365">Last 12 months</option>
+                            <option value="0">All available in Twilio</option>
                         </select>
                         <button type="button" class="btn-secondary" id="facebook-sync-btn" onclick="syncFacebookHistory(event)">Sync from Twilio</button>
                     </div>
@@ -2328,7 +2329,7 @@
                     'Accept': 'application/json',
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
                 },
-                body: JSON.stringify({ days: Number(days), limit: 500 })
+                body: JSON.stringify({ days: Number(days), limit: 2000 })
             });
             const data = await response.json();
             if (!response.ok) {
@@ -2338,11 +2339,12 @@
             const imported = Number(result.imported || 0);
             const skipped = Number(result.skipped || 0);
             const scanned = Number(result.scanned || 0);
+            const rangeLabel = Number(result.days || days) === 0 ? 'all available Twilio history' : `the last ${result.days || days} days`;
             const summary = imported
-                ? `Imported ${imported} message${imported === 1 ? '' : 's'} from the last ${result.days || days} days${skipped ? ` (${skipped} already in CRM)` : ''}.`
+                ? `Imported ${imported} message${imported === 1 ? '' : 's'} from ${rangeLabel}${skipped ? ` (${skipped} already in CRM)` : ''}.`
                 : (scanned
-                    ? `No new messages. Twilio returned ${scanned} in this range; they are already in the CRM.`
-                    : `Twilio has no Messenger messages in the last ${result.days || days} days.`);
+                    ? `No new messages. Found ${scanned} in Twilio for ${rangeLabel}; they are already in the CRM.`
+                    : `Twilio has no Messenger messages in ${rangeLabel}. Only chats that already passed through this Twilio account can be imported.`);
             if (help) help.textContent = summary;
             alert(summary);
         } catch (error) {

@@ -36,6 +36,7 @@
                     <option value="30">Last 30 days</option>
                     <option value="90" selected>Last 90 days</option>
                     <option value="365">Last 12 months</option>
+                    <option value="0">All available in Twilio</option>
                 </select>
                 <button type="button" class="fb-sync-btn" id="fbSyncBtn">Sync old messages</button>
             </div>
@@ -426,17 +427,22 @@
         try {
             const data = await api('/sync', {
                 method: 'POST',
-                body: JSON.stringify({ days: Number(days), limit: 500 }),
+                body: JSON.stringify({ days: Number(days), limit: 2000 }),
             });
             const result = data.data || {};
             const imported = Number(result.imported || 0);
             const skipped = Number(result.skipped || 0);
             const scanned = Number(result.scanned || 0);
+            const rangeLabel = Number(result.days || days) === 0 ? 'all available Twilio history' : `the last ${result.days || days} days`;
+            const sources = result.sources || {};
+            const sourceHint = (sources.messages || sources.conversations)
+                ? ` Twilio Messages: ${sources.messages || 0}, Conversations: ${sources.conversations || 0}.`
+                : '';
             const summary = imported
-                ? `Imported ${imported} message${imported === 1 ? '' : 's'} from the last ${result.days || days} days${skipped ? ` (${skipped} already in CRM)` : ''}.`
+                ? `Imported ${imported} message${imported === 1 ? '' : 's'} from ${rangeLabel}${skipped ? ` (${skipped} already in CRM)` : ''}.${sourceHint}`
                 : (scanned
-                    ? `No new messages. Twilio returned ${scanned} in this range; they are already in the CRM.`
-                    : `Twilio has no Messenger messages in the last ${result.days || days} days. Only messages that already passed through this Twilio account can be imported.`);
+                    ? `No new messages. Found ${scanned} in Twilio for ${rangeLabel}; they are already in the CRM.${sourceHint}`
+                    : `Twilio has no Messenger messages in ${rangeLabel}. Only chats that already passed through this Twilio account (Messages log or Conversations/Flex) can be imported — older Facebook-only history cannot.`);
             if (els.syncStatus) els.syncStatus.textContent = summary;
             await loadConversations();
         } catch (e) {

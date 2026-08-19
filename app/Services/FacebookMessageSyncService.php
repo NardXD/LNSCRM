@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Twilio\Rest\Api\V2010\Account\MessageInstance;
+use Twilio\Rest\Client;
 
 class FacebookMessageSyncService
 {
@@ -20,11 +21,11 @@ class FacebookMessageSyncService
     /**
      * Import historical Twilio Messenger / Instagram messages into the CRM inbox.
      *
-     * @return array{scanned: int, imported: int, skipped: int, conversations: int, days: int}
+     * @return array{scanned: int, imported: int, skipped: int, conversations: int, days: int, sources: array{messages: int, conversations: int}}
      */
-    public function sync(FacebookIntegration $integration, TwilioService $twilio, int $days = 90, int $limit = 500): array
+    public function sync(FacebookIntegration $integration, TwilioService $twilio, int $days = 90, int $limit = 2000): array
     {
-        $after = Carbon::now()->subDays(max(1, $days))->startOfDay();
+        $after = $days > 0 ? Carbon::now()->subDays($days)->startOfDay() : null;
         $addresses = array_values(array_unique(array_filter([
             $twilio->messengerAddress((string) $integration->page_id, 'messenger'),
             $integration->instagram_business_account_id
@@ -39,45 +40,57 @@ class FacebookMessageSyncService
             }
         }
 
-        $scanned = count($bySid);
         $imported = 0;
         $skipped = 0;
         $touchedConversationIds = [];
-
-        $existingMids = [];
-        $sids = array_keys($bySid);
-        if ($sids !== []) {
-            $existingMids = FacebookMessage::query()
-                ->where('company_id', $integration->company_id)
-                ->whereIn('mid', $sids)
-                ->pluck('mid')
-                ->all();
-        }
-        $existingLookup = array_fill_keys($existingMids, true);
+        $existingLookup = $this->existingMids($integration, array_keys($bySid));
 
         foreach ($bySid as $message) {
-            if (isset($existingLookup[$message->sid])) {
-                $skipped++;
-
-                continue;
+            $result = $this->importIfNew($existingLookup, $message->sid, function () use ($integration, $twilio, $message) {
+                return $this->ingestProgrammableMessage($integration, $twilio, $message);
+            });
+            $imported += $result['imported'];
+            $skipped += $result['skipped'];
+            if ($result['conversation']) {
+                $touchedConversationIds[$result['conversation']->id] = $result['conversation'];
             }
+        }
 
-            try {
-                $conversation = $this->ingest($integration, $twilio, $message);
-                if ($conversation) {
-                    $imported++;
-                    $touchedConversationIds[$conversation->id] = $conversation;
-                    $existingLookup[$message->sid] = true;
-                } else {
-                    $skipped++;
+        $conversationImported = 0;
+        try {
+            $conversationRows = $this->collectConversationMessages($twilio, $integration, $after, $limit);
+            $conversationImported = count($conversationRows);
+            $existingLookup = $this->existingMids(
+                $integration,
+                array_merge(array_keys($existingLookup), array_column($conversationRows, 'mid'))
+            );
+
+            foreach ($conversationRows as $row) {
+                $result = $this->importIfNew($existingLookup, $row['mid'], function () use ($integration, $row) {
+                    return $this->storeRecord(
+                        $integration,
+                        $row['channel'],
+                        $row['peer_id'],
+                        $row['name'],
+                        $row['direction'],
+                        $row['mid'],
+                        $row['text'],
+                        $row['type'],
+                        $row['media_url'],
+                        $row['mime_type'],
+                        $row['status'],
+                        $row['sent_at'],
+                        $row['raw']
+                    );
+                });
+                $imported += $result['imported'];
+                $skipped += $result['skipped'];
+                if ($result['conversation']) {
+                    $touchedConversationIds[$result['conversation']->id] = $result['conversation'];
                 }
-            } catch (\Throwable $e) {
-                $skipped++;
-                Log::warning('Facebook history sync skipped a message', [
-                    'sid' => $message->sid,
-                    'error' => $e->getMessage(),
-                ]);
             }
+        } catch (\Throwable $e) {
+            Log::warning('Facebook Conversations history sync failed', ['error' => $e->getMessage()]);
         }
 
         foreach ($touchedConversationIds as $conversation) {
@@ -85,25 +98,85 @@ class FacebookMessageSyncService
         }
 
         return [
-            'scanned' => $scanned,
+            'scanned' => count($bySid) + $conversationImported,
             'imported' => $imported,
             'skipped' => $skipped,
             'conversations' => count($touchedConversationIds),
             'days' => $days,
+            'sources' => [
+                'messages' => count($bySid),
+                'conversations' => $conversationImported,
+            ],
         ];
     }
 
-    protected function ingest(
+    /**
+     * @param  array<string, true>  $existingLookup
+     * @return array{imported: int, skipped: int, conversation: ?FacebookConversation}
+     */
+    protected function importIfNew(array &$existingLookup, string $mid, callable $importer): array
+    {
+        if (isset($existingLookup[$mid])) {
+            return ['imported' => 0, 'skipped' => 1, 'conversation' => null];
+        }
+
+        try {
+            $conversation = $importer();
+            if ($conversation) {
+                $existingLookup[$mid] = true;
+
+                return ['imported' => 1, 'skipped' => 0, 'conversation' => $conversation];
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Facebook history sync skipped a message', [
+                'sid' => $mid,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return ['imported' => 0, 'skipped' => 1, 'conversation' => null];
+    }
+
+    /**
+     * @param  array<int, string>  $sids
+     * @return array<string, true>
+     */
+    protected function existingMids(FacebookIntegration $integration, array $sids): array
+    {
+        $sids = array_values(array_filter($sids));
+        if ($sids === []) {
+            return [];
+        }
+
+        $found = [];
+        foreach (array_chunk($sids, 500) as $chunk) {
+            $found = array_merge(
+                $found,
+                FacebookMessage::query()
+                    ->where('company_id', $integration->company_id)
+                    ->whereIn('mid', $chunk)
+                    ->pluck('mid')
+                    ->all()
+            );
+        }
+
+        return array_fill_keys($found, true);
+    }
+
+    protected function ingestProgrammableMessage(
         FacebookIntegration $integration,
         TwilioService $twilio,
         MessageInstance $message
     ): ?FacebookConversation {
         $from = TwilioService::parseMessengerAddress((string) $message->from);
         $to = TwilioService::parseMessengerAddress((string) $message->to);
-        $ownIds = array_filter([
-            (string) $integration->page_id,
-            (string) $integration->instagram_business_account_id,
-        ]);
+        $ownIds = $this->ownIds($integration);
+
+        $fromIsSocial = $this->isSocialPrefix((string) $message->from);
+        $toIsSocial = $this->isSocialPrefix((string) $message->to);
+        if (! $fromIsSocial && ! $toIsSocial) {
+            return null;
+        }
 
         $fromIsOwn = in_array($from['id'], $ownIds, true);
         $toIsOwn = in_array($to['id'], $ownIds, true);
@@ -126,17 +199,11 @@ class FacebookMessageSyncService
 
         $channel = in_array($peer['channel'], ['messenger', 'instagram'], true)
             ? $peer['channel']
-            : 'messenger';
-
-        $conversation = $this->upsertConversation($integration, $channel, $peer['id']);
-        $sentAt = $message->dateSent
-            ? Carbon::instance($message->dateSent)
-            : ($message->dateCreated ? Carbon::instance($message->dateCreated) : now());
+            : (($fromIsSocial ? $from['channel'] : $to['channel']) ?: 'messenger');
 
         $type = 'text';
         $mediaUrl = null;
         $mimeType = null;
-        $fileName = null;
         $text = is_string($message->body) ? $message->body : null;
         $numMedia = (int) ($message->numMedia ?? 0);
 
@@ -146,13 +213,7 @@ class FacebookMessageSyncService
                 if ($media) {
                     $mimeType = $media['content_type'];
                     $type = $this->guessMediaType($mimeType);
-                    $mediaUrl = $this->storeMedia(
-                        $integration,
-                        $twilio,
-                        $media['url'],
-                        $mimeType,
-                        (string) $message->sid
-                    );
+                    $mediaUrl = $this->storeMedia($integration, $twilio, $media['url'], $mimeType, (string) $message->sid);
                 }
             } catch (\Throwable $e) {
                 Log::warning('Facebook history media download failed', [
@@ -162,26 +223,247 @@ class FacebookMessageSyncService
             }
         }
 
-        $record = new FacebookMessage;
-        $record->fill([
-            'company_id' => $integration->company_id,
-            'facebook_conversation_id' => $conversation->id,
-            'direction' => $direction,
-            'mid' => (string) $message->sid,
-            'type' => $type,
-            'text' => $text,
-            'media_url' => $mediaUrl,
-            'mime_type' => $mimeType,
-            'file_name' => $fileName,
-            'status' => $message->status ?: ($direction === 'inbound' ? 'received' : 'sent'),
-            'raw_payload' => [
+        $sentAt = $message->dateSent
+            ? Carbon::instance($message->dateSent)
+            : ($message->dateCreated ? Carbon::instance($message->dateCreated) : now());
+
+        return $this->storeRecord(
+            $integration,
+            $channel,
+            $peer['id'],
+            null,
+            $direction,
+            (string) $message->sid,
+            $text,
+            $type,
+            $mediaUrl,
+            $mimeType,
+            $message->status ?: ($direction === 'inbound' ? 'received' : 'sent'),
+            $sentAt,
+            [
                 'sid' => $message->sid,
                 'from' => $message->from,
                 'to' => $message->to,
                 'status' => $message->status,
                 'direction' => $message->direction,
                 'synced' => true,
-            ],
+                'source' => 'messages',
+            ]
+        );
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    protected function collectConversationMessages(
+        TwilioService $twilio,
+        FacebookIntegration $integration,
+        ?Carbon $after,
+        int $limit
+    ): array {
+        $client = $twilio->getTwilioClient();
+        $ownIds = $this->ownIds($integration);
+        $rows = [];
+        $seenConversationSids = [];
+
+        $scopes = [null];
+        try {
+            foreach ($client->conversations->v1->services->stream([], 50, 20) as $service) {
+                $scopes[] = $service->sid;
+            }
+        } catch (\Throwable $e) {
+            Log::info('Twilio Conversation services list skipped', ['error' => $e->getMessage()]);
+        }
+
+        foreach ($scopes as $serviceSid) {
+            foreach ($this->conversationSidsForPage($client, $serviceSid, $integration, $limit) as $conversationSid) {
+                if (isset($seenConversationSids[$conversationSid])) {
+                    continue;
+                }
+                $seenConversationSids[$conversationSid] = true;
+
+                try {
+                    $context = $this->conversationContext($client, $serviceSid, $conversationSid);
+                    $participants = $context->participants->read([], 50);
+                    $thread = $this->messengerThreadFromParticipants($participants, $ownIds);
+                    if (! $thread) {
+                        continue;
+                    }
+
+                    $friendlyName = null;
+                    try {
+                        $conversation = $context->fetch();
+                        $friendlyName = $conversation->friendlyName ?: null;
+                    } catch (\Throwable) {
+                        // optional
+                    }
+
+                    foreach ($context->messages->stream(['order' => 'asc'], $limit, 100) as $message) {
+                        $sentAt = $message->dateCreated ? Carbon::instance($message->dateCreated) : now();
+                        if ($after && $sentAt->lt($after)) {
+                            continue;
+                        }
+
+                        $author = (string) ($message->author ?? '');
+                        $authorParsed = TwilioService::parseMessengerAddress($author);
+                        $authorIsPeer = $authorParsed['id'] === $thread['peer_id']
+                            || $author === $thread['peer_id']
+                            || (str_contains(strtolower($author), 'messenger:') && $authorParsed['id'] === $thread['peer_id']);
+
+                        $rows[] = [
+                            'mid' => (string) $message->sid,
+                            'channel' => $thread['channel'],
+                            'peer_id' => $thread['peer_id'],
+                            'name' => $friendlyName && ! str_starts_with((string) $friendlyName, 'CH') ? $friendlyName : null,
+                            'direction' => $authorIsPeer ? 'inbound' : 'outbound',
+                            'text' => is_string($message->body) ? $message->body : null,
+                            'type' => ! empty($message->media) ? $this->guessMediaType($message->media[0]['content_type'] ?? null) : 'text',
+                            'media_url' => null,
+                            'mime_type' => ! empty($message->media) ? ($message->media[0]['content_type'] ?? null) : null,
+                            'status' => 'received',
+                            'sent_at' => $sentAt,
+                            'raw' => [
+                                'sid' => $message->sid,
+                                'conversation_sid' => $conversationSid,
+                                'author' => $author,
+                                'synced' => true,
+                                'source' => 'conversations',
+                            ],
+                        ];
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('Facebook conversation history skipped', [
+                        'conversation_sid' => $conversationSid,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    protected function conversationSidsForPage(
+        Client $client,
+        ?string $serviceSid,
+        FacebookIntegration $integration,
+        int $limit
+    ): array {
+        $sids = [];
+        $addresses = array_values(array_unique(array_filter([
+            'messenger:'.$integration->page_id,
+            $integration->page_id,
+            $integration->instagram_business_account_id ? 'instagram:'.$integration->instagram_business_account_id : null,
+        ])));
+
+        $participantList = $serviceSid
+            ? $client->conversations->v1->services($serviceSid)->participantConversations
+            : $client->conversations->v1->participantConversations;
+
+        foreach ($addresses as $address) {
+            try {
+                foreach ($participantList->stream(['address' => $address], $limit, 50) as $row) {
+                    if ($row->conversationSid) {
+                        $sids[$row->conversationSid] = true;
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::info('Twilio ParticipantConversations lookup skipped', [
+                    'address' => $address,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        if ($sids !== []) {
+            return array_keys($sids);
+        }
+
+        $conversationList = $serviceSid
+            ? $client->conversations->v1->services($serviceSid)->conversations
+            : $client->conversations->v1->conversations;
+
+        try {
+            foreach ($conversationList->stream([], min($limit, 1500), 50) as $conversation) {
+                $sids[$conversation->sid] = true;
+            }
+        } catch (\Throwable $e) {
+            Log::info('Twilio Conversations list skipped', ['error' => $e->getMessage()]);
+        }
+
+        return array_keys($sids);
+    }
+
+    protected function conversationContext(Client $client, ?string $serviceSid, string $conversationSid)
+    {
+        if ($serviceSid) {
+            return $client->conversations->v1->services($serviceSid)->conversations($conversationSid);
+        }
+
+        return $client->conversations->v1->conversations($conversationSid);
+    }
+
+    /**
+     * @param  array<int, object>  $participants
+     * @param  array<int, string>  $ownIds
+     * @return array{channel: string, peer_id: string}|null
+     */
+    protected function messengerThreadFromParticipants(array $participants, array $ownIds): ?array
+    {
+        foreach ($participants as $participant) {
+            $binding = $participant->messagingBinding ?? [];
+            foreach (['address', 'proxy_address'] as $key) {
+                $value = (string) ($binding[$key] ?? '');
+                if (! $this->isSocialPrefix($value)) {
+                    continue;
+                }
+                $parsed = TwilioService::parseMessengerAddress($value);
+                if ($parsed['id'] === '' || in_array($parsed['id'], $ownIds, true)) {
+                    continue;
+                }
+
+                return [
+                    'channel' => in_array($parsed['channel'], ['messenger', 'instagram'], true) ? $parsed['channel'] : 'messenger',
+                    'peer_id' => $parsed['id'],
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    protected function storeRecord(
+        FacebookIntegration $integration,
+        string $channel,
+        string $peerId,
+        ?string $name,
+        string $direction,
+        string $mid,
+        ?string $text,
+        string $type,
+        ?string $mediaUrl,
+        ?string $mimeType,
+        ?string $status,
+        Carbon $sentAt,
+        array $raw
+    ): FacebookConversation {
+        $conversation = $this->upsertConversation($integration, $channel, $peerId, $name);
+
+        $record = new FacebookMessage;
+        $record->fill([
+            'company_id' => $integration->company_id,
+            'facebook_conversation_id' => $conversation->id,
+            'direction' => $direction,
+            'mid' => $mid,
+            'type' => $type,
+            'text' => $text,
+            'media_url' => $mediaUrl,
+            'mime_type' => $mimeType,
+            'status' => $status,
+            'raw_payload' => $raw,
             'sent_at' => $sentAt,
         ]);
         $record->created_at = $sentAt;
@@ -194,7 +476,8 @@ class FacebookMessageSyncService
     protected function upsertConversation(
         FacebookIntegration $integration,
         string $channel,
-        string $peerId
+        string $peerId,
+        ?string $name = null
     ): FacebookConversation {
         $conversation = FacebookConversation::firstOrNew([
             'company_id' => $integration->company_id,
@@ -202,8 +485,11 @@ class FacebookMessageSyncService
             'peer_id' => $peerId,
         ]);
 
-        if (! $conversation->name) {
-            $conversation->name = $channel === 'instagram' ? 'Instagram User' : 'Messenger User';
+        $placeholder = $channel === 'instagram' ? 'Instagram User' : 'Messenger User';
+        if ($name && $name !== $placeholder) {
+            $conversation->name = $name;
+        } elseif (! $conversation->name) {
+            $conversation->name = $placeholder;
         }
 
         $conversation->save();
@@ -216,6 +502,24 @@ class FacebookMessageSyncService
         );
 
         return $conversation;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    protected function ownIds(FacebookIntegration $integration): array
+    {
+        return array_values(array_filter([
+            (string) $integration->page_id,
+            (string) $integration->instagram_business_account_id,
+        ]));
+    }
+
+    protected function isSocialPrefix(string $address): bool
+    {
+        $lower = strtolower(trim($address));
+
+        return str_starts_with($lower, 'messenger:') || str_starts_with($lower, 'instagram:');
     }
 
     protected function storeMedia(

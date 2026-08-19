@@ -222,21 +222,21 @@ class FacebookController extends Controller
     public function syncHistory(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'days' => ['nullable', 'integer', 'in:30,90,365'],
-            'limit' => ['nullable', 'integer', 'min:50', 'max:2000'],
+            'days' => ['nullable', 'integer', 'in:30,90,365,0'],
+            'limit' => ['nullable', 'integer', 'min:50', 'max:5000'],
         ]);
 
         $integration = $this->requireActiveIntegration();
         $twilio = $this->twilioClientForCompany(Auth::user()->company);
 
-        @set_time_limit(180);
+        @set_time_limit(300);
 
         try {
             $result = $this->facebookSync->sync(
                 $integration,
                 $twilio,
                 (int) ($validated['days'] ?? 90),
-                (int) ($validated['limit'] ?? 500)
+                (int) ($validated['limit'] ?? 2000)
             );
         } catch (\Throwable $e) {
             Log::error('Facebook history sync failed', ['error' => $e->getMessage()]);

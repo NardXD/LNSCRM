@@ -331,7 +331,7 @@ class TwilioService
     /**
      * @return array<int, \Twilio\Rest\Api\V2010\Account\MessageInstance>
      */
-    public function listChannelMessages(string $address, ?\DateTimeInterface $after = null, int $limit = 500): array
+    public function listChannelMessages(string $address, ?\DateTimeInterface $after = null, int $limit = 2000): array
     {
         $params = [];
         if ($after) {
@@ -339,15 +339,47 @@ class TwilioService
         }
 
         $bySid = [];
-        foreach (['to', 'from'] as $field) {
-            $options = $params;
-            $options[$field] = $address;
-            foreach ($this->twilio->messages->stream($options, $limit, 100) as $message) {
+        $candidates = array_values(array_unique(array_filter([
+            $address,
+            self::stripChannelPrefix($address),
+        ])));
+
+        foreach ($candidates as $candidate) {
+            foreach (['to', 'from'] as $field) {
+                $options = $params;
+                $options[$field] = $candidate;
+                foreach ($this->twilio->messages->stream($options, $limit, 100) as $message) {
+                    $bySid[$message->sid] = $message;
+                }
+            }
+        }
+
+        foreach ($this->twilio->messages->stream($params, $limit, 100) as $message) {
+            if ($this->isSocialChannelMessage($message)) {
                 $bySid[$message->sid] = $message;
             }
         }
 
         return array_values($bySid);
+    }
+
+    public function isSocialChannelMessage(object $message, ?string $pageAddress = null): bool
+    {
+        $from = strtolower((string) ($message->from ?? ''));
+        $to = strtolower((string) ($message->to ?? ''));
+        $haystack = $from.' '.$to;
+
+        if (! str_contains($haystack, 'messenger:') && ! str_contains($haystack, 'instagram:')) {
+            return false;
+        }
+
+        if (! $pageAddress) {
+            return true;
+        }
+
+        $pageId = strtolower(self::stripChannelPrefix($pageAddress));
+
+        return $pageId === '' || str_contains($haystack, $pageId);
     }
 
     /**
