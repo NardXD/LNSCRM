@@ -211,7 +211,7 @@
                     : $headerQueueCount.' in queue · on call';
             } elseif ($headerQueuePosition) {
                 $headerQueueMeta = $headerQueueIsNext
-                    ? $headerQueueCount.' in queue · Next (#'.$headerQueuePosition.')'
+                    ? $headerQueueCount.' in queue · Next ('.($headerQueueSnapshot['next_agent']['name'] ?? $headerQueueUser->name).')'
                     : $headerQueueCount.' in queue · #'.$headerQueuePosition;
             } elseif ($headerQueueCount > 0) {
                 $headerQueueMeta = $headerQueueCount === 1 ? '1 in queue' : $headerQueueCount.' in queue';
@@ -264,13 +264,16 @@
                     const mine = order.find(function (agent) { return Number(agent.id) === currentUserId; }) || null;
                     const position = me.queue_position || (mine && mine.position) || null;
                     const isNext = !!(me.is_next || (mine && mine.is_next));
+                    const nextName = (payload.next_agent && payload.next_agent.name)
+                        || (mine && mine.name)
+                        || '';
                     let text = 'Queue empty';
-                    if (me.status === 'busy' || (inQueue > 0 && me.status === 'busy')) {
+                    if (me.status === 'busy') {
                         text = inQueue + ' in queue · on call';
+                    } else if (isNext && nextName) {
+                        text = inQueue + ' in queue · Next (' + nextName + ')';
                     } else if (position) {
-                        text = isNext
-                            ? inQueue + ' in queue · Next (#' + position + ')'
-                            : inQueue + ' in queue · #' + position;
+                        text = inQueue + ' in queue · #' + position;
                     } else if (inQueue > 0) {
                         text = inQueue === 1 ? '1 in queue' : inQueue + ' in queue';
                     }
