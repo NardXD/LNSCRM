@@ -13,6 +13,16 @@ use Illuminate\Support\Collection;
 
 class FlexCrmLookupService
 {
+    /**
+     * @var array<int, array{by_phone: array<string, array>, by_email: array<string, array>, by_name: array<string, array>}>
+     */
+    protected array $assignedLeadIndexCache = [];
+
+    /**
+     * @var array<int, array{by_phone: array<string, array>, by_email: array<string, array>, by_name: array<string, array>}>
+     */
+    protected array $leadIndexCache = [];
+
     public function __construct(
         protected TwilioCompanyService $twilioCompany
     ) {}
@@ -75,7 +85,7 @@ class FlexCrmLookupService
         $identities = LeadIdentity::query()
             ->where('type', LeadIdentity::TYPE_PHONE)
             ->whereHas('lead', fn ($q) => $q->where('company_id', $companyId))
-            ->with('lead.identities')
+            ->with(['lead.identities', 'lead.assignedUser:id,name', 'lead.labels'])
             ->get();
 
         $match = $identities->first(fn (LeadIdentity $identity) => $this->phonesMatch((string) $identity->value, $normalized, $digits)
@@ -95,7 +105,7 @@ class FlexCrmLookupService
             ->where('type', LeadIdentity::TYPE_EMAIL)
             ->where('normalized_value', $normalized)
             ->whereHas('lead', fn ($q) => $q->where('company_id', $companyId))
-            ->with('lead.identities')
+            ->with(['lead.identities', 'lead.assignedUser:id,name', 'lead.labels'])
             ->first()
             ?->lead;
     }
@@ -113,7 +123,7 @@ class FlexCrmLookupService
                 $q->where('name', 'like', '%'.$name.'%')
                     ->orWhere('company_name', 'like', '%'.$name.'%');
             })
-            ->with('identities')
+            ->with(['identities', 'assignedUser:id,name', 'labels'])
             ->first();
 
         if ($lead) {
@@ -125,7 +135,7 @@ class FlexCrmLookupService
         return LeadIdentity::query()
             ->whereIn('type', [LeadIdentity::TYPE_FACEBOOK, LeadIdentity::TYPE_INSTAGRAM])
             ->whereHas('lead', fn ($q) => $q->where('company_id', $companyId))
-            ->with('lead.identities')
+            ->with(['lead.identities', 'lead.assignedUser:id,name', 'lead.labels'])
             ->get()
             ->first(function (LeadIdentity $identity) use ($needle) {
                 $cand = strtolower(trim((string) $identity->value));
@@ -139,7 +149,7 @@ class FlexCrmLookupService
     {
         return Lead::query()
             ->where('company_id', $companyId)
-            ->with('identities')
+            ->with(['identities', 'assignedUser:id,name', 'labels'])
             ->find($leadId);
     }
 
@@ -148,7 +158,7 @@ class FlexCrmLookupService
      */
     public function serializeLead(Lead $lead): array
     {
-        $lead->loadMissing('identities');
+        $lead->loadMissing(['identities', 'assignedUser:id,name', 'labels']);
 
         return [
             'id' => $lead->id,
@@ -161,8 +171,161 @@ class FlexCrmLookupService
             'emails' => $lead->emailValues(),
             'facebook_name' => $lead->identities->firstWhere('type', LeadIdentity::TYPE_FACEBOOK)?->value,
             'instagram_username' => $lead->identities->firstWhere('type', LeadIdentity::TYPE_INSTAGRAM)?->value,
+            'assigned_to' => $lead->assigned_to ? (int) $lead->assigned_to : null,
+            'assigned_user' => $lead->assignedUser ? [
+                'id' => $lead->assignedUser->id,
+                'name' => $lead->assignedUser->name,
+            ] : null,
+            'labels' => $this->serializeLabels($lead),
             'crm_url' => url('/leads?lead='.$lead->id),
         ];
+    }
+
+    /**
+     * Compact payload for channel UIs. Null when the lead is not assigned.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function assignedLeadPayload(?Lead $lead): ?array
+    {
+        if (! $lead || ! $lead->assigned_to) {
+            return null;
+        }
+
+        return $this->leadPayload($lead);
+    }
+
+    /**
+     * Compact payload for channel UIs, including unassigned leads.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function leadPayload(?Lead $lead): ?array
+    {
+        if (! $lead) {
+            return null;
+        }
+
+        $serialized = $this->serializeLead($lead);
+
+        return [
+            'id' => $serialized['id'],
+            'name' => $serialized['name'],
+            'status' => $serialized['status'],
+            'crm_url' => $serialized['crm_url'],
+            'assigned_to' => $serialized['assigned_to'],
+            'assigned_user' => $serialized['assigned_user'],
+            'labels' => $serialized['labels'],
+        ];
+    }
+
+    public function forgetLeadIndexes(int $companyId): void
+    {
+        unset($this->assignedLeadIndexCache[$companyId], $this->leadIndexCache[$companyId]);
+    }
+
+    /**
+     * Index assigned leads for cheap matching on conversation lists.
+     *
+     * @return array{by_phone: array<string, array<string, mixed>>, by_email: array<string, array<string, mixed>>, by_name: array<string, array<string, mixed>>}
+     */
+    public function assignedLeadIndex(int $companyId): array
+    {
+        return $this->assignedLeadIndexCache[$companyId] ??= $this->buildLeadIndex($companyId, true);
+    }
+
+    /**
+     * Index all leads (assigned or not) for inbox matching.
+     *
+     * @return array{by_phone: array<string, array<string, mixed>>, by_email: array<string, array<string, mixed>>, by_name: array<string, array<string, mixed>>}
+     */
+    public function leadIndex(int $companyId): array
+    {
+        return $this->leadIndexCache[$companyId] ??= $this->buildLeadIndex($companyId, false);
+    }
+
+    /**
+     * @return array{by_phone: array<string, array<string, mixed>>, by_email: array<string, array<string, mixed>>, by_name: array<string, array<string, mixed>>}
+     */
+    protected function buildLeadIndex(int $companyId, bool $assignedOnly): array
+    {
+        $index = ['by_phone' => [], 'by_email' => [], 'by_name' => []];
+
+        $query = Lead::query()
+            ->where('company_id', $companyId)
+            ->with(['identities', 'assignedUser:id,name', 'labels']);
+
+        if ($assignedOnly) {
+            $query->whereNotNull('assigned_to');
+        }
+
+        foreach ($query->get() as $lead) {
+            $payload = $assignedOnly ? $this->assignedLeadPayload($lead) : $this->leadPayload($lead);
+            if (! $payload) {
+                continue;
+            }
+
+            foreach ($lead->identities as $identity) {
+                if ($identity->type === LeadIdentity::TYPE_PHONE) {
+                    foreach ($this->phoneIndexKeys((string) ($identity->normalized_value ?: $identity->value)) as $key) {
+                        $index['by_phone'][$key] = $payload;
+                    }
+                } elseif ($identity->type === LeadIdentity::TYPE_EMAIL) {
+                    $email = strtolower(trim((string) ($identity->normalized_value ?: $identity->value)));
+                    if ($email !== '') {
+                        $index['by_email'][$email] = $payload;
+                    }
+                } elseif (in_array($identity->type, [LeadIdentity::TYPE_FACEBOOK, LeadIdentity::TYPE_INSTAGRAM], true)) {
+                    $label = $this->nameIndexKey((string) $identity->value);
+                    if ($label !== null) {
+                        $index['by_name'][$label] = $payload;
+                    }
+                }
+            }
+
+            $leadName = $this->nameIndexKey((string) $lead->name);
+            if ($leadName !== null) {
+                $index['by_name'][$leadName] = $payload;
+            }
+        }
+
+        return $index;
+    }
+
+    /**
+     * @param  array{by_phone: array<string, array>, by_email: array<string, array>, by_name: array<string, array>}  $index
+     * @return array<string, mixed>|null
+     */
+    public function matchAssignedLead(
+        array $index,
+        ?string $phone = null,
+        ?string $email = null,
+        ?string $name = null,
+        ?string $username = null
+    ): ?array {
+        if ($phone) {
+            foreach ($this->phoneIndexKeys($phone) as $key) {
+                if (isset($index['by_phone'][$key])) {
+                    return $index['by_phone'][$key];
+                }
+            }
+        }
+
+        if ($email) {
+            $normalized = strtolower(trim($email));
+            if ($normalized !== '' && isset($index['by_email'][$normalized])) {
+                return $index['by_email'][$normalized];
+            }
+        }
+
+        foreach ([$username, $name] as $label) {
+            $key = $this->nameIndexKey((string) $label);
+            if ($key !== null && isset($index['by_name'][$key])) {
+                return $index['by_name'][$key];
+            }
+        }
+
+        return null;
     }
 
     protected function findClient(int $companyId, string $normalized, string $digits): ?Client
@@ -253,5 +416,58 @@ class FlexCrmLookupService
         }
 
         return substr($digits, -$len) === substr($candDigits, -$len);
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function phoneIndexKeys(?string $phone): array
+    {
+        $phone = trim((string) $phone);
+        if ($phone === '') {
+            return [];
+        }
+
+        $digits = preg_replace('/\D+/', '', $this->twilioCompany->normalizePhone($phone)) ?? '';
+        if ($digits === '') {
+            return [];
+        }
+
+        $keys = [$digits];
+        if (strlen($digits) >= 10) {
+            $keys[] = substr($digits, -10);
+        }
+        if (strlen($digits) >= 8) {
+            $keys[] = substr($digits, -8);
+        }
+
+        return array_values(array_unique($keys));
+    }
+
+    protected function nameIndexKey(?string $name): ?string
+    {
+        $key = strtolower(ltrim(trim((string) $name), '@'));
+        if ($key === '' || FacebookConversation::isPlaceholderName($key)) {
+            return null;
+        }
+
+        return $key;
+    }
+
+    /**
+     * @return list<array{id: int, name: string, color: string}>
+     */
+    protected function serializeLabels(Lead $lead): array
+    {
+        $lead->loadMissing('labels');
+
+        return $lead->labels
+            ->map(fn ($label) => [
+                'id' => (int) $label->id,
+                'name' => (string) $label->name,
+                'color' => (string) ($label->color ?: '#4338ca'),
+            ])
+            ->values()
+            ->all();
     }
 }

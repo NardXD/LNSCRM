@@ -563,6 +563,8 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/conversations/{conversation}/snooze', [InboxController::class, 'snooze'])->name('api.inbox.conversations.snooze');
         Route::patch('/conversations/{conversation}/read', [InboxController::class, 'updateRead'])->name('api.inbox.conversations.read');
         Route::post('/conversations/{conversation}/tags', [InboxController::class, 'syncTags'])->name('api.inbox.conversations.tags');
+        Route::post('/conversations/{conversation}/lead-labels', [InboxController::class, 'attachLeadLabel'])->name('api.inbox.conversations.lead-labels.attach');
+        Route::delete('/conversations/{conversation}/lead-labels/{leadLabel}', [InboxController::class, 'detachLeadLabel'])->name('api.inbox.conversations.lead-labels.detach');
         Route::post('/conversations/{conversation}/reply', [InboxController::class, 'reply'])->name('api.inbox.conversations.reply');
         Route::post('/conversations/{conversation}/comments', [InboxController::class, 'storeComment'])->name('api.inbox.conversations.comments.store');
         Route::get('/conversations/{conversation}/comments/{comment}/attachments/{index}', [InboxController::class, 'downloadCommentAttachment'])->name('api.inbox.conversations.comments.attachments');

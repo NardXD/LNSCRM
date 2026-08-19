@@ -201,6 +201,21 @@
         return String(str || '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
     }
 
+    function assignedLeadLine(c) {
+        if (window.LnsAssignedLead?.markup) return window.LnsAssignedLead.markup(c.lead, escapeHtml);
+        const name = c?.lead?.assigned_user?.name;
+        const chips = (c?.lead?.labels || []).filter(l => l?.name).map(l => escapeHtml(l.name)).join(', ');
+        if (!name && !chips) return '';
+        return `${name ? `<div class="channel-assigned">Assigned to ${escapeHtml(name)}</div>` : ''}${chips ? `<div class="channel-assigned">${chips}</div>` : ''}`;
+    }
+
+    function assignedLeadSuffix(c) {
+        if (window.LnsAssignedLead?.suffix) return window.LnsAssignedLead.suffix(c.lead);
+        const name = c?.lead?.assigned_user?.name;
+        const labels = (c?.lead?.labels || []).map(l => l.name).filter(Boolean);
+        return (name ? ' · Assigned to ' + name : '') + (labels.length ? ' · ' + labels.join(', ') : '');
+    }
+
     function renderThreads() {
         const q = (els.search.value || '').toLowerCase();
         const items = conversations.filter(c => {
@@ -222,6 +237,7 @@
                         <div class="wa-thread-time">${formatTime(c.last_message_at)}</div>
                     </div>
                     <div class="wa-thread-preview">${escapeHtml(c.last_message_preview || '')}</div>
+                    ${assignedLeadLine(c)}
                 </div>
                 ${c.unread_count ? `<span class="wa-badge">${c.unread_count}</span>` : ''}
             </div>
@@ -292,9 +308,9 @@
         els.empty.style.display = 'none';
         els.chat.style.display = 'flex';
         els.headerName.textContent = conv.name || 'WhatsApp User';
-        els.headerStatus.textContent = conv.within_window
+        els.headerStatus.textContent = (conv.within_window
             ? ('Within 24h window · ' + (conv.phone || conv.wa_id || ''))
-            : ('Outside 24h window · ' + (conv.phone || conv.wa_id || ''));
+            : ('Outside 24h window · ' + (conv.phone || conv.wa_id || ''))) + assignedLeadSuffix(conv);
         setAvatar(els.headerAvatar, conv.name);
         renderThreads();
 

@@ -10,6 +10,7 @@
             <div class="call-notification-info">
                 <div class="call-notification-title">Incoming Call</div>
                 <div class="call-notification-number" id="incomingCallNumber">Unknown</div>
+                <div class="call-notification-lead" id="incomingCallLead"></div>
             </div>
             <div class="call-notification-actions">
                 <button type="button" class="call-btn call-btn-answer" id="answerCallBtn" onclick="answerIncomingCall()">
@@ -37,6 +38,7 @@
             <div class="call-notification-info">
                 <div class="call-notification-title">Ongoing Call</div>
                 <div class="call-notification-number" id="ongoingCallNumber">Unknown</div>
+                <div class="call-notification-lead" id="ongoingCallLead"></div>
                 <div class="call-duration" id="callDuration">00:00</div>
             </div>
             <div class="call-notification-actions">
@@ -80,6 +82,44 @@
         } catch (e) {}
     };
 
+    window.__lnscrmShowCallLead = function (phone) {
+        var incomingLead = document.getElementById('incomingCallLead');
+        var ongoingLead = document.getElementById('ongoingCallLead');
+        var hide = function () {
+            if (incomingLead) { incomingLead.textContent = ''; incomingLead.style.display = 'none'; }
+            if (ongoingLead) { ongoingLead.textContent = ''; ongoingLead.style.display = 'none'; }
+        };
+        if (!phone || phone === 'Unknown') {
+            hide();
+            return;
+        }
+        var requestId = (window.__lnscrmCallLeadReq = (window.__lnscrmCallLeadReq || 0) + 1);
+        fetch('/api/crm/contact-history?phone=' + encodeURIComponent(phone) + '&limit=5', {
+            headers: { 'Accept': 'application/json' },
+            credentials: 'same-origin',
+        }).then(function (res) {
+            return res.ok ? res.json() : null;
+        }).then(function (data) {
+            if (requestId !== window.__lnscrmCallLeadReq) return;
+            var lead = data && data.contact && data.contact.lead;
+            var assignee = lead && lead.assigned_user && lead.assigned_user.name;
+            if (!lead || !assignee) {
+                hide();
+                return;
+            }
+            var names = (lead.labels || []).map(function (item) { return item && item.name; }).filter(Boolean);
+            var label = (lead.name || 'Lead') + ' · Assigned to ' + assignee + (names.length ? ' · ' + names.join(', ') : '');
+            [incomingLead, ongoingLead].forEach(function (el) {
+                if (!el) return;
+                el.textContent = label;
+                el.style.display = 'block';
+            });
+        }).catch(function () {
+            if (requestId !== window.__lnscrmCallLeadReq) return;
+            hide();
+        });
+    };
+
     window.__lnscrmApplyCallBanner = function (state) {
         var incoming = document.getElementById('inboundCallNotification');
         var incomingNumber = document.getElementById('incomingCallNumber');
@@ -89,10 +129,12 @@
         if (!state) {
             if (incoming) incoming.style.display = 'none';
             if (ongoing) ongoing.style.display = 'none';
+            if (typeof window.__lnscrmShowCallLead === 'function') window.__lnscrmShowCallLead(null);
             return;
         }
 
         var from = state.from || 'Unknown';
+        if (typeof window.__lnscrmShowCallLead === 'function') window.__lnscrmShowCallLead(from);
         if (state.status === 'answered') {
             window.isCallAnswered = true;
             if (incoming) incoming.style.display = 'none';

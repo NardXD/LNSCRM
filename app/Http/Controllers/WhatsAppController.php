@@ -8,6 +8,7 @@ use App\Models\WhatsAppConversation;
 use App\Models\WhatsAppIntegration;
 use App\Models\WhatsAppMessage;
 use App\Notifications\WhatsAppMessageNotification;
+use App\Services\FlexCrmLookupService;
 use App\Services\LeadAutoCreateService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
@@ -25,7 +26,8 @@ class WhatsAppController extends Controller
 {
     public function __construct(
         protected TwilioCompanyService $twilioCompany,
-        protected LeadAutoCreateService $leadAutoCreate
+        protected LeadAutoCreateService $leadAutoCreate,
+        protected FlexCrmLookupService $crmLookup
     ) {}
 
     public function index()
@@ -631,6 +633,12 @@ class WhatsAppController extends Controller
             'last_message_at' => $c->last_message_at?->toIso8601String(),
             'window_expires_at' => $c->window_expires_at?->toIso8601String(),
             'within_window' => $c->isWithinMessagingWindow(),
+            'lead' => $this->crmLookup->matchAssignedLead(
+                $this->crmLookup->assignedLeadIndex((int) $c->company_id),
+                $c->phone ?: $c->wa_id,
+                null,
+                $c->name ?: $c->profile_name
+            ),
         ];
     }
 

@@ -9,6 +9,7 @@ use App\Models\FacebookMessage;
 use App\Models\User;
 use App\Notifications\FacebookMessageNotification;
 use App\Services\FacebookMessageSyncService;
+use App\Services\FlexCrmLookupService;
 use App\Services\MessageContactExtractor;
 use App\Services\TimezoneService;
 use App\Services\TwilioCompanyService;
@@ -28,7 +29,8 @@ class FacebookController extends Controller
     public function __construct(
         protected TwilioCompanyService $twilioCompany,
         protected FacebookMessageSyncService $facebookSync,
-        protected MessageContactExtractor $messageContacts
+        protected MessageContactExtractor $messageContacts,
+        protected FlexCrmLookupService $crmLookup
     ) {}
 
     public function index()
@@ -149,9 +151,31 @@ class FacebookController extends Controller
         $this->markConversationNotificationsRead($conversation);
 
         $extracted = $this->messageContacts->applyToConversation($conversation);
+        $fresh = $conversation->fresh();
+        $payload = $this->formatConversation($fresh);
+        if (! ($payload['lead'] ?? null)) {
+            $index = $this->crmLookup->assignedLeadIndex((int) $fresh->company_id);
+            foreach ($extracted['phones'] as $phone) {
+                $payload['lead'] = $this->crmLookup->matchAssignedLead($index, $phone);
+                if ($payload['lead']) {
+                    break;
+                }
+            }
+            if (! ($payload['lead'] ?? null)) {
+                foreach ($extracted['emails'] as $email) {
+                    $payload['lead'] = $this->crmLookup->matchAssignedLead($index, null, $email);
+                    if ($payload['lead']) {
+                        break;
+                    }
+                }
+            }
+            if (! ($payload['lead'] ?? null) && ($extracted['names'][0] ?? null)) {
+                $payload['lead'] = $this->crmLookup->matchAssignedLead($index, null, null, $extracted['names'][0]);
+            }
+        }
 
         return response()->json([
-            'conversation' => array_merge($this->formatConversation($conversation->fresh()), [
+            'conversation' => array_merge($payload, [
                 'extracted_phones' => $extracted['phones'],
                 'extracted_emails' => $extracted['emails'],
                 'extracted_names' => $extracted['names'],
@@ -696,6 +720,13 @@ class FacebookController extends Controller
             'unread_count' => (int) $c->unread_count,
             'last_message_preview' => $c->last_message_preview,
             'last_message_at' => $c->last_message_at?->toIso8601String(),
+            'lead' => $this->crmLookup->matchAssignedLead(
+                $this->crmLookup->assignedLeadIndex((int) $c->company_id),
+                null,
+                null,
+                $c->name,
+                $c->username
+            ),
         ];
     }
 

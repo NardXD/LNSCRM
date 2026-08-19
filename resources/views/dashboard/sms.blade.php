@@ -511,6 +511,21 @@
         return String(str || '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
     }
 
+    function assignedLeadLine(c) {
+        if (window.LnsAssignedLead?.markup) return window.LnsAssignedLead.markup(c.lead, escapeHtml);
+        const name = c?.lead?.assigned_user?.name;
+        const chips = (c?.lead?.labels || []).filter(l => l?.name).map(l => escapeHtml(l.name)).join(', ');
+        if (!name && !chips) return '';
+        return `${name ? `<div class="channel-assigned">Assigned to ${escapeHtml(name)}</div>` : ''}${chips ? `<div class="channel-assigned">${chips}</div>` : ''}`;
+    }
+
+    function assignedLeadSuffix(c) {
+        if (window.LnsAssignedLead?.suffix) return window.LnsAssignedLead.suffix(c.lead);
+        const name = c?.lead?.assigned_user?.name;
+        const labels = (c?.lead?.labels || []).map(l => l.name).filter(Boolean);
+        return (name ? ' · Assigned to ' + name : '') + (labels.length ? ' · ' + labels.join(', ') : '');
+    }
+
     function nearBottom() {
         return els.messages.scrollHeight - els.messages.scrollTop - els.messages.clientHeight < 80;
     }
@@ -535,6 +550,7 @@
                         <div class="sms-thread-time">${formatListTime(c.last_message_at)}</div>
                     </div>
                     <div class="sms-thread-preview">${escapeHtml(c.last_message_preview || '')}</div>
+                    ${assignedLeadLine(c)}
                 </div>
                 ${c.unread_count ? `<span class="sms-badge">${c.unread_count}</span>` : ''}
             </div>
@@ -735,7 +751,7 @@
         els.empty.style.display = 'none';
         els.chat.style.display = 'flex';
         els.headerName.textContent = conv.name || conv.peer_phone || 'Contact';
-        els.headerStatus.textContent = conv.peer_phone || 'SMS';
+        els.headerStatus.textContent = (conv.peer_phone || 'SMS') + assignedLeadSuffix(conv);
         els.headerAvatar.textContent = initials(conv.name || conv.peer_phone);
         renderThreads();
         resetMessages();
@@ -756,6 +772,8 @@
         if (data.conversation) {
             const idx = conversations.findIndex(c => c.id === id);
             if (idx >= 0) conversations[idx] = { ...conversations[idx], ...data.conversation, unread_count: 0 };
+            Object.assign(conv, conversations[idx] || data.conversation, { unread_count: 0 });
+            els.headerStatus.textContent = (conv.peer_phone || 'SMS') + assignedLeadSuffix(conv);
             renderThreads();
         }
 

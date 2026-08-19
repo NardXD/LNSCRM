@@ -14,6 +14,7 @@ use App\Models\TwilioPhoneNumber;
 use App\Models\User;
 use App\Models\ViberMessage;
 use App\Models\WhatsAppMessage;
+use App\Services\FlexCrmLookupService;
 use App\Services\InboundCallQueueService;
 use App\Services\PhoneCallLogService;
 use App\Services\SmsConversationService;
@@ -33,7 +34,8 @@ class PhoneSystemController extends Controller
         protected PhoneCallLogService $callLogService,
         protected TwilioNumberAssignmentService $numberAssignment,
         protected SmsConversationService $smsConversations,
-        protected InboundCallQueueService $callQueue
+        protected InboundCallQueueService $callQueue,
+        protected FlexCrmLookupService $crmLookup
     ) {}
 
     public function agentPresence(Request $request): JsonResponse
@@ -138,7 +140,17 @@ class PhoneSystemController extends Controller
             $query->where('status', $request->status);
         }
 
-        $logs = $query->limit(100)->get()->map(fn (PhoneCallLog $log) => $this->formatCallLog($log));
+        $index = $this->crmLookup->assignedLeadIndex($companyId);
+        $logs = $query->limit(100)->get()->map(function (PhoneCallLog $log) use ($index) {
+            $row = $this->formatCallLog($log);
+            $direction = strtolower((string) $log->direction);
+            $customer = str_contains($direction, 'outbound') ? $log->to_number : $log->from_number;
+            $row['lead'] = $this->crmLookup->matchAssignedLead($index, $customer)
+                ?: $this->crmLookup->matchAssignedLead($index, $log->from_number)
+                ?: $this->crmLookup->matchAssignedLead($index, $log->to_number);
+
+            return $row;
+        });
 
         return response()->json(['success' => true, 'data' => $logs]);
     }

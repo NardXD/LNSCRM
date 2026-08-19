@@ -6,6 +6,7 @@ use App\Models\Company;
 use App\Models\ViberConversation;
 use App\Models\ViberIntegration;
 use App\Models\ViberMessage;
+use App\Services\FlexCrmLookupService;
 use App\Services\LeadAutoCreateService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
@@ -22,7 +23,8 @@ class ViberController extends Controller
 {
     public function __construct(
         protected TwilioCompanyService $twilioCompany,
-        protected LeadAutoCreateService $leadAutoCreate
+        protected LeadAutoCreateService $leadAutoCreate,
+        protected FlexCrmLookupService $crmLookup
     ) {}
 
     public function index()
@@ -585,6 +587,12 @@ class ViberController extends Controller
             'unread_count' => (int) $c->unread_count,
             'last_message_preview' => $c->last_message_preview,
             'last_message_at' => $c->last_message_at?->toIso8601String(),
+            'lead' => $this->crmLookup->matchAssignedLead(
+                $this->crmLookup->assignedLeadIndex((int) $c->company_id),
+                $c->phone,
+                null,
+                $c->name
+            ),
         ];
     }
 

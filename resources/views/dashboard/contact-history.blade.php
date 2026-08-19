@@ -198,6 +198,8 @@
             <div class="ch-contact-name">${esc(c.display_name || 'Unknown contact')}</div>
             ${(c.matched_phones || []).map(p => `<p class="ch-meta">Phone: ${esc(p)}</p>`).join('')}
             ${(c.matched_emails || []).map(em => `<p class="ch-meta">Email: ${esc(em)}</p>`).join('')}
+            ${c.lead?.assigned_user?.name ? `<p class="ch-meta">Assigned to ${esc(c.lead.assigned_user.name)}</p>` : ''}
+            ${(c.lead?.labels || []).filter(l => l?.name).length ? `<p class="ch-meta">Labels: ${(c.lead.labels || []).map(l => l?.name).filter(Boolean).map(esc).join(', ')}</p>` : ''}
             ${c.lead?.crm_url ? `<p style="margin-top:0.6rem"><a class="ch-link" href="${esc(c.lead.crm_url)}">Open lead →</a></p>` : ''}
             ${c.client?.crm_url ? `<p style="margin-top:0.6rem"><a class="ch-link" href="${esc(c.client.crm_url)}">Open in Client Management →</a></p>` : ''}
         `;

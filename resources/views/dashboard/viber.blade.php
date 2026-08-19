@@ -225,6 +225,7 @@
                         <div class="viber-thread-time">${formatTime(c.last_message_at)}</div>
                     </div>
                     <div class="viber-thread-preview">${escapeHtml(c.last_message_preview || '')}</div>
+                    ${assignedLeadLine(c)}
                 </div>
                 ${c.unread_count ? `<span class="viber-badge">${c.unread_count}</span>` : ''}
             </div>
@@ -237,6 +238,21 @@
 
     function escapeHtml(str) {
         return String(str || '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+    }
+
+    function assignedLeadLine(c) {
+        if (window.LnsAssignedLead?.markup) return window.LnsAssignedLead.markup(c.lead, escapeHtml);
+        const name = c?.lead?.assigned_user?.name;
+        const chips = (c?.lead?.labels || []).filter(l => l?.name).map(l => escapeHtml(l.name)).join(', ');
+        if (!name && !chips) return '';
+        return `${name ? `<div class="channel-assigned">Assigned to ${escapeHtml(name)}</div>` : ''}${chips ? `<div class="channel-assigned">${chips}</div>` : ''}`;
+    }
+
+    function assignedLeadSuffix(c) {
+        if (window.LnsAssignedLead?.suffix) return window.LnsAssignedLead.suffix(c.lead);
+        const name = c?.lead?.assigned_user?.name;
+        const labels = (c?.lead?.labels || []).map(l => l.name).filter(Boolean);
+        return (name ? ' · Assigned to ' + name : '') + (labels.length ? ' · ' + labels.join(', ') : '');
     }
 
     function renderMessage(m) {
@@ -297,7 +313,7 @@
         els.empty.style.display = 'none';
         els.chat.style.display = 'flex';
         els.headerName.textContent = conv.name || 'Viber User';
-        els.headerStatus.textContent = conv.is_subscribed ? 'Subscribed' : 'Unsubscribed';
+        els.headerStatus.textContent = (conv.is_subscribed ? 'Subscribed' : 'Unsubscribed') + assignedLeadSuffix(conv);
         setAvatar(els.headerAvatar, conv.name, conv.avatar);
         renderThreads();
 

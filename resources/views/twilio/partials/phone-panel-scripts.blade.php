@@ -51,6 +51,12 @@
         return d.innerHTML;
     }
 
+    function leadLabelsHtml(lead) {
+        if (window.LnsAssignedLead?.chips) return window.LnsAssignedLead.chips(lead?.labels, escapeHtml);
+        const names = (lead?.labels || []).map((item) => item?.name).filter(Boolean);
+        return names.length ? `<div class="phone-list-item-meta channel-assigned">${names.map(escapeHtml).join(', ')}</div>` : '';
+    }
+
     function dialFromPanel(number) {
         const input = document.getElementById('phoneNumber');
         if (input) {
@@ -104,6 +110,8 @@
                         ${row.duration ? ' · ' + row.duration + 's' : ''}
                         ${row.has_recording ? ' · Recorded' : ''}
                     </div>
+                    ${row.lead?.assigned_user?.name ? `<div class="phone-list-item-meta channel-assigned">${escapeHtml(row.lead.name || 'Lead')} · Assigned to ${escapeHtml(row.lead.assigned_user.name)}</div>` : ''}
+                    ${leadLabelsHtml(row.lead)}
                     <div class="phone-list-item-meta">${escapeHtml(row.created_at ? new Date(row.created_at).toLocaleString() : '')}</div>
                     ${row.has_recording && row.recording_url ? `
                         <audio class="phone-call-recording" controls preload="none" src="${escapeHtml(row.recording_url)}"></audio>

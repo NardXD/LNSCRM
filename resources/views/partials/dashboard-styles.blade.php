@@ -574,6 +574,48 @@
         text-overflow: ellipsis;
     }
 
+    .call-notification-lead {
+        display: none;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.92);
+        margin-top: 0.15rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .channel-assigned {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #0b5cab;
+        margin-top: 0.15rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .channel-label-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        margin-top: 0.25rem;
+    }
+
+    .channel-label-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.1rem 0.4rem;
+        border-radius: 999px;
+        font-size: 0.65rem;
+        font-weight: 700;
+        line-height: 1.2;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
     .call-notification-actions {
         display: flex;
         gap: 0.5rem;

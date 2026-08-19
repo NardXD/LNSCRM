@@ -116,6 +116,12 @@
             @if (!empty($data['lead']['status']))
                 <div class="row"><span class="label">Status</span><span class="value">{{ $data['lead']['status'] }}</span></div>
             @endif
+            @if (!empty($data['lead']['assigned_user']['name']))
+                <div class="row"><span class="label">Assigned to</span><span class="value">{{ $data['lead']['assigned_user']['name'] }}</span></div>
+            @endif
+            @if (!empty($data['lead']['labels']))
+                <div class="row"><span class="label">Labels</span><span class="value">{{ collect($data['lead']['labels'])->pluck('name')->filter()->implode(', ') }}</span></div>
+            @endif
             @if (!empty($data['lead']['emails']))
                 <div class="row"><span class="label">Email</span><span class="value">{{ implode(', ', $data['lead']['emails']) }}</span></div>
             @endif

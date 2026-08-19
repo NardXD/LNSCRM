@@ -10,13 +10,17 @@ use App\Models\InboxRule;
 use App\Models\InboxTag;
 use App\Models\InboxTemplate;
 use App\Models\InboxUserSetting;
+use App\Models\Lead;
+use App\Models\LeadLabel;
 use App\Models\OutlookMailAccount;
 use App\Models\SharedInbox;
 use App\Models\SharedInboxMember;
 use App\Models\User;
 use App\Notifications\InboxThreadUpdateNotification;
 use App\Services\CalendarOauthSettingsService;
+use App\Services\FlexCrmLookupService;
 use App\Services\InboxRuleEngine;
+use App\Services\LeadActivityService;
 use App\Services\OutlookMailService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -37,7 +41,9 @@ class InboxController extends Controller
     public function __construct(
         protected OutlookMailService $mailService,
         protected CalendarOauthSettingsService $oauthSettings,
-        protected InboxRuleEngine $ruleEngine
+        protected InboxRuleEngine $ruleEngine,
+        protected FlexCrmLookupService $crmLookup,
+        protected LeadActivityService $leadActivity
     ) {}
 
     public function index(): View
@@ -140,6 +146,10 @@ class InboxController extends Controller
             'user_id' => $user->id,
             'inboxes' => $inboxes,
             'tags' => $tags,
+            'lead_labels' => LeadLabel::query()
+                ->where('company_id', $companyId)
+                ->orderBy('name')
+                ->get(['id', 'name', 'color']),
             'templates' => $templates,
             'rules' => $rules,
             'members' => $members,
@@ -722,6 +732,7 @@ class InboxController extends Controller
 
         $newAssigneeId = $validated['assigned_to'] ?? null;
         if ((int) ($conversation->assigned_to ?? 0) === (int) ($newAssigneeId ?? 0)) {
+            $this->syncLeadAssignment($conversation, $newAssigneeId);
             $conversation->load('assignee:id,name,email');
 
             return response()->json(['conversation' => $this->formatConversation($conversation)]);
@@ -730,6 +741,7 @@ class InboxController extends Controller
         $conversation->assigned_to = $newAssigneeId;
         $conversation->save();
         $conversation->load('assignee:id,name,email');
+        $this->syncLeadAssignment($conversation, $newAssigneeId);
 
         if ($assignee) {
             $this->recordActivity(
@@ -943,6 +955,78 @@ class InboxController extends Controller
                 InboxRuleEngine::TRIGGER_CONVERSATION_TAGGED
             );
         }
+
+        return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'inbox', 'assignee']))]);
+    }
+
+    public function attachLeadLabel(Request $request, InboxConversation $conversation): JsonResponse
+    {
+        $this->authorizeConversation($request->user(), $conversation);
+        $validated = $request->validate([
+            'lead_id' => ['nullable', 'integer'],
+            'label_id' => ['nullable', 'integer', 'exists:lead_labels,id'],
+            'name' => ['nullable', 'string', 'max:50'],
+            'color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+        ]);
+
+        $lead = $this->matchingLead($conversation, isset($validated['lead_id']) ? (int) $validated['lead_id'] : null);
+        if (! $lead) {
+            return response()->json(['message' => 'Save this contact as a lead before adding labels.'], 422);
+        }
+
+        $companyId = (int) $lead->company_id;
+        $label = null;
+        if (! empty($validated['label_id'])) {
+            $label = LeadLabel::query()
+                ->where('company_id', $companyId)
+                ->whereKey($validated['label_id'])
+                ->first();
+        }
+
+        $name = trim((string) ($validated['name'] ?? ''));
+        if (! $label && $name !== '') {
+            $label = LeadLabel::query()
+                ->where('company_id', $companyId)
+                ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+                ->first();
+            if (! $label) {
+                $label = LeadLabel::create([
+                    'company_id' => $companyId,
+                    'name' => $name,
+                    'color' => $validated['color'] ?? '#4338ca',
+                ]);
+            }
+        }
+
+        if (! $label) {
+            return response()->json(['message' => 'Choose or type a label.'], 422);
+        }
+
+        $alreadyAttached = $lead->labels()->where('lead_labels.id', $label->id)->exists();
+        $lead->labels()->syncWithoutDetaching([$label->id]);
+        if (! $alreadyAttached) {
+            $this->leadActivity->recordLabel($lead, $label->name, true);
+        }
+        $this->crmLookup->forgetLeadIndexes($companyId);
+
+        return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'inbox', 'assignee']))]);
+    }
+
+    public function detachLeadLabel(Request $request, InboxConversation $conversation, LeadLabel $leadLabel): JsonResponse
+    {
+        $this->authorizeConversation($request->user(), $conversation);
+        $leadId = $request->integer('lead_id') ?: null;
+        $lead = $this->matchingLead($conversation, $leadId ?: null);
+        if (! $lead) {
+            return response()->json(['message' => 'No matching lead.'], 422);
+        }
+        if ((int) $leadLabel->company_id !== (int) $lead->company_id) {
+            abort(404);
+        }
+
+        $lead->labels()->detach($leadLabel->id);
+        $this->leadActivity->recordLabel($lead, $leadLabel->name, false);
+        $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
 
         return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'inbox', 'assignee']))]);
     }
@@ -2057,6 +2141,12 @@ class InboxController extends Controller
             'tags' => $c->relationLoaded('tags')
                 ? $c->tags->map(fn ($t) => ['id' => $t->id, 'name' => $t->name, 'color' => $t->color])
                 : [],
+            'lead' => $this->crmLookup->matchAssignedLead(
+                $this->crmLookup->leadIndex((int) $c->company_id),
+                null,
+                $c->from_email,
+                $c->from_name
+            ),
         ];
 
         if ($withMessages && $c->relationLoaded('messages')) {
@@ -2398,5 +2488,64 @@ class InboxController extends Controller
             'from_folder' => $oldFolder,
             'to_folder' => $newFolder,
         ]);
+    }
+
+    private function matchingLead(InboxConversation $conversation, ?int $leadId = null): ?Lead
+    {
+        $companyId = (int) $conversation->company_id;
+        if ($leadId) {
+            $lead = Lead::query()->where('company_id', $companyId)->find($leadId);
+            if ($lead) {
+                return $lead;
+            }
+        }
+
+        $email = $this->contactEmail($conversation->from_email);
+        if ($email) {
+            $lead = $this->crmLookup->findLeadByEmail($companyId, $email);
+            if ($lead) {
+                return $lead;
+            }
+        }
+        if ($conversation->from_name) {
+            return $this->crmLookup->findLeadByName($companyId, $conversation->from_name);
+        }
+
+        return null;
+    }
+
+    private function contactEmail(?string $value): ?string
+    {
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return null;
+        }
+        if (preg_match('/<([^>]+@[^>]+)>/', $raw, $matches)) {
+            return strtolower(trim($matches[1]));
+        }
+        if (str_contains($raw, '@')) {
+            return strtolower($raw);
+        }
+
+        return null;
+    }
+
+    private function syncLeadAssignment(InboxConversation $conversation, mixed $userId): void
+    {
+        $lead = $this->matchingLead($conversation);
+        if (! $lead) {
+            return;
+        }
+
+        $toId = $userId ? (int) $userId : null;
+        $fromId = $lead->assigned_to ? (int) $lead->assigned_to : null;
+        if ($fromId === $toId) {
+            return;
+        }
+
+        $lead->assigned_to = $toId;
+        $lead->save();
+        $this->leadActivity->recordAssignment($lead, $fromId, $toId, reason: 'inbox');
+        $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
     }
 }

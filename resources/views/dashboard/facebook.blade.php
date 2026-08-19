@@ -508,6 +508,21 @@
         return String(str || '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
     }
 
+    function assignedLeadLine(c) {
+        if (window.LnsAssignedLead?.markup) return window.LnsAssignedLead.markup(c.lead, escapeHtml);
+        const name = c?.lead?.assigned_user?.name;
+        const chips = (c?.lead?.labels || []).filter(l => l?.name).map(l => escapeHtml(l.name)).join(', ');
+        if (!name && !chips) return '';
+        return `${name ? `<div class="channel-assigned">Assigned to ${escapeHtml(name)}</div>` : ''}${chips ? `<div class="channel-assigned">${chips}</div>` : ''}`;
+    }
+
+    function assignedLeadSuffix(c) {
+        if (window.LnsAssignedLead?.suffix) return window.LnsAssignedLead.suffix(c.lead);
+        const name = c?.lead?.assigned_user?.name;
+        const labels = (c?.lead?.labels || []).map(l => l.name).filter(Boolean);
+        return (name ? ' · Assigned to ' + name : '') + (labels.length ? ' · ' + labels.join(', ') : '');
+    }
+
     function channelLabel(channel) {
         return channel === 'instagram' ? 'Instagram' : 'Messenger';
     }
@@ -543,6 +558,7 @@
                         <div class="fb-thread-time">${formatListTime(c.last_message_at)}</div>
                     </div>
                     <div class="fb-thread-preview">${escapeHtml(c.last_message_preview || '')}</div>
+                    ${assignedLeadLine(c)}
                     <span class="fb-channel-tag ${c.channel === 'instagram' ? 'instagram' : ''}">${channelLabel(c.channel)}</span>
                 </div>
                 ${c.unread_count ? `<span class="fb-badge">${c.unread_count}</span>` : ''}
@@ -677,7 +693,7 @@
         els.empty.style.display = 'none';
         els.chat.style.display = 'flex';
         els.headerName.textContent = conv.name || (channelLabel(conv.channel) + ' User');
-        els.headerStatus.textContent = channelLabel(conv.channel) + (conv.username ? ' · @' + conv.username : '');
+        els.headerStatus.textContent = channelLabel(conv.channel) + (conv.username ? ' · @' + conv.username : '') + assignedLeadSuffix(conv);
         setAvatar(els.headerAvatar, conv.name, conv.profile_pic);
         renderThreads();
         resetMessages();
@@ -698,6 +714,7 @@
             if (idx >= 0) conversations[idx] = { ...conversations[idx], ...data.conversation, unread_count: 0 };
             Object.assign(conv, conversations[idx] || data.conversation, { unread_count: 0 });
             els.headerName.textContent = conv.name || (channelLabel(conv.channel) + ' User');
+            els.headerStatus.textContent = channelLabel(conv.channel) + (conv.username ? ' · @' + conv.username : '') + assignedLeadSuffix(conv);
             setAvatar(els.headerAvatar, conv.name, conv.profile_pic);
             renderThreads();
         }

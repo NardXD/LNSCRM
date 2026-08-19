@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\SmsConversation;
 use App\Models\SmsMessage;
+use App\Services\FlexCrmLookupService;
 use App\Services\LeadAutoCreateService;
 use App\Services\SmsConversationService;
 use App\Services\TwilioCompanyService;
@@ -18,7 +19,8 @@ class SmsController extends Controller
     public function __construct(
         protected TwilioCompanyService $twilioCompany,
         protected SmsConversationService $conversations,
-        protected LeadAutoCreateService $leadAutoCreate
+        protected LeadAutoCreateService $leadAutoCreate,
+        protected FlexCrmLookupService $crmLookup
     ) {}
 
     public function index()
@@ -296,6 +298,12 @@ class SmsController extends Controller
             'unread_count' => (int) $c->unread_count,
             'last_message_preview' => $c->last_message_preview,
             'last_message_at' => $c->last_message_at?->toIso8601String(),
+            'lead' => $this->crmLookup->matchAssignedLead(
+                $this->crmLookup->assignedLeadIndex((int) $c->company_id),
+                $c->peer_phone,
+                null,
+                $c->name
+            ),
         ];
     }
 

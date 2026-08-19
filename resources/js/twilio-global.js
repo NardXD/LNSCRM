@@ -20,6 +20,9 @@
             if (notification && numberElement) {
                 numberElement.textContent = callerNumber;
                 notification.style.display = 'block';
+                if (typeof window.__lnscrmShowCallLead === 'function') {
+                    window.__lnscrmShowCallLead(callerNumber);
+                }
             } else {
                 alert('Incoming call from: ' + callerNumber);
             }
@@ -66,6 +69,9 @@ if (typeof window !== 'undefined') {
             if (ongoingNotification && ongoingNumber) {
                 const callerNumber = activeCall.parameters?.From || activeCall.parameters?.Caller || activeCall.from || 'Unknown';
                 ongoingNumber.textContent = callerNumber;
+                if (typeof window.__lnscrmShowCallLead === 'function') {
+                    window.__lnscrmShowCallLead(callerNumber);
+                }
                 if (callDuration) callDuration.textContent = '00:00';
                 ongoingNotification.style.display = 'block';
                 
@@ -754,6 +760,9 @@ function showIncomingCallNotification(callerNumber) {
     
     if (notification && numberElement) {
         numberElement.textContent = callerNumber;
+        if (typeof window.__lnscrmShowCallLead === 'function') {
+            window.__lnscrmShowCallLead(callerNumber);
+        }
         
         // Force show with multiple methods
         notification.style.display = 'block';

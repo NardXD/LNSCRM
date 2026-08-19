@@ -18,6 +18,9 @@
 .chp-label{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary,#5b6b7c);margin-bottom:.45rem}
 .chp-name{font-weight:700;font-size:.98rem;color:var(--text-primary,#1a2332);margin-bottom:.25rem}
 .chp-meta{font-size:.8rem;color:var(--text-secondary,#5b6b7c);margin:.15rem 0;word-break:break-all}
+.chp-assigned{font-size:.8rem;font-weight:600;color:#0b5cab;margin:.2rem 0 .1rem}
+.channel-label-chips{display:flex;flex-wrap:wrap;gap:.25rem;margin-top:.25rem}
+.channel-label-chip{display:inline-flex;align-items:center;padding:.1rem .4rem;border-radius:999px;font-size:.65rem;font-weight:700;line-height:1.2;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chp-link{display:inline-block;margin-top:.45rem;margin-right:.65rem;font-size:.82rem;font-weight:600;color:#0b5cab;text-decoration:none}
 .chp-save-lead{display:inline-block;margin-top:.45rem;padding:.28rem .6rem;border:1px solid #0b5cab;border-radius:6px;background:#fff;color:#0b5cab;font-size:.78rem;font-weight:600;cursor:pointer}
 .chp-lead-form{margin-top:.65rem;display:flex;flex-direction:column;gap:.45rem}
@@ -71,6 +74,58 @@ function formatAt(iso) {
         return iso;
     }
 }
+
+function chipTextColor(hex) {
+    const h = String(hex || '').replace('#', '');
+    if (h.length !== 6 || Number.isNaN(parseInt(h, 16))) return '#fff';
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return ((r * 299) + (g * 587) + (b * 114)) / 1000 > 160 ? '#111' : '#fff';
+}
+
+function leadLabelChipsHtml(labels, escFn) {
+    const e = escFn || esc;
+    const items = Array.isArray(labels) ? labels.filter((label) => label && label.name) : [];
+    if (!items.length) return '';
+    return `<div class="channel-label-chips">${items.map((label) => {
+        const color = label.color || '#4338ca';
+        return `<span class="channel-label-chip" style="background:${e(color)};color:${chipTextColor(color)}">${e(label.name)}</span>`;
+    }).join('')}</div>`;
+}
+
+function leadLabelSuffix(labels) {
+    const names = (Array.isArray(labels) ? labels : []).map((label) => String(label?.name || '').trim()).filter(Boolean);
+    return names.length ? ' · ' + names.join(', ') : '';
+}
+
+function assignedLeadPanelHtml(lead) {
+    if (!lead) return '';
+    const assignee = lead.assigned_user?.name;
+    const line = assignee
+        ? `<div class="chp-assigned">Assigned to ${esc(assignee)}${lead.status ? ' · ' + esc(lead.status) : ''}</div>`
+        : `<div class="chp-meta">Lead${lead.status ? ' · ' + esc(lead.status) : ''} · Unassigned</div>`;
+    const chips = leadLabelChipsHtml(lead.labels);
+    const link = lead.crm_url
+        ? `<a class="chp-link" href="${esc(lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>`
+        : '';
+    return line + chips + link;
+}
+
+window.LnsAssignedLead = {
+    markup(lead, escFn) {
+        const e = escFn || esc;
+        const name = lead?.assigned_user?.name;
+        const chips = leadLabelChipsHtml(lead?.labels, e);
+        if (!name && !chips) return '';
+        return `${name ? `<div class="channel-assigned">Assigned to ${e(name)}</div>` : ''}${chips}`;
+    },
+    suffix(lead) {
+        const name = lead?.assigned_user?.name;
+        return (name ? ` · Assigned to ${name}` : '') + leadLabelSuffix(lead?.labels);
+    },
+    chips: leadLabelChipsHtml,
+};
 
 function uniqueList(items) {
     const seen = new Set();
@@ -140,7 +195,7 @@ function renderPanel(root, data, opts = {}) {
         ${emails.slice(0, 3).map((em) => `<div class="chp-meta">${esc(em)}</div>`).join('')}
         ${foundInMessages ? '<div class="chp-meta">Found in conversation messages</div>' : ''}
         ${placeholderHint}
-        ${contact.lead?.crm_url ? `<a class="chp-link" href="${esc(contact.lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>` : ''}
+        ${assignedLeadPanelHtml(contact.lead)}
         ${contact.client?.crm_url ? `<a class="chp-link" href="${esc(contact.client.crm_url)}" target="_blank" rel="noopener">Open client →</a>` : ''}
         ${!contact.lead && opts.canSaveLead !== false ? `<button type="button" class="chp-save-lead" data-chp-save-lead>Save as lead</button>` : ''}
     `;

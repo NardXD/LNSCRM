@@ -71,18 +71,7 @@
                     <span>Inbox menu</span>
                 </button>
                 <div class="inbox-submenu" id="inboxToolsSubmenu">
-                    <div class="inbox-tool-group is-expanded" data-tool-group="tags">
-                        <div class="inbox-tool-group-head">
-                            <button type="button" class="inbox-tool-group-toggle" data-tool-toggle="tags">
-                                <svg class="inbox-tool-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-                                <span>Tags</span>
-                            </button>
-                            <button type="button" class="inbox-mini-btn" id="btnNewTag" title="New tag">+</button>
-                        </div>
-                        <div class="inbox-tool-group-body" id="tagList"></div>
-                    </div>
-
-                    <div class="inbox-tool-group" data-tool-group="templates">
+                    <div class="inbox-tool-group is-expanded" data-tool-group="templates">
                         <div class="inbox-tool-group-head">
                             <button type="button" class="inbox-tool-group-toggle" data-tool-toggle="templates">
                                 <svg class="inbox-tool-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
@@ -152,7 +141,7 @@
                 <div class="inbox-placeholder-card">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
                     <h3>Your shared inbox</h3>
-                    <p>Connect personal or shared Outlook mailboxes, assign teammates, tag conversations, and automate with rules — Front-style.</p>
+                    <p>Connect personal or shared Outlook mailboxes, assign teammates, and automate with rules — Front-style.</p>
                 </div>
             </div>
 
@@ -282,11 +271,15 @@
                 </select>
             </div>
             <div class="inbox-props-block">
-                <div class="inbox-props-label">Tags</div>
+                <div class="inbox-props-label">Labels</div>
                 <div id="conversationTags" class="inbox-tag-pills"></div>
                 <select id="addTagSelect" class="inbox-select">
-                    <option value="">Add tag…</option>
+                    <option value="">Add existing label…</option>
                 </select>
+                <div id="addLeadLabelRow" class="inbox-lead-label-add" hidden>
+                    <input type="text" id="addLeadLabelInput" class="inbox-select" maxlength="50" placeholder="New label">
+                    <button type="button" class="inbox-btn ghost" id="btnAddLeadLabel">Add</button>
+                </div>
             </div>
             <div class="inbox-props-block">
                 <div class="inbox-props-label">Inbox</div>
@@ -390,16 +383,6 @@
                 <button type="button" class="inbox-btn ghost" id="btnSaveInbox">Create only</button>
                 <button type="button" class="inbox-btn primary" id="btnSaveInboxConnect">Create &amp; sign in with Microsoft 365</button>
             </div>
-        </div>
-    </div>
-
-    <div class="inbox-modal" id="modalTag" style="display:none;">
-        <h3>New tag</h3>
-        <label>Name<input type="text" id="newTagName" class="form-input" placeholder="Urgent"></label>
-        <label>Color<input type="color" id="newTagColor" class="form-input" value="#f59e0b"></label>
-        <div class="inbox-modal-actions">
-            <button type="button" class="inbox-btn ghost" data-close-modal>Cancel</button>
-            <button type="button" class="inbox-btn primary" id="btnSaveTag">Create</button>
         </div>
     </div>
 
@@ -928,52 +911,9 @@
 }
 .inbox-inbox-row:hover, .inbox-rule-row:hover { background: var(--inbox-bg); }
 .inbox-inbox-row.active { background: var(--inbox-accent-soft); color: var(--inbox-accent); }
-.inbox-tag-row {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    width: 100%;
-    border: none;
-    background: transparent;
-    padding: 0.2rem 0.2rem 0.2rem 0.35rem;
-    border-radius: 8px;
-    color: var(--inbox-text);
-}
-.inbox-tag-row:hover { background: var(--inbox-bg); }
-.inbox-tag-row.active { background: var(--inbox-accent-soft); color: var(--inbox-accent); }
-.inbox-tag-row-main {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-    border: none;
-    background: transparent;
-    text-align: left;
-    padding: 0.2rem 0.25rem;
-    border-radius: 6px;
-    cursor: pointer;
-    font: inherit;
-    font-size: 0.84rem;
-    color: inherit;
-}
-.inbox-tag-row-main span:last-child {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.inbox-tag-row .inbox-count {
-    flex-shrink: 0;
-    margin-left: auto;
-}
 .inbox-mini-btn.is-pinned {
     color: var(--inbox-accent);
     background: var(--inbox-accent-soft);
-}
-.inbox-mini-btn[data-pin-tag] svg {
-    width: 12px;
-    height: 12px;
-    display: block;
 }
 .inbox-mailbox { margin-bottom: 0.45rem; }
 .inbox-mailbox-head {
@@ -1883,6 +1823,7 @@
 .inbox-props .chp-body { padding: 0; overflow: visible; }
 .inbox-props .chp-name { font-weight: 700; font-size: 0.95rem; margin-bottom: 0.25rem; }
 .inbox-props .chp-meta { font-size: 0.8rem; color: var(--inbox-muted); margin: 0.15rem 0; word-break: break-all; }
+.inbox-props .chp-assigned { font-size: 0.8rem; font-weight: 600; color: #0b5cab; margin: 0.15rem 0; }
 .inbox-props .chp-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--inbox-muted); margin: 0.85rem 0 0.4rem; }
 .inbox-props .chp-item { display: block; text-decoration: none; color: inherit; padding: 0.5rem 0; border-bottom: 1px solid var(--inbox-border); }
 .inbox-props .chp-item-title { font-size: 0.84rem; font-weight: 600; margin: 0.2rem 0; }
@@ -1898,6 +1839,8 @@
 .inbox-props .chp-badge.call { background: #f1f3f5; color: #495057; }
 .inbox-props .chp-badge.facebook { background: #e8f1ff; color: #1877f2; }
 .inbox-tag-pills { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.5rem; min-height: 1.25rem; }
+.inbox-lead-label-add { display: flex; gap: 0.4rem; margin-top: 0.45rem; align-items: stretch; }
+.inbox-lead-label-add input { flex: 1; min-width: 0; }
 .inbox-modal-backdrop {
     position: fixed; inset: 0; background: rgba(15, 23, 42, .35); z-index: 80;
     display: flex; align-items: center; justify-content: center; padding: 1rem;
@@ -2110,29 +2053,26 @@
 
     const state = {
         inboxes: [],
-        tags: [],
         rules: [],
         templates: [],
         pendingLocalTemplates: [],
         signatures: [],
         defaultSignatureId: null,
-        pinnedTagIds: [],
         permissions: {
-            create_tags: false,
             create_templates: false,
             create_rules: false,
         },
         members: [],
+        leadLabels: [],
         conversations: [],
         selectedInboxId: null,
-        selectedTagId: null,
         view: 'open',
         selectedId: null,
         conversation: null,
         editingMembersInboxId: null,
         searchTimer: null,
         expandedInboxIds: {},
-        expandedToolGroups: { tags: true, templates: false, signatures: false, rules: false },
+        expandedToolGroups: { templates: true, signatures: false, rules: false },
         inboxToolsOpen: true,
         listPage: 1,
         listLastPage: 1,
@@ -2168,7 +2108,6 @@
     };
 
     const TOOLS_STORAGE_KEY = 'lnscrm_inbox_tools_v1';
-    let pendingLocalPinnedTagIds = [];
 
     function loadLocalTools() {
         try {
@@ -2190,15 +2129,10 @@
             if (state.defaultSignatureId && !state.signatures.some(s => String(s.id) === String(state.defaultSignatureId))) {
                 state.defaultSignatureId = state.signatures[0]?.id ?? null;
             }
-            // Tag pins are per-user in the DB; keep any legacy local pins only for one-time migrate.
-            pendingLocalPinnedTagIds = Array.isArray(data.pinnedTagIds)
-                ? data.pinnedTagIds.map(id => Number(id)).filter(id => Number.isFinite(id))
-                : [];
         } catch (_) {
             state.pendingLocalTemplates = [];
             state.signatures = [];
             state.defaultSignatureId = null;
-            pendingLocalPinnedTagIds = [];
         }
     }
 
@@ -2210,77 +2144,6 @@
             defaultSignatureId: state.defaultSignatureId,
         }));
     }
-
-    function isTagPinned(tagId) {
-        return state.pinnedTagIds.some(id => Number(id) === Number(tagId));
-    }
-
-    function sortedTags() {
-        const pinnedOrder = new Map(state.pinnedTagIds.map((id, idx) => [Number(id), idx]));
-        return [...state.tags].sort((a, b) => {
-            const ap = pinnedOrder.has(Number(a.id));
-            const bp = pinnedOrder.has(Number(b.id));
-            if (ap && bp) return pinnedOrder.get(Number(a.id)) - pinnedOrder.get(Number(b.id));
-            if (ap) return -1;
-            if (bp) return 1;
-            return String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
-        });
-    }
-
-    async function persistPinnedTags() {
-        const existing = new Set(state.tags.map(t => Number(t.id)));
-        state.pinnedTagIds = state.pinnedTagIds
-            .map(id => Number(id))
-            .filter(id => Number.isFinite(id) && existing.has(id));
-        const data = await api('/pinned-tags', {
-            method: 'PUT',
-            body: { tag_ids: state.pinnedTagIds },
-        });
-        state.pinnedTagIds = (data.pinned_tag_ids || []).map(id => Number(id)).filter(id => Number.isFinite(id));
-    }
-
-    async function togglePinTag(tagId) {
-        const id = Number(tagId);
-        if (!Number.isFinite(id)) return;
-        const prev = [...state.pinnedTagIds];
-        if (isTagPinned(id)) {
-            state.pinnedTagIds = state.pinnedTagIds.filter(x => Number(x) !== id);
-        } else {
-            state.pinnedTagIds = [...state.pinnedTagIds, id];
-        }
-        renderNav();
-        try {
-            await persistPinnedTags();
-            renderNav();
-        } catch (err) {
-            state.pinnedTagIds = prev;
-            renderNav();
-            alert(err.message || 'Could not save pinned tags');
-        }
-    }
-
-    async function migrateLocalPinnedTagsIfNeeded() {
-        if (!pendingLocalPinnedTagIds.length) return;
-        // Only import legacy browser pins when this user has none saved yet.
-        if (state.pinnedTagIds.length) {
-            pendingLocalPinnedTagIds = [];
-            saveLocalTools();
-            return;
-        }
-        const existing = new Set(state.tags.map(t => Number(t.id)));
-        const imported = pendingLocalPinnedTagIds.filter(id => existing.has(Number(id)));
-        pendingLocalPinnedTagIds = [];
-        saveLocalTools();
-        if (!imported.length) return;
-        state.pinnedTagIds = imported;
-        try {
-            await persistPinnedTags();
-        } catch (_) {
-            state.pinnedTagIds = [];
-        }
-    }
-
-    const PIN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>';
 
     function sanitizeHtml(html) {
         const wrap = document.createElement('div');
@@ -3049,11 +2912,6 @@
     }
 
     function updateListTitle() {
-        if (state.selectedTagId) {
-            const tag = state.tags.find(t => t.id === state.selectedTagId);
-            el('listTitle').textContent = 'Tag: ' + (tag?.name || '');
-            return;
-        }
         if (state.selectedInboxId) {
             const inbox = state.inboxes.find(i => i.id === state.selectedInboxId);
             el('listTitle').textContent = (inbox?.name || 'Inbox') + ' · ' + folderLabel(state.view);
@@ -3137,7 +2995,7 @@
 
     function openModal(id) {
         el('modalBackdrop').style.display = 'flex';
-        ['modalCompose','modalInbox','modalTag','modalTemplate','modalSignature','modalRule','modalMembers','modalAdvancedSearch'].forEach(m => {
+        ['modalCompose','modalInbox','modalTemplate','modalSignature','modalRule','modalMembers','modalAdvancedSearch'].forEach(m => {
             const node = el(m);
             if (node) node.style.display = m === id ? 'grid' : 'none';
         });
@@ -3227,7 +3085,7 @@
             const expanded = !!state.expandedInboxIds[inbox.id] || state.selectedInboxId === inbox.id;
             if (state.selectedInboxId === inbox.id) state.expandedInboxIds[inbox.id] = true;
             const folders = MAILBOX_FOLDERS.map(folder => {
-                const active = state.selectedInboxId === inbox.id && state.view === folder.view && !state.selectedTagId;
+                const active = state.selectedInboxId === inbox.id && state.view === folder.view;
                 const count = inbox[folder.countKey] || 0;
                 return `
                     <button type="button" class="inbox-folder-row ${active ? 'active' : ''}"
@@ -3262,21 +3120,6 @@
             </div>
             `;
         }).join('') || '<div style="padding:0.4rem 0.55rem;font-size:0.8rem;color:var(--inbox-muted);">No inboxes yet</div>';
-
-        el('tagList').innerHTML = sortedTags().map(tag => {
-            const pinned = isTagPinned(tag.id);
-            const unread = Number(tag.unread_count || 0);
-            return `
-            <div class="inbox-tag-row ${state.selectedTagId === tag.id ? 'active' : ''}">
-                <button type="button" class="inbox-tag-row-main" data-tag-id="${tag.id}" title="${escapeHtml(tag.name)}">
-                    <span class="inbox-dot" style="background:${tag.color}"></span>
-                    <span>${escapeHtml(tag.name)}</span>
-                </button>
-                ${unread > 0 ? `<span class="inbox-count" title="${unread} unread">${unread}</span>` : ''}
-                <button type="button" class="inbox-mini-btn ${pinned ? 'is-pinned' : ''}" data-pin-tag="${tag.id}" title="${pinned ? 'Unpin tag' : 'Pin tag'}" aria-pressed="${pinned ? 'true' : 'false'}">${PIN_ICON}</button>
-            </div>
-        `;
-        }).join('') || '<div class="inbox-tool-empty">No tags</div>';
 
         renderTemplateList();
 
@@ -3317,7 +3160,7 @@
 
         // Highlight global views only when not scoped to a mailbox folder
         document.querySelectorAll('[data-view][data-scope="all"]').forEach(btn => {
-            const active = !state.selectedInboxId && !state.selectedTagId && state.view === btn.dataset.view;
+            const active = !state.selectedInboxId && state.view === btn.dataset.view;
             btn.classList.toggle('active', active);
         });
 
@@ -3424,7 +3267,6 @@
     function actionTypeOptions(selected = 'assign') {
         const types = [
             ['assign', 'Assign to'],
-            ['tag', 'Add tag'],
             ['notify_assignee', 'Notify assignee'],
             ['archive', 'Archive'],
             ['reopen', 'Reopen now'],
@@ -3442,11 +3284,6 @@
             return state.members.map(m =>
                 `<option value="${m.id}" ${String(selected) === String(m.id) ? 'selected' : ''}>${escapeHtml(m.name)}</option>`
             ).join('') || '<option value="">No teammates</option>';
-        }
-        if (type === 'tag') {
-            return state.tags.map(t =>
-                `<option value="${t.id}" ${String(selected) === String(t.id) ? 'selected' : ''}>${escapeHtml(t.name)}</option>`
-            ).join('') || '<option value="">Create a tag first</option>';
         }
         if (type === 'reopen_after_days') {
             const days = [1, 2, 3, 5, 7, 14, 30, 60, 90];
@@ -3509,7 +3346,6 @@
         { value: 'outbound_message_new', label: 'Outbound message is sent (new conversation)', help: 'When you compose and send a new email.' },
         { value: 'outbound_reply', label: 'Outbound reply is sent', help: 'When a reply is sent on an existing conversation.' },
         { value: 'conversation_assigned', label: 'Conversation is assigned', help: 'When a teammate is assigned to the conversation.' },
-        { value: 'conversation_tagged', label: 'Conversation is tagged', help: 'When one or more tags are added.' },
         { value: 'conversation_archived', label: 'Conversation is archived', help: 'When a conversation is archived.' },
         { value: 'conversation_moved', label: 'Conversation is moved', help: 'When moved to spam, trash, inbox, or similar.' },
         { value: 'comment_added', label: 'Internal comment is added', help: 'When a teammate posts an internal comment.' },
@@ -3608,6 +3444,39 @@
             actions,
         };
     }
+    function leadLabelChipsHtml(labels) {
+        if (window.LnsAssignedLead?.chips) return window.LnsAssignedLead.chips(labels, escapeHtml);
+        const names = (labels || []).map(l => l?.name).filter(Boolean);
+        return names.length ? `<div class="channel-assigned">${names.map(escapeHtml).join(', ')}</div>` : '';
+    }
+
+    function conversationLead(c) {
+        return (c || state.conversation)?.lead || null;
+    }
+
+    function conversationAssigneeId(c) {
+        const conv = c || state.conversation;
+        const lead = conversationLead(conv);
+        if (lead) return lead.assigned_to || '';
+        return conv?.assigned_to || '';
+    }
+
+    function conversationAssignee(c) {
+        const conv = c || state.conversation;
+        const lead = conversationLead(conv);
+        if (lead) return lead.assigned_user || null;
+        return conv?.assignee || null;
+    }
+
+    function conversationTagItems(c) {
+        return conversationLead(c)?.labels || [];
+    }
+
+    function leadAssignedBlock(lead, withLink = true) {
+        if (!lead?.crm_url || !withLink) return '';
+        return `<a class="chp-link" href="${escapeHtml(lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>`;
+    }
+
     function conversationRowHtml(c) {
         const at = c.last_message_at || '';
         return `
@@ -3620,8 +3489,8 @@
                 <div class="inbox-conv-subject">${escapeHtml(c.subject || '(No subject)')}</div>
                 <div class="inbox-conv-snippet">${escapeHtml(c.snippet || '')}</div>
                 <div class="inbox-conv-tags">
-                    ${(c.tags || []).map(t => `<span class="inbox-pill" style="background:${t.color}22;color:${t.color}">${escapeHtml(t.name)}</span>`).join('')}
-                    ${c.assignee ? `<span class="inbox-pill">${escapeHtml(c.assignee.name)}</span>` : ''}
+                    ${conversationTagItems(c).map(t => `<span class="inbox-pill" style="background:${t.color}22;color:${t.color}">${escapeHtml(t.name)}</span>`).join('')}
+                    ${conversationAssignee(c)?.name ? `<span class="inbox-pill">${escapeHtml(conversationAssignee(c).name)}</span>` : ''}
                     ${c.reopen_at ? `<span class="inbox-pill">Snoozed ${escapeHtml(formatThreadTime(c.reopen_at) ? 'until ' + formatAbsoluteTime(c.reopen_at) : '')}</span>` : ''}
                 </div>
             </button>
@@ -3787,7 +3656,6 @@
 
             const filterInboxId = state.filters.inbox_id || state.selectedInboxId;
             if (filterInboxId) params.set('inbox_id', String(filterInboxId));
-            if (state.selectedTagId) params.set('tag_id', state.selectedTagId);
 
             const q = el('inboxSearch').value.trim();
             if (q) params.set('search', q);
@@ -3867,12 +3735,6 @@
             el('conversationList')?.querySelector(`[data-conv-id="${id}"]`)?.classList.remove('unread');
             const isOpenInbox = (prev.folder || 'inbox') === 'inbox' && (prev.status || 'open') === 'open';
             if (isOpenInbox) {
-                const tagIds = new Set((prev.tags || data.conversation.tags || []).map(t => Number(t.id)));
-                state.tags.forEach(t => {
-                    if (tagIds.has(Number(t.id)) && Number(t.unread_count) > 0) {
-                        t.unread_count = Number(t.unread_count) - 1;
-                    }
-                });
                 const inboxId = prev.inbox_id || data.conversation.inbox_id || data.conversation.inbox?.id;
                 const inbox = state.inboxes.find(i => Number(i.id) === Number(inboxId));
                 if (inbox && Number(inbox.unread_count) > 0) {
@@ -3953,7 +3815,7 @@
     function renderAssignMenu() {
         const menu = el('assignMenu');
         if (!menu) return;
-        const current = state.conversation?.assigned_to || '';
+        const current = conversationAssigneeId() || '';
         menu.innerHTML = '<button type="button" data-assign="">Unassigned</button>' +
             state.members.map(m =>
                 `<button type="button" data-assign="${m.id}" class="${Number(m.id) === Number(current) ? 'is-active' : ''}">${escapeHtml(m.name)}</button>`
@@ -4130,15 +3992,12 @@
         el('threadMeta').textContent = snoozedUntil ? ('Snoozed until ' + formatAbsoluteTime(snoozedUntil)) : '';
 
         const people = collectParticipants(c);
-        const tagChips = (c.tags || []).map(t =>
-            `<span class="inbox-pill" style="background:${t.color}22;color:${t.color}">${escapeHtml(t.name)}</span>`
-        ).join('');
         el('threadParticipants').innerHTML = people.slice(0, 6).map(p => `
             <span class="inbox-chip" title="${escapeHtml(p.email)}">
                 <span class="inbox-chip-avatar" style="background:${avatarHue(p.email)}">${escapeHtml(initials(p.name))}</span>
                 <span>${escapeHtml(p.name || p.email)}</span>
             </span>
-        `).join('') + (people.length > 6 ? `<span class="inbox-chip">+${people.length - 6}</span>` : '') + tagChips +
+        `).join('') + (people.length > 6 ? `<span class="inbox-chip">+${people.length - 6}</span>` : '') +
             '<button type="button" class="inbox-chip-add" id="btnAddParticipant" title="Assign teammate">+</button>';
 
         const folder = c.folder || 'inbox';
@@ -4176,24 +4035,41 @@
         }
         el('replyBody').dataset.placeholder = folder === 'drafts' ? 'Edit and send…' : 'Write a reply… Type @ to mention teammates.';
         const me = state.members.find(m => Number(m.id) === USER_ID);
-        el('commentBody').dataset.placeholder = c.assignee?.name
-            ? `Add internal comment visible to ${me?.name ? 'you' : 'your team'} and ${c.assignee.name}.`
+        const assignee = conversationAssignee(c);
+        el('commentBody').dataset.placeholder = assignee?.name
+            ? `Add internal comment visible to ${me?.name ? 'you' : 'your team'} and ${assignee.name}.`
             : 'Add internal comment visible to your team.';
 
-        el('assignSelect').value = c.assigned_to || '';
+        el('assignSelect').value = conversationAssigneeId(c) || '';
         el('propInboxName').textContent = c.inbox?.name || '—';
         el('propContact').textContent = `${c.from_name || ''} · ${c.from_email || ''}`;
         const propLead = el('propContactLead');
-        if (propLead) propLead.innerHTML = '';
+        if (propLead) {
+            propLead.innerHTML = leadAssignedBlock(c.lead);
+        }
 
-        el('conversationTags').innerHTML = (c.tags || []).map(t =>
-            `<span class="inbox-pill" style="background:${t.color}22;color:${t.color}">${escapeHtml(t.name)} <button type="button" data-remove-tag="${t.id}" style="border:none;background:transparent;cursor:pointer;color:inherit;">×</button></span>`
-        ).join('') || '<span style="color:var(--inbox-muted);font-size:0.8rem;">No tags</span>';
+        const tagItems = conversationTagItems(c);
+        const usingLeadLabels = !!conversationLead(c);
+        el('conversationTags').innerHTML = usingLeadLabels
+            ? (tagItems.length
+                ? tagItems.map(t =>
+                    `<span class="inbox-pill" style="background:${t.color}22;color:${t.color}">${escapeHtml(t.name)} <button type="button" data-remove-lead-label="${t.id}" style="border:none;background:transparent;cursor:pointer;color:inherit;">×</button></span>`
+                ).join('')
+                : `<span style="color:var(--inbox-muted);font-size:0.8rem;">No labels</span>`)
+            : `<span style="color:var(--inbox-muted);font-size:0.8rem;">Labels appear when this email matches a lead</span>`;
 
-        const used = new Set((c.tags || []).map(t => t.id));
-        el('addTagSelect').innerHTML = '<option value="">Add tag…</option>' + sortedTags()
-            .filter(t => !used.has(t.id))
-            .map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+        const used = new Set(tagItems.map(t => Number(t.id)));
+        const addSelect = el('addTagSelect');
+        if (addSelect) {
+            addSelect.style.display = usingLeadLabels ? '' : 'none';
+            addSelect.innerHTML = '<option value="">Add existing label…</option>' +
+                (state.leadLabels || []).filter(t => !used.has(Number(t.id)))
+                    .map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+        }
+        const leadLabelRow = el('addLeadLabelRow');
+        if (leadLabelRow) leadLabelRow.hidden = !usingLeadLabels;
+        const leadLabelInput = el('addLeadLabelInput');
+        if (leadLabelInput) leadLabelInput.value = '';
 
         const emails = [...(c.messages || [])].sort((a, b) => String(a.sent_at || '').localeCompare(String(b.sent_at || '')));
         const lastEmailId = emails.length ? String(emails[emails.length - 1].id) : null;
@@ -4275,6 +4151,8 @@
             <div class="chp-name">${escapeHtml(contact.display_name || 'Contact')}</div>
             ${(contact.matched_phones || []).slice(0, 2).map((p) => `<div class="chp-meta">${escapeHtml(p)}</div>`).join('')}
             ${(contact.matched_emails || []).slice(0, 2).map((em) => `<div class="chp-meta">${escapeHtml(em)}</div>`).join('')}
+            ${contact.lead?.assigned_user?.name ? `<div class="chp-assigned">Assigned to ${escapeHtml(contact.lead.assigned_user.name)}${contact.lead.status ? ' · ' + escapeHtml(contact.lead.status) : ''}</div>` : (contact.lead ? `<div class="chp-meta">Lead${contact.lead.status ? ' · ' + escapeHtml(contact.lead.status) : ''} · Unassigned</div>` : '')}
+            ${leadLabelChipsHtml(contact.lead?.labels)}
             ${contact.lead?.crm_url ? `<a class="chp-link" href="${escapeHtml(contact.lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>` : ''}
             ${contact.client?.crm_url ? `<a class="chp-link" href="${escapeHtml(contact.client.crm_url)}" target="_blank" rel="noopener">Open client →</a>` : ''}
             ${!contact.lead && opts.canSaveLead !== false ? `<button type="button" class="chp-save-lead" data-chp-save-lead>Save as lead</button>` : ''}
@@ -4318,7 +4196,7 @@
         const canSave = el('inboxContactHistory')?.dataset.canSaveLead !== '0';
         const contact = data?.contact || {};
         if (contact.lead?.crm_url) {
-            wrap.innerHTML = `<a class="chp-link" href="${escapeHtml(contact.lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>`;
+            wrap.innerHTML = leadAssignedBlock(contact.lead);
             return;
         }
         const emails = [...(contact.matched_emails || []), opts.email].filter(Boolean);
@@ -4411,7 +4289,13 @@
             limit: 60,
             source: 'inbox',
             canSaveLead,
-            onSaved: () => loadInboxContactHistory(c),
+            onSaved: async () => {
+                if (state.selectedId) {
+                    await openConversation(state.selectedId);
+                    await loadConversations();
+                    await loadBootstrap();
+                }
+            },
         };
 
         if (!email && !name && !phone) {
@@ -4467,7 +4351,6 @@
     async function loadBootstrap() {
         const data = await api('/bootstrap');
         state.inboxes = data.inboxes || [];
-        state.tags = data.tags || [];
         state.templates = (data.templates || []).map(t => ({
             ...t,
             body: t.body || t.body_text || '',
@@ -4476,20 +4359,17 @@
         }));
         state.rules = data.rules || [];
         state.members = data.members || [];
+        state.leadLabels = data.lead_labels || [];
         state.permissions = {
-            create_tags: !!(data.permissions && data.permissions.create_tags),
             create_templates: !!(data.permissions && data.permissions.create_templates),
             create_rules: !!(data.permissions && data.permissions.create_rules),
         };
-        state.pinnedTagIds = (data.pinned_tag_ids || []).map(id => Number(id)).filter(id => Number.isFinite(id));
-        if (el('btnNewTag')) el('btnNewTag').style.display = state.permissions.create_tags ? '' : 'none';
         if (el('btnNewTemplate')) el('btnNewTemplate').style.display = state.permissions.create_templates ? '' : 'none';
         if (el('btnNewRule')) el('btnNewRule').style.display = state.permissions.create_rules ? '' : 'none';
         el('mailStatusLabel').textContent = data.mail_connected ? (data.mail_email || 'Connected') : (data.outlook_configured ? 'Not connected' : 'Configure OAuth in Integrations');
         el('btnConnectOutlook').style.display = data.mail_connected ? 'none' : '';
         el('btnDisconnectOutlook').style.display = data.mail_connected ? '' : 'none';
         el('btnConnectOutlook').disabled = !data.outlook_configured && !data.mail_connected;
-        await migrateLocalPinnedTagsIfNeeded();
         await migrateLocalTemplatesIfNeeded();
         renderNav();
         refreshTemplateSelects();
@@ -4540,7 +4420,6 @@
         btn.addEventListener('click', async () => {
             state.view = btn.dataset.view;
             state.selectedInboxId = null;
-            state.selectedTagId = null;
             renderNav();
             await loadConversations();
         });
@@ -4574,7 +4453,6 @@
             const id = Number(folderBtn.dataset.inboxId);
             state.selectedInboxId = id;
             state.view = folderBtn.dataset.folderView;
-            state.selectedTagId = null;
             state.expandedInboxIds[id] = true;
             renderNav();
             await loadConversations();
@@ -4592,26 +4470,9 @@
             state.expandedInboxIds[id] = true;
             state.selectedInboxId = id;
             state.view = 'open';
-            state.selectedTagId = null;
             renderNav();
             await loadConversations();
         }
-    });
-
-    el('tagList').addEventListener('click', async (e) => {
-        const pinBtn = e.target.closest('[data-pin-tag]');
-        if (pinBtn) {
-            e.preventDefault();
-            e.stopPropagation();
-            togglePinTag(pinBtn.dataset.pinTag);
-            return;
-        }
-        const row = e.target.closest('[data-tag-id]');
-        if (!row) return;
-        const id = Number(row.dataset.tagId);
-        state.selectedTagId = state.selectedTagId === id ? null : id;
-        renderNav();
-        await loadConversations();
     });
 
     el('ruleList').addEventListener('click', async (e) => {
@@ -5317,21 +5178,65 @@
         await assignConversation(val || null);
     });
 
+    async function attachConversationLabel({ labelId = null, name = null } = {}) {
+        if (!state.selectedId) return;
+        const lead = conversationLead();
+        try {
+            await api('/conversations/' + state.selectedId + '/lead-labels', {
+                method: 'POST',
+                body: {
+                    lead_id: lead?.id || null,
+                    label_id: labelId || null,
+                    name: name || null,
+                },
+            });
+            await loadBootstrap();
+            await openConversation(state.selectedId);
+            await loadConversations();
+        } catch (err) {
+            alert(err.message || 'Could not add label.');
+        }
+    }
+
     el('addTagSelect').addEventListener('change', async () => {
         if (!state.selectedId || !el('addTagSelect').value) return;
-        const tagIds = [...(state.conversation.tags || []).map(t => t.id), Number(el('addTagSelect').value)];
-        await api('/conversations/' + state.selectedId + '/tags', { method: 'POST', body: { tag_ids: tagIds } });
-        await openConversation(state.selectedId);
-        await loadConversations();
+        if (!conversationLead()) {
+            el('addTagSelect').value = '';
+            return;
+        }
+        const labelId = Number(el('addTagSelect').value);
+        await attachConversationLabel({ labelId });
+    });
+
+    el('btnAddLeadLabel')?.addEventListener('click', async () => {
+        const input = el('addLeadLabelInput');
+        const name = String(input?.value || '').trim();
+        if (!name) {
+            input?.focus();
+            return;
+        }
+        await attachConversationLabel({ name });
+    });
+    el('addLeadLabelInput')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            el('btnAddLeadLabel')?.click();
+        }
     });
 
     el('conversationTags').addEventListener('click', async (e) => {
-        const btn = e.target.closest('[data-remove-tag]');
-        if (!btn || !state.selectedId) return;
-        const tagIds = (state.conversation.tags || []).map(t => t.id).filter(id => id !== Number(btn.dataset.removeTag));
-        await api('/conversations/' + state.selectedId + '/tags', { method: 'POST', body: { tag_ids: tagIds } });
-        await openConversation(state.selectedId);
-        await loadConversations();
+        const leadBtn = e.target.closest('[data-remove-lead-label]');
+        if (leadBtn && state.selectedId) {
+            try {
+                await api('/conversations/' + state.selectedId + '/lead-labels/' + leadBtn.dataset.removeLeadLabel + (conversationLead()?.id ? '?lead_id=' + conversationLead().id : ''), {
+                    method: 'DELETE',
+                });
+                await openConversation(state.selectedId);
+                await loadConversations();
+            } catch (err) {
+                alert(err.message || 'Could not remove label.');
+            }
+        }
     });
 
     function extractMentionUserIds(kind) {
@@ -5417,10 +5322,6 @@
     });
 
     el('btnNewInbox').addEventListener('click', () => openModal('modalInbox'));
-    el('btnNewTag').addEventListener('click', () => {
-        if (!state.permissions.create_tags) return;
-        openModal('modalTag');
-    });
     el('btnNewTemplate').addEventListener('click', () => {
         if (!state.permissions.create_templates) return;
         openTemplateModal();
@@ -5702,7 +5603,6 @@
             state.view = 'sent';
             state.selectedInboxId = inboxId;
             state.expandedInboxIds[inboxId] = true;
-            state.selectedTagId = null;
             await loadBootstrap();
             await loadConversations();
             if (data.conversation?.id) {
@@ -5788,16 +5688,6 @@
         }
     });
 
-    el('btnSaveTag').addEventListener('click', async () => {
-        if (!state.permissions.create_tags) return alert('You do not have permission to add tags.');
-        const name = el('newTagName').value.trim();
-        if (!name) return;
-        await api('/tags', { method: 'POST', body: { name, color: el('newTagColor').value } });
-        el('newTagName').value = '';
-        closeModal();
-        await loadBootstrap();
-    });
-
     el('btnSaveRule').addEventListener('click', async () => {
         if (!state.permissions.create_rules) return alert('You do not have permission to add rules.');
         const payload = collectRulePayload();
@@ -5811,8 +5701,8 @@
             return alert('Add at least one action.');
         }
         for (const action of payload.actions) {
-            if (['assign', 'tag'].includes(action.type) && (action.value === null || action.value === '')) {
-                return alert('Assign and tag actions need a value.');
+            if (['assign'].includes(action.type) && (action.value === null || action.value === '')) {
+                return alert('Assign actions need a teammate.');
             }
             if (action.type === 'reopen_after_days') {
                 const days = Number(action.value);

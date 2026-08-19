@@ -59,6 +59,9 @@
 }
 .chp-name { font-weight: 700; font-size: 0.98rem; color: var(--text-primary, #1a2332); margin-bottom: 0.25rem; }
 .chp-meta { font-size: 0.8rem; color: var(--text-secondary, #5b6b7c); margin: 0.15rem 0; word-break: break-all; }
+.chp-assigned { font-size: 0.8rem; font-weight: 600; color: #0b5cab; margin: 0.2rem 0 0.1rem; }
+.channel-label-chips { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.25rem; }
+.channel-label-chip { display: inline-flex; align-items: center; padding: 0.1rem 0.4rem; border-radius: 999px; font-size: 0.65rem; font-weight: 700; line-height: 1.2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chp-link { display: inline-block; margin-top: 0.45rem; margin-right: 0.65rem; font-size: 0.82rem; font-weight: 600; color: #0b5cab; text-decoration: none; }
 .chp-save-lead {
     display: inline-block;
@@ -169,6 +172,37 @@
         try { return new Date(iso).toLocaleString(); } catch { return iso; }
     }
 
+    function chipTextColor(hex) {
+        const h = String(hex || '').replace('#', '');
+        if (h.length !== 6 || Number.isNaN(parseInt(h, 16))) return '#fff';
+        const r = parseInt(h.slice(0, 2), 16);
+        const g = parseInt(h.slice(2, 4), 16);
+        const b = parseInt(h.slice(4, 6), 16);
+        return ((r * 299) + (g * 587) + (b * 114)) / 1000 > 160 ? '#111' : '#fff';
+    }
+
+    function leadLabelChipsHtml(labels) {
+        const items = Array.isArray(labels) ? labels.filter((label) => label && label.name) : [];
+        if (!items.length) return '';
+        return `<div class="channel-label-chips">${items.map((label) => {
+            const color = label.color || '#4338ca';
+            return `<span class="channel-label-chip" style="background:${esc(color)};color:${chipTextColor(color)}">${esc(label.name)}</span>`;
+        }).join('')}</div>`;
+    }
+
+    function assignedLeadPanelHtml(lead) {
+        if (!lead) return '';
+        const assignee = lead.assigned_user && lead.assigned_user.name;
+        const line = assignee
+            ? `<div class="chp-assigned">Assigned to ${esc(assignee)}${lead.status ? ' · ' + esc(lead.status) : ''}</div>`
+            : `<div class="chp-meta">Lead${lead.status ? ' · ' + esc(lead.status) : ''} · Unassigned</div>`;
+        const chips = leadLabelChipsHtml(lead.labels);
+        const link = lead.crm_url
+            ? `<a class="chp-link" href="${esc(lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>`
+            : '';
+        return line + chips + link;
+    }
+
     function getBody(root) {
         return root.querySelector('.chp-body') || root;
     }
@@ -207,7 +241,7 @@
             ${uniqueList([...(contact.matched_emails || []), ...(opts.extracted_emails || []), opts.email]).slice(0, 3).map((em) => `<div class="chp-meta">${esc(em)}</div>`).join('')}
             ${foundInMessages ? '<div class="chp-meta">Found in conversation messages</div>' : ''}
             ${placeholderHint}
-            ${contact.lead?.crm_url ? `<a class="chp-link" href="${esc(contact.lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>` : ''}
+            ${assignedLeadPanelHtml(contact.lead)}
             ${contact.client?.crm_url ? `<a class="chp-link" href="${esc(contact.client.crm_url)}" target="_blank" rel="noopener">Open client →</a>` : ''}
             ${!contact.lead && (opts.canSaveLead !== false) ? `<button type="button" class="chp-save-lead" data-chp-save-lead>Save as lead</button>` : ''}
         `;
