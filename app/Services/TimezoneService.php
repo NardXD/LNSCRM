@@ -67,4 +67,25 @@ class TimezoneService
     {
         return self::toCompanyTimezone($dateTime)->format($format);
     }
+
+    /**
+     * Convert a UTC / offset-aware external timestamp into the app timezone
+     * before persisting. Eloquent stores naive wall-clock times, so leaving a
+     * Carbon instance in UTC writes the UTC clock and then reads it back as
+     * local time (8 hours off in Asia/Manila).
+     */
+    public static function fromExternal(mixed $value): Carbon
+    {
+        if ($value === null || $value === '') {
+            return now();
+        }
+
+        $carbon = $value instanceof Carbon
+            ? $value->copy()
+            : ($value instanceof \DateTimeInterface
+                ? Carbon::instance($value)
+                : Carbon::parse($value));
+
+        return $carbon->timezone(config('app.timezone'));
+    }
 }

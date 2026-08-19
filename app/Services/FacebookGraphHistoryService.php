@@ -53,7 +53,9 @@ class FacebookGraphHistoryService
                     break 2;
                 }
 
-                $sentAt = isset($message['created_time']) ? Carbon::parse($message['created_time']) : now();
+                $sentAt = isset($message['created_time'])
+                    ? TimezoneService::fromExternal($message['created_time'])
+                    : now();
                 if ($after && $sentAt->lt($after)) {
                     continue;
                 }

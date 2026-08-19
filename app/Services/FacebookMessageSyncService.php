@@ -26,6 +26,8 @@ class FacebookMessageSyncService
      */
     public function sync(FacebookIntegration $integration, TwilioService $twilio, int $days = 90, int $limit = 2000): array
     {
+        $this->correctNaiveUtcTimestamps($integration);
+
         $after = $days > 0 ? Carbon::now()->subDays($days)->startOfDay() : null;
         $addresses = array_values(array_unique(array_filter([
             $twilio->messengerAddress((string) $integration->page_id, 'messenger'),
@@ -276,9 +278,7 @@ class FacebookMessageSyncService
             }
         }
 
-        $sentAt = $message->dateSent
-            ? Carbon::instance($message->dateSent)
-            : ($message->dateCreated ? Carbon::instance($message->dateCreated) : now());
+        $sentAt = TimezoneService::fromExternal($message->dateSent ?: $message->dateCreated);
 
         return $this->storeRecord(
             $integration,
@@ -343,8 +343,8 @@ class FacebookMessageSyncService
                     // optional
                 }
 
-                foreach ($context->messages->stream(['order' => 'asc'], $limit, 100) as $message) {
-                    $sentAt = $message->dateCreated ? Carbon::instance($message->dateCreated) : now();
+                    foreach ($context->messages->stream(['order' => 'asc'], $limit, 100) as $message) {
+                        $sentAt = TimezoneService::fromExternal($message->dateCreated);
                     if ($after && $sentAt->lt($after)) {
                         continue;
                     }
@@ -480,6 +480,8 @@ class FacebookMessageSyncService
     ): FacebookConversation {
         $conversation = $this->upsertConversation($integration, $channel, $peerId, $name);
 
+        $storedAt = TimezoneService::fromExternal($sentAt);
+
         $record = new FacebookMessage;
         $record->fill([
             'company_id' => $integration->company_id,
@@ -491,11 +493,11 @@ class FacebookMessageSyncService
             'media_url' => $mediaUrl,
             'mime_type' => $mimeType,
             'status' => $status,
-            'raw_payload' => $raw,
-            'sent_at' => $sentAt,
+            'raw_payload' => array_merge($raw, ['tz' => 'app']),
+            'sent_at' => $storedAt,
         ]);
-        $record->created_at = $sentAt;
-        $record->updated_at = $sentAt;
+        $record->created_at = $storedAt;
+        $record->updated_at = $storedAt;
         $record->save();
 
         return $conversation;
@@ -640,5 +642,54 @@ class FacebookMessageSyncService
         $conversation->last_message_preview = Str::limit(trim($preview), 480);
         $conversation->last_message_at = $latest->sent_at ?: now();
         $conversation->save();
+    }
+
+    /**
+     * Synced rows were saved with UTC wall-clock in a naive datetime column.
+     * Re-read those clocks as UTC and persist in the app timezone once.
+     */
+    public function correctNaiveUtcTimestamps(FacebookIntegration $integration): int
+    {
+        $fixed = 0;
+        $touched = [];
+
+        FacebookMessage::query()
+            ->where('company_id', $integration->company_id)
+            ->orderBy('id')
+            ->chunkById(200, function ($messages) use (&$fixed, &$touched) {
+                foreach ($messages as $message) {
+                    $payload = is_array($message->raw_payload) ? $message->raw_payload : [];
+                    if (($payload['tz'] ?? null) === 'app') {
+                        continue;
+                    }
+
+                    $source = (string) ($payload['source'] ?? '');
+                    $synced = (bool) ($payload['synced'] ?? false);
+                    if (! $synced && ! in_array($source, ['graph', 'messages', 'conversations'], true)) {
+                        continue;
+                    }
+
+                    $raw = $message->getRawOriginal('sent_at');
+                    if (! $raw) {
+                        continue;
+                    }
+
+                    $message->sent_at = Carbon::parse($raw, 'UTC')->timezone(config('app.timezone'));
+                    $payload['tz'] = 'app';
+                    $message->raw_payload = $payload;
+                    $message->save();
+                    $fixed++;
+                    $touched[$message->facebook_conversation_id] = true;
+                }
+            });
+
+        if ($touched !== []) {
+            FacebookConversation::query()
+                ->whereIn('id', array_keys($touched))
+                ->get()
+                ->each(fn (FacebookConversation $conversation) => $this->refreshPreview($conversation));
+        }
+
+        return $fixed;
     }
 }

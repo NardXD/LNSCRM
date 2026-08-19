@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Notifications\FacebookMessageNotification;
 use App\Services\FacebookMessageSyncService;
 use App\Services\LeadAutoCreateService;
+use App\Services\TimezoneService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -37,10 +38,15 @@ class FacebookController extends Controller
             ? (bool) $this->twilioCompany->getActiveIntegration($user->company)
             : false;
 
+        if ($integration) {
+            $this->facebookSync->correctNaiveUtcTimestamps($integration);
+        }
+
         return view('dashboard.facebook', [
             'integrationConnected' => (bool) ($integration && $twilioReady),
             'pageName' => $integration?->page_name,
             'instagramUsername' => $integration?->instagram_username,
+            'appTimezone' => config('app.timezone'),
         ]);
     }
 
@@ -386,7 +392,9 @@ class FacebookController extends Controller
             'file_name' => $fileName,
             'status' => $request->input('SmsStatus', 'received'),
             'raw_payload' => $request->except(['MediaUrl0', 'MediaUrl1']),
-            'sent_at' => now(),
+            'sent_at' => TimezoneService::fromExternal(
+                $request->input('DateSent') ?: $request->input('DateCreated')
+            ),
         ]);
 
         $conversation->unread_count = (int) $conversation->unread_count + 1;

@@ -7,6 +7,7 @@
      data-api-base="{{ url('api/facebook') }}"
      data-csrf="{{ csrf_token() }}"
      data-connected="{{ $integrationConnected ? '1' : '0' }}"
+     data-timezone="{{ $appTimezone ?? config('app.timezone') }}"
      data-integrations-url="{{ route('integrations') }}">
     <div class="fb-layout">
         <aside class="fb-sidebar">
@@ -172,6 +173,7 @@
 
     const apiBase = root.dataset.apiBase;
     const csrf = root.dataset.csrf;
+    const appTimezone = root.dataset.timezone || 'Asia/Manila';
     let connected = root.dataset.connected === '1';
     let conversations = [];
     let activeId = null;
@@ -241,7 +243,14 @@
     function formatTime(iso) {
         if (!iso) return '';
         const d = new Date(iso);
-        return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        if (Number.isNaN(d.getTime())) return '';
+        return d.toLocaleString([], {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: appTimezone,
+        });
     }
 
     function setAvatar(el, name, pic) {
