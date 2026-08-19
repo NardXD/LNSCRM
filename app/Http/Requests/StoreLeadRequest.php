@@ -27,7 +27,17 @@ class StoreLeadRequest extends FormRequest
         $phones = $this->mergeContactValues($phones, $extracted['phones']);
         $emails = $this->mergeContactValues($emails, $extracted['emails']);
 
+        $name = trim((string) $this->input('name', ''));
+        $extractedName = $extracted['names'][0] ?? null;
+        if (FacebookConversation::isPlaceholderName($name) && $extractedName) {
+            $name = $extractedName;
+        }
+        if (FacebookConversation::isPlaceholderName($facebook) && $extractedName) {
+            $facebook = $extractedName;
+        }
+
         $this->merge([
+            'name' => $name !== '' ? $name : $this->input('name'),
             'phones' => $phones,
             'emails' => $emails,
             'facebook_name' => FacebookConversation::isPlaceholderName($facebook) ? null : ($facebook !== '' ? $facebook : null),
@@ -87,14 +97,14 @@ class StoreLeadRequest extends FormRequest
     }
 
     /**
-     * @return array{phones: list<string>, emails: list<string>}
+     * @return array{phones: list<string>, emails: list<string>, names: list<string>}
      */
     protected function extractedFacebookContacts(): array
     {
         $conversationId = (int) $this->input('facebook_conversation_id', 0);
         $companyId = (int) ($this->user()?->company_id ?: 0);
         if ($conversationId < 1 || $companyId < 1) {
-            return ['phones' => [], 'emails' => []];
+            return ['phones' => [], 'emails' => [], 'names' => []];
         }
 
         $conversation = FacebookConversation::query()
@@ -102,7 +112,7 @@ class StoreLeadRequest extends FormRequest
             ->find($conversationId);
 
         if (! $conversation) {
-            return ['phones' => [], 'emails' => []];
+            return ['phones' => [], 'emails' => [], 'names' => []];
         }
 
         return app(MessageContactExtractor::class)->fromFacebookConversation($conversation);

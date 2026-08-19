@@ -12,7 +12,7 @@ class MessageContactExtractor
     ) {}
 
     /**
-     * @return array{phones: list<string>, emails: list<string>}
+     * @return array{phones: list<string>, emails: list<string>, names: list<string>}
      */
     public function fromFacebookConversation(FacebookConversation $conversation): array
     {
@@ -36,23 +36,45 @@ class MessageContactExtractor
             }
         }
 
-        $fromInbound = $this->fromTexts($inbound, (string) $conversation->peer_id);
+        $fromInbound = $this->fromTexts(array_reverse($inbound), (string) $conversation->peer_id);
         $fromOutbound = $this->fromTexts($outbound, (string) $conversation->peer_id);
+
+        $names = $fromInbound['names'];
+        if ($names === []) {
+            $names = $fromOutbound['names'];
+        }
 
         return [
             'phones' => array_values(array_unique(array_merge($fromInbound['phones'], $fromOutbound['phones']))),
             'emails' => array_values(array_unique(array_merge($fromInbound['emails'], $fromOutbound['emails']))),
+            'names' => $names,
         ];
     }
 
     /**
+     * @return array{phones: list<string>, emails: list<string>, names: list<string>}
+     */
+    public function applyToConversation(FacebookConversation $conversation): array
+    {
+        $extracted = $this->fromFacebookConversation($conversation);
+        $name = $extracted['names'][0] ?? null;
+        if ($name && FacebookConversation::isPlaceholderName($conversation->name)) {
+            $conversation->name = $name;
+            $conversation->save();
+        }
+
+        return $extracted;
+    }
+
+    /**
      * @param  list<string>  $texts
-     * @return array{phones: list<string>, emails: list<string>}
+     * @return array{phones: list<string>, emails: list<string>, names: list<string>}
      */
     public function fromTexts(array $texts, ?string $ignoreId = null): array
     {
         $phones = [];
         $emails = [];
+        $names = [];
 
         foreach ($texts as $text) {
             $text = (string) $text;
@@ -66,11 +88,22 @@ class MessageContactExtractor
             foreach ($this->phonesIn($text, $ignoreId) as $phone) {
                 $phones[$phone] = $phone;
             }
+            foreach ($this->namesIn($text) as $name) {
+                $names[$name] = $name;
+            }
+        }
+
+        if ($names === [] && $emails !== []) {
+            $fromEmail = $this->nameFromEmail((string) array_key_first($emails));
+            if ($fromEmail) {
+                $names[$fromEmail] = $fromEmail;
+            }
         }
 
         return [
             'phones' => array_values($phones),
             'emails' => array_values($emails),
+            'names' => array_values($names),
         ];
     }
 
@@ -137,6 +170,91 @@ class MessageContactExtractor
         }
 
         return $out;
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function namesIn(string $text): array
+    {
+        $patterns = [
+            '/\b(?:my name is|i am|i[\x{2019}\']m|this is|name\s*[:\-]|i go by)\s+([A-Za-z][A-Za-z.\'\-]*(?:\s+[A-Za-z][A-Za-z.\'\-]*){0,3})/iu',
+            '/\b(?:ako si|pangalan ko(?:\s+ay)?|ang pangalan ko(?:\s+ay)?)\s+([A-Za-z][A-Za-z.\'\-]*(?:\s+[A-Za-z][A-Za-z.\'\-]*){0,3})/iu',
+        ];
+
+        $out = [];
+        foreach ($patterns as $pattern) {
+            if (! preg_match_all($pattern, $text, $matches)) {
+                continue;
+            }
+            foreach ($matches[1] as $raw) {
+                $name = $this->cleanNameCandidate((string) $raw);
+                if ($name) {
+                    $out[$name] = $name;
+                }
+            }
+        }
+
+        return array_values($out);
+    }
+
+    protected function cleanNameCandidate(string $raw): ?string
+    {
+        $stop = [
+            'po', 'pala', 'and', 'from', 'of', 'here', 'interested', 'looking', 'thanks', 'thank',
+            'sir', 'maam', "ma'am", 'hello', 'hi', 'hey', 'good', 'morning', 'afternoon', 'evening',
+            'yes', 'yeah', 'ok', 'okay', 'please', 'help', 'inquiry', 'about', 'regarding', 'lang',
+            'naman', 'kasi', 'because', 'for', 'to', 'my', 'number', 'email', 'phone', 'contact',
+            'ng', 'sa', 'ay', 'the', 'a', 'an', 'your', 'our', 'in', 'on', 'with', 'following',
+            'following-up', 'follow', 'up', 'just', 'wanted', 'would', 'like', 'need', 'asking',
+        ];
+
+        $words = preg_split('/\s+/', trim($raw)) ?: [];
+        $kept = [];
+        foreach ($words as $word) {
+            $bare = strtolower((string) preg_replace("/[^a-z']/i", '', $word));
+            if ($bare === '' || in_array($bare, $stop, true) || preg_match('/\d/', $word)) {
+                break;
+            }
+            $kept[] = $word;
+            if (count($kept) >= 4) {
+                break;
+            }
+        }
+
+        if ($kept === []) {
+            return null;
+        }
+
+        $name = mb_convert_case(implode(' ', $kept), MB_CASE_TITLE, 'UTF-8');
+        if (FacebookConversation::isPlaceholderName($name)) {
+            return null;
+        }
+
+        $letters = preg_replace('/[^a-z]/i', '', $name) ?? '';
+        if (strlen($letters) < 3 || strlen($name) > 80) {
+            return null;
+        }
+
+        return $name;
+    }
+
+    protected function nameFromEmail(string $email): ?string
+    {
+        $local = strtolower(explode('@', $email)[0] ?? '');
+        $local = (string) preg_replace('/[0-9]+/', '', $local);
+        $blocked = ['admin', 'info', 'sales', 'hello', 'contact', 'support', 'user', 'mail', 'noreply', 'no-reply'];
+        if ($local === '' || in_array($local, $blocked, true)) {
+            return null;
+        }
+
+        $parts = preg_split('/[._\-]+/', $local) ?: [];
+        $parts = array_values(array_filter($parts, fn ($part) => strlen((string) $part) >= 2));
+        if ($parts === []) {
+            return null;
+        }
+
+        return $this->cleanNameCandidate(implode(' ', array_slice($parts, 0, 4)));
     }
 
     protected function normalizeExtractedPhone(string $raw): ?string

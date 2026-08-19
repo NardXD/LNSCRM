@@ -115,20 +115,30 @@ function renderPanel(root, data, opts = {}) {
     const events = (data.events || []).slice(0, 25);
     const phones = mergedPhones(contact, opts);
     const emails = mergedEmails(contact, opts);
+    const extractedName = String(opts.extracted_name || (opts.extracted_names || [])[0] || '').trim();
     const placeholder = isPlaceholderName(contact.display_name || opts.name);
-    const foundInMessages = (opts.extracted_phones || []).length > 0 || (opts.extracted_emails || []).length > 0;
+    const displayName = placeholder && extractedName ? extractedName : (contact.display_name || extractedName || 'Contact');
+    const foundInMessages = (opts.extracted_phones || []).length > 0
+        || (opts.extracted_emails || []).length > 0
+        || Boolean(extractedName);
     let placeholderHint = '';
     if (placeholder && !contact.lead) {
-        placeholderHint = foundInMessages
-            ? '<p class="chp-empty">No real name on this thread. Phone or email was found in the messages — add a name to save as a lead.</p>'
-            : '<p class="chp-empty">No real name on this thread. You can still save as an individual lead — a name and a phone or email are required.</p>';
+        if (extractedName && (phones.length || emails.length)) {
+            placeholderHint = '<p class="chp-empty">Name and contact details were found in the messages. Review them, then save as a lead.</p>';
+        } else if (extractedName) {
+            placeholderHint = '<p class="chp-empty">A name was found in the messages. Add a phone or email to save as a lead.</p>';
+        } else if (foundInMessages) {
+            placeholderHint = '<p class="chp-empty">No real name on this thread. Phone or email was found in the messages — add a name to save as a lead.</p>';
+        } else {
+            placeholderHint = '<p class="chp-empty">No real name on this thread. You can still save as an individual lead — a name and a phone or email are required.</p>';
+        }
     }
 
     const contactHtml = `
-        <div class="chp-name">${esc(contact.display_name || 'Contact')}</div>
+        <div class="chp-name">${esc(displayName)}</div>
         ${phones.slice(0, 3).map((p) => `<div class="chp-meta">${esc(p)}</div>`).join('')}
         ${emails.slice(0, 3).map((em) => `<div class="chp-meta">${esc(em)}</div>`).join('')}
-        ${foundInMessages && (phones.length || emails.length) ? '<div class="chp-meta">Found in conversation messages</div>' : ''}
+        ${foundInMessages ? '<div class="chp-meta">Found in conversation messages</div>' : ''}
         ${placeholderHint}
         ${contact.lead?.crm_url ? `<a class="chp-link" href="${esc(contact.lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>` : ''}
         ${contact.client?.crm_url ? `<a class="chp-link" href="${esc(contact.client.crm_url)}" target="_blank" rel="noopener">Open client →</a>` : ''}
@@ -191,8 +201,8 @@ function collectPlaceholderLeadDetails(bodyEl, placeholderName, defaults = {}) {
         const form = document.createElement('div');
         form.className = 'chp-lead-form';
         form.innerHTML = `
-            <p class="chp-empty">${foundContact
-                ? `This ${esc(channelLabel)} contact has no real name. Phone or email was found in the messages — add a name to save as an individual lead.`
+            <p class="chp-empty">${foundContact || defaults.name
+                ? `Details were found in this ${esc(channelLabel)} conversation. Review the name and add a phone or email if needed.`
                 : `This ${esc(channelLabel)} contact has no real name. Add a name and a phone or email to save as an individual lead.`}</p>
             <label class="chp-field"><span>Name</span><input type="text" data-chp-lead-name autocomplete="name"></label>
             <label class="chp-field"><span>Phone</span><input type="tel" data-chp-lead-phone autocomplete="tel"></label>
@@ -210,6 +220,7 @@ function collectPlaceholderLeadDetails(bodyEl, placeholderName, defaults = {}) {
         const emailInput = form.querySelector('[data-chp-lead-email]');
         if (phoneInput) phoneInput.value = defaults.phone || '';
         if (emailInput) emailInput.value = defaults.email || '';
+        if (nameInput && defaults.name) nameInput.value = defaults.name;
         nameInput?.focus();
 
         const errorEl = form.querySelector('[data-chp-lead-error]');
@@ -249,11 +260,16 @@ function collectPlaceholderLeadDetails(bodyEl, placeholderName, defaults = {}) {
 
 async function saveAsLead(bodyEl, opts, contact) {
     let name = String(contact.display_name || opts.name || opts.phone || opts.email || 'New lead').trim();
+    const extractedName = String(opts.extracted_name || (opts.extracted_names || [])[0] || '').trim();
+    if (isPlaceholderName(name) && extractedName) {
+        name = extractedName;
+    }
     let phones = mergedPhones(contact, opts);
     let emails = mergedEmails(contact, opts);
 
-    if (isPlaceholderName(name)) {
-        const details = await collectPlaceholderLeadDetails(bodyEl, name, {
+    if (isPlaceholderName(name) || isPlaceholderName(contact.display_name || opts.name) || opts.needsLeadDetails) {
+        const details = await collectPlaceholderLeadDetails(bodyEl, contact.display_name || opts.name || name, {
+            name: isPlaceholderName(name) ? '' : name,
             phone: phones[0] || '',
             email: emails[0] || '',
         });

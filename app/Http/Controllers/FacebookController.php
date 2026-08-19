@@ -148,12 +148,14 @@ class FacebookController extends Controller
         $conversation->update(['unread_count' => 0]);
         $this->markConversationNotificationsRead($conversation);
 
-        $extracted = $this->messageContacts->fromFacebookConversation($conversation);
+        $extracted = $this->messageContacts->applyToConversation($conversation);
 
         return response()->json([
             'conversation' => array_merge($this->formatConversation($conversation->fresh()), [
                 'extracted_phones' => $extracted['phones'],
                 'extracted_emails' => $extracted['emails'],
+                'extracted_names' => $extracted['names'],
+                'extracted_name' => $extracted['names'][0] ?? null,
             ]),
             'data' => $messages,
         ]);
@@ -444,6 +446,7 @@ class FacebookController extends Controller
 
         $conversation->unread_count = (int) $conversation->unread_count + 1;
         $this->touchConversation($conversation, $record);
+        $this->messageContacts->applyToConversation($conversation);
         $this->notifyUnread($conversation, $record);
 
         if ($isNewConversation) {

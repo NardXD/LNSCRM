@@ -687,6 +687,7 @@
             els.main.classList.remove('hidden-mobile');
         }
 
+        const wasPlaceholder = ['messenger user', 'instagram user', 'facebook user'].includes(String(conv.name || '').trim().toLowerCase());
         const data = await api(`/conversations/${id}/messages`);
         (data.data || []).forEach(appendMessage);
         els.messages.scrollTop = els.messages.scrollHeight;
@@ -695,12 +696,16 @@
         if (data.conversation) {
             const idx = conversations.findIndex(c => c.id === id);
             if (idx >= 0) conversations[idx] = { ...conversations[idx], ...data.conversation, unread_count: 0 };
+            Object.assign(conv, conversations[idx] || data.conversation, { unread_count: 0 });
+            els.headerName.textContent = conv.name || (channelLabel(conv.channel) + ' User');
+            setAvatar(els.headerAvatar, conv.name, conv.profile_pic);
             renderThreads();
         }
 
         document.querySelector('.fb-layout')?.classList.add('with-history');
+        const extractedName = data.conversation?.extracted_name || (data.conversation?.extracted_names || [])[0] || '';
         const historyOpts = {
-            name: conv.name || conv.username || '',
+            name: conv.name || extractedName || conv.username || '',
             username: conv.username || '',
             excludeChannel: 'facebook',
             excludeId: conv.id,
@@ -711,6 +716,9 @@
             email: (data.conversation?.extracted_emails || [])[0] || '',
             extracted_phones: data.conversation?.extracted_phones || [],
             extracted_emails: data.conversation?.extracted_emails || [],
+            extracted_name: extractedName,
+            extracted_names: data.conversation?.extracted_names || [],
+            needsLeadDetails: wasPlaceholder,
             onSaved(data, extra) {
                 if (extra?.existing && data.existing_lead_id) {
                     window.location.href = '/leads?lead=' + data.existing_lead_id;
@@ -725,6 +733,8 @@
                     historyOpts.name = newName;
                     historyOpts.facebook_name = conv.channel === 'instagram' ? null : newName;
                     historyOpts.instagram_username = conv.channel === 'instagram' ? (conv.username || newName) : null;
+                    historyOpts.extracted_name = newName;
+                    historyOpts.needsLeadDetails = false;
                 }
                 window.loadChannelContactHistory('#fbContactHistory', historyOpts);
             },
@@ -746,6 +756,8 @@
 
         const phones = data.conversation?.extracted_phones || [];
         const emails = data.conversation?.extracted_emails || [];
+        const names = data.conversation?.extracted_names || [];
+        const extractedName = data.conversation?.extracted_name || names[0] || '';
         if (!activeHistoryOpts || document.querySelector('#fbContactHistory .chp-lead-form')) {
             return;
         }
@@ -753,13 +765,27 @@
         const nextEmail = emails[0] || '';
         const samePhones = JSON.stringify(phones) === JSON.stringify(activeHistoryOpts.extracted_phones || []);
         const sameEmails = JSON.stringify(emails) === JSON.stringify(activeHistoryOpts.extracted_emails || []);
-        if (samePhones && sameEmails && nextPhone === (activeHistoryOpts.phone || '') && nextEmail === (activeHistoryOpts.email || '')) {
+        const sameName = extractedName === (activeHistoryOpts.extracted_name || '');
+        if (samePhones && sameEmails && sameName && nextPhone === (activeHistoryOpts.phone || '') && nextEmail === (activeHistoryOpts.email || '')) {
             return;
+        }
+        if (data.conversation?.name && activeId) {
+            const idx = conversations.findIndex(c => c.id === activeId);
+            if (idx >= 0 && conversations[idx].name !== data.conversation.name) {
+                conversations[idx] = { ...conversations[idx], name: data.conversation.name };
+                els.headerName.textContent = data.conversation.name;
+                renderThreads();
+            }
         }
         activeHistoryOpts.phone = nextPhone;
         activeHistoryOpts.email = nextEmail;
         activeHistoryOpts.extracted_phones = phones;
         activeHistoryOpts.extracted_emails = emails;
+        activeHistoryOpts.extracted_name = extractedName;
+        activeHistoryOpts.extracted_names = names;
+        if (extractedName && ['messenger user', 'instagram user', 'facebook user'].includes(String(activeHistoryOpts.name || '').toLowerCase())) {
+            activeHistoryOpts.name = extractedName;
+        }
         window.loadChannelContactHistory('#fbContactHistory', activeHistoryOpts);
     }
 
