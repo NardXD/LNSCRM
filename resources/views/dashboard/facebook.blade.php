@@ -204,18 +204,33 @@
         emptySyncBtn: document.getElementById('fbEmptySyncBtn'),
     };
 
+    function syncErrorMessage(res, data, fallback) {
+        if (data?.message || data?.error) return data.message || data.error;
+        if (!res) return fallback;
+        if ([502, 504, 524, 408].includes(res.status)) {
+            return 'Sync timed out. The server was still talking to Twilio. Try Last 30 days, or add a Page Access Token under Integrations.';
+        }
+        if (res.status) return fallback + ' (HTTP ' + res.status + ')';
+        return fallback;
+    }
+
     async function api(path, options = {}) {
-        const res = await fetch(apiBase + path, {
-            ...options,
-            headers: {
-                'Accept': 'application/json',
-                'X-CSRF-TOKEN': csrf,
-                ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-                ...(options.headers || {}),
-            },
-        });
+        let res;
+        try {
+            res = await fetch(apiBase + path, {
+                ...options,
+                headers: {
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrf,
+                    ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+                    ...(options.headers || {}),
+                },
+            });
+        } catch (e) {
+            throw new Error('Could not reach the server. If Sync was still Pending, it timed out — try Last 30 days.');
+        }
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.message || data.error || 'Request failed');
+        if (!res.ok) throw new Error(syncErrorMessage(res, data, 'Request failed'));
         return data;
     }
 

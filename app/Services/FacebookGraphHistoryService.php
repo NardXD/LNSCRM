@@ -13,10 +13,11 @@ class FacebookGraphHistoryService
     /**
      * @return array<int, array<string, mixed>>
      */
-    public function history(string $pageId, string $accessToken, ?Carbon $after = null, int $maxMessages = 10000): array
+    public function history(string $pageId, string $accessToken, ?Carbon $after = null, int $maxMessages = 1500): array
     {
         $rows = [];
         $pageId = trim($pageId);
+        $deadline = microtime(true) + 20;
 
         foreach ($this->paginate($this->baseUrl.'/'.$pageId.'/conversations', [
             'platform' => 'messenger',
@@ -24,7 +25,7 @@ class FacebookGraphHistoryService
             'limit' => 50,
             'access_token' => $accessToken,
         ]) as $thread) {
-            if (count($rows) >= $maxMessages) {
+            if (count($rows) >= $maxMessages || microtime(true) >= $deadline) {
                 break;
             }
 
@@ -48,7 +49,7 @@ class FacebookGraphHistoryService
                 'limit' => 100,
                 'access_token' => $accessToken,
             ]) as $message) {
-                if (count($rows) >= $maxMessages) {
+                if (count($rows) >= $maxMessages || microtime(true) >= $deadline) {
                     break 2;
                 }
 
@@ -169,8 +170,8 @@ class FacebookGraphHistoryService
         while ($next && $pages < 200) {
             $pages++;
             $response = $params === []
-                ? Http::timeout(60)->get($next)
-                : Http::timeout(60)->get($next, $params);
+                ? Http::timeout(15)->get($next)
+                : Http::timeout(15)->get($next, $params);
 
             if (! $response->successful()) {
                 Log::warning('Facebook Graph history request failed', [

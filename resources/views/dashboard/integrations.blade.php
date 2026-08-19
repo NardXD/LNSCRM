@@ -2350,18 +2350,28 @@
         }
         if (help) help.textContent = 'Importing Facebook inbox and Twilio history… this can take a few minutes.';
         try {
-            const response = await fetch('/api/facebook/sync', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
-                },
-                body: JSON.stringify({ days: Number(days), limit: 2000 })
-            });
-            const data = await response.json();
+            let response;
+            try {
+                response = await fetch('/api/facebook/sync', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                    },
+                    body: JSON.stringify({ days: Number(days), limit: 2000 })
+                });
+            } catch (e) {
+                throw new Error('Could not reach the server. If Sync was still Pending, it timed out — try Last 30 days.');
+            }
+            const data = await response.json().catch(() => ({}));
             if (!response.ok) {
-                throw new Error(data.message || data.error || 'Sync failed.');
+                const timeout = [502, 504, 524, 408].includes(response.status);
+                throw new Error(
+                    data.message || data.error || (timeout
+                        ? 'Sync timed out. Try Last 30 days, or add a Page Access Token under Integrations.'
+                        : 'Sync failed (HTTP ' + response.status + ').')
+                );
             }
             const result = data.data || {};
             const imported = Number(result.imported || 0);

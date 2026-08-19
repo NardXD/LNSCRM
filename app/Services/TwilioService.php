@@ -348,15 +348,12 @@ class TwilioService
             foreach (['to', 'from'] as $field) {
                 $options = $params;
                 $options[$field] = $candidate;
-                foreach ($this->twilio->messages->stream($options, null, 100) as $message) {
+                foreach ($this->twilio->messages->stream($options, $limit, 100) as $message) {
                     $bySid[$message->sid] = $message;
+                    if (count($bySid) >= $limit) {
+                        return array_values($bySid);
+                    }
                 }
-            }
-        }
-
-        foreach ($this->twilio->messages->stream($params, $limit, 100) as $message) {
-            if ($this->isSocialChannelMessage($message)) {
-                $bySid[$message->sid] = $message;
             }
         }
 
