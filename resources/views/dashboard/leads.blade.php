@@ -9,6 +9,7 @@
             <p class="page-subtitle">Store a customer’s phones, emails, and social names so Phone, Inbox, Viber, WhatsApp, Facebook, and SMS share one Contact history.</p>
         </div>
         <div class="leads-header-actions">
+            <button type="button" class="btn btn-secondary" id="leadLabelsBtn">Labels</button>
             <button type="button" class="btn btn-secondary" id="leadRulesBtn">Rules</button>
             <button type="button" class="btn btn-primary" id="newLeadBtn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -196,6 +197,27 @@
         </div>
     </div>
 
+    <div class="modal-overlay" id="leadLabelsModal">
+        <div class="modal-content leads-rules-modal">
+            <div class="modal-header">
+                <h3>Lead labels</h3>
+                <button type="button" class="modal-close-btn" id="closeLeadLabelsModal">&times;</button>
+            </div>
+            <div class="leads-rules-body">
+                <p class="leads-rules-help">Create labels here, then use them on leads, filters, and rules.</p>
+                <div id="leadCompanyLabelList" class="leads-rule-list"></div>
+                <form id="leadCompanyLabelForm" class="leads-label-create">
+                    <input type="text" id="leadCompanyLabelName" maxlength="50" placeholder="New label name" required>
+                    <input type="color" id="leadCompanyLabelColor" value="#4338ca" title="Label color" aria-label="Label color">
+                    <button type="submit" class="btn btn-primary" id="saveLeadCompanyLabelBtn">Add label</button>
+                </form>
+            </div>
+            <div class="modal-actions leads-rules-actions">
+                <button type="button" class="btn btn-secondary" id="closeLeadLabelsBtn">Close</button>
+            </div>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="leadRulesModal">
         <div class="modal-content leads-rules-modal">
             <div class="modal-header">
@@ -368,6 +390,10 @@
 .leads-rule-remove { border: none; background: none; color: #b91c1c; font-size: 1.1rem; cursor: pointer; padding: 0.2rem 0.35rem; }
 .leads-rule-stop { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; margin: 0.75rem 0 0; }
 .leads-rules-actions { padding: 0.85rem 1.25rem 1.1rem; margin: 0; border-top: 1px solid var(--border); }
+.leads-label-create { display: flex; gap: 0.45rem; align-items: center; margin-top: 0.85rem; }
+.leads-label-create input[type="text"] { flex: 1; min-width: 0; padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; }
+.leads-label-create input[type="color"] { width: 2.4rem; height: 2.2rem; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); cursor: pointer; }
+.leads-label-row-color { width: 2rem; height: 1.85rem; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); cursor: pointer; }
 @media (max-width: 700px) {
     .leads-rule-extra-card, .leads-rule-extra-card.is-action { grid-template-columns: 1fr; }
 }
@@ -642,9 +668,41 @@
             const data = await res.json();
             state.companyLabels = data.data || [];
             renderLabelSuggestions();
+            renderCompanyLabelList();
         } catch {
             state.companyLabels = [];
+            renderCompanyLabelList();
         }
+    }
+    function renderCompanyLabelList() {
+        const list = document.getElementById('leadCompanyLabelList');
+        if (!list) return;
+        if (!state.companyLabels.length) {
+            list.innerHTML = '<div class="chp-empty">No labels yet. Add one below.</div>';
+            return;
+        }
+        list.innerHTML = state.companyLabels.map(label => `
+            <div class="leads-rule-row">
+                <div class="leads-rule-row-main">
+                    <div class="leads-rule-row-name">
+                        <span class="lead-label-chip" style="background:${esc(label.color || '#4338ca')};color:${chipText(label.color)}">${esc(label.name)}</span>
+                    </div>
+                </div>
+                <div class="leads-rule-row-actions">
+                    <input type="color" class="leads-label-row-color" data-label-color="${label.id}" value="${esc(label.color || '#4338ca')}" title="Change color" aria-label="Change color">
+                    <button type="button" class="btn btn-secondary btn-sm" data-delete-company-label="${label.id}">Delete</button>
+                </div>
+            </div>
+        `).join('');
+    }
+    function openLabelsModal() {
+        document.getElementById('leadLabelsModal')?.classList.add('open');
+        renderCompanyLabelList();
+        loadCompanyLabels();
+        document.getElementById('leadCompanyLabelName')?.focus();
+    }
+    function closeLabelsModal() {
+        document.getElementById('leadLabelsModal')?.classList.remove('open');
     }
 
     function addIdentityRow(listId, value, label, placeholder) {
@@ -1485,6 +1543,55 @@
         };
     }
 
+    document.getElementById('leadLabelsBtn')?.addEventListener('click', openLabelsModal);
+    document.getElementById('closeLeadLabelsModal')?.addEventListener('click', closeLabelsModal);
+    document.getElementById('closeLeadLabelsBtn')?.addEventListener('click', closeLabelsModal);
+    document.getElementById('leadCompanyLabelForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const nameEl = document.getElementById('leadCompanyLabelName');
+        const colorEl = document.getElementById('leadCompanyLabelColor');
+        const name = nameEl?.value.trim() || '';
+        if (!name) { nameEl?.focus(); return; }
+        const btn = document.getElementById('saveLeadCompanyLabelBtn');
+        btn.disabled = true;
+        try {
+            const res = await fetch(api + '/labels', {
+                method: 'POST', credentials: 'same-origin', headers: headers(true),
+                body: JSON.stringify({ name, color: colorEl?.value || '#4338ca' }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.message || 'Could not create label.');
+            if (nameEl) nameEl.value = '';
+            await loadCompanyLabels();
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            btn.disabled = false;
+        }
+    });
+    document.getElementById('leadCompanyLabelList')?.addEventListener('click', async (e) => {
+        const del = e.target.closest('[data-delete-company-label]');
+        if (!del) return;
+        if (!confirm('Delete this label? It will be removed from all leads.')) return;
+        const res = await fetch(api + '/labels/' + del.dataset.deleteCompanyLabel, {
+            method: 'DELETE', credentials: 'same-origin', headers: headers(),
+        });
+        if (!res.ok) return alert('Could not delete label.');
+        state.labelIds = state.labelIds.filter(id => id !== String(del.dataset.deleteCompanyLabel));
+        await loadCompanyLabels();
+        loadLeads();
+    });
+    document.getElementById('leadCompanyLabelList')?.addEventListener('change', async (e) => {
+        const color = e.target.closest('[data-label-color]');
+        if (!color) return;
+        const res = await fetch(api + '/labels/' + color.dataset.labelColor, {
+            method: 'PATCH', credentials: 'same-origin', headers: headers(true),
+            body: JSON.stringify({ color: color.value }),
+        });
+        if (!res.ok) return alert('Could not update label color.');
+        await loadCompanyLabels();
+        loadLeads();
+    });
     document.getElementById('leadRulesBtn')?.addEventListener('click', () => {
         loadRules().catch(() => {});
         openRulesModal();

@@ -169,6 +169,9 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/', [LeadsController::class, 'list'])->name('api.leads.index');
         Route::post('/', [LeadsController::class, 'store'])->name('api.leads.store');
         Route::get('/labels', [LeadsController::class, 'labels'])->name('api.leads.labels');
+        Route::post('/labels', [LeadsController::class, 'storeLabel'])->name('api.leads.labels.store');
+        Route::patch('/labels/{leadLabel}', [LeadsController::class, 'updateLabel'])->name('api.leads.labels.update');
+        Route::delete('/labels/{leadLabel}', [LeadsController::class, 'destroyLabel'])->name('api.leads.labels.destroy');
         Route::get('/assignees', [LeadsController::class, 'assignees'])->name('api.leads.assignees');
         Route::get('/rules', [LeadsController::class, 'listRules'])->name('api.leads.rules.index');
         Route::post('/rules', [LeadsController::class, 'storeRule'])->name('api.leads.rules.store');

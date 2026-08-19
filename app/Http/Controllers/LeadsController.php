@@ -332,6 +332,83 @@ class LeadsController extends Controller
         return response()->json(['success' => true, 'data' => $labels]);
     }
 
+    public function storeLabel(Request $request): JsonResponse
+    {
+        $companyId = (int) Auth::user()->company_id;
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:50'],
+            'color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+        ]);
+        $name = trim($validated['name']);
+        if ($name === '') {
+            return response()->json(['message' => 'Enter a label name.'], 422);
+        }
+
+        $existing = LeadLabel::query()
+            ->where('company_id', $companyId)
+            ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+            ->first();
+        if ($existing) {
+            return response()->json([
+                'success' => true,
+                'message' => 'That label already exists.',
+                'data' => $this->serializeLabel($existing),
+            ]);
+        }
+
+        $label = LeadLabel::create([
+            'company_id' => $companyId,
+            'name' => $name,
+            'color' => $validated['color'] ?? $this->nextLabelColor($companyId),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Label created.',
+            'data' => $this->serializeLabel($label),
+        ], 201);
+    }
+
+    public function updateLabel(Request $request, LeadLabel $leadLabel): JsonResponse
+    {
+        $this->labelForUser($leadLabel);
+        $validated = $request->validate([
+            'name' => ['sometimes', 'string', 'max:50'],
+            'color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+        ]);
+
+        if (array_key_exists('name', $validated)) {
+            $name = trim($validated['name']);
+            if ($name === '') {
+                return response()->json(['message' => 'Enter a label name.'], 422);
+            }
+            $duplicate = LeadLabel::query()
+                ->where('company_id', $leadLabel->company_id)
+                ->whereKeyNot($leadLabel->id)
+                ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+                ->exists();
+            if ($duplicate) {
+                return response()->json(['message' => 'Another label already uses that name.'], 422);
+            }
+            $validated['name'] = $name;
+        }
+
+        $leadLabel->update($validated);
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->serializeLabel($leadLabel->fresh()),
+        ]);
+    }
+
+    public function destroyLabel(LeadLabel $leadLabel): JsonResponse
+    {
+        $this->labelForUser($leadLabel);
+        $leadLabel->delete();
+
+        return response()->json(['success' => true]);
+    }
+
     public function assignees(): JsonResponse
     {
         $companyId = (int) Auth::user()->company_id;
@@ -725,6 +802,15 @@ class LeadsController extends Controller
         }
 
         return $lead;
+    }
+
+    protected function labelForUser(LeadLabel $label): LeadLabel
+    {
+        if ((int) $label->company_id !== (int) Auth::user()->company_id) {
+            abort(404);
+        }
+
+        return $label;
     }
 
     protected function leadRuleForUser(LeadRule $rule): LeadRule
