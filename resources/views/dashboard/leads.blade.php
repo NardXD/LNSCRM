@@ -36,6 +36,7 @@
             <button type="button" class="leads-tab" data-status="converted">Converted</button>
             <button type="button" class="leads-tab" data-status="lost">Lost</button>
             <button type="button" class="leads-tab" data-status="snoozed">Snoozed</button>
+            <button type="button" class="leads-tab" data-status="archived">Archived</button>
         </div>
     </div>
 
@@ -95,6 +96,7 @@
                                 <option value="converted">Converted</option>
                                 <option value="lost">Lost</option>
                                 <option value="snoozed">Snoozed</option>
+                                <option value="archived">Archived</option>
                             </select>
                         </div>
                     </div>
@@ -279,6 +281,7 @@
 .lead-badge.converted { background: #d1fae5; color: #065f46; }
 .lead-badge.lost { background: #fee2e2; color: #991b1b; }
 .lead-badge.snoozed { background: #fef3c7; color: #92400e; }
+.lead-badge.archived { background: #e2e8f0; color: #475569; }
 .lead-assign { max-width: 160px; font-size: 0.8rem; padding: 0.3rem 0.45rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); color: var(--text-primary); }
 .lead-assign:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .lead-label-list, .lead-notes-list { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.45rem; }
@@ -1111,6 +1114,7 @@
         { value: 'outbound_call', label: 'Outbound call is placed', help: 'When an outbound phone call is placed.' },
         { value: 'lead_assigned', label: 'Lead is assigned', help: 'When a teammate is assigned to the lead.' },
         { value: 'lead_labeled', label: 'Label added', help: 'When this label is added to the lead.' },
+        { value: 'lead_status_changed', label: 'Status changed', help: 'When the lead status changes to this status.' },
         { value: 'lead_note_added', label: 'Note is added to lead', help: 'When a note is saved on the lead.' },
     ];
     const RULE_CHANNELS = [
@@ -1248,6 +1252,7 @@
             ['subject', 'Subject'],
             ['message', 'Message'],
             ['lead_status', 'Lead status'],
+            ['status_changed', 'Status changed'],
             ['lead_label', 'Lead has label'],
             ['label_added', 'Label added'],
         ];
@@ -1261,8 +1266,8 @@
             .join('');
     }
     function conditionValueControl(field, selected = '') {
-        if (field === 'lead_status') {
-            const statuses = ['new', 'contacted', 'qualified', 'converted', 'lost', 'snoozed'];
+        if (field === 'lead_status' || field === 'status_changed') {
+            const statuses = ['new', 'contacted', 'qualified', 'converted', 'lost', 'snoozed', 'archived'];
             return `<select data-rule-cond-value>${statuses.map(s =>
                 `<option value="${s}" ${selected === s ? 'selected' : ''}>${s}</option>`
             ).join('')}</select>`;
@@ -1298,7 +1303,7 @@
         }
         if (type === 'set_status') {
             const selectedStatus = selected || 'contacted';
-            return ['new', 'contacted', 'qualified', 'converted', 'lost'].map(s =>
+            return ['new', 'contacted', 'qualified', 'converted', 'lost', 'archived'].map(s =>
                 `<option value="${s}" ${selectedStatus === s ? 'selected' : ''}>${s}</option>`
             ).join('');
         }
@@ -1319,32 +1324,45 @@
         ).join('');
         return `<option value="">Select label…</option>` + (opts || '<option value="" disabled>No labels yet</option>');
     }
+    function triggerStatusOptions(selected = '') {
+        const statuses = ['new', 'contacted', 'qualified', 'converted', 'lost', 'snoozed', 'archived'];
+        return `<option value="">Select status…</option>` + statuses.map(s =>
+            `<option value="${s}" ${selected === s ? 'selected' : ''}>${s}</option>`
+        ).join('');
+    }
+    function triggerExtraKind(type) {
+        if (type === 'lead_labeled') return 'label';
+        if (type === 'lead_status_changed') return 'status';
+        return '';
+    }
+    function triggerExtraOptions(type, selected = '') {
+        if (type === 'lead_labeled') return triggerLabelOptions(selected);
+        if (type === 'lead_status_changed') return triggerStatusOptions(selected);
+        return '<option value="">—</option>';
+    }
     function syncTriggerLabelSelect(row) {
         const type = row?.querySelector('[data-rule-trigger]')?.value;
         const fields = row?.querySelector('.leads-rule-trigger-fields');
-        const labelSel = row?.querySelector('[data-rule-trigger-label]');
-        if (!labelSel) return;
-        const show = type === 'lead_labeled';
-        labelSel.hidden = !show;
-        labelSel.disabled = !show;
-        fields?.classList.toggle('has-label', show);
-        if (show) {
-            const prev = labelSel.value;
-            labelSel.innerHTML = triggerLabelOptions(prev);
-        }
+        const extraSel = row?.querySelector('[data-rule-trigger-label]');
+        if (!extraSel) return;
+        const kind = triggerExtraKind(type);
+        extraSel.hidden = !kind;
+        extraSel.disabled = !kind;
+        fields?.classList.toggle('has-label', !!kind);
+        if (kind) extraSel.innerHTML = triggerExtraOptions(type, extraSel.value);
     }
     function addRuleTriggerRow(preset = {}) {
         const wrap = document.getElementById('leadRuleTriggers');
         if (!wrap) return;
         const value = preset.value || 'inbound_message';
-        const showLabel = value === 'lead_labeled';
+        const kind = triggerExtraKind(value);
         const row = document.createElement('div');
         row.className = 'leads-rule-extra-card is-trigger';
         row.innerHTML = `
             <div>
-                <div class="leads-rule-trigger-fields${showLabel ? ' has-label' : ''}">
+                <div class="leads-rule-trigger-fields${kind ? ' has-label' : ''}">
                     <select data-rule-trigger>${triggerOptions(value)}</select>
-                    <select data-rule-trigger-label ${showLabel ? '' : 'hidden disabled'}>${triggerLabelOptions(preset.label || '')}</select>
+                    <select data-rule-trigger-label ${kind ? '' : 'hidden disabled'}>${triggerExtraOptions(value, preset.label || preset.status || '')}</select>
                 </div>
                 <p class="leads-rule-trigger-help">${esc(triggerHelp(value))}</p>
             </div>
@@ -1408,6 +1426,7 @@
         const conditions = Array.isArray(rule.conditions) ? rule.conditions : [];
         const channel = conditions.find(c => c.field === 'channel');
         const addedLabel = conditions.find(c => c.field === 'label_added');
+        const changedStatus = conditions.find(c => c.field === 'status_changed');
         renderRuleChannelPicker();
         const selected = new Set((Array.isArray(channel?.value) ? channel.value : []).map(String));
         document.querySelectorAll('#leadRuleChannelMenu input[type="checkbox"]').forEach(cb => {
@@ -1419,9 +1438,10 @@
         else triggers.forEach(trigger => addRuleTriggerRow({
             value: trigger,
             label: trigger === 'lead_labeled' ? (addedLabel?.value || '') : '',
+            status: trigger === 'lead_status_changed' ? (changedStatus?.value || '') : '',
         }));
         conditions
-            .filter(c => c.field && c.field !== 'channel' && c.field !== 'label_added')
+            .filter(c => c.field && c.field !== 'channel' && c.field !== 'label_added' && c.field !== 'status_changed')
             .forEach(c => addRuleConditionRow(c));
         const actions = Array.isArray(rule.actions) ? rule.actions : [];
         if (!actions.length) addRuleActionRow();
@@ -1435,9 +1455,13 @@
         const conditions = [{ field: 'channel', operator: 'in', value: selectedRuleChannels() }];
         document.querySelectorAll('#leadRuleTriggers .leads-rule-extra-card').forEach(row => {
             const sel = row.querySelector('[data-rule-trigger]');
-            if (sel?.value !== 'lead_labeled') return;
-            const labelVal = row.querySelector('[data-rule-trigger-label]')?.value;
-            if (labelVal) conditions.push({ field: 'label_added', operator: 'equals', value: labelVal });
+            const extraVal = row.querySelector('[data-rule-trigger-label]')?.value;
+            if (sel?.value === 'lead_labeled' && extraVal) {
+                conditions.push({ field: 'label_added', operator: 'equals', value: extraVal });
+            }
+            if (sel?.value === 'lead_status_changed' && extraVal) {
+                conditions.push({ field: 'status_changed', operator: 'equals', value: extraVal });
+            }
         });
         document.querySelectorAll('#leadRuleConditions .leads-rule-extra-card').forEach(row => {
             const field = row.querySelector('[data-rule-cond-field]')?.value;
@@ -1562,6 +1586,12 @@
             const labeled = payload.conditions.find(c => c.field === 'label_added');
             if (!labeled || !String(labeled.value || '').trim()) {
                 return alert('Choose which label was added.');
+            }
+        }
+        if (payload.triggers.includes('lead_status_changed')) {
+            const changed = payload.conditions.find(c => c.field === 'status_changed');
+            if (!changed || !String(changed.value || '').trim()) {
+                return alert('Choose which status was set.');
             }
         }
         const extra = payload.conditions.filter(c => c.field !== 'channel');

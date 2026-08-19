@@ -6,6 +6,7 @@ use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Notifications\LeadRuleNotification;
 use App\Services\LeadActivityService;
+use App\Services\LeadRuleEngine;
 use Illuminate\Console\Command;
 
 class ProcessLeadReopens extends Command
@@ -39,6 +40,12 @@ class ProcessLeadReopens extends Command
                         'Lead reopened automatically by rule schedule',
                         ['source' => 'reopen_after_days', 'status' => $restore]
                     );
+                    app(LeadRuleEngine::class)->apply($lead, '', [
+                        LeadRuleEngine::TRIGGER_LEAD_STATUS_CHANGED,
+                    ], [
+                        'changed_status' => $restore,
+                        'previous_status' => Lead::STATUS_SNOOZED,
+                    ]);
 
                     $lead->loadMissing('assignedUser');
                     if ($lead->assignedUser) {

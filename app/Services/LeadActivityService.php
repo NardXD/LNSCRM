@@ -90,6 +90,10 @@ class LeadActivityService
                 ['from' => $before['status'] ?? null, 'to' => $after['status'] ?? null],
                 $userId
             );
+            app(LeadRuleEngine::class)->apply($lead, '', [LeadRuleEngine::TRIGGER_LEAD_STATUS_CHANGED], [
+                'changed_status' => (string) ($after['status'] ?? ''),
+                'previous_status' => (string) ($before['status'] ?? ''),
+            ]);
         }
 
         foreach (['name' => 'name', 'company_name' => 'company', 'source' => 'source'] as $field => $label) {

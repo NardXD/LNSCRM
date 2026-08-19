@@ -60,6 +60,8 @@ class LeadsController extends Controller
 
         if ($request->filled('status') && $request->get('status') !== 'all') {
             $query->where('status', $request->get('status'));
+        } else {
+            $query->where('status', '!=', Lead::STATUS_ARCHIVED);
         }
 
         $source = trim((string) $request->get('source', ''));
@@ -761,7 +763,7 @@ class LeadsController extends Controller
             'triggers' => [$required, 'array', 'min:1'],
             'triggers.*' => ['required', 'string', 'in:'.$triggerKeys],
             'conditions' => [$required, 'array', 'min:1'],
-            'conditions.*.field' => ['required', 'in:channel,contact_name,phone,email,subject,message,lead_status,lead_label,label_added'],
+            'conditions.*.field' => ['required', 'in:channel,contact_name,phone,email,subject,message,lead_status,lead_label,label_added,status_changed'],
             'conditions.*.operator' => ['required', 'in:contains,equals,starts_with,in'],
             'conditions.*.value' => ['nullable'],
             'actions' => [$required, 'array', 'min:1'],
@@ -784,6 +786,9 @@ class LeadsController extends Controller
                 abort(response()->json(['message' => 'Each condition needs a value.'], 422));
             }
             if ($field === 'lead_status' && ! in_array((string) $condition['value'], Lead::STATUSES, true)) {
+                abort(response()->json(['message' => 'Choose a valid lead status.'], 422));
+            }
+            if ($field === 'status_changed' && ! in_array((string) $condition['value'], Lead::STATUSES, true)) {
                 abort(response()->json(['message' => 'Choose a valid lead status.'], 422));
             }
         }

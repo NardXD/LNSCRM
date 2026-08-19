@@ -9,9 +9,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Lead extends Model
 {
-    public const STATUSES = ['new', 'contacted', 'qualified', 'converted', 'lost', 'snoozed'];
+    public const STATUSES = ['new', 'contacted', 'qualified', 'converted', 'lost', 'snoozed', 'archived'];
 
     public const STATUS_SNOOZED = 'snoozed';
+
+    public const STATUS_ARCHIVED = 'archived';
 
     protected $fillable = [
         'company_id',

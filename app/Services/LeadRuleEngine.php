@@ -28,6 +28,8 @@ class LeadRuleEngine
 
     public const TRIGGER_LEAD_LABELED = 'lead_labeled';
 
+    public const TRIGGER_LEAD_STATUS_CHANGED = 'lead_status_changed';
+
     public const TRIGGER_LEAD_NOTE_ADDED = 'lead_note_added';
 
     public const CHANNELS = [
@@ -60,6 +62,7 @@ class LeadRuleEngine
             self::TRIGGER_OUTBOUND_CALL => 'Outbound call is placed',
             self::TRIGGER_LEAD_ASSIGNED => 'Lead is assigned',
             self::TRIGGER_LEAD_LABELED => 'Label added',
+            self::TRIGGER_LEAD_STATUS_CHANGED => 'Status changed',
             self::TRIGGER_LEAD_NOTE_ADDED => 'Note is added to lead',
         ];
     }
@@ -218,6 +221,17 @@ class LeadRuleEngine
                         || (string) $label->id === (string) $value
                 );
                 if (! $has) {
+                    return false;
+                }
+                continue;
+            }
+
+            if ($field === 'status_changed') {
+                $changed = strtolower(trim((string) ($context['changed_status'] ?? '')));
+                if ($changed === '') {
+                    continue;
+                }
+                if ($changed !== strtolower(trim((string) $value))) {
                     return false;
                 }
                 continue;
