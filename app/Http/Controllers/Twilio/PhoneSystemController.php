@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers\Twilio;
 
+use App\Http\Controllers\FacebookController;
 use App\Http\Controllers\Controller;
 use App\Models\CallAgentPresence;
+use App\Models\FacebookIntegration;
+use App\Models\FacebookMessage;
 use App\Models\PhoneCallLog;
 use App\Models\PhoneContact;
 use App\Models\SmsMessage;
@@ -570,6 +573,22 @@ class PhoneSystemController extends Controller
             return response('OK', 200);
         }
 
+        if ($this->isFacebookChannelAddress((string) $from) || $this->isFacebookChannelAddress((string) $to)) {
+            $integration = $this->facebookIntegrationFromRequest($request);
+            if ($integration) {
+                try {
+                    app(FacebookController::class)->acceptTwilioInbound($integration, $request);
+                } catch (\Throwable $e) {
+                    Log::error('Facebook inbound via SMS webhook failed', ['error' => $e->getMessage()]);
+                }
+            } else {
+                Log::warning('Facebook SMS webhook: integration not found', ['to' => $to, 'from' => $from]);
+            }
+
+            return response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', 200)
+                ->header('Content-Type', 'text/xml');
+        }
+
         $company = $this->twilioCompany->resolveCompanyFromWebhook($accountSid, $to, $from);
         if (! $company) {
             Log::warning('SMS webhook: company not resolved', ['to' => $to, 'from' => $from]);
@@ -615,9 +634,54 @@ class PhoneSystemController extends Controller
             SmsMessage::query()->where('message_sid', $messageSid)->update(['status' => $status]);
             WhatsAppMessage::query()->where('wamid', $messageSid)->update(['status' => $status]);
             ViberMessage::query()->where('message_token', $messageSid)->update(['status' => $status]);
+            FacebookMessage::query()->where('mid', $messageSid)->update(['status' => $status]);
         }
 
         return response('OK', 200);
+    }
+
+    private function isFacebookChannelAddress(string $address): bool
+    {
+        $lower = strtolower(trim($address));
+
+        return str_starts_with($lower, 'messenger:') || str_starts_with($lower, 'instagram:');
+    }
+
+    private function facebookIntegrationFromRequest(Request $request): ?FacebookIntegration
+    {
+        foreach (['To', 'From', 'ChannelToAddress', 'ChannelFromAddress'] as $field) {
+            $id = TwilioService::stripChannelPrefix((string) $request->input($field, ''));
+            if ($id === '') {
+                continue;
+            }
+
+            $found = FacebookIntegration::query()
+                ->where('is_active', true)
+                ->where(function ($query) use ($id) {
+                    $query->where('page_id', $id)
+                        ->orWhere('instagram_business_account_id', $id);
+                })
+                ->first();
+
+            if ($found) {
+                return $found;
+            }
+        }
+
+        $company = $this->twilioCompany->resolveCompanyFromWebhook(
+            $request->input('AccountSid'),
+            $request->input('To'),
+            $request->input('From')
+        );
+
+        if (! $company) {
+            return null;
+        }
+
+        return FacebookIntegration::query()
+            ->where('company_id', $company->id)
+            ->where('is_active', true)
+            ->first();
     }
 
     private function authorizeContact(PhoneContact $contact): void

@@ -16,6 +16,7 @@ use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -96,9 +97,37 @@ class FacebookController extends Controller
             });
         }
 
+        $this->pullRecentTwilioMessages($user);
+
         $conversations = $query->limit(500)->get()->map(fn (FacebookConversation $c) => $this->formatConversation($c));
 
         return response()->json(['data' => $conversations]);
+    }
+
+    protected function pullRecentTwilioMessages($user): void
+    {
+        $companyId = (int) ($user?->company_id ?: 0);
+        if ($companyId < 1 || ! $user?->company) {
+            return;
+        }
+
+        if (! Cache::add('facebook-recent-pull-'.$companyId, 1, 8)) {
+            return;
+        }
+
+        try {
+            $integration = $this->channelIntegrationForCompany($companyId);
+            if (! $integration) {
+                return;
+            }
+
+            $this->facebookSync->ingestRecent(
+                $integration,
+                $this->twilioClientForCompany($user->company)
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Facebook recent message pull failed', ['error' => $e->getMessage()]);
+        }
     }
 
     public function messages(FacebookConversation $conversation): JsonResponse
@@ -301,6 +330,11 @@ class FacebookController extends Controller
         return response('OK', 200);
     }
 
+    public function acceptTwilioInbound(FacebookIntegration $integration, Request $request): void
+    {
+        $this->handleInboundTwilioMessage($integration, $request);
+    }
+
     protected function handleInboundTwilioMessage(FacebookIntegration $integration, Request $request): void
     {
         $messageSid = $request->input('MessageSid');
@@ -313,19 +347,32 @@ class FacebookController extends Controller
         }
 
         $from = (string) ($request->input('From') ?: $request->input('ChannelFromAddress', ''));
-        $parsed = TwilioService::parseMessengerAddress($from);
-        $peerId = $parsed['id'];
-        $channel = $parsed['channel'];
+        $to = (string) ($request->input('To') ?: $request->input('ChannelToAddress', ''));
+        $parsedFrom = TwilioService::parseMessengerAddress($from);
+        $parsedTo = TwilioService::parseMessengerAddress($to);
+        $ownIds = array_values(array_filter([
+            (string) $integration->page_id,
+            (string) $integration->instagram_business_account_id,
+        ]));
 
-        if ($peerId === '') {
+        if ($parsedFrom['id'] !== '' && in_array($parsedFrom['id'], $ownIds, true)) {
             return;
         }
 
-        $ownIds = array_filter([
-            (string) $integration->page_id,
-            (string) $integration->instagram_business_account_id,
-        ]);
-        if (in_array($peerId, $ownIds, true)) {
+        $peerId = $parsedFrom['id'];
+        $channel = $parsedFrom['channel'] ?: $parsedTo['channel'];
+        if ($peerId === '' && $parsedTo['id'] !== '' && ! in_array($parsedTo['id'], $ownIds, true)) {
+            $peerId = $parsedTo['id'];
+            $channel = $parsedTo['channel'] ?: 'messenger';
+        }
+
+        if ($peerId === '' || in_array($peerId, $ownIds, true)) {
+            Log::info('Facebook inbound skipped, no customer peer', [
+                'from' => $from,
+                'to' => $to,
+                'sid' => $messageSid,
+            ]);
+
             return;
         }
 

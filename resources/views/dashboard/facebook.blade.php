@@ -806,10 +806,12 @@
             if (openId && conversations.some(c => c.id === openId)) {
                 await openConversation(openId);
             }
-            pollTimer = setInterval(() => {
-                loadConversations({ merge: true }).catch(() => {});
-                pollActiveMessages().catch(() => {});
-            }, 12000);
+            pollTimer = setInterval(async () => {
+                try {
+                    await loadConversations({ merge: true });
+                    await pollActiveMessages();
+                } catch (e) {}
+            }, 5000);
         }
     })();
 })();

@@ -215,6 +215,49 @@ class FacebookMessageSyncService
         return array_fill_keys($found, true);
     }
 
+    /**
+     * Import Messenger / Instagram messages that arrived in Twilio recently.
+     * Used while /facebook is open so new chats appear even if the webhook URL
+     * is set on the Messaging Service instead of the Facebook sender.
+     */
+    public function ingestRecent(FacebookIntegration $integration, TwilioService $twilio, int $minutes = 45, int $limit = 80): int
+    {
+        $after = Carbon::now()->subMinutes(max(5, $minutes));
+        $addresses = array_values(array_unique(array_filter([
+            $twilio->messengerAddress((string) $integration->page_id, 'messenger'),
+            $integration->instagram_business_account_id
+                ? $twilio->messengerAddress((string) $integration->instagram_business_account_id, 'instagram')
+                : null,
+        ])));
+
+        $bySid = [];
+        foreach ($addresses as $address) {
+            foreach ($twilio->listChannelMessages($address, $after, $limit) as $message) {
+                $bySid[$message->sid] = $message;
+            }
+        }
+
+        $existingLookup = $this->existingMids($integration, array_keys($bySid));
+        $imported = 0;
+        $touched = [];
+
+        foreach ($bySid as $message) {
+            $result = $this->importIfNew($existingLookup, $message->sid, function () use ($integration, $twilio, $message) {
+                return $this->ingestProgrammableMessage($integration, $twilio, $message);
+            });
+            $imported += $result['imported'];
+            if ($result['conversation']) {
+                $touched[$result['conversation']->id] = $result['conversation'];
+            }
+        }
+
+        foreach ($touched as $conversation) {
+            $this->refreshPreview($conversation);
+        }
+
+        return $imported;
+    }
+
     protected function ingestProgrammableMessage(
         FacebookIntegration $integration,
         TwilioService $twilio,
