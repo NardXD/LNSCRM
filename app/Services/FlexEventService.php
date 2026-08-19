@@ -101,6 +101,13 @@ class FlexEventService
 
         $log->save();
 
+        app(LeadAutoCreateService::class)->fromCallLegs(
+            (int) $integration->company_id,
+            $log->from_number,
+            $log->to_number,
+            $log->direction
+        );
+
         return $log;
     }
 

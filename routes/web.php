@@ -112,6 +112,7 @@ Route::prefix('twilio')->group(function () {
 
     // Status callback endpoint - receives call status updates from Twilio
     Route::post('/status-callback', [CallController::class, 'statusCallback'])->name('twilio.status-callback');
+    Route::match(['get', 'post'], '/client-status', [CallController::class, 'clientCallStatus'])->name('twilio.client-status');
     Route::match(['get', 'post'], '/recording-callback', [CallController::class, 'recordingStatusCallback'])->name('twilio.recording-callback');
     Route::post('/sms-webhook', [PhoneSystemController::class, 'smsWebhook'])->name('twilio.sms-webhook');
     Route::post('/sms-status', [PhoneSystemController::class, 'smsStatus'])->name('twilio.sms-status');
@@ -168,7 +169,10 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/', [LeadsController::class, 'list'])->name('api.leads.index');
         Route::post('/', [LeadsController::class, 'store'])->name('api.leads.store');
         Route::get('/labels', [LeadsController::class, 'labels'])->name('api.leads.labels');
+        Route::get('/assignees', [LeadsController::class, 'assignees'])->name('api.leads.assignees');
+        Route::get('/{lead}/activity-log', [LeadsController::class, 'listActivities'])->name('api.leads.activities');
         Route::get('/{lead}/history', [LeadsController::class, 'history'])->name('api.leads.history');
+        Route::patch('/{lead}/assign', [LeadsController::class, 'assign'])->name('api.leads.assign');
         Route::post('/{lead}/notes', [LeadsController::class, 'storeNote'])->name('api.leads.notes.store');
         Route::delete('/{lead}/notes/{note}', [LeadsController::class, 'destroyNote'])->name('api.leads.notes.destroy');
         Route::post('/{lead}/labels', [LeadsController::class, 'attachLabel'])->name('api.leads.labels.attach');
@@ -291,6 +295,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/call-status', [CallController::class, 'callStatus'])->name('twilio.call-status');
         Route::post('/hangup', [CallController::class, 'hangup'])->name('twilio.hangup');
         Route::post('/agent-ended-call', [CallController::class, 'markAgentEndedCall'])->name('twilio.agent-ended-call');
+        Route::post('/agent-answered-call', [CallController::class, 'agentAnsweredCall'])->name('twilio.agent-answered-call');
         Route::post('/send-digits', [CallController::class, 'sendDigits'])->name('twilio.send-digits');
         Route::get('/capability-token', [CallController::class, 'getCapabilityToken'])->name('twilio.capability-token');
 

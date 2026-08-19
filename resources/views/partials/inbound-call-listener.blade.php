@@ -4,6 +4,7 @@
     var hangupUrl = @json(route('twilio.hangup'));
     var presenceUrl = @json(route('twilio.agent-presence'));
     var endedUrl = @json(route('twilio.agent-ended-call'));
+    var answeredUrl = @json(route('twilio.agent-answered-call'));
 
     function csrfHeaders() {
         return {
@@ -121,6 +122,19 @@
         }).catch(function () {});
     }
 
+    function notifyCallAnswered(call, callSid) {
+        if (call && call.__lnscrmLeadAssigned) return;
+        if (!callSid) return;
+        if (call) call.__lnscrmLeadAssigned = true;
+        fetch(answeredUrl, {
+            method: 'POST',
+            headers: csrfHeaders(),
+            credentials: 'same-origin',
+            keepalive: true,
+            body: JSON.stringify({ call_sid: callSid }),
+        }).catch(function () {});
+    }
+
     function autoReconnectAnsweredCall(call) {
         var from = callerFromCall(call);
         var sid = parentSidFromCall(call);
@@ -128,6 +142,7 @@
         window.__twilioActiveCall = call;
         window.isCallAnswered = true;
         persistAnswered(from, sid, { connectToken: connectTokenFromCall(call) });
+        notifyCallAnswered(call, sid);
         var accept = function () {
             try {
                 call.accept();
@@ -169,14 +184,18 @@
         if (typeof call.accept === 'function') {
             var origAccept = call.accept.bind(call);
             call.accept = function () {
-                persistAnswered(from, parentSidFromCall(call) || sid, { connectToken: connectTokenFromCall(call) || token });
+                var acceptedSid = parentSidFromCall(call) || sid;
+                persistAnswered(from, acceptedSid, { connectToken: connectTokenFromCall(call) || token });
+                notifyCallAnswered(call, acceptedSid);
                 return origAccept.apply(this, arguments);
             };
         }
 
         if (typeof call.on === 'function') {
             call.on('accept', function () {
-                persistAnswered(from, parentSidFromCall(call) || sid, { connectToken: connectTokenFromCall(call) || token });
+                var acceptedSid = parentSidFromCall(call) || sid;
+                persistAnswered(from, acceptedSid, { connectToken: connectTokenFromCall(call) || token });
+                notifyCallAnswered(call, acceptedSid);
             });
             call.on('cancel', function () {
                 if (window.isCallAnswered || (readBanner() && readBanner().status === 'answered')) {

@@ -13,7 +13,8 @@ class LeadAutoCreateService
 {
     public function __construct(
         protected FlexCrmLookupService $crmLookup,
-        protected TwilioCompanyService $twilioCompany
+        protected TwilioCompanyService $twilioCompany,
+        protected LeadActivityService $leadActivity
     ) {}
 
     public function fromSharedInbox(SharedInbox $inbox, ?string $fromName, ?string $fromEmail): ?Lead
@@ -38,6 +39,73 @@ class LeadAutoCreateService
         ?string $name = null
     ): ?Lead {
         return $this->ensure($companyId, $source, $name, $phone, null);
+    }
+
+    /**
+     * Create/find a lead from a voice call. Uses the customer number (not the company/Twilio number).
+     */
+    public function fromCallLegs(
+        int $companyId,
+        ?string $from,
+        ?string $to,
+        ?string $direction = null
+    ): ?Lead {
+        $direction = strtolower((string) $direction);
+        $primary = str_contains($direction, 'outbound') ? $to : $from;
+        $secondary = $primary === $from ? $to : $from;
+
+        return $this->fromPhoneChannel($companyId, 'phone', $primary)
+            ?: $this->fromPhoneChannel($companyId, 'phone', $secondary);
+    }
+
+    /**
+     * Find/create the call's lead and assign it to the agent who answered or placed the call.
+     */
+    public function assignFromCall(
+        int $companyId,
+        int $userId,
+        ?string $from,
+        ?string $to,
+        ?string $direction = null,
+        bool $onlyIfUnassigned = false
+    ): ?Lead {
+        $lead = $this->fromCallLegs($companyId, $from, $to, $direction);
+        if (! $lead) {
+            return null;
+        }
+
+        return $this->assignToUser($lead, $userId, $onlyIfUnassigned, $this->callReason($direction));
+    }
+
+    public function assignToUser(Lead $lead, int $userId, bool $onlyIfUnassigned = false, ?string $reason = null): Lead
+    {
+        if ($userId <= 0) {
+            return $lead;
+        }
+
+        if ($onlyIfUnassigned && $lead->assigned_to) {
+            return $lead;
+        }
+
+        if ((int) $lead->assigned_to === $userId) {
+            return $lead;
+        }
+
+        $exists = User::query()
+            ->where('company_id', $lead->company_id)
+            ->where('id', $userId)
+            ->exists();
+
+        if (! $exists) {
+            return $lead;
+        }
+
+        $fromId = $lead->assigned_to;
+        $lead->assigned_to = $userId;
+        $lead->save();
+        $this->leadActivity->recordAssignment($lead, $fromId, $userId, reason: $reason);
+
+        return $lead;
     }
 
     /**
@@ -84,6 +152,7 @@ class LeadAutoCreateService
             ]);
 
             $this->attachMissingIdentities($lead, $phone, $email, $facebookName, $instagramUsername);
+            $this->leadActivity->recordCreated($lead, $source);
 
             return $lead->fresh('identities');
         } catch (\Throwable $e) {
@@ -319,5 +388,12 @@ class LeadAutoCreateService
         }
 
         return false;
+    }
+
+    protected function callReason(?string $direction): string
+    {
+        return str_contains(strtolower((string) $direction), 'outbound')
+            ? 'outbound call'
+            : 'inbound call';
     }
 }

@@ -39,6 +39,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'twilio/voice',
             'twilio/dial-action',
             'twilio/status-callback',
+            'twilio/client-status',
             'twilio/recording-callback',
             'twilio/sms-webhook',
             'twilio/sms-status',

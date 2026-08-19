@@ -52,6 +52,11 @@ class Lead extends Model
         return $this->belongsToMany(LeadLabel::class, 'lead_lead_label')->withTimestamps();
     }
 
+    public function activities(): HasMany
+    {
+        return $this->hasMany(LeadActivity::class)->orderByDesc('created_at');
+    }
+
     public function getInitialsAttribute(): string
     {
         $words = preg_split('/\s+/', trim($this->name)) ?: [];

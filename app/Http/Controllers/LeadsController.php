@@ -5,11 +5,13 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreLeadRequest;
 use App\Http\Requests\UpdateLeadRequest;
 use App\Models\Lead;
+use App\Models\LeadActivity;
 use App\Models\LeadIdentity;
 use App\Models\LeadLabel;
 use App\Models\LeadNote;
 use App\Models\User;
 use App\Services\ContactConversationHistoryService;
+use App\Services\LeadActivityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -17,6 +19,10 @@ use Illuminate\View\View;
 
 class LeadsController extends Controller
 {
+    public function __construct(
+        protected LeadActivityService $leadActivity
+    ) {}
+
     public function index(): View
     {
         return view('dashboard.leads');
@@ -104,12 +110,19 @@ class LeadsController extends Controller
         }
 
         $lead->syncIdentities($identities);
+        $this->leadActivity->recordCreated($lead, $request->input('source') ?: 'manual');
+        if ($lead->assigned_to) {
+            $this->leadActivity->recordAssignment($lead, null, $lead->assigned_to);
+        }
+        if ($legacyNote !== '') {
+            $this->leadActivity->recordNote($lead, true);
+        }
         $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
 
         return response()->json([
             'success' => true,
             'message' => 'Lead created.',
-            'data' => $this->serialize($lead),
+            'data' => $this->serializeWithActivity($lead),
         ], 201);
     }
 
@@ -120,7 +133,7 @@ class LeadsController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->serialize($lead),
+            'data' => $this->serializeWithActivity($lead),
         ]);
     }
 
@@ -128,6 +141,7 @@ class LeadsController extends Controller
     {
         $lead = $this->leadForUser($lead);
         $identities = $this->identityPayload($request);
+        $before = $this->leadActivity->snapshot($lead);
 
         if ($conflict = $this->findIdentityConflict((int) $lead->company_id, $identities, $lead->id)) {
             return $this->conflictResponse($conflict);
@@ -142,12 +156,13 @@ class LeadsController extends Controller
         ]);
 
         $lead->syncIdentities($identities);
+        $this->leadActivity->recordDiff($lead, $before);
         $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
 
         return response()->json([
             'success' => true,
             'message' => 'Lead updated.',
-            'data' => $this->serialize($lead),
+            'data' => $this->serializeWithActivity($lead),
         ]);
     }
 
@@ -176,6 +191,27 @@ class LeadsController extends Controller
         ));
     }
 
+    public function listActivities(Request $request, Lead $lead): JsonResponse
+    {
+        $lead = $this->leadForUser($lead);
+        $perPage = min(50, max(10, (int) $request->get('per_page', 20)));
+        $page = $lead->activities()
+            ->with('user:id,name')
+            ->orderByDesc('id')
+            ->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'data' => collect($page->items())->map(fn (LeadActivity $activity) => $this->serializeActivity($activity))->all(),
+            'pagination' => [
+                'current_page' => $page->currentPage(),
+                'last_page' => $page->lastPage(),
+                'per_page' => $page->perPage(),
+                'total' => $page->total(),
+            ],
+        ]);
+    }
+
     public function labels(): JsonResponse
     {
         $companyId = (int) Auth::user()->company_id;
@@ -186,6 +222,40 @@ class LeadsController extends Controller
             ->map(fn (LeadLabel $label) => $this->serializeLabel($label));
 
         return response()->json(['success' => true, 'data' => $labels]);
+    }
+
+    public function assignees(): JsonResponse
+    {
+        $companyId = (int) Auth::user()->company_id;
+        $users = User::query()
+            ->where('company_id', $companyId)
+            ->where(function ($q) {
+                $q->where('status', 'active')->orWhereNull('status');
+            })
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        return response()->json(['success' => true, 'data' => $users]);
+    }
+
+    public function assign(Request $request, Lead $lead): JsonResponse
+    {
+        $lead = $this->leadForUser($lead);
+        $validated = $request->validate([
+            'assigned_to' => ['nullable', 'integer', 'exists:users,id'],
+        ]);
+
+        $fromId = $lead->assigned_to;
+        $toId = $this->assignedToForCompany((int) $lead->company_id, $validated['assigned_to'] ?? null);
+        $lead->update(['assigned_to' => $toId]);
+        $this->leadActivity->recordAssignment($lead, $fromId, $toId);
+        $lead->load(['identities', 'assignedUser:id,name', 'labels']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Lead assigned.',
+            'data' => $this->serializeWithActivity($lead),
+        ]);
     }
 
     public function storeNote(Request $request, Lead $lead): JsonResponse
@@ -201,6 +271,7 @@ class LeadsController extends Controller
             'note' => $validated['note'],
         ]);
         $note->load('user:id,name');
+        $this->leadActivity->recordNote($lead, true);
         $lead->touch();
 
         return response()->json([
@@ -218,6 +289,7 @@ class LeadsController extends Controller
         }
 
         $note->delete();
+        $this->leadActivity->recordNote($lead, false);
         $lead->touch();
 
         return response()->json(['success' => true, 'message' => 'Note deleted.']);
@@ -246,7 +318,11 @@ class LeadsController extends Controller
             ]);
         }
 
+        $alreadyAttached = $lead->labels()->where('lead_labels.id', $label->id)->exists();
         $lead->labels()->syncWithoutDetaching([$label->id]);
+        if (! $alreadyAttached) {
+            $this->leadActivity->recordLabel($lead, $label->name, true);
+        }
         $lead->load('labels');
         $lead->touch();
 
@@ -266,6 +342,7 @@ class LeadsController extends Controller
         }
 
         $lead->labels()->detach($leadLabel->id);
+        $this->leadActivity->recordLabel($lead, $leadLabel->name, false);
         $lead->load('labels');
         $lead->touch();
 
@@ -320,6 +397,20 @@ class LeadsController extends Controller
             'updated_at' => $lead->updated_at?->toIso8601String(),
             'created_at' => $lead->created_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function serializeWithActivity(Lead $lead): array
+    {
+        $latest = $lead->activities()->with('user:id,name')->orderByDesc('id')->first();
+        $data = $this->serialize($lead);
+        $data['latest_activity'] = $latest ? $this->serializeActivity($latest) : null;
+        $data['activity_count'] = $lead->activities()->count();
+        $data['activities'] = $latest ? [$data['latest_activity']] : [];
+
+        return $data;
     }
 
     /**
@@ -439,6 +530,23 @@ class LeadsController extends Controller
             'author' => $note->user?->name ?: 'Unknown',
             'created_at' => $note->created_at?->toIso8601String(),
             'time_ago' => $note->created_at?->diffForHumans(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function serializeActivity(LeadActivity $activity): array
+    {
+        return [
+            'id' => $activity->id,
+            'action' => $activity->action,
+            'summary' => $activity->summary,
+            'meta' => $activity->meta ?? [],
+            'actor' => $activity->user?->name ?: 'System',
+            'user_id' => $activity->user_id,
+            'created_at' => $activity->created_at?->toIso8601String(),
+            'time_ago' => $activity->created_at?->diffForHumans(),
         ];
     }
 

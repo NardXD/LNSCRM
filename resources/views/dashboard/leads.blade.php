@@ -41,13 +41,14 @@
                         <th>Phones</th>
                         <th>Emails</th>
                         <th>Labels</th>
+                        <th>Assigned</th>
                         <th>Status</th>
                         <th>Updated</th>
                         <th></th>
                     </tr>
                 </thead>
                 <tbody id="leadsTableBody">
-                    <tr><td colspan="7" class="empty-state">Loading leads…</td></tr>
+                    <tr><td colspan="8" class="empty-state">Loading leads…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -89,9 +90,17 @@
                             </select>
                         </div>
                     </div>
-                    <div class="form-group">
-                        <label for="leadSource">Source</label>
-                        <input type="text" id="leadSource" maxlength="255" placeholder="Inbound call, Facebook, referral…">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="leadAssignedTo">Assigned</label>
+                            <select id="leadAssignedTo">
+                                <option value="">Unassigned</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="leadSource">Source</label>
+                            <input type="text" id="leadSource" maxlength="255" placeholder="Inbound call, Facebook, referral…">
+                        </div>
                     </div>
 
                     <div class="form-group">
@@ -145,9 +154,33 @@
                     </div>
                 </form>
                 <div class="leads-history" id="leadHistoryPane">
-                    <h4>Contact history</h4>
+                    <button type="button" class="lead-activity-trigger" id="leadActivityTrigger" disabled>
+                        <div class="lead-activity-trigger-head">
+                            <h4>Activity</h4>
+                            <span id="leadActivityCount">View all updates</span>
+                        </div>
+                        <div id="leadActivityPreview"><p class="chp-empty">Save this lead to start an activity history.</p></div>
+                    </button>
+                    <h4 class="leads-history-sub">Contact history</h4>
                     <p class="chp-empty" id="leadHistoryEmpty">Save this lead to load Phone, Inbox, Viber, WhatsApp, Facebook, and SMS history.</p>
                     <div id="leadHistoryBody" hidden></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="leadActivityModal">
+        <div class="modal-content lead-activity-modal">
+            <div class="modal-header">
+                <h3 id="leadActivityModalTitle">Lead activity</h3>
+                <button type="button" class="modal-close-btn" id="closeLeadActivityModal">&times;</button>
+            </div>
+            <div class="lead-activity-full" id="leadActivityFull"></div>
+            <div class="leads-pagination lead-activity-pagination">
+                <span id="leadActivityPageInfo">Showing 0 of 0</span>
+                <div>
+                    <button type="button" class="btn btn-secondary btn-sm" id="leadActivityPrev" disabled>Previous</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="leadActivityNext" disabled>Next</button>
                 </div>
             </div>
         </div>
@@ -179,6 +212,8 @@
 .lead-badge.qualified { background: #dcfce7; color: #166534; }
 .lead-badge.converted { background: #d1fae5; color: #065f46; }
 .lead-badge.lost { background: #fee2e2; color: #991b1b; }
+.lead-assign { max-width: 160px; font-size: 0.8rem; padding: 0.3rem 0.45rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); color: var(--text-primary); }
+.lead-assign:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .lead-label-list, .lead-notes-list { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.45rem; }
 .lead-notes-list { flex-direction: column; flex-wrap: nowrap; }
 .lead-label-chip { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.18rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700; }
@@ -193,13 +228,29 @@
 .leads-pagination { display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1rem; font-size: 0.8rem; color: var(--text-secondary); }
 .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 1000; align-items: center; justify-content: center; padding: 1rem; }
 .modal-overlay.open { display: flex; }
+#leadActivityModal { z-index: 1100; }
 .leads-modal { background: var(--bg-card); border-radius: 12px; width: min(1080px, 96vw); max-height: 92vh; overflow: hidden; display: flex; flex-direction: column; }
 .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
 .modal-close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted); }
 .leads-modal-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr); min-height: 0; overflow: hidden; }
 .leads-form { padding: 1.15rem 1.25rem; overflow-y: auto; max-height: calc(92vh - 60px); }
 .leads-history { border-left: 1px solid var(--border); padding: 1.15rem 1.1rem; overflow-y: auto; background: var(--bg-primary); max-height: calc(92vh - 60px); }
-.leads-history h4 { margin: 0 0 0.75rem; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); }
+.leads-history h4 { margin: 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); }
+.leads-history-sub { margin: 1.25rem 0 0.75rem !important; padding-top: 1rem; border-top: 1px solid var(--border); }
+.lead-activity-trigger { display: block; width: 100%; text-align: left; border: 1px solid var(--border); background: var(--bg-card); border-radius: 10px; padding: 0.75rem 0.85rem; cursor: pointer; color: inherit; }
+.lead-activity-trigger:hover:not(:disabled) { border-color: var(--accent); }
+.lead-activity-trigger:disabled { cursor: default; opacity: 0.85; }
+.lead-activity-trigger-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.55rem; }
+.lead-activity-trigger-head span { font-size: 0.75rem; font-weight: 700; color: var(--accent); white-space: nowrap; }
+.lead-activity-modal { background: var(--bg-card); border-radius: 12px; width: min(560px, 96vw); max-height: 88vh; overflow: hidden; display: flex; flex-direction: column; }
+.lead-activity-full { padding: 0.4rem 0.4rem 0.5rem; overflow-y: auto; min-height: 180px; }
+.lead-activity-pagination { border-top: 1px solid var(--border); }
+.lead-activity-item { display: block; width: 100%; text-align: left; padding: 0.7rem 0.85rem; border: 0; border-bottom: 1px solid var(--border); background: transparent; cursor: pointer; color: inherit; }
+.lead-activity-item:hover { background: var(--bg-primary); }
+.lead-activity-item.open { background: var(--bg-primary); }
+.lead-activity-summary { font-size: 0.82rem; line-height: 1.4; color: var(--text-primary); }
+.lead-activity-meta { margin-top: 0.15rem; font-size: 0.72rem; color: var(--text-muted); }
+.lead-activity-details { margin-top: 0.45rem; padding-top: 0.4rem; border-top: 1px dashed var(--border); font-size: 0.75rem; line-height: 1.45; color: var(--text-secondary); }
 .form-group { margin-bottom: 0.9rem; }
 .form-group label { display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.3rem; }
 .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; font-family: inherit; }
@@ -229,10 +280,11 @@
 (function () {
     const api = '/api/leads';
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
-    const state = { page: 1, status: 'all', search: '', labelIds: [], editingId: null, labels: [], notes: [], companyLabels: [] };
+    const state = { page: 1, status: 'all', search: '', labelIds: [], editingId: null, labels: [], notes: [], companyLabels: [], assignees: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0 };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
+    const activityModal = document.getElementById('leadActivityModal');
     const form = document.getElementById('leadForm');
     const errorEl = document.getElementById('leadFormError');
 
@@ -259,6 +311,20 @@
         return (labels || []).map(label =>
             `<span class="lead-label-chip" style="background:${esc(label.color || '#4338ca')};color:${chipText(label.color)}">${esc(label.name)}</span>`
         ).join(' ') || '<span class="lead-meta">—</span>';
+    }
+    function assigneeOptions(selectedId, extraUser) {
+        const users = [...state.assignees];
+        if (extraUser && extraUser.id && !users.some(u => String(u.id) === String(extraUser.id))) {
+            users.push(extraUser);
+        }
+        const selected = selectedId == null || selectedId === '' ? '' : String(selectedId);
+        return `<option value="">Unassigned</option>` + users.map(user =>
+            `<option value="${user.id}"${String(user.id) === selected ? ' selected' : ''}>${esc(user.name)}</option>`
+        ).join('');
+    }
+    function fillAssigneeSelect(selectEl, selectedId, extraUser) {
+        if (!selectEl) return;
+        selectEl.innerHTML = assigneeOptions(selectedId, extraUser);
     }
     function setExtrasVisible(saved) {
         document.getElementById('leadExtras').hidden = !saved;
@@ -321,6 +387,130 @@
             </div>
         `).join('');
     }
+    function sortActivitiesDesc(items) {
+        return [...(items || [])].sort((a, b) => {
+            const timeDiff = new Date(b.created_at || 0) - new Date(a.created_at || 0);
+            if (timeDiff !== 0) return timeDiff;
+            return (Number(b.id) || 0) - (Number(a.id) || 0);
+        });
+    }
+    function activityDetailLines(item) {
+        const meta = item.meta || {};
+        const lines = [];
+        if (meta.from_user_name !== undefined || meta.to_user_name !== undefined || meta.from_user_id || meta.to_user_id) {
+            lines.push((meta.from_user_name || 'Unassigned') + ' → ' + (meta.to_user_name || 'Unassigned'));
+        }
+        if (meta.field) {
+            lines.push((meta.field || 'Field') + ': ' + (meta.from || '—') + ' → ' + (meta.to || '—'));
+        } else if ((meta.from != null && meta.from !== '') || (meta.to != null && meta.to !== '')) {
+            lines.push((meta.from || '—') + ' → ' + (meta.to || '—'));
+        }
+        if (meta.reason) lines.push('Reason: ' + meta.reason);
+        if (meta.label) lines.push('Label: ' + meta.label);
+        if (meta.value) lines.push((meta.type || 'Value') + ': ' + meta.value);
+        if (meta.source) lines.push('Source: ' + meta.source);
+        lines.push('By ' + (item.actor || 'System'));
+        lines.push(formatAt(item.created_at));
+        return lines;
+    }
+    function activityItemHtml(item) {
+        const details = activityDetailLines(item);
+        return `
+            <div class="lead-activity-item" data-activity-id="${esc(item.id || '')}" role="button" tabindex="0">
+                <div class="lead-activity-summary">${esc(item.summary || 'Updated this lead')}</div>
+                <div class="lead-activity-meta">${esc(item.time_ago || formatAt(item.created_at))} · Click for details</div>
+                <div class="lead-activity-details" hidden>
+                    ${details.map(line => `<div>${esc(line)}</div>`).join('')}
+                </div>
+            </div>
+        `;
+    }
+    function renderActivityPreview(latest, total) {
+        const preview = document.getElementById('leadActivityPreview');
+        const countEl = document.getElementById('leadActivityCount');
+        const trigger = document.getElementById('leadActivityTrigger');
+        state.activityTotal = Number(total || 0);
+        if (trigger) trigger.disabled = !state.editingId;
+        if (!latest) {
+            if (preview) preview.innerHTML = '<p class="chp-empty">No lead activity yet.</p>';
+            if (countEl) countEl.textContent = 'View all updates';
+            return;
+        }
+        if (preview) {
+            preview.innerHTML = `
+                <div class="lead-activity-summary">${esc(latest.summary || 'Updated this lead')}</div>
+                <div class="lead-activity-meta">${esc(latest.time_ago || formatAt(latest.created_at))}</div>
+            `;
+        }
+        if (countEl) {
+            const n = state.activityTotal || 1;
+            countEl.textContent = 'View all ' + n + ' update' + (n === 1 ? '' : 's');
+        }
+        document.getElementById('leadActivityModalTitle').textContent =
+            (document.getElementById('leadName')?.value || 'Lead') + ' · activity';
+    }
+    function renderActivityPage(items, pagination) {
+        const full = document.getElementById('leadActivityFull');
+        const page = pagination?.current_page || state.activityPage || 1;
+        const last = pagination?.last_page || state.activityLastPage || 1;
+        const total = pagination?.total ?? state.activityTotal ?? 0;
+        state.activities = sortActivitiesDesc(items);
+        state.activityPage = page;
+        state.activityLastPage = last;
+        state.activityTotal = total;
+        if (full) {
+            full.innerHTML = state.activities.length
+                ? state.activities.map(activityItemHtml).join('')
+                : '<p class="chp-empty" style="padding:1rem">No lead activity yet.</p>';
+        }
+        document.getElementById('leadActivityPageInfo').textContent =
+            `Showing page ${page} of ${last} (${total} update${total === 1 ? '' : 's'})`;
+        document.getElementById('leadActivityPrev').disabled = page <= 1;
+        document.getElementById('leadActivityNext').disabled = page >= last;
+        if (page === 1) {
+            renderActivityPreview(state.activities[0] || null, total);
+        } else {
+            const countEl = document.getElementById('leadActivityCount');
+            if (countEl) countEl.textContent = 'View all ' + total + ' update' + (total === 1 ? '' : 's');
+        }
+    }
+    async function loadActivityPage(page) {
+        if (!state.editingId) return;
+        const q = new URLSearchParams({ page: String(page || 1), per_page: '20' });
+        const res = await fetch(api + '/' + state.editingId + '/activity-log?' + q.toString(), {
+            credentials: 'same-origin',
+            headers: headers(),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.message || 'Could not load activity.');
+        renderActivityPage(data.data || [], data.pagination || {});
+    }
+    function renderActivities(leadOrItems) {
+        if (Array.isArray(leadOrItems)) {
+            const items = sortActivitiesDesc(leadOrItems);
+            renderActivityPreview(items[0] || null, items.length);
+            return;
+        }
+        const lead = leadOrItems || {};
+        renderActivityPreview(lead.latest_activity || (lead.activities || [])[0] || null, lead.activity_count ?? (lead.activities || []).length);
+    }
+    async function refreshActivities(id) {
+        if (!id) return;
+        try {
+            await loadActivityPage(1);
+        } catch {}
+    }
+    async function loadAssignees() {
+        try {
+            const res = await fetch(api + '/assignees', { credentials: 'same-origin', headers: headers() });
+            const data = await res.json();
+            state.assignees = data.data || [];
+        } catch {
+            state.assignees = [];
+        }
+        fillAssigneeSelect(document.getElementById('leadAssignedTo'), document.getElementById('leadAssignedTo')?.value || '');
+    }
+
     async function loadCompanyLabels() {
         try {
             const res = await fetch(api + '/labels', { credentials: 'same-origin', headers: headers() });
@@ -366,11 +556,16 @@
                 <td class="lead-meta">${esc((lead.phones || []).map(p => p.value).join(', ') || '—')}</td>
                 <td class="lead-meta">${esc((lead.emails || []).map(e => e.value).join(', ') || '—')}</td>
                 <td>${labelChips(lead.labels)}</td>
+                <td onclick="event.stopPropagation()">
+                    <select class="lead-assign" data-id="${lead.id}" aria-label="Assign lead">
+                        ${assigneeOptions(lead.assigned_to, lead.assigned_user)}
+                    </select>
+                </td>
                 <td><span class="lead-badge ${esc(lead.status)}">${esc(lead.status)}</span></td>
                 <td class="lead-meta">${esc(formatAt(lead.updated_at))}</td>
                 <td><button type="button" class="btn btn-secondary btn-sm" data-open="${lead.id}">Open</button></td>
             </tr>
-        `).join('') : `<tr><td colspan="7" class="empty-state">${state.search || state.labelIds.length ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
+        `).join('') : `<tr><td colspan="8" class="empty-state">${state.search || state.labelIds.length ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
 
         const pag = data.pagination || {};
         document.getElementById('leadsPageInfo').textContent = `Showing page ${pag.current_page || 1} of ${pag.last_page || 1} (${pag.total || 0} leads)`;
@@ -394,10 +589,12 @@
         document.getElementById('leadHistoryBody').innerHTML = '';
         document.getElementById('leadNoteInput').value = '';
         document.getElementById('leadLabelInput').value = '';
+        fillAssigneeSelect(document.getElementById('leadAssignedTo'), '');
         renderLabels([]);
         renderNotes([]);
         setExtrasVisible(false);
         state.editingId = null;
+        renderActivities([]);
     }
 
     function fillForm(lead) {
@@ -406,6 +603,7 @@
         document.getElementById('leadCompany').value = lead.company_name || '';
         document.getElementById('leadStatus').value = lead.status || 'new';
         document.getElementById('leadSource').value = lead.source || '';
+        fillAssigneeSelect(document.getElementById('leadAssignedTo'), lead.assigned_to, lead.assigned_user);
         document.getElementById('leadFacebook').value = lead.facebook_name || '';
         document.getElementById('leadInstagram').value = lead.instagram_username || '';
         document.getElementById('phonesList').innerHTML = '';
@@ -419,8 +617,12 @@
         state.editingId = lead.id;
         renderLabels(lead.labels || []);
         renderNotes(lead.notes || []);
+        renderActivities(lead);
         setExtrasVisible(true);
         loadHistory(lead.id);
+        if (activityModal.classList.contains('open')) {
+            loadActivityPage(1).catch(() => {});
+        }
     }
 
     async function loadHistory(id) {
@@ -464,7 +666,22 @@
     }
 
     function openModal() { modal.classList.add('open'); }
+    function closeActivityModal() {
+        activityModal.classList.remove('open');
+    }
+    async function openActivityModal() {
+        if (!state.editingId) return;
+        activityModal.classList.add('open');
+        document.getElementById('leadActivityFull').innerHTML = '<p class="chp-empty" style="padding:1rem">Loading updates…</p>';
+        try {
+            await loadActivityPage(1);
+        } catch (err) {
+            document.getElementById('leadActivityFull').innerHTML =
+                `<p class="chp-empty" style="padding:1rem">${esc(err.message || 'Could not load activity.')}</p>`;
+        }
+    }
     function closeModal() {
+        closeActivityModal();
         modal.classList.remove('open');
         const url = new URL(window.location.href);
         url.searchParams.delete('lead');
@@ -485,6 +702,33 @@
     document.getElementById('newLeadBtn').addEventListener('click', () => { resetForm(); openModal(); });
     document.getElementById('closeLeadModal').addEventListener('click', closeModal);
     document.getElementById('cancelLeadBtn').addEventListener('click', closeModal);
+    document.getElementById('leadActivityTrigger').addEventListener('click', openActivityModal);
+    document.getElementById('closeLeadActivityModal').addEventListener('click', closeActivityModal);
+    document.getElementById('leadActivityPrev').addEventListener('click', () => {
+        if (state.activityPage > 1) loadActivityPage(state.activityPage - 1);
+    });
+    document.getElementById('leadActivityNext').addEventListener('click', () => {
+        if (state.activityPage < state.activityLastPage) loadActivityPage(state.activityPage + 1);
+    });
+    activityModal.addEventListener('click', (e) => {
+        if (e.target === activityModal) closeActivityModal();
+    });
+    document.getElementById('leadActivityFull').addEventListener('click', (e) => {
+        const item = e.target.closest('.lead-activity-item');
+        if (!item) return;
+        const details = item.querySelector('.lead-activity-details');
+        if (!details) return;
+        const opening = details.hidden;
+        item.classList.toggle('open', opening);
+        details.hidden = !opening;
+    });
+    document.getElementById('leadActivityFull').addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const item = e.target.closest('.lead-activity-item');
+        if (!item) return;
+        e.preventDefault();
+        item.click();
+    });
     document.getElementById('addPhoneBtn').addEventListener('click', () => addIdentityRow('phonesList', '', '', 'Phone number'));
     document.getElementById('addEmailBtn').addEventListener('click', () => addIdentityRow('emailsList', '', '', 'name@company.com'));
     document.getElementById('leadsPrev').addEventListener('click', () => { state.page = Math.max(1, state.page - 1); loadLeads(); });
@@ -527,8 +771,35 @@
         });
     });
     body.addEventListener('click', (e) => {
+        if (e.target.closest('.lead-assign')) return;
         const row = e.target.closest('tr[data-id]');
         if (row) openLead(row.dataset.id);
+    });
+    body.addEventListener('change', async (e) => {
+        const select = e.target.closest('.lead-assign');
+        if (!select) return;
+        const id = select.dataset.id;
+        const assignedTo = select.value || null;
+        select.disabled = true;
+        try {
+            const res = await fetch(api + '/' + id + '/assign', {
+                method: 'PATCH',
+                credentials: 'same-origin',
+                headers: headers(true),
+                body: JSON.stringify({ assigned_to: assignedTo }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.message || 'Could not assign lead.');
+            if (String(state.editingId) === String(id) && data.data) {
+                fillAssigneeSelect(document.getElementById('leadAssignedTo'), data.data.assigned_to, data.data.assigned_user);
+                renderActivities(data.data);
+            }
+        } catch (err) {
+            alert(err.message);
+            loadLeads();
+        } finally {
+            select.disabled = false;
+        }
     });
 
     form.addEventListener('submit', async (e) => {
@@ -539,6 +810,7 @@
             company_name: document.getElementById('leadCompany').value.trim() || null,
             status: document.getElementById('leadStatus').value,
             source: document.getElementById('leadSource').value.trim() || null,
+            assigned_to: document.getElementById('leadAssignedTo').value || null,
             phones: readIdentityRows('phonesList'),
             emails: readIdentityRows('emailsList'),
             facebook_name: document.getElementById('leadFacebook').value.trim() || null,
@@ -604,6 +876,7 @@
             if (!res.ok) throw new Error(data.message || 'Could not add note.');
             input.value = '';
             renderNotes([data.data, ...state.notes]);
+            refreshActivities(id);
             loadLeads();
         } catch (err) {
             errorEl.hidden = false;
@@ -635,6 +908,7 @@
             if (!res.ok) throw new Error(data.message || 'Could not add label.');
             input.value = '';
             renderLabels(data.labels || []);
+            refreshActivities(id);
             if (data.data && !state.companyLabels.some(label => label.id === data.data.id)) {
                 state.companyLabels.push(data.data);
                 renderLabelSuggestions();
@@ -677,6 +951,7 @@
             return;
         }
         renderNotes(state.notes.filter(note => String(note.id) !== String(noteId)));
+        refreshActivities(state.editingId);
         loadLeads();
     });
     document.getElementById('leadLabelsList').addEventListener('click', async (e) => {
@@ -694,12 +969,12 @@
             return;
         }
         renderLabels(data.labels || state.labels.filter(label => String(label.id) !== String(labelId)));
+        refreshActivities(state.editingId);
         loadLeads();
     });
 
     resetForm();
-    loadCompanyLabels();
-    loadLeads().then(() => {
+    Promise.all([loadCompanyLabels(), loadAssignees()]).then(() => loadLeads()).then(() => {
         const id = new URLSearchParams(window.location.search).get('lead');
         if (id) openLead(id).catch(() => {});
     });

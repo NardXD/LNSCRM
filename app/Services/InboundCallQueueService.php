@@ -319,9 +319,13 @@ class InboundCallQueueService
     /**
      * @param  array<int>  $attemptedUserIds
      */
-    public function rememberAssignment(string $callSid, int $companyId, int $userId, array $attemptedUserIds = [], int $clientRetries = 0): void
+    public function rememberAssignment(string $callSid, int $companyId, int $userId, array $attemptedUserIds = [], int $clientRetries = 0, ?string $from = null, ?string $to = null): void
     {
         $attempted = array_values(array_unique(array_map('intval', array_merge($attemptedUserIds, [$userId]))));
+
+        $existing = $this->getAssignment($callSid) ?? [];
+        $from = $from ?: ($existing['from'] ?? null);
+        $to = $to ?: ($existing['to'] ?? null);
 
         Cache::put($this->assignmentCacheKey($callSid), [
             'company_id' => $companyId,
@@ -329,21 +333,36 @@ class InboundCallQueueService
             'attempted_user_ids' => $attempted,
             'client_retries' => max(0, $clientRetries),
             'ended_by_agent' => false,
+            'from' => $from,
+            'to' => $to,
         ], now()->addHours(2));
 
         $log = PhoneCallLog::query()->firstOrNew(['call_sid' => $callSid]);
         $log->company_id = $companyId;
         $log->user_id = $userId;
+        if ($from) {
+            $log->from_number = $from;
+        }
+        if ($to) {
+            $log->to_number = $to;
+        }
         if (! $log->exists) {
             $log->direction = 'inbound';
             $log->status = 'ringing';
             $log->started_at = now();
         }
         $log->save();
+
+        app(LeadAutoCreateService::class)->fromCallLegs(
+            $companyId,
+            $log->from_number,
+            $log->to_number,
+            $log->direction
+        );
     }
 
     /**
-     * @return array{company_id: int, current_user_id: int|null, attempted_user_ids: array<int>, client_retries: int, ended_by_agent: bool}|null
+     * @return array{company_id: int, current_user_id: int|null, attempted_user_ids: array<int>, client_retries: int, ended_by_agent: bool, from?: ?string, to?: ?string}|null
      */
     public function getAssignment(string $callSid): ?array
     {

@@ -66,12 +66,12 @@ class PhoneCallLogService
 
         $log->save();
 
-        $customerPhone = str_contains(strtolower((string) ($log->direction ?? '')), 'outbound')
-            ? $log->to_number
-            : $log->from_number;
-        if ($customerPhone) {
-            $this->leadAutoCreate->fromPhoneChannel((int) $company->id, 'phone', (string) $customerPhone);
-        }
+        $this->leadAutoCreate->fromCallLegs(
+            (int) $company->id,
+            $log->from_number,
+            $log->to_number,
+            $log->direction
+        );
 
         return $log;
     }
@@ -94,7 +94,7 @@ class PhoneCallLogService
             ]
         );
 
-        $this->leadAutoCreate->fromPhoneChannel($companyId, 'phone', $to);
+        $this->leadAutoCreate->assignFromCall($companyId, $userId, $from, $to, 'outbound-api');
 
         return $log;
     }

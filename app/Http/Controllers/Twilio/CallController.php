@@ -8,6 +8,7 @@ use App\Models\PhoneCallLog;
 use App\Models\TwilioFlexIntegration;
 use App\Models\User;
 use App\Services\InboundCallQueueService;
+use App\Services\LeadAutoCreateService;
 use App\Services\PhoneCallLogService;
 use App\Services\TwilioService;
 use Illuminate\Http\Request;
@@ -358,12 +359,33 @@ class CallController extends Controller
         $isInboundPstn = $direction === 'inbound' && ! $isClientOrigin;
         $destination = $this->resolveE164Destination($request);
 
-        if (($isClientOrigin || $isOutboundApi) && $destination) {
-            $company = app(\App\Services\TwilioCompanyService::class)
-                ->resolveCompanyFromWebhook($accountSid, $destination, $caller);
-            if ($company) {
-                app(\App\Services\LeadAutoCreateService::class)
-                    ->fromPhoneChannel((int) $company->id, 'phone', $destination);
+        $company = app(\App\Services\TwilioCompanyService::class)
+            ->resolveCompanyFromWebhook($accountSid, $called ?: $destination, $caller);
+        if ($company) {
+            $assignedUserId = null;
+            if ($isClientOrigin) {
+                $identity = $this->resolveClientIdentity($request);
+                $assignedUserId = ($identity !== null && ctype_digit($identity)) ? (int) $identity : null;
+            } elseif ($isOutboundApi) {
+                $agentId = $this->resolveOutboundAgentId($request, $callSid);
+                $assignedUserId = ($agentId !== null && ctype_digit($agentId)) ? (int) $agentId : null;
+            }
+
+            if ($assignedUserId) {
+                app(LeadAutoCreateService::class)->assignFromCall(
+                    (int) $company->id,
+                    $assignedUserId,
+                    $caller,
+                    $isInboundPstn ? $called : ($destination ?: $called),
+                    $isInboundPstn ? 'inbound' : 'outbound'
+                );
+            } else {
+                app(LeadAutoCreateService::class)->fromCallLegs(
+                    (int) $company->id,
+                    $caller,
+                    $isInboundPstn ? $called : ($destination ?: $called),
+                    $isInboundPstn ? 'inbound' : 'outbound'
+                );
             }
         }
 
@@ -579,8 +601,15 @@ class CallController extends Controller
 
             if ($callSid !== '') {
                 $queue->markBusy($agent, $callSid);
-                $queue->rememberAssignment($callSid, (int) $company->id, (int) $agent->id);
+                $queue->rememberAssignment($callSid, (int) $company->id, (int) $agent->id, [], 0, $caller, $called);
             }
+
+            app(\App\Services\LeadAutoCreateService::class)->fromCallLegs(
+                (int) $company->id,
+                $caller,
+                $called,
+                'inbound'
+            );
 
             $xml = '    <Say voice="alice">This call may be recorded.</Say>'."\n";
             $xml .= $this->dialClientTwiml($agent, $dialRecordAttrs, 30, $callSid);
@@ -614,10 +643,11 @@ class CallController extends Controller
     {
         $timeout = max(10, min(60, $timeout));
         $action = htmlspecialchars(route('twilio.dial-action'), ENT_XML1);
+        $statusCb = htmlspecialchars(route('twilio.client-status'), ENT_XML1);
         $identity = htmlspecialchars((string) $user->id, ENT_XML1);
         $parent = htmlspecialchars($parentCallSid, ENT_XML1);
         $xml = '    <Dial timeout="'.$timeout.'" answerOnMedia="true" '.$dialRecordAttrs.' action="'.$action.'">'."\n";
-        $xml .= '        <Client>'."\n";
+        $xml .= '        <Client statusCallback="'.$statusCb.'" statusCallbackEvent="answered">'."\n";
         $xml .= '            <Identity>'.$identity.'</Identity>'."\n";
         if ($parent !== '') {
             $xml .= '            <Parameter name="parent_call_sid" value="'.$parent.'"/>'."\n";
@@ -800,6 +830,76 @@ class CallController extends Controller
         $queue->markEndedByAgent($callSid, Auth::user());
 
         return response()->json(['success' => true]);
+    }
+
+    public function agentAnsweredCall(Request $request)
+    {
+        $user = Auth::user();
+        $callSid = (string) ($request->input('call_sid') ?? '');
+        $this->assignLeadForAnsweredCall(
+            $callSid,
+            (int) $user->id,
+            (int) $user->company_id
+        );
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Twilio Client statusCallback — fires when the browser agent actually answers.
+     */
+    public function clientCallStatus(Request $request, InboundCallQueueService $queue)
+    {
+        $status = strtolower((string) ($request->input('CallStatus') ?? ''));
+        $event = strtolower((string) ($request->input('CallStatusEvent') ?? $request->input('StatusCallbackEvent') ?? ''));
+        $answered = in_array($status, ['answered', 'in-progress'], true) || $event === 'answered';
+
+        Log::info('Twilio client status callback', [
+            'call_sid' => $request->input('CallSid'),
+            'parent_call_sid' => $request->input('ParentCallSid'),
+            'status' => $status,
+            'event' => $event,
+        ]);
+
+        if (! $answered) {
+            return response('OK', 200);
+        }
+
+        $parentSid = (string) ($request->input('ParentCallSid') ?? '');
+        $callSid = (string) ($request->input('CallSid') ?? '');
+        $assignment = $parentSid !== '' ? $queue->getAssignment($parentSid) : null;
+        if (! $assignment && $callSid !== '') {
+            $assignment = $queue->getAssignment($callSid);
+        }
+
+        $userId = (int) ($assignment['current_user_id'] ?? 0);
+        $companyId = (int) ($assignment['company_id'] ?? 0);
+        if ($userId && $companyId) {
+            $this->assignLeadForAnsweredCall($parentSid !== '' ? $parentSid : $callSid, $userId, $companyId);
+        }
+
+        return response('OK', 200);
+    }
+
+    protected function assignLeadForAnsweredCall(
+        string $callSid,
+        int $userId,
+        int $companyId
+    ): void {
+        if ($callSid === '' || $userId <= 0 || $companyId <= 0) {
+            return;
+        }
+
+        $log = PhoneCallLog::query()->where('call_sid', $callSid)->first();
+        $assignment = app(InboundCallQueueService::class)->getAssignment($callSid);
+
+        app(LeadAutoCreateService::class)->assignFromCall(
+            $companyId,
+            $userId,
+            $log?->from_number ?: ($assignment['from'] ?? null),
+            $log?->to_number ?: ($assignment['to'] ?? null),
+            $log?->direction ?: 'inbound'
+        );
     }
 
     public function hangup(Request $request, InboundCallQueueService $queue)
