@@ -191,6 +191,16 @@
             </div>
         </div>
 
+        @if(auth()->user()?->hasPermission('view_phone_system'))
+        <div class="header-agent-queue" id="headerAgentQueue" title="Receive inbound calls on any CRM page while available">
+            <label class="agent-queue-toggle header-agent-queue-toggle">
+                <input type="checkbox" id="headerAgentAvailableToggle" aria-label="Available for inbound calls">
+                <span class="agent-queue-toggle-ui"></span>
+                <span class="agent-queue-toggle-label" id="headerAgentAvailableLabel">Offline</span>
+            </label>
+        </div>
+        @endif
+
         @if(auth()->user()?->hasPermission('view_messaging'))
         <a href="{{ route('messaging') }}" class="header-icon-btn" id="headerMessagingBtn" title="Messaging">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

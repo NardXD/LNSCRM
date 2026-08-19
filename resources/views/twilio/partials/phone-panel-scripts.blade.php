@@ -362,8 +362,8 @@
         }
         if (subtitle) {
             subtitle.textContent = isOn
-                ? 'You are in the inbound round-robin queue'
-                : 'Turn on to receive round-robin inbound calls';
+                ? 'You are in the inbound round-robin queue — calls ring on any CRM page'
+                : 'Turn on to receive round-robin inbound calls on any CRM page';
         }
 
         const counts = data.counts || {};
@@ -420,7 +420,8 @@
             const res = await apiFetch(routes.agentPresence);
             renderAgentQueue(res.data);
             if (typeof window.syncCallQueuePresence === 'function') {
-                window.syncCallQueuePresence(res.data?.me?.status === 'available' || res.data?.me?.status === 'busy');
+                const status = res.data?.me?.status;
+                window.syncCallQueuePresence(status === 'available' || status === 'busy', status);
             }
         } catch (e) {
             console.warn('Failed to load agent presence', e);
@@ -432,15 +433,17 @@
         const label = document.getElementById('agentAvailableLabel');
         if (label) label.textContent = on ? 'Available' : 'Offline';
         try {
-            const res = await apiFetch(routes.agentPresenceUpdate, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: on ? 'available' : 'offline' }),
-            });
-            renderAgentQueue(res.data);
-            if (typeof window.syncCallQueuePresence === 'function') {
-                window.syncCallQueuePresence(on);
+            if (typeof window.setCallQueueAvailable === 'function') {
+                await window.setCallQueueAvailable(on, { requestMic: true });
+            } else {
+                const res = await apiFetch(routes.agentPresenceUpdate, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: on ? 'available' : 'offline' }),
+                });
+                renderAgentQueue(res.data);
             }
+            await loadAgentPresence();
         } catch (e) {
             event.target.checked = !on;
             if (label) label.textContent = on ? 'Offline' : 'Available';
@@ -450,5 +453,8 @@
 
     loadAgentPresence();
     setInterval(loadAgentPresence, 15000);
+    window.addEventListener('lnscrm:call-queue-changed', () => {
+        loadAgentPresence();
+    });
 })();
 </script>

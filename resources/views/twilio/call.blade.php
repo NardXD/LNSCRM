@@ -1173,45 +1173,20 @@
     // Initialize Twilio Device for browser-based calling using Voice SDK 2.x
     async function initializeTwilioDevice() {
         try {
-            // Check if API Key/Secret/App SID are configured
-            const response = await fetch('{{ route("twilio.capability-token") }}', {
-                method: 'GET',
-                headers: {
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
-                    'Accept': 'application/json',
-                }
-            });
+            const device = typeof window.whenGlobalTwilioDeviceReady === 'function'
+                ? await window.whenGlobalTwilioDeviceReady(20000)
+                : (window.globalTwilioDevice || null);
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                const errorMessage = errorData.message || `HTTP ${response.status}`;
-                
-                if (errorMessage.includes('API Key') || errorMessage.includes('App SID')) {
-                    addLogEntry('Browser calling is not configured (App SID / API Key missing). Outbound will ring the phone, then connect back to this page — add App SID, API Key, and API Secret under Integrations for in-browser audio.', 'info', 'check-icon');
-                } else {
-                    addLogEntry('Browser calling unavailable: ' + errorMessage, 'info', 'check-icon');
-                }
+            if (!device) {
+                addLogEntry('Browser calling is not configured (App SID / API Key missing). Outbound will ring the phone, then connect back to this page — add App SID, API Key, and API Secret under Integrations for in-browser audio.', 'info', 'check-icon');
                 useBrowserCalling = false;
                 return;
             }
 
-            const data = await response.json();
-            
-            if (!data.success) {
-                addLogEntry('Browser calling not available: ' + (data.message || 'Configuration missing'), 'info', 'check-icon');
-                useBrowserCalling = false;
-                return;
-            }
-
-            const Device = await waitForTwilioDevice();
-            if (!Device) {
-                addLogEntry('Browser calling SDK not available. Using API-based calling.', 'info', 'check-icon');
-                useBrowserCalling = false;
-                return;
-            }
-
-            setupTwilioDevice(data.token, Device);
-            
+            // Reuse the global device so this page does not steal inbound registration from other CRM pages.
+            twilioDevice = device;
+            useBrowserCalling = true;
+            addLogEntry('Browser calling ready — inbound calls also ring on every CRM page while you are available', 'info', 'check-icon');
         } catch (error) {
             console.error('Error initializing Twilio Device:', error);
             addLogEntry('Browser calling not available. Using API-based calling.', 'info', 'check-icon');
@@ -1219,105 +1194,9 @@
         }
     }
 
-    function getTwilioDeviceClass() {
-        if (typeof window.getTwilioDeviceClass === 'function' && window.getTwilioDeviceClass !== getTwilioDeviceClass) {
-            return window.getTwilioDeviceClass();
-        }
-
-        return window.TwilioVoiceSDK?.Device || window.Twilio?.Device || null;
-    }
-
-    function waitForTwilioDevice(timeoutMs = 20000) {
-        if (typeof window.whenTwilioVoiceSdkReady === 'function') {
-            return window.whenTwilioVoiceSdkReady(timeoutMs).catch(() => null);
-        }
-
-        return new Promise((resolve) => {
-            const existing = getTwilioDeviceClass();
-            if (existing) {
-                resolve(existing);
-                return;
-            }
-
-            const started = Date.now();
-            const timer = setInterval(() => {
-                const Device = getTwilioDeviceClass();
-                if (Device) {
-                    clearInterval(timer);
-                    resolve(Device);
-                } else if (Date.now() - started >= timeoutMs) {
-                    clearInterval(timer);
-                    resolve(null);
-                }
-            }, 50);
-        });
-    }
-
-    function setupTwilioDevice(token, DeviceClass) {
-        try {
-            const Device = DeviceClass || getTwilioDeviceClass();
-            
-            if (!Device) {
-                throw new Error('Twilio Voice SDK 2.x not loaded');
-            }
-
-            // Create device with Voice SDK 2.x API
-            twilioDevice = new Device(token, {
-                logLevel: 'info',
-                codecPreferences: ['opus', 'pcmu']
-            });
-
-            // Voice SDK 2.x uses 'registered' instead of 'ready'
-            twilioDevice.on('registered', () => {
-                console.log('Twilio Device registered');
-                addLogEntry('Browser calling ready', 'info', 'check-icon');
-                useBrowserCalling = true;
-            });
-
-            twilioDevice.on('error', (error) => {
-                console.error('Twilio Device error:', error);
-                const errorMsg = error.message || error.toString() || 'Unknown error';
-                addLogEntry('Browser calling error: ' + errorMsg, 'error', 'error-icon');
-                useBrowserCalling = false;
-            });
-
-            twilioDevice.on('incoming', (call) => {
-                addLogEntry('Incoming call from browser - use header notification to answer', 'calling', 'phone-icon');
-                // ALWAYS forward to global handler - it works on all pages
-                if (typeof window.handleIncomingCall === 'function') {
-                    console.log('📞 Call page: Forwarding call to global handler (works on all pages)');
-                    window.handleIncomingCall(call);
-                } else {
-                    console.warn('⚠️ Global handler not available yet, showing notification manually');
-                    // Fallback: show notification manually if global handler not available
-                    const notification = document.getElementById('inboundCallNotification');
-                    const numberElement = document.getElementById('incomingCallNumber');
-                    if (notification && numberElement) {
-                        const callerNumber = call.parameters?.From || call.parameters?.Caller || call.from || 'Unknown';
-                        numberElement.textContent = callerNumber;
-                        notification.style.display = 'block';
-                        
-                        // Store call globally for answer/decline
-                        if (typeof window !== 'undefined') {
-                            window.globalActiveCall = call;
-                            window.__twilioActiveCall = call;
-                        }
-                    }
-                }
-            });
-
-            // Register the device
-            twilioDevice.register();
-            
-        } catch (error) {
-            console.error('Error setting up Twilio Device:', error);
-            addLogEntry('Failed to setup browser calling: ' + error.message, 'error', 'error-icon');
-            useBrowserCalling = false;
-        }
-    }
-
     // Make call using browser (Voice SDK 2.x)
     async function makeBrowserCall(phoneNumber) {
+        twilioDevice = twilioDevice || window.globalTwilioDevice;
         if (!twilioDevice || !useBrowserCalling) {
             // Fallback to API call if browser calling not available
             return makeCall();

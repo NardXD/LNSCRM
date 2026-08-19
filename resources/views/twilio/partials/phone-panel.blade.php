@@ -22,7 +22,7 @@
                 <div class="agent-queue-row">
                     <div>
                         <div class="agent-queue-title">Inbound call queue</div>
-                        <div class="agent-queue-subtitle" id="agentQueueSubtitle">Turn on to receive round-robin inbound calls</div>
+                        <div class="agent-queue-subtitle" id="agentQueueSubtitle">Turn on to receive round-robin inbound calls on any CRM page</div>
                     </div>
                     <label class="agent-queue-toggle">
                         <input type="checkbox" id="agentAvailableToggle" aria-label="Available for inbound calls">

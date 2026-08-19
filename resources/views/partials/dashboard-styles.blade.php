@@ -356,6 +356,75 @@
         gap: 1rem;
     }
 
+    .header-agent-queue {
+        display: flex;
+        align-items: center;
+    }
+
+    .agent-queue-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        cursor: pointer;
+        user-select: none;
+        flex-shrink: 0;
+        position: relative;
+    }
+
+    .agent-queue-toggle input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .agent-queue-toggle-ui {
+        width: 40px;
+        height: 22px;
+        border-radius: 999px;
+        background: #cbd5e1;
+        position: relative;
+        transition: background 0.15s ease;
+        flex-shrink: 0;
+    }
+
+    .agent-queue-toggle-ui::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+        transition: transform 0.15s ease;
+    }
+
+    .agent-queue-toggle input:checked + .agent-queue-toggle-ui {
+        background: #16a34a;
+    }
+
+    .agent-queue-toggle input:checked + .agent-queue-toggle-ui::after {
+        transform: translateX(18px);
+    }
+
+    .agent-queue-toggle-label {
+        font-size: 0.78rem;
+        font-weight: 600;
+        min-width: 4.5rem;
+        color: var(--text-secondary);
+    }
+
+    .agent-queue-toggle input:checked ~ .agent-queue-toggle-label {
+        color: #166534;
+    }
+
+    @media (max-width: 768px) {
+        .header-agent-queue .agent-queue-toggle-label {
+            display: none;
+        }
+    }
+
     /* Inbound Call Notification */
     .inbound-call-notification {
         background: linear-gradient(135deg, #5f61e6 0%, #4f51d6 100%);
@@ -1138,6 +1207,10 @@
 
         .header-right {
             gap: 0.5rem;
+        }
+
+        .header-agent-queue .agent-queue-toggle-label {
+            display: none;
         }
 
         .inbound-call-notification {

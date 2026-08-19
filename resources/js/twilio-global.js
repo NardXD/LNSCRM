@@ -216,6 +216,7 @@ window.handleIncomingCall = function(call) {
 };
 
 let globalTwilioDevice = null;
+let globalTwilioInitPromise = null;
 let globalActiveCall = null;
 let globalRingAudioContext = null;
 let globalRingOscillator = null;
@@ -226,6 +227,7 @@ let callDurationInterval = null;
 let callStartTime = null;
 let callQueueHeartbeatTimer = null;
 let callQueueAvailable = false;
+const CALL_QUEUE_STORAGE_KEY = 'lnscrm.callQueueAvailable';
 
 function csrfHeaders() {
     return {
@@ -235,12 +237,45 @@ function csrfHeaders() {
     };
 }
 
+function persistCallQueueAvailable(on) {
+    try {
+        localStorage.setItem(CALL_QUEUE_STORAGE_KEY, on ? '1' : '0');
+    } catch (error) {
+        // Ignore private-mode / storage failures.
+    }
+}
+
+function readPersistedCallQueueAvailable() {
+    try {
+        return localStorage.getItem(CALL_QUEUE_STORAGE_KEY) === '1';
+    } catch (error) {
+        return false;
+    }
+}
+
+function applyCallQueuePresenceUi(isOn, status) {
+    const statusText = status === 'busy' ? 'On call' : (isOn ? 'Available' : 'Offline');
+    document.querySelectorAll('#agentAvailableToggle, #headerAgentAvailableToggle').forEach((el) => {
+        el.checked = !!isOn;
+    });
+    document.querySelectorAll('#agentAvailableLabel, #headerAgentAvailableLabel').forEach((el) => {
+        el.textContent = statusText;
+    });
+    const subtitle = document.getElementById('agentQueueSubtitle');
+    if (subtitle) {
+        subtitle.textContent = isOn
+            ? 'You are in the inbound round-robin queue — calls ring on any CRM page'
+            : 'Turn on to receive round-robin inbound calls on any CRM page';
+    }
+}
+
 async function sendCallQueueHeartbeat() {
     if (!callQueueAvailable) return;
     try {
         await fetch('/twilio/agent-presence/heartbeat', {
             method: 'POST',
             headers: csrfHeaders(),
+            keepalive: true,
         });
     } catch (error) {
         console.warn('Call queue heartbeat failed', error);
@@ -248,30 +283,46 @@ async function sendCallQueueHeartbeat() {
 }
 
 function startCallQueueHeartbeat() {
-    stopCallQueueHeartbeat();
     callQueueAvailable = true;
+    persistCallQueueAvailable(true);
+    if (callQueueHeartbeatTimer) {
+        clearInterval(callQueueHeartbeatTimer);
+    }
     sendCallQueueHeartbeat();
     callQueueHeartbeatTimer = setInterval(sendCallQueueHeartbeat, 20000);
 }
 
 function stopCallQueueHeartbeat() {
     callQueueAvailable = false;
+    persistCallQueueAvailable(false);
     if (callQueueHeartbeatTimer) {
         clearInterval(callQueueHeartbeatTimer);
         callQueueHeartbeatTimer = null;
     }
 }
 
-window.syncCallQueuePresence = function (isAvailable) {
-    if (isAvailable) {
+window.syncCallQueuePresence = function (isAvailable, status) {
+    const on = !!isAvailable;
+    applyCallQueuePresenceUi(on, status || (on ? 'available' : 'offline'));
+    if (on) {
         startCallQueueHeartbeat();
+        initializeGlobalTwilioDevice();
     } else {
         stopCallQueueHeartbeat();
     }
 };
 
-window.setCallQueueAvailable = async function (available) {
+window.setCallQueueAvailable = async function (available, options = {}) {
     try {
+        if (available && options.requestMic && navigator.mediaDevices?.getUserMedia) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                stream.getTracks().forEach((track) => track.stop());
+            } catch (error) {
+                console.warn('Microphone permission not granted yet; calls can still be answered after allowing access.', error);
+            }
+        }
+
         const response = await fetch('/twilio/agent-presence', {
             method: 'POST',
             headers: csrfHeaders(),
@@ -281,7 +332,9 @@ window.setCallQueueAvailable = async function (available) {
         if (!response.ok || !data.success) {
             throw new Error(data.message || 'Failed to update availability');
         }
-        window.syncCallQueuePresence(available);
+        const status = data?.data?.me?.status || (available ? 'available' : 'offline');
+        window.syncCallQueuePresence(available, status);
+        window.dispatchEvent(new CustomEvent('lnscrm:call-queue-changed', { detail: data }));
         return data;
     } catch (error) {
         console.error('Failed to set call queue availability', error);
@@ -292,6 +345,10 @@ window.setCallQueueAvailable = async function (available) {
 async function bootstrapCallQueuePresence() {
     const csrfToken = document.querySelector('meta[name="csrf-token"]');
     if (!csrfToken) return;
+
+    if (readPersistedCallQueueAvailable()) {
+        window.syncCallQueuePresence(true, 'available');
+    }
 
     try {
         const response = await fetch('/twilio/agent-presence', {
@@ -304,91 +361,124 @@ async function bootstrapCallQueuePresence() {
         if (!response.ok) return;
         const data = await response.json();
         const status = data?.data?.me?.status;
-        window.syncCallQueuePresence(status === 'available' || status === 'busy');
+        window.syncCallQueuePresence(status === 'available' || status === 'busy', status);
     } catch (error) {
         // User may not have phone permission on this page.
     }
 }
 
-// Initialize Twilio Device globally
+function bindHeaderAgentQueueToggle() {
+    const toggle = document.getElementById('headerAgentAvailableToggle');
+    if (!toggle || toggle.dataset.bound === '1') return;
+    toggle.dataset.bound = '1';
+    toggle.addEventListener('change', async (event) => {
+        const on = !!event.target.checked;
+        applyCallQueuePresenceUi(on, on ? 'available' : 'offline');
+        try {
+            await window.setCallQueueAvailable(on, { requestMic: true });
+        } catch (error) {
+            applyCallQueuePresenceUi(!on, !on ? 'offline' : 'available');
+            alert(error.message || 'Failed to update availability');
+        }
+    });
+}
+
+// Initialize Twilio Device globally (one instance per page so inbound calls work everywhere)
 async function initializeGlobalTwilioDevice() {
-    // console.log('🔧 initializeGlobalTwilioDevice() called');
-    // console.log('📍 Page:', window.location.pathname);
-    
-    // Check if already initialized
-    // if (globalTwilioDevice) {
-    //     console.log('⚠️ Global Twilio device already exists, skipping initialization');
-    //     return;
-    // }
-    
-    // Only initialize if CSRF token exists (user is on authenticated page)
-    const csrfToken = document.querySelector('meta[name="csrf-token"]');
-    if (!csrfToken) {
-        console.error('❌ Global Twilio: No CSRF token found, skipping initialization');
-        console.error('This page may not be authenticated or may not have the CSRF meta tag');
-        return;
+    if (globalTwilioDevice) {
+        return globalTwilioDevice;
     }
-    // console.log('✅ CSRF token found, proceeding with initialization...');
-    // console.log('Global Twilio: Initializing device...');
+    if (globalTwilioInitPromise) {
+        return globalTwilioInitPromise;
+    }
 
-    try {
-        // Check if API Key/Secret/App SID are configured
-        const response = await fetch('/twilio/capability-token', {
-            method: 'GET',
-            headers: {
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
-                'Accept': 'application/json',
-            }
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            const errorMessage = errorData.message || 'Browser calling not configured';
-            // console.log('Global Twilio device: ' + errorMessage);
-            // Note: twilio_number is NOT required for incoming calls
-            // Incoming calls work via user identity, not phone number
-            return;
+    globalTwilioInitPromise = (async () => {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]');
+        if (!csrfToken) {
+            console.error('❌ Global Twilio: No CSRF token found, skipping initialization');
+            return null;
         }
-
-        const data = await response.json();
-        
-        if (!data.success) {
-            const errorMessage = data.message || 'Configuration missing';
-            // console.log('Global Twilio device: ' + errorMessage);
-            // Note: twilio_number is NOT required for incoming calls
-            // Only required for: Company, Active Twilio integration, App SID, API Key, API Secret
-            return;
-        }
-
-        const waitForSdk = typeof window.whenTwilioVoiceSdkReady === 'function'
-            ? window.whenTwilioVoiceSdkReady(20000)
-            : new Promise((resolve, reject) => {
-                const started = Date.now();
-                const timer = setInterval(() => {
-                    const Device = window.TwilioVoiceSDK?.Device || window.Twilio?.Device || null;
-                    if (Device) {
-                        clearInterval(timer);
-                        resolve(Device);
-                    } else if (Date.now() - started >= 20000) {
-                        clearInterval(timer);
-                        reject(new Error('Twilio Voice SDK failed to load'));
-                    }
-                }, 50);
-            });
 
         try {
+            const response = await fetch('/twilio/capability-token', {
+                method: 'GET',
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken.getAttribute('content') || '',
+                    'Accept': 'application/json',
+                }
+            });
+
+            if (!response.ok) {
+                return null;
+            }
+
+            const data = await response.json();
+            if (!data.success || !data.token) {
+                return null;
+            }
+
+            const waitForSdk = typeof window.whenTwilioVoiceSdkReady === 'function'
+                ? window.whenTwilioVoiceSdkReady(20000)
+                : new Promise((resolve, reject) => {
+                    const started = Date.now();
+                    const timer = setInterval(() => {
+                        const Device = window.TwilioVoiceSDK?.Device || window.Twilio?.Device || null;
+                        if (Device) {
+                            clearInterval(timer);
+                            resolve(Device);
+                        } else if (Date.now() - started >= 20000) {
+                            clearInterval(timer);
+                            reject(new Error('Twilio Voice SDK failed to load'));
+                        }
+                    }, 50);
+                });
+
             const Device = await waitForSdk;
             setupGlobalTwilioDevice(data.token, Device);
+            return globalTwilioDevice;
         } catch (error) {
-            console.warn('⚠️ Global Twilio Device: SDK not loaded after waiting', error);
-            console.warn('TwilioVoiceSDK available:', typeof window.TwilioVoiceSDK);
-            console.warn('Twilio.Device available:', typeof window.Twilio?.Device);
+            console.error('Error initializing global Twilio Device:', error);
+            return null;
+        } finally {
+            if (!globalTwilioDevice) {
+                globalTwilioInitPromise = null;
+            }
         }
-        
-    } catch (error) {
-        console.error('Error initializing global Twilio Device:', error);
-    }
+    })();
+
+    return globalTwilioInitPromise;
 }
+
+window.ensureGlobalTwilioDevice = initializeGlobalTwilioDevice;
+window.whenGlobalTwilioDeviceReady = async function (timeoutMs = 20000) {
+    const started = Date.now();
+    const device = await initializeGlobalTwilioDevice();
+    if (!device) {
+        return null;
+    }
+    if (device.state === 'registered') {
+        return device;
+    }
+    return new Promise((resolve) => {
+        const onRegistered = () => {
+            cleanup();
+            resolve(device);
+        };
+        const timer = setTimeout(() => {
+            cleanup();
+            resolve(device.state === 'registered' ? device : null);
+        }, Math.max(0, timeoutMs - (Date.now() - started)));
+        const cleanup = () => {
+            clearTimeout(timer);
+            device.off?.('registered', onRegistered);
+        };
+        device.once?.('registered', onRegistered);
+        if (device.state === 'registered') {
+            cleanup();
+            resolve(device);
+        }
+    });
+};
 
 function setupGlobalTwilioDevice(token, DeviceClass) {
     try {
@@ -403,6 +493,7 @@ function setupGlobalTwilioDevice(token, DeviceClass) {
             logLevel: 'info',
             codecPreferences: ['opus', 'pcmu']
         });
+        window.globalTwilioDevice = globalTwilioDevice;
 
         // Device registered
         globalTwilioDevice.on('registered', () => {
@@ -495,7 +586,6 @@ function setupGlobalTwilioDevice(token, DeviceClass) {
 
         // Register the device
         globalTwilioDevice.register();
-        bootstrapCallQueuePresence();
         
     } catch (error) {
         console.error('Error setting up global Twilio Device:', error);
@@ -829,6 +919,9 @@ window.answerIncomingCall = async function() {
         activeCall.accept();
         
         console.log('Call answered');
+        if (callQueueAvailable) {
+            sendCallQueueHeartbeat();
+        }
         hideIncomingCallNotification();
         stopGlobalRingSound();
         
@@ -853,6 +946,9 @@ window.answerIncomingCall = async function() {
             if (typeof window !== 'undefined') {
                 window.globalActiveCall = null;
                 window.__twilioActiveCall = null;
+            }
+            if (callQueueAvailable) {
+                window.setCallQueueAvailable(true).catch(() => {});
             }
         });
         
@@ -1040,6 +1136,17 @@ console.log('✅ twilio-global.js: Functions defined:', {
     'testIncomingCallNotification': typeof window.testIncomingCallNotification
 });
 
+function startGlobalCallListener() {
+    bindHeaderAgentQueueToggle();
+    bootstrapCallQueuePresence();
+    initializeGlobalTwilioDevice();
+    document.addEventListener('click', () => {
+        if (globalRingAudioContext?.state === 'suspended') {
+            globalRingAudioContext.resume().catch(() => {});
+        }
+    }, { passive: true });
+}
+
 // Initialize when DOM is ready - ensure it runs on ALL pages
 console.log('🔧 Setting up initialization handlers...');
 console.log('📄 Document readyState:', document.readyState);
@@ -1050,7 +1157,7 @@ if (document.readyState === 'loading') {
         console.log('📄✅ DOMContentLoaded fired - initializing global Twilio device');
         console.log('📍 Page:', window.location.pathname);
         try {
-            initializeGlobalTwilioDevice();
+            startGlobalCallListener();
         } catch (error) {
             console.error('❌ Error in DOMContentLoaded handler:', error);
         }
@@ -1060,11 +1167,37 @@ if (document.readyState === 'loading') {
     console.log('📄✅ DOM already loaded - initializing global Twilio device immediately');
     console.log('📍 Page:', window.location.pathname);
     try {
-        initializeGlobalTwilioDevice();
+        startGlobalCallListener();
     } catch (error) {
         console.error('❌ Error in immediate initialization:', error);
     }
 }
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && callQueueAvailable) {
+        sendCallQueueHeartbeat();
+        initializeGlobalTwilioDevice();
+    }
+});
+
+window.addEventListener('pagehide', () => {
+    if (!callQueueAvailable) return;
+    try {
+        fetch('/twilio/agent-presence/heartbeat', {
+            method: 'POST',
+            headers: csrfHeaders(),
+            keepalive: true,
+        });
+    } catch (error) {
+        // Ignore navigation teardown errors.
+    }
+});
+
+window.addEventListener('storage', (event) => {
+    if (event.key !== CALL_QUEUE_STORAGE_KEY) return;
+    const on = event.newValue === '1';
+    window.syncCallQueuePresence(on, on ? 'available' : 'offline');
+});
 
 // Also try to initialize after a short delay to ensure everything is loaded
 setTimeout(() => {
