@@ -118,7 +118,7 @@ class LeadRuleEngine
 
     /**
      * @param  string|array<int, string>  $triggers
-     * @param  array{contact_name?: ?string, phone?: ?string, email?: ?string, subject?: ?string, message?: ?string, added_label?: ?string, added_label_id?: int|string|null}  $context
+     * @param  array{contact_name?: ?string, phone?: ?string, email?: ?string, subject?: ?string, message?: ?string, added_label?: ?string, added_label_id?: int|string|null, inbox_id?: int|string|null, shared_inbox_id?: int|string|null}  $context
      */
     public function apply(?Lead $lead, string $channel, string|array $triggers, array $context = []): void
     {
@@ -176,7 +176,7 @@ class LeadRuleEngine
 
     /**
      * @param  array<int, array{field?: string, operator?: string, value?: mixed}>  $conditions
-     * @param  array{contact_name?: ?string, phone?: ?string, email?: ?string, subject?: ?string, message?: ?string, added_label?: ?string, added_label_id?: int|string|null}  $context
+     * @param  array{contact_name?: ?string, phone?: ?string, email?: ?string, subject?: ?string, message?: ?string, added_label?: ?string, added_label_id?: int|string|null, inbox_id?: int|string|null, shared_inbox_id?: int|string|null}  $context
      */
     public function matches(Lead $lead, string $channel, array $conditions, array $context): bool
     {
@@ -202,6 +202,22 @@ class LeadRuleEngine
                     continue;
                 }
                 if ($channel === '' || ! in_array($channel, $channels, true)) {
+                    return false;
+                }
+                continue;
+            }
+
+            if ($field === 'shared_inbox' || $field === 'inbox') {
+                $inboxIds = collect(is_array($value) ? $value : explode(',', (string) $value))
+                    ->map(fn ($id) => (int) $id)
+                    ->filter(fn ($id) => $id > 0)
+                    ->values()
+                    ->all();
+                if ($inboxIds === []) {
+                    continue;
+                }
+                $eventInboxId = (int) ($context['inbox_id'] ?? $context['shared_inbox_id'] ?? 0);
+                if ($eventInboxId < 1 || ! in_array($eventInboxId, $inboxIds, true)) {
                     return false;
                 }
                 continue;

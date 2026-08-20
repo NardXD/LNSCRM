@@ -11,6 +11,7 @@ use App\Models\LeadIdentity;
 use App\Models\LeadLabel;
 use App\Models\LeadNote;
 use App\Models\LeadRule;
+use App\Models\SharedInbox;
 use App\Models\User;
 use App\Services\ContactConversationHistoryService;
 use App\Services\FlexCrmLookupService;
@@ -236,6 +237,20 @@ class LeadsController extends Controller
                 'triggers' => LeadRuleEngine::triggerLabels(),
                 'channels' => LeadRuleEngine::CHANNELS,
                 'statuses' => Lead::STATUSES,
+                'inboxes' => SharedInbox::query()
+                    ->where('company_id', $companyId)
+                    ->where('is_active', true)
+                    ->orderByRaw("CASE WHEN type = ? THEN 0 ELSE 1 END", [SharedInbox::TYPE_SHARED])
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'email', 'type'])
+                    ->map(fn (SharedInbox $inbox) => [
+                        'id' => $inbox->id,
+                        'name' => $inbox->name,
+                        'email' => $inbox->email,
+                        'type' => $inbox->type,
+                    ])
+                    ->values()
+                    ->all(),
             ],
         ]);
     }
@@ -856,7 +871,7 @@ class LeadsController extends Controller
             'triggers' => [$required, 'array', 'min:1'],
             'triggers.*' => ['required', 'string', 'in:'.$triggerKeys],
             'conditions' => [$required, 'array', 'min:1'],
-            'conditions.*.field' => ['required', 'in:channel,contact_name,phone,email,subject,message,lead_status,lead_label,label_added,status_changed'],
+            'conditions.*.field' => ['required', 'in:channel,shared_inbox,inbox,contact_name,phone,email,subject,message,lead_status,lead_label,label_added,status_changed'],
             'conditions.*.operator' => ['required', 'in:contains,equals,starts_with,in'],
             'conditions.*.value' => ['nullable'],
             'actions' => [$required, 'array', 'min:1'],
@@ -872,6 +887,24 @@ class LeadsController extends Controller
                     ->filter(fn ($id) => array_key_exists($id, LeadRuleEngine::CHANNELS));
                 if ($ids->count() !== count((array) ($condition['value'] ?? []))) {
                     abort(response()->json(['message' => 'Choose valid channels.'], 422));
+                }
+                continue;
+            }
+            if ($field === 'shared_inbox' || $field === 'inbox') {
+                $ids = collect(is_array($condition['value'] ?? null) ? $condition['value'] : [])
+                    ->map(fn ($id) => (int) $id)
+                    ->filter(fn ($id) => $id > 0)
+                    ->unique()
+                    ->values();
+                if ($ids->isEmpty()) {
+                    continue;
+                }
+                $valid = SharedInbox::query()
+                    ->where('company_id', Auth::user()->company_id)
+                    ->whereIn('id', $ids)
+                    ->count();
+                if ($valid !== $ids->count()) {
+                    abort(response()->json(['message' => 'Choose valid shared inboxes.'], 422));
                 }
                 continue;
             }

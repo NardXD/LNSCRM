@@ -255,6 +255,16 @@
                                     <div class="leads-rule-channel-menu" id="leadRuleChannelMenu" hidden></div>
                                 </div>
                             </div>
+                            <div class="leads-rule-pill-row">
+                                <span>Shared inbox is</span>
+                                <div class="leads-rule-channel-picker" id="leadRuleInboxPicker">
+                                    <button type="button" class="leads-rule-channel-toggle" id="leadRuleInboxToggle">
+                                        <span id="leadRuleInboxToggleLabel">All inboxes</span>
+                                        <span>▾</span>
+                                    </button>
+                                    <div class="leads-rule-channel-menu" id="leadRuleInboxMenu" hidden></div>
+                                </div>
+                            </div>
                         </div>
                         <div id="leadRuleConditions" class="leads-rule-extra-list"></div>
                         <button type="button" class="link-btn" id="btnAddLeadRuleCondition">+ Add condition</button>
@@ -376,7 +386,7 @@
 .leads-rule-name-label input { width: 100%; margin-top: 0.3rem; padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; }
 .leads-rule-section { margin: 1rem 0 0.75rem; }
 .leads-rule-section-title { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); margin-bottom: 0.45rem; }
-.leads-rule-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.75rem; background: var(--bg-primary); }
+.leads-rule-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.75rem; background: var(--bg-primary); display: flex; flex-direction: column; gap: 0.55rem; }
 .leads-rule-pill-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; font-size: 0.85rem; }
 .leads-rule-channel-picker { position: relative; min-width: 200px; }
 .leads-rule-channel-toggle { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; width: 100%; padding: 0.4rem 0.65rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); cursor: pointer; font-size: 0.85rem; }
@@ -414,7 +424,7 @@
 (function () {
     const api = '/api/leads';
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], assignees: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }} };
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }} };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -1226,6 +1236,8 @@
         if (cancelBtn) cancelBtn.textContent = 'Close';
         const menu = document.getElementById('leadRuleChannelMenu');
         if (menu) menu.hidden = true;
+        const inboxMenu = document.getElementById('leadRuleInboxMenu');
+        if (inboxMenu) inboxMenu.hidden = true;
         renderRuleList();
     }
     function showRuleEditor() {
@@ -1247,23 +1259,29 @@
         if (newBtn) newBtn.hidden = true;
         if (cancelBtn) cancelBtn.textContent = 'Back';
         renderRuleChannelPicker();
+        renderRuleInboxPicker();
     }
     function openRulesModal() {
         rulesModal.classList.add('open');
         showRuleList();
         renderRuleChannelPicker();
+        renderRuleInboxPicker();
     }
     function closeRulesModal() {
         rulesModal.classList.remove('open');
         state.editingRuleId = null;
         const menu = document.getElementById('leadRuleChannelMenu');
         if (menu) menu.hidden = true;
+        const inboxMenu = document.getElementById('leadRuleInboxMenu');
+        if (inboxMenu) inboxMenu.hidden = true;
     }
     async function loadRules() {
         const res = await fetch(api + '/rules', { credentials: 'same-origin', headers: headers() });
         const data = await res.json().catch(() => ({}));
         state.rules = data.data || [];
         if (data.meta && typeof data.meta.can_manage === 'boolean') state.canManageRules = data.meta.can_manage;
+        state.inboxes = Array.isArray(data.meta?.inboxes) ? data.meta.inboxes : [];
+        renderRuleInboxPicker();
         if (!document.getElementById('leadRuleListView')?.hidden) showRuleList();
     }
     function renderRuleList() {
@@ -1316,6 +1334,41 @@
             </label>
         `).join('');
         updateRuleChannelLabel();
+    }
+    function selectedRuleInboxes() {
+        return [...document.querySelectorAll('#leadRuleInboxMenu input[type="checkbox"]:checked')]
+            .map(cb => Number(cb.value))
+            .filter(id => id > 0);
+    }
+    function inboxDisplayName(inbox) {
+        const name = inbox?.name || inbox?.email || ('Inbox #' + inbox?.id);
+        return inbox?.type === 'personal' ? name + ' (personal)' : name;
+    }
+    function updateRuleInboxLabel() {
+        const ids = selectedRuleInboxes().map(String);
+        const label = document.getElementById('leadRuleInboxToggleLabel');
+        if (!label) return;
+        if (!ids.length) {
+            label.textContent = 'All inboxes';
+            return;
+        }
+        const names = (state.inboxes || []).filter(inbox => ids.includes(String(inbox.id))).map(inboxDisplayName);
+        label.textContent = names.length <= 2 ? names.join(', ') : `${names.length} inboxes selected`;
+    }
+    function renderRuleInboxPicker() {
+        const menu = document.getElementById('leadRuleInboxMenu');
+        if (!menu) return;
+        const prev = new Set(selectedRuleInboxes().map(String));
+        const inboxes = state.inboxes || [];
+        menu.innerHTML = inboxes.length
+            ? inboxes.map(inbox => `
+                <label class="leads-rule-channel-option">
+                    <input type="checkbox" value="${inbox.id}" ${prev.has(String(inbox.id)) ? 'checked' : ''}>
+                    <span>${esc(inboxDisplayName(inbox))}</span>
+                </label>
+            `).join('')
+            : '<div class="chp-empty" style="padding:0.45rem;">No shared inboxes yet.</div>';
+        updateRuleInboxLabel();
     }
     function triggerOptions(selected = 'inbound_message') {
         return RULE_TRIGGERS.map(t =>
@@ -1490,8 +1543,11 @@
         document.getElementById('leadRuleConditions').innerHTML = '';
         document.getElementById('leadRuleActions').innerHTML = '';
         renderRuleChannelPicker();
+        renderRuleInboxPicker();
         document.querySelectorAll('#leadRuleChannelMenu input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+        document.querySelectorAll('#leadRuleInboxMenu input[type="checkbox"]').forEach(cb => { cb.checked = false; });
         updateRuleChannelLabel();
+        updateRuleInboxLabel();
         addRuleTriggerRow({ value: 'inbound_message' });
         addRuleActionRow();
     }
@@ -1506,14 +1562,21 @@
         document.getElementById('leadRuleActions').innerHTML = '';
         const conditions = Array.isArray(rule.conditions) ? rule.conditions : [];
         const channel = conditions.find(c => c.field === 'channel');
+        const inboxCond = conditions.find(c => c.field === 'shared_inbox' || c.field === 'inbox');
         const addedLabel = conditions.find(c => c.field === 'label_added');
         const changedStatus = conditions.find(c => c.field === 'status_changed');
         renderRuleChannelPicker();
+        renderRuleInboxPicker();
         const selected = new Set((Array.isArray(channel?.value) ? channel.value : []).map(String));
         document.querySelectorAll('#leadRuleChannelMenu input[type="checkbox"]').forEach(cb => {
             cb.checked = selected.has(cb.value);
         });
         updateRuleChannelLabel();
+        const selectedInboxes = new Set((Array.isArray(inboxCond?.value) ? inboxCond.value : []).map(String));
+        document.querySelectorAll('#leadRuleInboxMenu input[type="checkbox"]').forEach(cb => {
+            cb.checked = selectedInboxes.has(cb.value);
+        });
+        updateRuleInboxLabel();
         const triggers = Array.isArray(rule.triggers) ? rule.triggers : [];
         if (!triggers.length) addRuleTriggerRow({ value: 'inbound_message' });
         else triggers.forEach(trigger => addRuleTriggerRow({
@@ -1522,7 +1585,7 @@
             status: trigger === 'lead_status_changed' ? (changedStatus?.value || '') : '',
         }));
         conditions
-            .filter(c => c.field && c.field !== 'channel' && c.field !== 'label_added' && c.field !== 'status_changed')
+            .filter(c => c.field && c.field !== 'channel' && c.field !== 'shared_inbox' && c.field !== 'inbox' && c.field !== 'label_added' && c.field !== 'status_changed')
             .forEach(c => addRuleConditionRow(c));
         const actions = Array.isArray(rule.actions) ? rule.actions : [];
         if (!actions.length) addRuleActionRow();
@@ -1533,7 +1596,10 @@
         document.querySelectorAll('#leadRuleTriggers [data-rule-trigger]').forEach(sel => {
             if (sel.value && !triggers.includes(sel.value)) triggers.push(sel.value);
         });
-        const conditions = [{ field: 'channel', operator: 'in', value: selectedRuleChannels() }];
+        const conditions = [
+            { field: 'channel', operator: 'in', value: selectedRuleChannels() },
+            { field: 'shared_inbox', operator: 'in', value: selectedRuleInboxes() },
+        ];
         document.querySelectorAll('#leadRuleTriggers .leads-rule-extra-card').forEach(row => {
             const sel = row.querySelector('[data-rule-trigger]');
             const extraVal = row.querySelector('[data-rule-trigger-label]')?.value;
@@ -1639,9 +1705,19 @@
     document.getElementById('leadRuleChannelToggle')?.addEventListener('click', (e) => {
         e.preventDefault();
         const menu = document.getElementById('leadRuleChannelMenu');
+        const inboxMenu = document.getElementById('leadRuleInboxMenu');
+        if (inboxMenu) inboxMenu.hidden = true;
         if (menu) menu.hidden = !menu.hidden;
     });
     document.getElementById('leadRuleChannelMenu')?.addEventListener('change', updateRuleChannelLabel);
+    document.getElementById('leadRuleInboxToggle')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        const menu = document.getElementById('leadRuleInboxMenu');
+        const channelMenu = document.getElementById('leadRuleChannelMenu');
+        if (channelMenu) channelMenu.hidden = true;
+        if (menu) menu.hidden = !menu.hidden;
+    });
+    document.getElementById('leadRuleInboxMenu')?.addEventListener('change', updateRuleInboxLabel);
     document.getElementById('leadRuleTriggers')?.addEventListener('change', (e) => {
         const sel = e.target.closest('[data-rule-trigger]');
         if (!sel) return;
@@ -1724,7 +1800,7 @@
                 return alert('Choose which status was set.');
             }
         }
-        const extra = payload.conditions.filter(c => c.field !== 'channel');
+        const extra = payload.conditions.filter(c => c.field !== 'channel' && c.field !== 'shared_inbox');
         if (extra.some(c => !String(c.value || '').trim())) return alert('Each condition needs a value.');
         if (!payload.actions.length) return alert('Add at least one action.');
         for (const action of payload.actions) {

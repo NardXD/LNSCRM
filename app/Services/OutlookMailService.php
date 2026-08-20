@@ -451,6 +451,8 @@ class OutlookMailService
                             'email' => $fresh->from_email,
                             'subject' => $fresh->subject,
                             'message' => $fresh->snippet,
+                            'inbox_id' => $fresh->shared_inbox_id,
+                            'shared_inbox_id' => $fresh->shared_inbox_id,
                         ]
                     );
                 }
