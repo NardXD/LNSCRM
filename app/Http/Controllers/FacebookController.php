@@ -8,6 +8,7 @@ use App\Models\FacebookIntegration;
 use App\Models\FacebookMessage;
 use App\Models\User;
 use App\Notifications\FacebookMessageNotification;
+use App\Services\FacebookGraphMessagingService;
 use App\Services\FacebookMessageSyncService;
 use App\Services\FlexCrmLookupService;
 use App\Services\LeadAutoCreateService;
@@ -31,6 +32,7 @@ class FacebookController extends Controller
     public function __construct(
         protected TwilioCompanyService $twilioCompany,
         protected FacebookMessageSyncService $facebookSync,
+        protected FacebookGraphMessagingService $graphMessaging,
         protected MessageContactExtractor $messageContacts,
         protected FlexCrmLookupService $crmLookup,
         protected LeadAutoCreateService $leadAutoCreate
@@ -48,8 +50,10 @@ class FacebookController extends Controller
             $this->facebookSync->correctNaiveUtcTimestamps($integration);
         }
 
+        $connected = (bool) ($integration && $integration->page_id && ($twilioReady || $integration->hasInstagramGraph()));
+
         return view('dashboard.facebook', [
-            'integrationConnected' => (bool) ($integration && $twilioReady),
+            'integrationConnected' => $connected,
             'pageName' => $integration?->page_name,
             'instagramUsername' => $integration?->instagram_username,
             'appTimezone' => config('app.timezone'),
@@ -65,7 +69,7 @@ class FacebookController extends Controller
             : false;
 
         return response()->json([
-            'connected' => (bool) ($integration && $integration->is_active && $twilioReady && $integration->page_id),
+            'connected' => (bool) ($integration && $integration->is_active && $integration->page_id && ($twilioReady || $integration->hasInstagramGraph())),
             'account' => $integration ? [
                 'page_id' => $integration->page_id,
                 'page_name' => $integration->page_name,
@@ -75,6 +79,7 @@ class FacebookController extends Controller
                 'webhook_set_at' => $integration->webhook_set_at?->toIso8601String(),
                 'twilio_connected' => $twilioReady,
                 'has_page_access_token' => (bool) $integration->getDecryptedPageAccessToken(),
+                'instagram_graph' => $integration->hasInstagramGraph(),
                 'integrations_url' => route('integrations'),
             ] : null,
         ]);
@@ -201,7 +206,6 @@ class FacebookController extends Controller
         ]);
 
         $channel = $this->requireActiveIntegration();
-        $twilio = $this->twilioClientForCompany(Auth::user()->company);
         $type = $validated['type'];
         $body = null;
         $mediaUrl = null;
@@ -219,15 +223,42 @@ class FacebookController extends Controller
             $body = $validated['text'] ?? null;
         }
 
+        $mid = null;
+        $status = 'sent';
+        $raw = [];
+
         try {
-            $sent = $twilio->sendMessenger(
-                $channel->senderIdForChannel((string) $conversation->channel),
-                (string) $conversation->peer_id,
-                (string) $conversation->channel,
-                $body,
-                $channel->statusCallbackUrl(),
-                $mediaUrl
-            );
+            if ((string) $conversation->channel === 'instagram') {
+                $token = $channel->getDecryptedPageAccessToken();
+                if (! $token) {
+                    return response()->json([
+                        'message' => 'Add a Facebook Page Access Token under Integrations to send Instagram Direct messages.',
+                    ], 422);
+                }
+                $sent = $this->graphMessaging->send(
+                    (string) $channel->page_id,
+                    $token,
+                    (string) $conversation->peer_id,
+                    $type,
+                    $body,
+                    $mediaUrl
+                );
+                $mid = $sent['message_id'];
+                $raw = $sent['raw'];
+            } else {
+                $twilio = $this->twilioClientForCompany(Auth::user()->company);
+                $sent = $twilio->sendMessenger(
+                    $channel->senderIdForChannel((string) $conversation->channel),
+                    (string) $conversation->peer_id,
+                    (string) $conversation->channel,
+                    $body,
+                    $channel->statusCallbackUrl(),
+                    $mediaUrl
+                );
+                $mid = $sent->sid;
+                $status = $sent->status ?? 'sent';
+                $raw = ['sid' => $sent->sid, 'status' => $sent->status];
+            }
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
@@ -237,14 +268,14 @@ class FacebookController extends Controller
             'facebook_conversation_id' => $conversation->id,
             'user_id' => Auth::id(),
             'direction' => 'outbound',
-            'mid' => $sent->sid,
+            'mid' => $mid,
             'type' => $type,
             'text' => $validated['text'] ?? null,
             'media_url' => $mediaUrl,
             'file_name' => $validated['file_name'] ?? null,
             'file_size' => $validated['file_size'] ?? null,
-            'status' => $sent->status ?? 'sent',
-            'raw_payload' => ['sid' => $sent->sid, 'status' => $sent->status],
+            'status' => $status,
+            'raw_payload' => $raw,
             'sent_at' => now(),
         ]);
 
@@ -330,6 +361,30 @@ class FacebookController extends Controller
             return response('Not found', 404);
         }
 
+        if ($request->isMethod('get')) {
+            return $this->verifyMetaWebhook($request, $integration);
+        }
+
+        $object = strtolower((string) $request->input('object', ''));
+        if (in_array($object, ['instagram', 'page'], true)) {
+            if (! $this->metaSignatureIsValid($request, $integration)) {
+                return response('Invalid signature', 403);
+            }
+
+            try {
+                $this->handleMetaWebhook($integration, $request, $object);
+            } catch (\Throwable $e) {
+                Log::error('Meta Instagram webhook handler error', ['error' => $e->getMessage()]);
+            }
+
+            if (! $integration->webhook_set_at) {
+                $integration->webhook_set_at = now();
+                $integration->save();
+            }
+
+            return response('EVENT_RECEIVED', 200);
+        }
+
         $company = Company::find($integration->company_id);
         if (! $company) {
             return response('OK', 200);
@@ -377,6 +432,234 @@ class FacebookController extends Controller
     public function acceptTwilioInbound(FacebookIntegration $integration, Request $request): void
     {
         $this->handleInboundTwilioMessage($integration, $request);
+    }
+
+    protected function verifyMetaWebhook(Request $request, FacebookIntegration $integration): Response
+    {
+        $mode = (string) ($request->query('hub.mode') ?? $request->input('hub_mode', ''));
+        $token = (string) ($request->query('hub.verify_token') ?? $request->input('hub_verify_token', ''));
+        $challenge = (string) ($request->query('hub.challenge') ?? $request->input('hub_challenge', ''));
+        $expected = (string) ($integration->webhook_verify_token ?? '');
+
+        if ($mode === 'subscribe' && $expected !== '' && hash_equals($expected, $token)) {
+            if (! $integration->webhook_set_at) {
+                $integration->webhook_set_at = now();
+                $integration->save();
+            }
+
+            return response($challenge, 200)->header('Content-Type', 'text/plain');
+        }
+
+        return response('Forbidden', 403);
+    }
+
+    protected function metaSignatureIsValid(Request $request, FacebookIntegration $integration): bool
+    {
+        $secret = $integration->getDecryptedAppSecret();
+        if (! $secret) {
+            return true;
+        }
+
+        $header = (string) $request->header('X-Hub-Signature-256', '');
+        if (! str_starts_with($header, 'sha256=')) {
+            return false;
+        }
+
+        $expected = 'sha256='.hash_hmac('sha256', $request->getContent(), $secret);
+
+        return hash_equals($expected, $header);
+    }
+
+    protected function handleMetaWebhook(FacebookIntegration $integration, Request $request, string $object): void
+    {
+        $ownIds = array_values(array_filter([
+            (string) $integration->page_id,
+            (string) $integration->instagram_business_account_id,
+        ]));
+        $igId = (string) $integration->instagram_business_account_id;
+
+        foreach ($request->input('entry', []) as $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+
+            $entryId = (string) ($entry['id'] ?? '');
+            $events = $entry['messaging'] ?? [];
+            if (! is_array($events) || $events === []) {
+                continue;
+            }
+
+            foreach ($events as $event) {
+                if (! is_array($event)) {
+                    continue;
+                }
+
+                $recipientId = (string) ($event['recipient']['id'] ?? '');
+                $isInstagram = $object === 'instagram'
+                    || ($igId !== '' && ($entryId === $igId || $recipientId === $igId));
+
+                if (! $isInstagram) {
+                    continue;
+                }
+
+                $this->handleInboundMetaInstagram($integration, $event, $ownIds);
+            }
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $event
+     * @param  array<int, string>  $ownIds
+     */
+    protected function handleInboundMetaInstagram(FacebookIntegration $integration, array $event, array $ownIds): void
+    {
+        if (! empty($event['message']['is_echo']) || ! empty($event['message']['is_deleted'])) {
+            return;
+        }
+
+        if (empty($event['message']) && empty($event['postback'])) {
+            return;
+        }
+
+        $senderId = (string) ($event['sender']['id'] ?? '');
+        if ($senderId === '' || in_array($senderId, $ownIds, true)) {
+            return;
+        }
+
+        $message = is_array($event['message'] ?? null) ? $event['message'] : [];
+        $postback = is_array($event['postback'] ?? null) ? $event['postback'] : [];
+        $mid = (string) ($message['mid'] ?? ($postback['mid'] ?? ''));
+        if ($mid === '') {
+            $mid = 'meta-'.md5(json_encode($event) ?: uniqid('ig', true));
+        }
+
+        if (FacebookMessage::where('mid', $mid)->exists()) {
+            return;
+        }
+
+        $text = null;
+        if (isset($message['text']) && is_string($message['text']) && $message['text'] !== '') {
+            $text = $message['text'];
+        } elseif (isset($postback['title']) && is_string($postback['title'])) {
+            $text = $postback['title'];
+        } elseif (isset($postback['payload']) && is_string($postback['payload'])) {
+            $text = $postback['payload'];
+        }
+
+        $attachments = is_array($message['attachments'] ?? null) ? $message['attachments'] : [];
+        $type = 'text';
+        $mediaUrl = null;
+        $mimeType = null;
+        $fileName = null;
+
+        if ($attachments !== []) {
+            $attachment = is_array($attachments[0]) ? $attachments[0] : [];
+            $attType = strtolower((string) ($attachment['type'] ?? 'file'));
+            $type = in_array($attType, ['image', 'video', 'audio', 'file', 'story_mention', 'share'], true)
+                ? ($attType === 'story_mention' || $attType === 'share' ? 'image' : $attType)
+                : 'file';
+            $payload = is_array($attachment['payload'] ?? null) ? $attachment['payload'] : [];
+            $remote = isset($payload['url']) && is_string($payload['url']) ? $payload['url'] : null;
+            if ($remote) {
+                try {
+                    $mediaUrl = $this->storeInboundGraphMedia(
+                        $integration,
+                        $remote,
+                        $type,
+                        $mid
+                    );
+                } catch (\Throwable $e) {
+                    Log::warning('Instagram inbound media download failed', ['error' => $e->getMessage()]);
+                    $mediaUrl = $remote;
+                }
+            } elseif ($text === null) {
+                $text = $attType === 'story_mention' ? '[Story mention]' : '['.ucfirst($attType).']';
+                $type = 'text';
+            }
+        }
+
+        if ($text === null && $mediaUrl === null) {
+            return;
+        }
+
+        $profileName = null;
+        $username = null;
+        $profilePic = null;
+        $token = $integration->getDecryptedPageAccessToken();
+        if ($token) {
+            $profile = $this->graphMessaging->instagramUser($senderId, $token);
+            $profileName = isset($profile['name']) && is_string($profile['name']) ? $profile['name'] : null;
+            $username = isset($profile['username']) && is_string($profile['username']) ? $profile['username'] : null;
+            $profilePic = isset($profile['profile_pic']) && is_string($profile['profile_pic']) ? $profile['profile_pic'] : null;
+        }
+
+        $conversation = $this->upsertConversation($integration, 'instagram', $senderId, $profileName);
+        if ($username && ! $conversation->username) {
+            $conversation->username = $username;
+        }
+        if ($profilePic) {
+            $conversation->profile_pic = $profilePic;
+        }
+        if ($username || $profilePic) {
+            $conversation->save();
+        }
+
+        $isNewConversation = $conversation->wasRecentlyCreated
+            || FacebookMessage::where('facebook_conversation_id', $conversation->id)->count() === 0;
+
+        $timestamp = $event['timestamp'] ?? null;
+        $sentAt = is_numeric($timestamp)
+            ? TimezoneService::fromExternal(\Carbon\Carbon::createFromTimestampMs((int) $timestamp))
+            : now();
+
+        $record = FacebookMessage::create([
+            'company_id' => $integration->company_id,
+            'facebook_conversation_id' => $conversation->id,
+            'direction' => 'inbound',
+            'mid' => $mid,
+            'type' => $type,
+            'text' => $text,
+            'media_url' => $mediaUrl,
+            'mime_type' => $mimeType,
+            'file_name' => $fileName,
+            'status' => 'received',
+            'raw_payload' => $event,
+            'sent_at' => $sentAt,
+        ]);
+
+        $conversation->unread_count = (int) $conversation->unread_count + 1;
+        $this->touchConversation($conversation, $record);
+        $extracted = $this->messageContacts->applyToConversation($conversation);
+        $this->notifyUnread($conversation, $record);
+
+        $lead = $this->leadAutoCreate->fromFacebookConversation($conversation, $extracted);
+        $this->leadAutoCreate->applyRules($lead, 'facebook', LeadRuleEngine::inboundTriggers($isNewConversation), [
+            'contact_name' => $conversation->name,
+            'message' => $text,
+        ]);
+
+        if ($isNewConversation) {
+            $this->maybeSendWelcome($integration, $conversation);
+        }
+    }
+
+    protected function storeInboundGraphMedia(
+        FacebookIntegration $integration,
+        string $remoteUrl,
+        string $type,
+        string $messageSid
+    ): string {
+        $binary = $this->graphMessaging->download($remoteUrl, $integration->getDecryptedPageAccessToken());
+        $ext = match ($type) {
+            'image' => 'jpg',
+            'video' => 'mp4',
+            'audio' => 'mp4',
+            default => 'bin',
+        };
+        $path = 'facebook/'.$integration->company_id.'/inbound/'.date('Y/m').'/'.$messageSid.'-'.Str::random(6).'.'.$ext;
+        Storage::disk('public')->put($path, $binary);
+
+        return public_media_url($path);
     }
 
     protected function handleInboundTwilioMessage(FacebookIntegration $integration, Request $request): void
@@ -508,24 +791,44 @@ class FacebookController extends Controller
         }
 
         try {
-            $twilio = $this->twilioClientForCompany($company);
-            $sent = $twilio->sendMessenger(
-                $integration->senderIdForChannel((string) $conversation->channel),
-                (string) $conversation->peer_id,
-                (string) $conversation->channel,
-                $welcome,
-                $integration->statusCallbackUrl()
-            );
+            if ((string) $conversation->channel === 'instagram') {
+                $token = $integration->getDecryptedPageAccessToken();
+                if (! $token) {
+                    return;
+                }
+                $sent = $this->graphMessaging->send(
+                    (string) $integration->page_id,
+                    $token,
+                    (string) $conversation->peer_id,
+                    'text',
+                    $welcome
+                );
+                $mid = $sent['message_id'];
+                $status = 'sent';
+                $raw = $sent['raw'];
+            } else {
+                $twilio = $this->twilioClientForCompany($company);
+                $sent = $twilio->sendMessenger(
+                    $integration->senderIdForChannel((string) $conversation->channel),
+                    (string) $conversation->peer_id,
+                    (string) $conversation->channel,
+                    $welcome,
+                    $integration->statusCallbackUrl()
+                );
+                $mid = $sent->sid;
+                $status = $sent->status ?? 'sent';
+                $raw = ['sid' => $sent->sid, 'status' => $sent->status];
+            }
 
             $message = FacebookMessage::create([
                 'company_id' => $integration->company_id,
                 'facebook_conversation_id' => $conversation->id,
                 'direction' => 'outbound',
-                'mid' => $sent->sid,
+                'mid' => $mid,
                 'type' => 'text',
                 'text' => $welcome,
-                'status' => $sent->status ?? 'sent',
-                'raw_payload' => ['sid' => $sent->sid, 'status' => $sent->status],
+                'status' => $status,
+                'raw_payload' => $raw,
                 'sent_at' => now(),
             ]);
             $this->touchConversation($conversation, $message);

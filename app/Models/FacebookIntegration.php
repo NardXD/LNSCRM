@@ -12,7 +12,9 @@ class FacebookIntegration extends Model
         'company_id',
         'page_id',
         'page_access_token',
+        'app_secret',
         'webhook_key',
+        'webhook_verify_token',
         'page_name',
         'instagram_business_account_id',
         'instagram_username',
@@ -52,14 +54,31 @@ class FacebookIntegration extends Model
 
     public function getDecryptedPageAccessToken(): ?string
     {
-        if (! $this->page_access_token) {
+        return $this->decryptValue($this->page_access_token);
+    }
+
+    public function getDecryptedAppSecret(): ?string
+    {
+        return $this->decryptValue($this->app_secret);
+    }
+
+    public function hasInstagramGraph(): bool
+    {
+        return $this->is_active
+            && (bool) $this->instagram_business_account_id
+            && (bool) $this->getDecryptedPageAccessToken();
+    }
+
+    protected function decryptValue(?string $value): ?string
+    {
+        if (! $value) {
             return null;
         }
 
         try {
-            return Crypt::decryptString($this->page_access_token);
+            return Crypt::decryptString($value);
         } catch (\Throwable) {
-            return $this->page_access_token;
+            return $value;
         }
     }
 }

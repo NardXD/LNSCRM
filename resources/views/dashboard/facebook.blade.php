@@ -666,7 +666,7 @@
             if (parts.length) els.accountLabel.textContent = parts.join(' · ');
             if (!connected) {
                 els.emptyTitle.textContent = 'Connect Facebook';
-                els.emptyText.textContent = 'Connect Twilio and your Facebook Messenger sender under Integrations to receive Page messages.';
+                els.emptyText.textContent = 'Connect Twilio for Messenger, and a Page Access Token plus Meta Instagram webhooks under Integrations to receive Instagram Direct.';
                 els.connectLink.style.display = '';
             } else {
                 els.connectLink.style.display = 'none';

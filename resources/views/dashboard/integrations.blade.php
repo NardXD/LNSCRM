@@ -677,11 +677,11 @@
         {
             id: 'facebook',
             name: 'Facebook & Instagram',
-            description: 'Send and receive Facebook Messenger (and optional Instagram Direct) through your Twilio Facebook sender.',
+            description: 'Facebook Messenger via Twilio, plus Instagram Direct via native Meta webhooks.',
             category: 'communication',
             icon: '📘',
             status: 'disconnected',
-            features: ['Twilio Messenger sender', 'Instagram Direct (optional)', 'Images & files', 'Webhook callbacks', 'Welcome message']
+            features: ['Twilio Messenger', 'Instagram Direct via Meta', 'Images & files', 'Meta webhooks', 'Welcome message']
         },
         {
             id: 'calendar',
@@ -1408,25 +1408,30 @@
                 <div class="form-group">
                     <label class="form-label">Facebook Page ID</label>
                     <input type="text" class="form-input" id="facebook-page-id" value="${existingData && existingData.page_id ? existingData.page_id : ''}" placeholder="222764457920914">
-                    <span class="form-help">From Twilio Console → Numbers &amp; senders → Facebook Messenger (Page ID of the connected Page).</span>
+                    <span class="form-help">From Twilio Console → Facebook Messenger, or from Graph <code>/me/accounts</code>.</span>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Page name (optional)</label>
                     <input type="text" class="form-input" id="facebook-page-name" value="${existingData && existingData.page_name ? existingData.page_name : ''}" placeholder="Loc&amp;Stor 24/7 Self Storage Philippines">
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Page Access Token (for full history)</label>
+                    <label class="form-label">Page Access Token (required for Instagram)</label>
                     <input type="password" class="form-input" id="facebook-page-access-token" value="" placeholder="${existingData && existingData.has_page_access_token ? '•••••••• (leave blank to keep)' : 'EAAB… long-lived Page token'}">
-                    <span class="form-help">Twilio does not store the Facebook Page inbox. Paste a Page access token with <code>pages_messaging</code> so Sync can import the full Messenger history from Meta. Live send/receive still uses Twilio.</span>
+                    <span class="form-help">Must include <code>pages_messaging</code> and <code>instagram_manage_messages</code>. Used to receive/send Instagram Direct. Messenger still uses Twilio.</span>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Instagram sender ID (optional)</label>
-                    <input type="text" class="form-input" id="facebook-instagram-id" value="${existingData && existingData.instagram_business_account_id ? existingData.instagram_business_account_id : ''}" placeholder="Twilio Instagram sender ID">
-                    <span class="form-help">Only needed if you also connected Instagram in Twilio Console.</span>
+                    <label class="form-label">Meta App Secret (recommended)</label>
+                    <input type="password" class="form-input" id="facebook-app-secret" value="" placeholder="${existingData && existingData.has_app_secret ? '•••••••• (leave blank to keep)' : 'From Meta App → Settings → Basic'}">
+                    <span class="form-help">Verifies Instagram webhook signatures from Meta.</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Instagram account ID</label>
+                    <input type="text" class="form-input" id="facebook-instagram-id" value="${existingData && existingData.instagram_business_account_id ? existingData.instagram_business_account_id : ''}" placeholder="17841400107695807">
+                    <span class="form-help">Instagram Business Account ID (not @username). Saved automatically from the Page token when possible.</span>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Instagram username (optional)</label>
-                    <input type="text" class="form-input" id="facebook-instagram-username" value="${existingData && existingData.instagram_username ? existingData.instagram_username : ''}" placeholder="yourpage">
+                    <input type="text" class="form-input" id="facebook-instagram-username" value="${existingData && existingData.instagram_username ? existingData.instagram_username : ''}" placeholder="locnstor247">
                 </div>
                 <div class="form-group">
                     <label class="form-label">Welcome Message (optional)</label>
@@ -1441,11 +1446,16 @@
                 <div class="form-group">
                     <label class="form-label">Webhook URL</label>
                     <code style="display:block;background:var(--bg-primary);padding:0.5rem 0.65rem;border-radius:6px;font-size:0.78rem;word-break:break-all;">${existingData && existingData.webhook_url ? existingData.webhook_url : 'Saved after you connect — must be public HTTPS'}</code>
-                    <span class="form-help">Paste this as the inbound webhook URL on your Twilio Facebook Messenger sender. Status callbacks use the shared Twilio SMS status URL.</span>
+                    <span class="form-help">Paste this in Meta App → Messenger → Instagram settings → Webhooks (Callback URL). Also keep it on the Twilio Messenger sender for Facebook chat.</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Verify token</label>
+                    <code style="display:block;background:var(--bg-primary);padding:0.5rem 0.65rem;border-radius:6px;font-size:0.78rem;word-break:break-all;">${existingData && existingData.webhook_verify_token ? existingData.webhook_verify_token : 'Generated after you save'}</code>
+                    <span class="form-help">Paste this as Verify Token in the same Meta webhook settings.</span>
                 </div>
                 ${existingData && existingData.page_id ? `
                 <div class="form-group">
-                    <label class="form-label">Sync old messages</label>
+                    <label class="form-label">Sync old Messenger messages</label>
                     <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
                         <select class="form-input" id="facebook-sync-days" style="max-width:11rem;">
                             <option value="30">Last 30 days</option>
@@ -1455,15 +1465,16 @@
                         </select>
                         <button type="button" class="btn-secondary" id="facebook-sync-btn" onclick="syncFacebookHistory(event)">Sync from Twilio</button>
                     </div>
-                    <span class="form-help" id="facebook-sync-help">Imports the Facebook Page inbox from Meta when a Page Access Token is saved, plus any messages already in Twilio. Twilio-only sync cannot recover older Facebook chats.</span>
+                    <span class="form-help" id="facebook-sync-help">Imports Facebook Page inbox history. Instagram Direct arrives live through Meta webhooks, not this sync.</span>
                 </div>` : ''}
                 <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
-                    <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">How it works</strong>
+                    <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">Instagram Direct</strong>
                     <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
-                        <li>Connect <strong>Twilio</strong> first under Integrations (Account SID / Auth Token).</li>
-                        <li>In Twilio Console go to <strong>Numbers &amp; senders → Facebook Messenger</strong> and connect the Facebook Page (already done if you see the Page listed there).</li>
-                        <li>Paste the Facebook Page ID here, save, then set the Webhook URL above on that Twilio Messenger sender.</li>
-                        <li>Customer messages appear in <a href="${TWILIO_SETUP.facebookChatUrl}">Facebook &amp; Instagram</a>. Replies go out through Twilio as <code>messenger:{page_id}</code>.</li>
+                        <li>Save this form with a <strong>Page Access Token</strong> (and Instagram account ID).</li>
+                        <li>In <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">Meta for Developers</a> open your app → <strong>Messenger → Instagram settings</strong>.</li>
+                        <li>Set Callback URL to the Webhook URL above and Verify Token to the token above. Subscribe to <code>messages</code>.</li>
+                        <li>In Instagram: Settings → Messages and story replies → Message controls → allow <strong>Connected tools</strong>.</li>
+                        <li>The webhook URL must be public HTTPS. Then DMs to @${existingData && existingData.instagram_username ? existingData.instagram_username : 'yourpage'} appear in <a href="${TWILIO_SETUP.facebookChatUrl}">Facebook &amp; Instagram</a>.</li>
                     </ol>
                 </div>
             `
@@ -2287,6 +2298,7 @@
         const pageId = document.getElementById('facebook-page-id')?.value?.trim() || '';
         const pageName = document.getElementById('facebook-page-name')?.value?.trim() || '';
         const pageAccessToken = document.getElementById('facebook-page-access-token')?.value?.trim() || '';
+        const appSecret = document.getElementById('facebook-app-secret')?.value?.trim() || '';
         const instagramId = document.getElementById('facebook-instagram-id')?.value?.trim() || '';
         const instagramUsername = document.getElementById('facebook-instagram-username')?.value?.trim() || '';
         const welcomeMessage = document.getElementById('facebook-welcome-message')?.value || '';
@@ -2305,6 +2317,7 @@
                 welcome_message: welcomeMessage,
             };
             if (pageAccessToken) payload.page_access_token = pageAccessToken;
+            if (appSecret) payload.app_secret = appSecret;
 
             const response = await fetch('/api/integrations/facebook', {
                 method: 'POST',
@@ -2317,14 +2330,17 @@
             const data = await response.json();
             if (response.ok) {
                 currentIntegration.status = 'connected';
-                let msg = 'Facebook Messenger settings saved.';
-                if (data.integration?.has_page_access_token) {
-                    msg += '\n\nPage Access Token saved. Use Sync old messages to import the full Facebook inbox.';
-                } else {
-                    msg += '\n\nAdd a Page Access Token if you want to import the full Facebook inbox. Twilio only has chats that already went through Twilio.';
+                let msg = 'Facebook & Instagram settings saved.';
+                if (data.integration?.instagram_graph) {
+                    msg += '\n\nInstagram Direct is ready. Paste the Webhook URL and Verify Token into Meta App → Messenger → Instagram settings.';
+                } else if (!data.integration?.has_page_access_token) {
+                    msg += '\n\nAdd a Page Access Token so Instagram DMs can use Meta webhooks.';
                 }
                 if (data.integration?.webhook_url) {
                     msg += '\n\nWebhook URL:\n' + data.integration.webhook_url;
+                }
+                if (data.integration?.webhook_verify_token) {
+                    msg += '\nVerify token:\n' + data.integration.webhook_verify_token;
                 }
                 alert(msg);
                 closeIntegrationModal();
