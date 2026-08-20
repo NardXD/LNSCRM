@@ -54,7 +54,10 @@
                     </div>
                 </header>
 
-                <div class="wa-messages" id="waMessages"></div>
+                <div class="wa-messages" id="waMessages">
+                    <div class="wa-load-older" id="waLoadOlder" hidden>Loading earlier messages…</div>
+                    <div class="wa-message-list" id="waMessageList"></div>
+                </div>
 
                 <footer class="wa-composer">
                     <div class="wa-attach">
@@ -89,6 +92,7 @@
 .wa-search { padding: 0.75rem 1rem; flex-shrink: 0; }
 .wa-search input { width: 100%; padding: 0.55rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text-primary); }
 .wa-thread-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.wa-list-hint { text-align: center; padding: 0.7rem; font-size: 0.78rem; color: var(--text-secondary); }
 .wa-thread { display: flex; gap: 0.75rem; padding: 0.85rem 1rem; cursor: pointer; border-bottom: 1px solid var(--border); }
 .wa-thread:hover, .wa-thread.active { background: var(--bg-card); }
 .wa-thread-body { min-width: 0; flex: 1; }
@@ -110,7 +114,9 @@
 .wa-chat-meta h3 { margin: 0; font-size: 1rem; }
 .wa-chat-meta span { color: var(--text-secondary); font-size: 0.78rem; }
 .wa-chat-actions { display: flex; gap: 0.25rem; }
-.wa-messages { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.65rem; background: linear-gradient(180deg, var(--bg-primary), var(--bg-card)); }
+.wa-messages { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; background: linear-gradient(180deg, var(--bg-primary), var(--bg-card)); }
+.wa-load-older { text-align: center; font-size: 0.7rem; color: var(--text-secondary); padding: 0.35rem 0 0.5rem; flex-shrink: 0; }
+.wa-message-list { margin-top: auto; display: flex; flex-direction: column; gap: 0.65rem; min-height: min-content; }
 .wa-bubble { max-width: min(72%, 520px); padding: 0.65rem 0.8rem; border-radius: 14px; font-size: 0.92rem; line-height: 1.4; word-break: break-word; flex-shrink: 0; }
 .wa-bubble.inbound { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
 .wa-bubble.outbound { align-self: flex-end; background: #25d366; color: #fff; border-bottom-right-radius: 4px; }
@@ -141,17 +147,27 @@
 
     const apiBase = root.dataset.apiBase;
     const csrf = root.dataset.csrf;
+    const PAGE_SIZE = 40;
     let connected = root.dataset.connected === '1';
     let conversations = [];
     let activeId = null;
     let pollTimer = null;
+    let searchTimer = null;
     let uploadKind = 'document';
+    let convHasMore = false;
+    let convLoading = false;
+    let messagesHasMore = false;
+    let loadOlderInProgress = false;
+    let messageIds = new Set();
+    let oldestMessageId = null;
 
     const els = {
         list: document.getElementById('waThreadList'),
         empty: document.getElementById('waEmpty'),
         chat: document.getElementById('waChat'),
         messages: document.getElementById('waMessages'),
+        messageList: document.getElementById('waMessageList'),
+        loadOlder: document.getElementById('waLoadOlder'),
         search: document.getElementById('waSearch'),
         text: document.getElementById('waTextInput'),
         send: document.getElementById('waSendBtn'),
@@ -246,18 +262,12 @@
     }
 
     function renderThreads() {
-        const q = (els.search.value || '').toLowerCase();
-        const items = conversations.filter(c => {
-            if (!q) return true;
-            return [c.name, c.phone, c.last_message_preview, c.wa_id].join(' ').toLowerCase().includes(q);
-        });
-
-        if (!items.length) {
-            els.list.innerHTML = `<div style="padding:1.25rem;color:var(--text-secondary);font-size:0.9rem;">No conversations yet.</div>`;
+        if (!conversations.length) {
+            els.list.innerHTML = `<div class="wa-list-hint">No conversations yet.</div>`;
             return;
         }
 
-        els.list.innerHTML = items.map(c => `
+        els.list.innerHTML = conversations.map(c => `
             <div class="wa-thread ${c.id === activeId ? 'active' : ''}" data-id="${c.id}">
                 <div class="wa-avatar">${initials(c.name)}</div>
                 <div class="wa-thread-body">
@@ -270,7 +280,7 @@
                 </div>
                 ${c.unread_count ? `<span class="wa-badge">${c.unread_count}</span>` : ''}
             </div>
-        `).join('');
+        `).join('') + (convHasMore ? `<div class="wa-list-hint">Scroll for older chats</div>` : '');
 
         els.list.querySelectorAll('.wa-thread').forEach(node => {
             node.addEventListener('click', () => openConversation(Number(node.dataset.id)));
@@ -296,7 +306,7 @@
             body = escapeHtml(m.text || '');
         }
 
-        return `<div class="wa-bubble ${m.direction}">
+        return `<div class="wa-bubble ${m.direction}" data-id="${m.id}">
             ${body}
             <span class="wa-meta">${formatTime(m.sent_at || m.created_at)}${m.status ? ' · ' + escapeHtml(m.status) : ''}</span>
         </div>`;
@@ -323,10 +333,105 @@
         }
     }
 
-    async function loadConversations() {
-        const data = await api('/conversations');
-        conversations = data.data || [];
-        renderThreads();
+    function firstLoadedMessageId() {
+        const first = els.messageList.querySelector('.wa-bubble');
+        return first ? Number(first.dataset.id) : null;
+    }
+
+    function resetMessages() {
+        els.messageList.innerHTML = '';
+        messageIds = new Set();
+        oldestMessageId = null;
+        messagesHasMore = false;
+        loadOlderInProgress = false;
+        if (els.loadOlder) els.loadOlder.hidden = true;
+    }
+
+    function appendMessages(items) {
+        items.forEach(m => {
+            if (messageIds.has(m.id)) return;
+            els.messageList.insertAdjacentHTML('beforeend', renderMessage(m));
+            messageIds.add(m.id);
+        });
+        oldestMessageId = firstLoadedMessageId();
+    }
+
+    function prependMessages(items) {
+        const html = items.filter(m => !messageIds.has(m.id)).map(m => {
+            messageIds.add(m.id);
+            return renderMessage(m);
+        }).join('');
+        if (html) els.messageList.insertAdjacentHTML('afterbegin', html);
+        oldestMessageId = firstLoadedMessageId();
+    }
+
+    function sortConversations(list) {
+        return list.slice().sort((a, b) => {
+            const ta = a.last_message_at || '';
+            const tb = b.last_message_at || '';
+            if (ta === tb) return (b.id || 0) - (a.id || 0);
+            return tb.localeCompare(ta);
+        });
+    }
+
+    async function loadConversations({ append = false, merge = false } = {}) {
+        if (convLoading) return;
+        convLoading = true;
+        try {
+            const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+            const q = (els.search.value || '').trim();
+            if (q) params.set('q', q);
+            if (append && conversations.length) {
+                params.set('before_id', String(conversations[conversations.length - 1].id));
+            }
+            const data = await api('/conversations?' + params.toString());
+            const rows = data.data || [];
+            if (!merge) convHasMore = !!data.has_more;
+            if (append) {
+                const seen = new Set(conversations.map(c => c.id));
+                conversations = conversations.concat(rows.filter(c => !seen.has(c.id)));
+            } else if (merge) {
+                const byId = new Map(conversations.map(c => [c.id, c]));
+                rows.forEach(c => byId.set(c.id, c));
+                conversations = sortConversations([...byId.values()]);
+            } else {
+                conversations = rows;
+            }
+            renderThreads();
+        } finally {
+            convLoading = false;
+        }
+    }
+
+    async function loadOlderMessages() {
+        if (!activeId || loadOlderInProgress || !messagesHasMore || !oldestMessageId) return false;
+        loadOlderInProgress = true;
+        if (els.loadOlder) els.loadOlder.hidden = false;
+        const prevHeight = els.messages.scrollHeight;
+        const prevTop = els.messages.scrollTop;
+        try {
+            const data = await api(`/conversations/${activeId}/messages?limit=${PAGE_SIZE}&before_id=${oldestMessageId}`);
+            const rows = data.data || [];
+            messagesHasMore = !!data.has_more;
+            prependMessages(rows);
+            els.messages.scrollTop = els.messages.scrollHeight - prevHeight + prevTop;
+            return rows.length > 0;
+        } catch (e) {
+            console.error(e);
+            return false;
+        } finally {
+            loadOlderInProgress = false;
+            if (els.loadOlder) els.loadOlder.hidden = !messagesHasMore;
+        }
+    }
+
+    async function fillUntilScrollable() {
+        let guard = 0;
+        while (messagesHasMore && els.messages.scrollHeight <= els.messages.clientHeight + 4 && guard < 8) {
+            const loaded = await loadOlderMessages();
+            if (!loaded) break;
+            guard += 1;
+        }
     }
 
     async function openConversation(id) {
@@ -334,6 +439,7 @@
         const conv = conversations.find(c => c.id === id);
         if (!conv) return;
 
+        conv.unread_count = 0;
         els.empty.style.display = 'none';
         els.chat.style.display = 'flex';
         els.headerName.textContent = conv.name || 'WhatsApp User';
@@ -342,23 +448,34 @@
             : ('Outside 24h window · ' + (conv.phone || conv.wa_id || ''))) + assignedLeadSuffix(conv);
         setAvatar(els.headerAvatar, conv.name);
         renderThreads();
+        resetMessages();
 
         if (window.matchMedia('(max-width: 900px)').matches) {
             els.sidebar.classList.add('hidden-mobile');
             els.main.classList.remove('hidden-mobile');
         }
 
-        const data = await api(`/conversations/${id}/messages`);
-        els.messages.innerHTML = (data.data || []).map(renderMessage).join('');
-        requestAnimationFrame(() => {
-            els.messages.scrollTop = els.messages.scrollHeight;
-        });
+        const data = await api(`/conversations/${id}/messages?limit=${PAGE_SIZE}`);
+        messagesHasMore = !!data.has_more;
+        if (els.loadOlder) els.loadOlder.hidden = !messagesHasMore;
+        appendMessages(data.data || []);
+        els.messages.scrollTop = els.messages.scrollHeight;
+        await fillUntilScrollable();
+        els.messages.scrollTop = els.messages.scrollHeight;
         els.messages.querySelectorAll('img, video').forEach((media) => {
             media.addEventListener('load', () => {
                 els.messages.scrollTop = els.messages.scrollHeight;
             }, { once: true });
         });
-        await loadConversations();
+        if (data.conversation) {
+            const idx = conversations.findIndex(c => c.id === id);
+            if (idx >= 0) conversations[idx] = { ...conversations[idx], ...data.conversation, unread_count: 0 };
+            Object.assign(conv, conversations[idx] || data.conversation, { unread_count: 0 });
+            els.headerStatus.textContent = (conv.within_window
+                ? ('Within 24h window · ' + (conv.phone || conv.wa_id || ''))
+                : ('Outside 24h window · ' + (conv.phone || conv.wa_id || ''))) + assignedLeadSuffix(conv);
+            renderThreads();
+        }
         window.updateHeaderNotificationsBadge?.();
 
         const layout = document.querySelector('.wa-layout');
@@ -430,7 +547,10 @@
         els.sidebar.classList.remove('hidden-mobile');
         els.main.classList.add('hidden-mobile');
     });
-    els.search.addEventListener('input', renderThreads);
+    els.search.addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => loadConversations().catch(console.error), 250);
+    });
     els.send.addEventListener('click', sendText);
     els.text.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -445,6 +565,16 @@
     document.getElementById('waCallBtn').addEventListener('click', openWhatsApp);
     document.getElementById('waOpenBtn').addEventListener('click', openWhatsApp);
 
+    els.list.addEventListener('scroll', () => {
+        if (convLoading || !convHasMore) return;
+        const remaining = els.list.scrollHeight - els.list.scrollTop - els.list.clientHeight;
+        if (remaining < 120) loadConversations({ append: true }).catch(console.error);
+    });
+
+    els.messages.addEventListener('scroll', () => {
+        if (els.messages.scrollTop < 48) loadOlderMessages();
+    });
+
     (async function init() {
         await loadBootstrap();
         if (connected) {
@@ -454,7 +584,7 @@
             if (openId && conversations.some(c => c.id === openId)) {
                 await openConversation(openId);
             }
-            pollTimer = setInterval(() => loadConversations().catch(() => {}), 15000);
+            pollTimer = setInterval(() => loadConversations({ merge: true }).catch(() => {}), 15000);
         }
     })();
 })();

@@ -13,6 +13,7 @@ use App\Services\LeadAutoCreateService;
 use App\Services\LeadRuleEngine;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -72,6 +73,8 @@ class WhatsAppController extends Controller
     {
         $user = Auth::user();
         $q = trim((string) $request->query('q', ''));
+        $limit = min(max((int) $request->query('limit', 40), 1), 100);
+        $beforeId = (int) $request->query('before_id', 0);
 
         $query = WhatsAppConversation::query()
             ->where('company_id', $user->company_id)
@@ -88,29 +91,72 @@ class WhatsAppController extends Controller
             });
         }
 
-        $conversations = $query->limit(500)->get()->map(fn (WhatsAppConversation $c) => $this->formatConversation($c));
+        if ($beforeId > 0) {
+            $before = WhatsAppConversation::query()
+                ->where('company_id', $user->company_id)
+                ->whereKey($beforeId)
+                ->first();
 
-        return response()->json(['data' => $conversations]);
+            if ($before) {
+                $this->constrainConversationsBefore($query, $before);
+            }
+        }
+
+        $rows = $query->limit($limit + 1)->get();
+        $hasMore = $rows->count() > $limit;
+        if ($hasMore) {
+            $rows = $rows->take($limit);
+        }
+
+        return response()->json([
+            'data' => $rows->map(fn (WhatsAppConversation $c) => $this->formatConversation($c))->values(),
+            'has_more' => $hasMore,
+        ]);
     }
 
-    public function messages(WhatsAppConversation $conversation): JsonResponse
+    public function messages(Request $request, WhatsAppConversation $conversation): JsonResponse
     {
         $this->assertCompanyConversation($conversation);
 
-        $messages = WhatsAppMessage::query()
-            ->where('whatsapp_conversation_id', $conversation->id)
-            ->orderBy('created_at')
-            ->orderBy('id')
-            ->limit(2000)
-            ->get()
-            ->map(fn (WhatsAppMessage $m) => $this->formatMessage($m));
+        $limit = min(max((int) $request->query('limit', 40), 1), 100);
+        $beforeId = (int) $request->query('before_id', 0);
 
-        $conversation->update(['unread_count' => 0]);
-        $this->markConversationNotificationsRead($conversation);
+        $query = WhatsAppMessage::query()
+            ->where('whatsapp_conversation_id', $conversation->id);
+
+        if ($beforeId > 0) {
+            $before = WhatsAppMessage::query()
+                ->where('whatsapp_conversation_id', $conversation->id)
+                ->whereKey($beforeId)
+                ->first();
+
+            if ($before) {
+                $this->constrainMessagesBefore($query, $before);
+            }
+        }
+
+        $messages = $query
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->limit($limit + 1)
+            ->get();
+
+        $hasMore = $messages->count() > $limit;
+        if ($hasMore) {
+            $messages = $messages->take($limit);
+        }
+
+        $messages = $messages->reverse()->values()->map(fn (WhatsAppMessage $m) => $this->formatMessage($m));
+
+        if ($beforeId <= 0) {
+            $conversation->update(['unread_count' => 0]);
+            $this->markConversationNotificationsRead($conversation);
+        }
 
         return response()->json([
             'conversation' => $this->formatConversation($conversation->fresh()),
             'data' => $messages,
+            'has_more' => $hasMore,
         ]);
     }
 
@@ -636,6 +682,37 @@ class WhatsAppController extends Controller
         if ((int) $conversation->company_id !== (int) Auth::user()->company_id) {
             abort(404);
         }
+    }
+
+    protected function constrainConversationsBefore(Builder $query, WhatsAppConversation $before): void
+    {
+        if ($before->last_message_at) {
+            $query->where(function ($builder) use ($before) {
+                $builder->where('last_message_at', '<', $before->last_message_at)
+                    ->orWhere(function ($inner) use ($before) {
+                        $inner->where('last_message_at', $before->last_message_at)
+                            ->where('id', '<', $before->id);
+                    })
+                    ->orWhereNull('last_message_at');
+            });
+
+            return;
+        }
+
+        $query->whereNull('last_message_at')->where('id', '<', $before->id);
+    }
+
+    protected function constrainMessagesBefore(Builder $query, WhatsAppMessage $before): void
+    {
+        $at = $before->created_at;
+
+        $query->where(function ($builder) use ($before, $at) {
+            $builder->where('created_at', '<', $at)
+                ->orWhere(function ($inner) use ($before, $at) {
+                    $inner->where('created_at', $at)
+                        ->where('id', '<', $before->id);
+                });
+        });
     }
 
     protected function formatConversation(WhatsAppConversation $c): array
