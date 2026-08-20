@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\CallAgentPresence;
 use App\Models\CallRoundRobinState;
 use App\Models\Company;
+use App\Models\LeadRoundRobinPool;
 use App\Models\LeadRoundRobinState;
 use App\Models\PhoneCallLog;
 use App\Models\User;
@@ -173,6 +174,99 @@ class InboundCallQueueService
             $excludeUserIds,
             'lead-all'
         );
+    }
+
+    /**
+     * Round-robin among a chosen set of teammates.
+     *
+     * @param  array<int>  $userIds
+     * @param  array<int>  $excludeUserIds
+     */
+    public function pickNextFromUserIds(int $companyId, array $userIds, array $excludeUserIds = []): ?User
+    {
+        $wanted = collect($userIds)
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->sort()
+            ->values();
+        if ($wanted->isEmpty()) {
+            return null;
+        }
+
+        $agents = $this->companyTeammates($companyId, $excludeUserIds)
+            ->filter(fn (User $user) => $wanted->contains((int) $user->id))
+            ->values();
+
+        return $this->pickNextFromKeyedPool(
+            $companyId,
+            $agents,
+            sha1($wanted->implode(',')),
+            $excludeUserIds
+        );
+    }
+
+    /**
+     * @param  Collection<int, User>  $agents
+     * @param  array<int>  $excludeUserIds
+     */
+    protected function pickNextFromKeyedPool(
+        int $companyId,
+        Collection $agents,
+        string $poolKey,
+        array $excludeUserIds = []
+    ): ?User {
+        return DB::transaction(function () use ($companyId, $agents, $poolKey, $excludeUserIds) {
+            $state = LeadRoundRobinPool::query()
+                ->where('company_id', $companyId)
+                ->where('pool_key', $poolKey)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $state) {
+                LeadRoundRobinPool::query()->create([
+                    'company_id' => $companyId,
+                    'pool_key' => $poolKey,
+                    'last_assigned_user_id' => null,
+                ]);
+                $state = LeadRoundRobinPool::query()
+                    ->where('company_id', $companyId)
+                    ->where('pool_key', $poolKey)
+                    ->lockForUpdate()
+                    ->first();
+            }
+
+            if ($agents->isEmpty()) {
+                return null;
+            }
+
+            $sorted = $agents->sortBy('id')->values();
+            $startIndex = 0;
+            $lastId = (int) ($state->last_assigned_user_id ?? 0);
+
+            if ($lastId > 0) {
+                $idx = $sorted->search(fn (User $user) => (int) $user->id === $lastId);
+                if ($idx !== false) {
+                    $startIndex = ((int) $idx + 1) % $sorted->count();
+                }
+            }
+
+            /** @var User $picked */
+            $picked = $sorted[$startIndex];
+            $state->last_assigned_user_id = $picked->id;
+            $state->save();
+
+            Log::info('Round-robin pool picked user', [
+                'purpose' => 'lead-selected',
+                'company_id' => $companyId,
+                'pool_key' => $poolKey,
+                'user_id' => $picked->id,
+                'excluded' => $excludeUserIds,
+                'pool_count' => $sorted->count(),
+            ]);
+
+            return $picked;
+        });
     }
 
     /**

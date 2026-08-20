@@ -595,6 +595,11 @@
 .leads-rule-extra-card.is-action { grid-template-columns: 1fr 1fr auto; }
 .leads-rule-extra-card.is-action.is-create-lead { grid-template-columns: minmax(0, 1fr) auto; }
 .leads-rule-extra-card.is-action.is-create-lead [data-rule-action-value] { display: none; }
+.leads-rule-extra-card.is-action.is-rr-selected { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+.leads-rule-rr-users { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.3rem; }
+.leads-rule-rr-users label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; padding: 0.3rem 0.4rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); cursor: pointer; }
+.leads-rule-rr-users input { width: auto; margin: 0; }
+.leads-rule-rr-help { grid-column: 1 / -1; margin: 0; font-size: 0.72rem; color: var(--text-muted); }
 .leads-rule-create-keywords { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; }
 .leads-rule-create-keywords label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.72rem; color: var(--text-muted); }
 .leads-rule-create-help { grid-column: 1 / -1; margin: 0; font-size: 0.72rem; color: var(--text-muted); }
@@ -1980,6 +1985,7 @@
             return `
                 <optgroup label="All teammates">
                     <option value="__round_robin__" ${current === '__round_robin__' ? 'selected' : ''}>Round robin (all teammates)</option>
+                    <option value="__round_robin_selected__" ${current === '__round_robin_selected__' ? 'selected' : ''}>Round robin among selected teammates</option>
                 </optgroup>
                 <optgroup label="Available for inbound calls">
                     <option value="__available_round_robin__" ${current === '__available_round_robin__' ? 'selected' : ''}>Round robin among available agents</option>
@@ -2076,6 +2082,48 @@
         `;
         wrap.appendChild(row);
     }
+    function assignMode(value) {
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+            return String(value.mode || '');
+        }
+        return String(value || '');
+    }
+    function selectedRoundRobinIds(value) {
+        if (value && typeof value === 'object' && Array.isArray(value.user_ids)) {
+            return value.user_ids.map(String);
+        }
+        return [];
+    }
+    function roundRobinUsersHtml(selectedIds = []) {
+        const chosen = new Set((selectedIds || []).map(String));
+        const users = state.assignees || [];
+        if (!users.length) {
+            return '<p class="leads-rule-rr-help">No teammates to select.</p>';
+        }
+        return `
+            <div class="leads-rule-rr-users" data-rr-users>
+                ${users.map(m => `
+                    <label>
+                        <input type="checkbox" value="${m.id}" ${chosen.has(String(m.id)) ? 'checked' : ''}>
+                        <span>${esc(m.name)}</span>
+                    </label>
+                `).join('')}
+            </div>
+            <p class="leads-rule-rr-help">Leads rotate through the teammates you check, whether or not they are available for inbound calls.</p>
+        `;
+    }
+    function syncAssignTeammatePicker(row, preset = {}) {
+        if (!row) return;
+        row.querySelector('[data-rr-users]')?.remove();
+        row.querySelector('.leads-rule-rr-help')?.remove();
+        const type = row.querySelector('[data-rule-action-type]')?.value;
+        const mode = row.querySelector('[data-rule-action-value]')?.value;
+        const selected = type === 'assign' && mode === '__round_robin_selected__';
+        row.classList.toggle('is-rr-selected', selected);
+        if (selected) {
+            row.insertAdjacentHTML('beforeend', roundRobinUsersHtml(selectedRoundRobinIds(preset.value)));
+        }
+    }
     function actionKeywordValues(preset = {}) {
         const value = (preset.value && typeof preset.value === 'object' && !Array.isArray(preset.value))
             ? preset.value
@@ -2107,7 +2155,7 @@
             valueSel.disabled = !needsValue;
             if (type !== 'create_lead') {
                 const fallback = type === 'set_status' ? 'contacted' : (type === 'reopen_after_days' ? '3' : '');
-                const selected = (preset.value && typeof preset.value !== 'object') ? preset.value : fallback;
+                const selected = assignMode(preset.value) || fallback;
                 valueSel.innerHTML = actionValueOptions(type, selected || fallback);
             }
         }
@@ -2116,15 +2164,15 @@
         if (type === 'create_lead') {
             row.insertAdjacentHTML('beforeend', createLeadKeywordsHtml(preset));
         }
+        syncAssignTeammatePicker(row, preset);
     }
     function addRuleActionRow(preset = {}) {
         const wrap = document.getElementById('leadRuleActions');
         if (!wrap) return;
         const type = preset.type || 'assign';
         const needsValue = actionNeedsValue(type);
-        const defaultValue = (preset.value && typeof preset.value !== 'object')
-            ? preset.value
-            : (type === 'reopen_after_days' ? '3' : '');
+        const defaultValue = assignMode(preset.value)
+            || ((preset.value && typeof preset.value !== 'object') ? preset.value : (type === 'reopen_after_days' ? '3' : ''));
         const row = document.createElement('div');
         row.className = 'leads-rule-extra-card is-action' + (type === 'create_lead' ? ' is-create-lead' : '');
         row.innerHTML = `
@@ -2234,6 +2282,13 @@
                 return;
             }
             const valueSel = row.querySelector('[data-rule-action-value]');
+            if (type === 'assign' && valueSel?.value === '__round_robin_selected__') {
+                const userIds = [...row.querySelectorAll('[data-rr-users] input:checked')]
+                    .map(cb => Number(cb.value))
+                    .filter(id => id > 0);
+                actions.push({ type, value: { mode: '__round_robin_selected__', user_ids: userIds } });
+                return;
+            }
             actions.push({ type, value: valueSel && !valueSel.disabled ? (valueSel.value || null) : null });
         });
         return {
@@ -2350,9 +2405,17 @@
     });
     document.getElementById('leadRuleActions')?.addEventListener('change', (e) => {
         const typeSel = e.target.closest('[data-rule-action-type]');
-        if (!typeSel) return;
-        const row = typeSel.closest('.leads-rule-extra-card');
-        syncActionRow(row, typeSel.value);
+        if (typeSel) {
+            const row = typeSel.closest('.leads-rule-extra-card');
+            syncActionRow(row, typeSel.value);
+            return;
+        }
+        const valueSel = e.target.closest('[data-rule-action-value]');
+        if (!valueSel) return;
+        const row = valueSel.closest('.leads-rule-extra-card');
+        if (row?.querySelector('[data-rule-action-type]')?.value === 'assign') {
+            syncAssignTeammatePicker(row);
+        }
     });
     document.getElementById('leadRuleBuilder')?.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-remove-rule-row]');
@@ -2411,7 +2474,19 @@
         if (extra.some(c => !String(c.value || '').trim())) return alert('Each condition needs a value.');
         if (!payload.actions.length) return alert('Add at least one action.');
         for (const action of payload.actions) {
-            if (['assign', 'add_label', 'set_status'].includes(action.type) && (action.value === null || action.value === '')) {
+            if (action.type === 'assign') {
+                if (action.value && typeof action.value === 'object' && action.value.mode === '__round_robin_selected__') {
+                    if (!Array.isArray(action.value.user_ids) || !action.value.user_ids.length) {
+                        return alert('Select teammates for round robin.');
+                    }
+                    continue;
+                }
+                if (action.value === null || action.value === '') {
+                    return alert('That action needs a value.');
+                }
+                continue;
+            }
+            if (['add_label', 'set_status'].includes(action.type) && (action.value === null || action.value === '')) {
                 return alert('That action needs a value.');
             }
             if (action.type === 'reopen_after_days') {

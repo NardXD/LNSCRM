@@ -1099,7 +1099,27 @@ class LeadsController extends Controller
         foreach ($validated['actions'] ?? [] as $action) {
             $type = $action['type'] ?? '';
             if ($type === 'assign') {
-                $assignee = (string) ($action['value'] ?? '');
+                $assignee = $action['value'] ?? '';
+                if (is_array($assignee)) {
+                    $mode = trim((string) ($assignee['mode'] ?? ''));
+                    $userIds = collect(is_array($assignee['user_ids'] ?? null) ? $assignee['user_ids'] : [])
+                        ->map(fn ($id) => (int) $id)
+                        ->filter(fn ($id) => $id > 0)
+                        ->unique()
+                        ->values();
+                    if ($mode !== LeadRuleEngine::ASSIGN_ROUND_ROBIN_SELECTED || $userIds->isEmpty()) {
+                        abort(response()->json(['message' => 'Select teammates for round robin.'], 422));
+                    }
+                    $valid = User::query()
+                        ->where('company_id', Auth::user()->company_id)
+                        ->whereIn('id', $userIds)
+                        ->count();
+                    if ($valid !== $userIds->count()) {
+                        abort(response()->json(['message' => 'Choose valid teammates for round robin.'], 422));
+                    }
+                    continue;
+                }
+                $assignee = (string) $assignee;
                 $special = [
                     LeadRuleEngine::ASSIGN_AVAILABLE,
                     LeadRuleEngine::ASSIGN_AVAILABLE_ROUND_ROBIN,

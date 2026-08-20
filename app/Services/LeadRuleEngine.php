@@ -39,6 +39,8 @@ class LeadRuleEngine
 
     public const ASSIGN_ROUND_ROBIN = '__round_robin__';
 
+    public const ASSIGN_ROUND_ROBIN_SELECTED = '__round_robin_selected__';
+
     public const CHANNELS = [
         'phone' => 'Phone',
         'inbox' => 'Inbox',
@@ -480,10 +482,23 @@ class LeadRuleEngine
 
     private function resolveAssigneeId(Lead $lead, mixed $value): int
     {
+        $queue = app(InboundCallQueueService::class);
+        $companyId = (int) $lead->company_id;
+
+        if (is_array($value)) {
+            $mode = trim((string) ($value['mode'] ?? ''));
+            $userIds = is_array($value['user_ids'] ?? null) ? $value['user_ids'] : [];
+            if ($mode === self::ASSIGN_ROUND_ROBIN_SELECTED) {
+                $agent = $queue->pickNextFromUserIds($companyId, $userIds);
+
+                return $agent instanceof User ? (int) $agent->id : 0;
+            }
+
+            $value = $mode !== '' ? $mode : ($value['user_id'] ?? $value['assigned_to'] ?? 0);
+        }
+
         $raw = is_string($value) ? trim($value) : (string) $value;
         if ($raw === self::ASSIGN_AVAILABLE || $raw === self::ASSIGN_AVAILABLE_ROUND_ROBIN || $raw === self::ASSIGN_ROUND_ROBIN) {
-            $queue = app(InboundCallQueueService::class);
-            $companyId = (int) $lead->company_id;
             $agent = match ($raw) {
                 self::ASSIGN_ROUND_ROBIN => $queue->pickNextLeadTeammate($companyId),
                 self::ASSIGN_AVAILABLE_ROUND_ROBIN => $queue->pickNextLeadAgent($companyId),
