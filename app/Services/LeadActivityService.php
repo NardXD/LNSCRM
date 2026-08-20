@@ -49,6 +49,12 @@ class LeadActivityService
             'company_name' => (string) ($lead->company_name ?? ''),
             'status' => (string) $lead->status,
             'source' => (string) ($lead->source ?? ''),
+            'address' => (string) ($lead->address ?? ''),
+            'city' => (string) ($lead->city ?? ''),
+            'customer_type' => (string) ($lead->customer_type ?? ''),
+            'residential_type' => (string) ($lead->residential_type ?? ''),
+            'business_industry' => (string) ($lead->business_industry_other ?: $lead->business_industry ?? ''),
+            'storage_reason' => (string) ($lead->storage_reason_other ?: $lead->storage_reason ?? ''),
             'assigned_to' => $lead->assigned_to ? (int) $lead->assigned_to : null,
             'assigned_name' => $lead->assignedUser?->name,
             'identities' => $lead->identities->map(fn (LeadIdentity $identity) => [
@@ -96,7 +102,17 @@ class LeadActivityService
             ]);
         }
 
-        foreach (['name' => 'name', 'company_name' => 'company', 'source' => 'source'] as $field => $label) {
+        foreach ([
+            'name' => 'name',
+            'company_name' => 'company',
+            'source' => 'source',
+            'address' => 'address',
+            'city' => 'city',
+            'customer_type' => 'customer type',
+            'residential_type' => 'residential type',
+            'business_industry' => 'business industry',
+            'storage_reason' => 'storage reason',
+        ] as $field => $label) {
             $old = trim((string) ($before[$field] ?? ''));
             $new = trim((string) ($after[$field] ?? ''));
             if ($old === $new) {

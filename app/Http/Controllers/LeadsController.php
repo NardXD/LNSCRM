@@ -33,6 +33,7 @@ class LeadsController extends Controller
     {
         return view('dashboard.leads', [
             'canManageLeadRules' => Auth::user()?->hasPermission('create_lead_rules') ?? false,
+            'leadFormOptions' => Lead::formOptions(),
         ]);
     }
 
@@ -48,7 +49,13 @@ class LeadsController extends Controller
             $search = trim((string) $request->get('search'));
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('first_name', 'like', "%{$search}%")
+                    ->orWhere('last_name', 'like', "%{$search}%")
+                    ->orWhere('alt_first_name', 'like', "%{$search}%")
+                    ->orWhere('alt_last_name', 'like', "%{$search}%")
                     ->orWhere('company_name', 'like', "%{$search}%")
+                    ->orWhere('city', 'like', "%{$search}%")
+                    ->orWhere('address', 'like', "%{$search}%")
                     ->orWhereHas('identities', function ($identity) use ($search) {
                         $identity->where('value', 'like', "%{$search}%")
                             ->orWhere('normalized_value', 'like', "%{$search}%");
@@ -126,14 +133,11 @@ class LeadsController extends Controller
             return $this->conflictResponse($conflict);
         }
 
-        $lead = Lead::create([
+        $lead = Lead::create(array_merge($this->profilePayload($request), [
             'company_id' => $companyId,
             'assigned_to' => $this->assignedToForCompany($companyId, $request->input('assigned_to')),
-            'name' => $request->string('name')->toString(),
-            'company_name' => $request->input('company_name'),
             'status' => $request->input('status') ?: 'new',
-            'source' => $request->input('source'),
-        ]);
+        ]));
 
         $legacyNote = trim((string) $request->input('notes', ''));
         if ($legacyNote !== '') {
@@ -184,13 +188,10 @@ class LeadsController extends Controller
         }
 
         $status = $request->input('status') ?: $lead->status;
-        $payload = [
+        $payload = array_merge($this->profilePayload($request), [
             'assigned_to' => $this->assignedToForCompany((int) $lead->company_id, $request->input('assigned_to')),
-            'name' => $request->string('name')->toString(),
-            'company_name' => $request->input('company_name'),
             'status' => $status,
-            'source' => $request->input('source'),
-        ];
+        ]);
         if ($status !== Lead::STATUS_SNOOZED) {
             $payload['reopen_at'] = null;
             $payload['reopen_status'] = null;
@@ -584,33 +585,58 @@ class LeadsController extends Controller
     {
         $phones = $lead->identities->where('type', LeadIdentity::TYPE_PHONE)->values();
         $emails = $lead->identities->where('type', LeadIdentity::TYPE_EMAIL)->values();
+        [$primaryPhones, $altPhones] = $this->groupContactIdentities($phones);
+        [$primaryEmails, $altEmails] = $this->groupContactIdentities($emails);
+        $mapContact = fn (LeadIdentity $i) => [
+            'id' => $i->id,
+            'value' => $i->value,
+            'label' => $i->label,
+            'is_primary' => $i->is_primary,
+        ];
 
         return [
             'id' => $lead->id,
             'name' => $lead->name,
+            'title' => $lead->title,
+            'first_name' => $lead->first_name,
+            'last_name' => $lead->last_name,
+            'address' => $lead->address,
+            'city' => $lead->city,
+            'postal_code' => $lead->postal_code,
+            'date_of_birth' => $lead->date_of_birth?->format('Y-m-d'),
             'initials' => $lead->initials,
             'company_name' => $lead->company_name,
+            'alt_title' => $lead->alt_title,
+            'alt_first_name' => $lead->alt_first_name,
+            'alt_last_name' => $lead->alt_last_name,
+            'alt_address' => $lead->alt_address,
+            'alt_city' => $lead->alt_city,
+            'alt_postal_code' => $lead->alt_postal_code,
             'status' => $lead->status,
             'reopen_at' => $lead->reopen_at?->toIso8601String(),
             'reopen_status' => $lead->reopen_status,
             'source' => $lead->source,
+            'customer_type' => $lead->customer_type,
+            'residential_type' => $lead->residential_type,
+            'business_industry' => $lead->business_industry,
+            'business_industry_other' => $lead->business_industry_other,
+            'storage_reason' => $lead->storage_reason,
+            'storage_reason_other' => $lead->storage_reason_other,
             'assigned_to' => $lead->assigned_to,
             'assigned_user' => $lead->assignedUser ? [
                 'id' => $lead->assignedUser->id,
                 'name' => $lead->assignedUser->name,
             ] : null,
-            'phones' => $phones->map(fn (LeadIdentity $i) => [
-                'id' => $i->id,
-                'value' => $i->value,
-                'label' => $i->label,
-                'is_primary' => $i->is_primary,
-            ])->values()->all(),
-            'emails' => $emails->map(fn (LeadIdentity $i) => [
-                'id' => $i->id,
-                'value' => $i->value,
-                'label' => $i->label,
-                'is_primary' => $i->is_primary,
-            ])->values()->all(),
+            'phone' => $primaryPhones->first()?->value,
+            'email' => $primaryEmails->first()?->value,
+            'alt_phone' => $altPhones->first()?->value,
+            'alt_email' => $altEmails->first()?->value,
+            'primary_phones' => $primaryPhones->map($mapContact)->values()->all(),
+            'primary_emails' => $primaryEmails->map($mapContact)->values()->all(),
+            'alt_phones' => $altPhones->map($mapContact)->values()->all(),
+            'alt_emails' => $altEmails->map($mapContact)->values()->all(),
+            'phones' => $phones->map($mapContact)->values()->all(),
+            'emails' => $emails->map($mapContact)->values()->all(),
             'facebook_name' => $lead->identities->firstWhere('type', LeadIdentity::TYPE_FACEBOOK)?->value,
             'instagram_username' => $lead->identities->firstWhere('type', LeadIdentity::TYPE_INSTAGRAM)?->value,
             'labels' => $lead->relationLoaded('labels')
@@ -637,6 +663,82 @@ class LeadsController extends Controller
         $data['activities'] = $latest ? [$data['latest_activity']] : [];
 
         return $data;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function profilePayload(StoreLeadRequest $request): array
+    {
+        $customerType = $this->nullableString($request->input('customer_type'));
+        $industry = $this->nullableString($request->input('business_industry'));
+        $reason = $this->nullableString($request->input('storage_reason'));
+        $first = $this->nullableString($request->input('first_name'));
+        $last = $this->nullableString($request->input('last_name'));
+        $name = trim(($first ?? '').' '.($last ?? ''));
+        if ($name === '') {
+            $name = $request->string('name')->toString();
+        }
+
+        return [
+            'name' => $name,
+            'title' => $this->nullableString($request->input('title'), 10),
+            'first_name' => $first,
+            'last_name' => $last,
+            'address' => $this->nullableString($request->input('address'), 500),
+            'city' => $this->nullableString($request->input('city')),
+            'postal_code' => $this->nullableString($request->input('postal_code'), 20),
+            'date_of_birth' => $this->nullableString($request->input('date_of_birth'), 10),
+            'company_name' => $this->nullableString($request->input('company_name')),
+            'alt_title' => $this->nullableString($request->input('alt_title'), 10),
+            'alt_first_name' => $this->nullableString($request->input('alt_first_name')),
+            'alt_last_name' => $this->nullableString($request->input('alt_last_name')),
+            'alt_address' => $this->nullableString($request->input('alt_address'), 500),
+            'alt_city' => $this->nullableString($request->input('alt_city')),
+            'alt_postal_code' => $this->nullableString($request->input('alt_postal_code'), 20),
+            'source' => $this->nullableString($request->input('source')),
+            'customer_type' => $customerType,
+            'residential_type' => $customerType === Lead::CUSTOMER_TYPE_RESIDENTIAL
+                ? $this->nullableString($request->input('residential_type'), 30)
+                : null,
+            'business_industry' => $customerType === Lead::CUSTOMER_TYPE_BUSINESS ? $industry : null,
+            'business_industry_other' => $customerType === Lead::CUSTOMER_TYPE_BUSINESS && $industry === 'Other'
+                ? $this->nullableString($request->input('business_industry_other'))
+                : null,
+            'storage_reason' => $reason,
+            'storage_reason_other' => $reason === 'Other'
+                ? $this->nullableString($request->input('storage_reason_other'))
+                : null,
+        ];
+    }
+
+    protected function nullableString(mixed $value, int $max = 255): ?string
+    {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return null;
+        }
+
+        return mb_substr($value, 0, $max);
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, LeadIdentity>  $identities
+     * @return array{0: \Illuminate\Support\Collection<int, LeadIdentity>, 1: \Illuminate\Support\Collection<int, LeadIdentity>}
+     */
+    protected function groupContactIdentities($identities): array
+    {
+        $primary = $identities->filter(fn (LeadIdentity $identity) => strcasecmp((string) $identity->label, 'Primary') === 0)->values();
+        $alt = $identities->filter(fn (LeadIdentity $identity) => strcasecmp((string) $identity->label, 'Alternate') === 0)->values();
+        $unlabeled = $identities->filter(function (LeadIdentity $identity) {
+            $label = strtolower(trim((string) $identity->label));
+
+            return $label !== 'primary' && $label !== 'alternate';
+        })->values();
+
+        $primary = $primary->concat($unlabeled)->values();
+
+        return [$primary, $alt];
     }
 
     /**

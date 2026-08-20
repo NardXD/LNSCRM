@@ -3,6 +3,9 @@
 @section('title', 'Leads')
 
 @section('content')
+    @php
+        $leadFormOptions = $leadFormOptions ?? \App\Models\Lead::formOptions();
+    @endphp
     <div class="page-header leads-header">
         <div>
             <h1 class="page-title">Leads</h1>
@@ -81,67 +84,221 @@
                 <button type="button" class="modal-close-btn" id="closeLeadModal">&times;</button>
             </div>
             <div class="leads-modal-grid">
-                <form id="leadForm" class="leads-form">
+                <form id="leadForm" class="leads-form" novalidate>
                     <input type="hidden" id="leadId">
-                    <div class="form-group">
-                        <label for="leadName">Name *</label>
-                        <input type="text" id="leadName" required maxlength="255" placeholder="Customer name">
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="leadCompany">Company</label>
-                            <input type="text" id="leadCompany" maxlength="255" placeholder="Optional">
-                        </div>
-                        <div class="form-group">
-                            <label for="leadStatus">Status</label>
-                            <select id="leadStatus">
-                                <option value="new">New</option>
-                                <option value="contacted">Contacted</option>
-                                <option value="qualified">Qualified</option>
-                                <option value="converted">Converted</option>
-                                <option value="lost">Lost</option>
-                                <option value="snoozed">Snoozed</option>
-                                <option value="archived">Archived</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="leadAssignedTo">Assigned</label>
-                            <select id="leadAssignedTo">
-                                <option value="">Unassigned</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="leadSource">Source</label>
-                            <input type="text" id="leadSource" maxlength="255" placeholder="Inbound call, Facebook, referral…">
-                        </div>
+                    <div class="lead-form-tabs" role="tablist" aria-label="Lead form sections">
+                        <button type="button" class="lead-form-tab active" role="tab" id="leadTabPrimary" data-lead-tab="primary" aria-selected="true">Primary lead info</button>
+                        <button type="button" class="lead-form-tab" role="tab" id="leadTabAlternate" data-lead-tab="alternate" aria-selected="false">Alternate lead info</button>
+                        <button type="button" class="lead-form-tab" role="tab" id="leadTabSource" data-lead-tab="source" aria-selected="false">How did you hear about us?</button>
+                        <button type="button" class="lead-form-tab" role="tab" id="leadTabMatching" data-lead-tab="matching" aria-selected="false">Channel matching</button>
+                        <button type="button" class="lead-form-tab" role="tab" id="leadTabNotes" data-lead-tab="notes" aria-selected="false">Labels and notes</button>
                     </div>
 
-                    <div class="form-group">
-                        <div class="identity-label">
-                            <label>Phone numbers</label>
-                            <button type="button" class="link-btn" id="addPhoneBtn">+ Add phone</button>
+                    <section class="lead-form-panel active" data-lead-panel="primary" role="tabpanel" aria-labelledby="leadTabPrimary">
+                        <div class="form-row form-row-3">
+                            <div class="form-group">
+                                <label for="leadTitle">Mr/Ms. *</label>
+                                <select id="leadTitle" required>
+                                    <option value="">Select</option>
+                                    @foreach ($leadFormOptions['titles'] as $title)
+                                        <option value="{{ $title }}">{{ $title }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="leadFirstName">First name *</label>
+                                <input type="text" id="leadFirstName" required maxlength="255" placeholder="First name">
+                            </div>
+                            <div class="form-group">
+                                <label for="leadLastName">Last name *</label>
+                                <input type="text" id="leadLastName" required maxlength="255" placeholder="Last name">
+                            </div>
                         </div>
-                        <div id="phonesList" class="identity-list"></div>
-                    </div>
-                    <div class="form-group">
-                        <div class="identity-label">
-                            <label>Emails</label>
-                            <button type="button" class="link-btn" id="addEmailBtn">+ Add email</button>
-                        </div>
-                        <div id="emailsList" class="identity-list"></div>
-                    </div>
-                    <div class="form-row">
                         <div class="form-group">
-                            <label for="leadFacebook">Facebook name</label>
-                            <input type="text" id="leadFacebook" maxlength="255" placeholder="Matches Messenger threads">
+                            <label for="leadAddress">Address *</label>
+                            <input type="text" id="leadAddress" required maxlength="500" placeholder="Street address">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="leadCity">City *</label>
+                                <input type="text" id="leadCity" required maxlength="255" placeholder="City">
+                            </div>
+                            <div class="form-group">
+                                <label for="leadPostal">Postal/Zip</label>
+                                <input type="text" id="leadPostal" maxlength="20" placeholder="Postal or ZIP">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="leadCompany">Company</label>
+                                <input type="text" id="leadCompany" maxlength="255" placeholder="Optional">
+                            </div>
+                            <div class="form-group">
+                                <label for="leadDob">Date of birth</label>
+                                <input type="date" id="leadDob">
+                            </div>
                         </div>
                         <div class="form-group">
-                            <label for="leadInstagram">Instagram username</label>
-                            <input type="text" id="leadInstagram" maxlength="255" placeholder="Matches Instagram DMs">
+                            <div class="identity-label">
+                                <label>Phone *</label>
+                                <button type="button" class="link-btn" id="addPrimaryPhoneBtn">+ Add phone</button>
+                            </div>
+                            <div id="primaryPhonesList" class="identity-list"></div>
+                            <p class="form-hint">Used to match Phone, SMS, WhatsApp, and Viber.</p>
                         </div>
-                    </div>
+                        <div class="form-group">
+                            <div class="identity-label">
+                                <label>Email *</label>
+                                <button type="button" class="link-btn" id="addPrimaryEmailBtn">+ Add email</button>
+                            </div>
+                            <div id="primaryEmailsList" class="identity-list"></div>
+                            <p class="form-hint">Used to match Inbox and email threads.</p>
+                        </div>
+                    </section>
+
+                    <section class="lead-form-panel" data-lead-panel="alternate" role="tabpanel" aria-labelledby="leadTabAlternate" hidden>
+                        <div class="form-row form-row-3">
+                            <div class="form-group">
+                                <label for="leadAltTitle">Mr/Ms.</label>
+                                <select id="leadAltTitle">
+                                    <option value="">Select</option>
+                                    @foreach ($leadFormOptions['titles'] as $title)
+                                        <option value="{{ $title }}">{{ $title }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="leadAltFirstName">First name</label>
+                                <input type="text" id="leadAltFirstName" maxlength="255" placeholder="First name">
+                            </div>
+                            <div class="form-group">
+                                <label for="leadAltLastName">Last name</label>
+                                <input type="text" id="leadAltLastName" maxlength="255" placeholder="Last name">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="leadAltAddress">Address</label>
+                            <input type="text" id="leadAltAddress" maxlength="500" placeholder="Street address">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="leadAltCity">City</label>
+                                <input type="text" id="leadAltCity" maxlength="255" placeholder="City">
+                            </div>
+                            <div class="form-group">
+                                <label for="leadAltPostal">Postal/Zip</label>
+                                <input type="text" id="leadAltPostal" maxlength="20" placeholder="Postal or ZIP">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <div class="identity-label">
+                                <label>Phone</label>
+                                <button type="button" class="link-btn" id="addAltPhoneBtn">+ Add phone</button>
+                            </div>
+                            <div id="altPhonesList" class="identity-list"></div>
+                        </div>
+                        <div class="form-group">
+                            <div class="identity-label">
+                                <label>Email</label>
+                                <button type="button" class="link-btn" id="addAltEmailBtn">+ Add email</button>
+                            </div>
+                            <div id="altEmailsList" class="identity-list"></div>
+                        </div>
+                    </section>
+
+                    <section class="lead-form-panel" data-lead-panel="source" role="tabpanel" aria-labelledby="leadTabSource" hidden>
+                        <div class="form-group">
+                            <label for="leadSource">Source</label>
+                            <select id="leadSource">
+                                <option value="">Select one</option>
+                                @foreach ($leadFormOptions['sources'] as $source)
+                                    <option value="{{ $source }}">{{ $source }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="leadStatus">Status</label>
+                                <select id="leadStatus">
+                                    <option value="new">New</option>
+                                    <option value="contacted">Contacted</option>
+                                    <option value="qualified">Qualified</option>
+                                    <option value="converted">Converted</option>
+                                    <option value="lost">Lost</option>
+                                    <option value="snoozed">Snoozed</option>
+                                    <option value="archived">Archived</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="leadAssignedTo">Assigned</label>
+                                <select id="leadAssignedTo">
+                                    <option value="">Unassigned</option>
+                                </select>
+                            </div>
+                        </div>
+                        <h4>Customer type *</h4>
+                        <div class="lead-radio-row">
+                            @foreach ($leadFormOptions['customer_types'] as $value => $label)
+                                <label class="lead-radio">
+                                    <input type="radio" name="leadCustomerType" value="{{ $value }}" required>
+                                    <span>{{ $label }}</span>
+                                </label>
+                            @endforeach
+                        </div>
+                        <div class="form-group lead-conditional" id="leadResidentialWrap" hidden>
+                            <label for="leadResidentialType">Residential type *</label>
+                            <select id="leadResidentialType">
+                                <option value="">Select type</option>
+                                @foreach ($leadFormOptions['residential_types'] as $type)
+                                    <option value="{{ $type }}">{{ $type }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="lead-conditional" id="leadBusinessWrap" hidden>
+                            <div class="form-group">
+                                <label for="leadBusinessIndustry">Business industry *</label>
+                                <select id="leadBusinessIndustry">
+                                    <option value="">Select industry</option>
+                                    @foreach ($leadFormOptions['business_industries'] as $industry)
+                                        <option value="{{ $industry }}">{{ $industry }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div class="form-group" id="leadBusinessIndustryOtherWrap" hidden>
+                                <label for="leadBusinessIndustryOther">Other industry *</label>
+                                <input type="text" id="leadBusinessIndustryOther" maxlength="255" placeholder="Enter industry">
+                            </div>
+                        </div>
+                        <h4>Reason for storing</h4>
+                        <div class="form-group">
+                            <label for="leadStorageReason">Reason</label>
+                            <select id="leadStorageReason">
+                                <option value="">Select one</option>
+                                @foreach ($leadFormOptions['storage_reasons'] as $reason)
+                                    <option value="{{ $reason }}">{{ $reason }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="form-group" id="leadStorageReasonOtherWrap" hidden>
+                            <label for="leadStorageReasonOther">Other reason *</label>
+                            <input type="text" id="leadStorageReasonOther" maxlength="255" placeholder="Enter reason">
+                        </div>
+                    </section>
+
+                    <section class="lead-form-panel" data-lead-panel="matching" role="tabpanel" aria-labelledby="leadTabMatching" hidden>
+                        <p class="form-hint" style="margin-top:0">Primary and alternate phone numbers and emails are used to match conversations across Phone, Inbox, Viber, WhatsApp, Facebook, and SMS.</p>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="leadFacebook">Facebook name</label>
+                                <input type="text" id="leadFacebook" maxlength="255" placeholder="Matches Messenger threads">
+                            </div>
+                            <div class="form-group">
+                                <label for="leadInstagram">Instagram username</label>
+                                <input type="text" id="leadInstagram" maxlength="255" placeholder="Matches Instagram DMs">
+                            </div>
+                        </div>
+                    </section>
+                    <section class="lead-form-panel" data-lead-panel="notes" role="tabpanel" aria-labelledby="leadTabNotes" hidden>
                     <div id="leadExtras" hidden>
                         <div class="form-group">
                             <label>Labels</label>
@@ -160,6 +317,7 @@
                         </div>
                     </div>
                     <p id="leadExtrasHint" class="chp-empty">Save this lead to add notes and labels.</p>
+                    </section>
                     <p class="form-error" id="leadFormError" hidden></p>
                     <div class="modal-actions">
                         <button type="button" class="btn btn-secondary" id="deleteLeadBtn" hidden>Delete</button>
@@ -360,11 +518,25 @@
 .form-group { margin-bottom: 0.9rem; }
 .form-group label { display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.3rem; }
 .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; font-family: inherit; }
+.lead-form-tabs { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0 0 1rem; position: sticky; top: 0; z-index: 3; background: var(--bg-card); padding: 0 0 0.7rem; }
+.lead-form-tab { border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-secondary); border-radius: 999px; padding: 0.4rem 0.75rem; font-size: 0.78rem; font-weight: 600; cursor: pointer; }
+.lead-form-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.lead-form-panel { display: none; }
+.lead-form-panel.active { display: block; }
+.lead-form-panel > h4 { margin: 0 0 0.75rem; font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); }
+.lead-form-panel > h4:not(:first-child) { margin-top: 1.1rem; padding-top: 0.85rem; border-top: 1px solid var(--border); }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.form-row-3 { grid-template-columns: 110px 1fr 1fr; }
+.lead-radio-row { display: flex; flex-wrap: wrap; gap: 0.55rem; margin-bottom: 0.75rem; }
+.lead-radio { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.85rem; cursor: pointer; background: var(--bg-primary); }
+.lead-radio:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-card)); }
+.lead-radio input { width: auto; margin: 0; }
+.lead-conditional { margin-top: 0.15rem; }
 .identity-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; }
 .link-btn { background: none; border: none; color: var(--accent); font-weight: 600; font-size: 0.8rem; cursor: pointer; }
-.identity-row { display: grid; grid-template-columns: 1fr 110px auto; gap: 0.4rem; margin-bottom: 0.4rem; }
+.identity-row { display: grid; grid-template-columns: 1fr auto; gap: 0.4rem; margin-bottom: 0.4rem; }
 .identity-row input { width: 100%; padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.85rem; }
+.form-hint { margin: 0.35rem 0 0; font-size: 0.75rem; color: var(--text-muted); }
 .icon-btn { border: 1px solid var(--border); background: #fff; border-radius: 8px; width: 34px; cursor: pointer; color: #991b1b; }
 .modal-actions { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.5rem; }
 .form-error { color: #b91c1c; font-size: 0.82rem; margin: 0 0 0.75rem; }
@@ -420,7 +592,7 @@
 @media (max-width: 860px) {
     .leads-modal-grid { grid-template-columns: 1fr; }
     .leads-history { border-left: 0; border-top: 1px solid var(--border); }
-    .form-row, .identity-row { grid-template-columns: 1fr; }
+    .form-row, .form-row-3, .identity-row { grid-template-columns: 1fr; }
 }
 </style>
 @endpush
@@ -430,6 +602,7 @@
 (function () {
     const api = '/api/leads';
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+    const LEAD_OPTIONS = @json($leadFormOptions);
     const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }} };
 
     const body = document.getElementById('leadsTableBody');
@@ -517,7 +690,8 @@
     function renderSourceFilter(sources) {
         const select = document.getElementById('leadSourceFilter');
         if (!select) return;
-        const list = Array.isArray(sources) ? sources.filter(Boolean).map(String) : [];
+        const fromDb = Array.isArray(sources) ? sources.filter(Boolean).map(String) : [];
+        const list = [...new Set([...(LEAD_OPTIONS.sources || []), ...fromDb])];
         const current = state.source || '';
         if (current && current !== '__none__' && !list.includes(current)) list.push(current);
         select.innerHTML = `<option value="">All sources</option><option value="__none__">No source</option>` +
@@ -630,7 +804,7 @@
             countEl.textContent = 'View all ' + n + ' update' + (n === 1 ? '' : 's');
         }
         document.getElementById('leadActivityModalTitle').textContent =
-            (document.getElementById('leadName')?.value || 'Lead') + ' · activity';
+            (leadDisplayName() || 'Lead') + ' · activity';
     }
     function renderActivityPage(items, pagination) {
         const full = document.getElementById('leadActivityFull');
@@ -738,21 +912,49 @@
         document.getElementById('leadLabelsModal')?.classList.remove('open');
     }
 
-    function addIdentityRow(listId, value, label, placeholder) {
+    function addContactRow(listId, value, placeholder, opts = {}) {
+        const list = document.getElementById(listId);
+        if (!list) return;
         const row = document.createElement('div');
         row.className = 'identity-row';
+        const type = opts.type || 'text';
+        const required = opts.required ? 'required' : '';
+        const max = opts.max || (type === 'email' ? '255' : '50');
         row.innerHTML = `
-            <input type="text" class="id-value" value="${esc(value || '')}" placeholder="${esc(placeholder)}">
-            <input type="text" class="id-label" value="${esc(label || '')}" placeholder="Label">
+            <input type="${esc(type)}" class="id-value" value="${esc(value || '')}" placeholder="${esc(placeholder)}" maxlength="${esc(max)}" ${required}>
             <button type="button" class="icon-btn" title="Remove">&times;</button>
         `;
-        row.querySelector('.icon-btn').addEventListener('click', () => row.remove());
-        document.getElementById(listId).appendChild(row);
+        row.querySelector('.icon-btn').addEventListener('click', () => {
+            const keep = opts.keepOne && list.querySelectorAll('.identity-row').length <= 1;
+            if (keep) {
+                row.querySelector('.id-value').value = '';
+                return;
+            }
+            row.remove();
+        });
+        list.appendChild(row);
     }
-    function readIdentityRows(listId) {
-        return [...document.getElementById(listId).querySelectorAll('.identity-row')].map(row => ({
+    function fillContactList(listId, items, placeholder, opts = {}) {
+        const list = document.getElementById(listId);
+        if (!list) return;
+        list.innerHTML = '';
+        const rows = (Array.isArray(items) ? items : [])
+            .map(item => typeof item === 'string' ? item : (item?.value || ''))
+            .map(value => String(value || '').trim())
+            .filter(Boolean);
+        if (!rows.length) {
+            addContactRow(listId, '', placeholder, { ...opts, required: !!opts.required });
+            return;
+        }
+        rows.forEach((value, index) => {
+            addContactRow(listId, value, placeholder, { ...opts, required: !!opts.required && index === 0 });
+        });
+    }
+    function readContactRows(listId) {
+        const list = document.getElementById(listId);
+        if (!list) return [];
+        return [...list.querySelectorAll('.identity-row')].map(row => ({
             value: row.querySelector('.id-value').value.trim(),
-            label: row.querySelector('.id-label').value.trim() || null,
         })).filter(item => item.value);
     }
 
@@ -768,7 +970,7 @@
         body.innerHTML = rows.length ? rows.map(lead => `
             <tr data-id="${lead.id}">
                 <td>
-                    <div class="lead-name">${esc(lead.name)}</div>
+                    <div class="lead-name">${esc([lead.title, lead.name].filter(Boolean).join(' '))}</div>
                     <div class="lead-company">${esc(lead.company_name || lead.source || '')}</div>
                 </td>
                 <td class="lead-meta">${esc((lead.phones || []).map(p => p.value).join(', ') || '—')}</td>
@@ -792,13 +994,93 @@
         renderSourceFilter(data.sources || []);
     }
 
+    function val(id) {
+        return (document.getElementById(id)?.value || '').trim();
+    }
+    function setVal(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.value = value || '';
+    }
+    function splitName(name) {
+        const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+        if (!parts.length) return { first: '', last: '' };
+        if (parts.length === 1) return { first: parts[0], last: '' };
+        return { first: parts[0], last: parts.slice(1).join(' ') };
+    }
+    function leadDisplayName() {
+        const composed = [val('leadTitle'), val('leadFirstName'), val('leadLastName')].filter(Boolean).join(' ');
+        return composed || 'Lead';
+    }
+    function selectedCustomerType() {
+        return document.querySelector('input[name="leadCustomerType"]:checked')?.value || '';
+    }
+    function setCustomerType(value) {
+        document.querySelectorAll('input[name="leadCustomerType"]').forEach((input) => {
+            input.checked = input.value === value;
+        });
+    }
+    function fillSourceSelect(value) {
+        const select = document.getElementById('leadSource');
+        if (!select) return;
+        const options = LEAD_OPTIONS.sources || [];
+        const current = value || '';
+        select.innerHTML = `<option value="">Select one</option>` +
+            options.map(source => `<option value="${esc(source)}">${esc(source)}</option>`).join('');
+        if (current && !options.includes(current)) {
+            select.insertAdjacentHTML('beforeend', `<option value="${esc(current)}">${esc(current)}</option>`);
+        }
+        select.value = current;
+    }
+    function syncLeadProfileFields() {
+        const type = selectedCustomerType();
+        const resWrap = document.getElementById('leadResidentialWrap');
+        const bizWrap = document.getElementById('leadBusinessWrap');
+        const industry = val('leadBusinessIndustry');
+        const reason = val('leadStorageReason');
+        if (resWrap) resWrap.hidden = type !== 'residential';
+        if (bizWrap) bizWrap.hidden = type !== 'business';
+        const resSelect = document.getElementById('leadResidentialType');
+        const bizSelect = document.getElementById('leadBusinessIndustry');
+        const bizOtherWrap = document.getElementById('leadBusinessIndustryOtherWrap');
+        const bizOther = document.getElementById('leadBusinessIndustryOther');
+        const reasonOtherWrap = document.getElementById('leadStorageReasonOtherWrap');
+        const reasonOther = document.getElementById('leadStorageReasonOther');
+        if (resSelect) resSelect.required = type === 'residential';
+        if (bizSelect) bizSelect.required = type === 'business';
+        if (bizOtherWrap) bizOtherWrap.hidden = type !== 'business' || industry !== 'Other';
+        if (bizOther) bizOther.required = type === 'business' && industry === 'Other';
+        if (reasonOtherWrap) reasonOtherWrap.hidden = reason !== 'Other';
+        if (reasonOther) reasonOther.required = reason === 'Other';
+    }
+
+    function showLeadTab(name) {
+        const tabName = name || 'primary';
+        document.querySelectorAll('.lead-form-tab').forEach((tab) => {
+            const active = tab.dataset.leadTab === tabName;
+            tab.classList.toggle('active', active);
+            tab.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+        document.querySelectorAll('.lead-form-panel').forEach((panel) => {
+            const active = panel.dataset.leadPanel === tabName;
+            panel.classList.toggle('active', active);
+            panel.hidden = !active;
+        });
+    }
+    function showLeadTabForElement(el) {
+        const panel = el?.closest?.('[data-lead-panel]');
+        if (panel?.dataset.leadPanel) showLeadTab(panel.dataset.leadPanel);
+    }
     function resetForm() {
         form.reset();
         document.getElementById('leadId').value = '';
-        document.getElementById('phonesList').innerHTML = '';
-        document.getElementById('emailsList').innerHTML = '';
-        addIdentityRow('phonesList', '', '', 'Phone number');
-        addIdentityRow('emailsList', '', '', 'name@company.com');
+        showLeadTab('primary');
+        fillContactList('primaryPhonesList', [], 'Phone number', { type: 'tel', required: true, keepOne: true });
+        fillContactList('primaryEmailsList', [], 'name@company.com', { type: 'email', required: true, keepOne: true, max: '255' });
+        fillContactList('altPhonesList', [], 'Phone number', { type: 'tel' });
+        fillContactList('altEmailsList', [], 'name@company.com', { type: 'email', max: '255' });
+        fillSourceSelect('');
+        setCustomerType('');
+        syncLeadProfileFields();
         errorEl.hidden = true;
         document.getElementById('leadModalTitle').textContent = 'New Lead';
         document.getElementById('deleteLeadBtn').hidden = true;
@@ -817,21 +1099,39 @@
     }
 
     function fillForm(lead) {
+        const parsed = splitName(lead.name);
         document.getElementById('leadId').value = lead.id;
-        document.getElementById('leadName').value = lead.name || '';
-        document.getElementById('leadCompany').value = lead.company_name || '';
+        setVal('leadTitle', lead.title);
+        setVal('leadFirstName', lead.first_name || parsed.first);
+        setVal('leadLastName', lead.last_name || parsed.last);
+        setVal('leadAddress', lead.address);
+        setVal('leadCity', lead.city);
+        setVal('leadPostal', lead.postal_code);
+        fillContactList('primaryPhonesList', lead.primary_phones || (lead.phone ? [lead.phone] : []), 'Phone number', { type: 'tel', required: true, keepOne: true });
+        fillContactList('primaryEmailsList', lead.primary_emails || (lead.email ? [lead.email] : []), 'name@company.com', { type: 'email', required: true, keepOne: true, max: '255' });
+        setVal('leadCompany', lead.company_name);
+        setVal('leadDob', lead.date_of_birth);
+        setVal('leadAltTitle', lead.alt_title);
+        setVal('leadAltFirstName', lead.alt_first_name);
+        setVal('leadAltLastName', lead.alt_last_name);
+        setVal('leadAltAddress', lead.alt_address);
+        setVal('leadAltCity', lead.alt_city);
+        setVal('leadAltPostal', lead.alt_postal_code);
+        fillContactList('altPhonesList', lead.alt_phones || (lead.alt_phone ? [lead.alt_phone] : []), 'Phone number', { type: 'tel' });
+        fillContactList('altEmailsList', lead.alt_emails || (lead.alt_email ? [lead.alt_email] : []), 'name@company.com', { type: 'email', max: '255' });
         document.getElementById('leadStatus').value = lead.status || 'new';
-        document.getElementById('leadSource').value = lead.source || '';
+        fillSourceSelect(lead.source || '');
+        setCustomerType(lead.customer_type || '');
+        setVal('leadResidentialType', lead.residential_type);
+        setVal('leadBusinessIndustry', lead.business_industry);
+        setVal('leadBusinessIndustryOther', lead.business_industry_other);
+        setVal('leadStorageReason', lead.storage_reason);
+        setVal('leadStorageReasonOther', lead.storage_reason_other);
+        syncLeadProfileFields();
         fillAssigneeSelect(document.getElementById('leadAssignedTo'), lead.assigned_to, lead.assigned_user);
         document.getElementById('leadFacebook').value = lead.facebook_name || '';
         document.getElementById('leadInstagram').value = lead.instagram_username || '';
-        document.getElementById('phonesList').innerHTML = '';
-        document.getElementById('emailsList').innerHTML = '';
-        (lead.phones || []).forEach(p => addIdentityRow('phonesList', p.value, p.label, 'Phone number'));
-        if (!(lead.phones || []).length) addIdentityRow('phonesList', '', '', 'Phone number');
-        (lead.emails || []).forEach(e => addIdentityRow('emailsList', e.value, e.label, 'name@company.com'));
-        if (!(lead.emails || []).length) addIdentityRow('emailsList', '', '', 'name@company.com');
-        document.getElementById('leadModalTitle').textContent = lead.name;
+        document.getElementById('leadModalTitle').textContent = [lead.title, lead.name].filter(Boolean).join(' ') || 'Lead';
         document.getElementById('deleteLeadBtn').hidden = false;
         state.editingId = lead.id;
         renderLabels(lead.labels || []);
@@ -911,6 +1211,7 @@
         const res = await fetch(api + '/' + id, { credentials: 'same-origin', headers: headers() });
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || 'Lead not found');
+        showLeadTab('primary');
         fillForm(data.data);
         openModal();
         const url = new URL(window.location.href);
@@ -948,8 +1249,18 @@
         e.preventDefault();
         item.click();
     });
-    document.getElementById('addPhoneBtn').addEventListener('click', () => addIdentityRow('phonesList', '', '', 'Phone number'));
-    document.getElementById('addEmailBtn').addEventListener('click', () => addIdentityRow('emailsList', '', '', 'name@company.com'));
+    document.getElementById('addPrimaryPhoneBtn').addEventListener('click', () => addContactRow('primaryPhonesList', '', 'Phone number', { type: 'tel', keepOne: true }));
+    document.getElementById('addPrimaryEmailBtn').addEventListener('click', () => addContactRow('primaryEmailsList', '', 'name@company.com', { type: 'email', keepOne: true, max: '255' }));
+    document.getElementById('addAltPhoneBtn').addEventListener('click', () => addContactRow('altPhonesList', '', 'Phone number', { type: 'tel' }));
+    document.getElementById('addAltEmailBtn').addEventListener('click', () => addContactRow('altEmailsList', '', 'name@company.com', { type: 'email', max: '255' }));
+    document.querySelectorAll('.lead-form-tab').forEach((tab) => {
+        tab.addEventListener('click', () => showLeadTab(tab.dataset.leadTab));
+    });
+    document.querySelectorAll('input[name="leadCustomerType"]').forEach((input) => {
+        input.addEventListener('change', syncLeadProfileFields);
+    });
+    document.getElementById('leadBusinessIndustry')?.addEventListener('change', syncLeadProfileFields);
+    document.getElementById('leadStorageReason')?.addEventListener('change', syncLeadProfileFields);
     document.getElementById('leadsPrev').addEventListener('click', () => { state.page = Math.max(1, state.page - 1); loadLeads(); });
     document.getElementById('leadsNext').addEventListener('click', () => { state.page += 1; loadLeads(); });
 
@@ -1034,14 +1345,46 @@
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         errorEl.hidden = true;
+        if (!form.checkValidity()) {
+            const invalid = form.querySelector(':invalid');
+            showLeadTabForElement(invalid);
+            invalid?.focus();
+            form.reportValidity();
+            return;
+        }
         const payload = {
-            name: document.getElementById('leadName').value.trim(),
-            company_name: document.getElementById('leadCompany').value.trim() || null,
+            title: val('leadTitle') || null,
+            first_name: val('leadFirstName'),
+            last_name: val('leadLastName'),
+            name: [val('leadFirstName'), val('leadLastName')].filter(Boolean).join(' '),
+            address: val('leadAddress'),
+            city: val('leadCity'),
+            postal_code: val('leadPostal') || null,
+            primary_phones: readContactRows('primaryPhonesList'),
+            primary_emails: readContactRows('primaryEmailsList'),
+            phone: (readContactRows('primaryPhonesList')[0] || {}).value || null,
+            email: (readContactRows('primaryEmailsList')[0] || {}).value || null,
+            company_name: val('leadCompany') || null,
+            date_of_birth: val('leadDob') || null,
+            alt_title: val('leadAltTitle') || null,
+            alt_first_name: val('leadAltFirstName') || null,
+            alt_last_name: val('leadAltLastName') || null,
+            alt_address: val('leadAltAddress') || null,
+            alt_city: val('leadAltCity') || null,
+            alt_postal_code: val('leadAltPostal') || null,
+            alt_phones: readContactRows('altPhonesList'),
+            alt_emails: readContactRows('altEmailsList'),
+            alt_phone: (readContactRows('altPhonesList')[0] || {}).value || null,
+            alt_email: (readContactRows('altEmailsList')[0] || {}).value || null,
             status: document.getElementById('leadStatus').value,
-            source: document.getElementById('leadSource').value.trim() || null,
+            source: val('leadSource') || null,
+            customer_type: selectedCustomerType() || null,
+            residential_type: val('leadResidentialType') || null,
+            business_industry: val('leadBusinessIndustry') || null,
+            business_industry_other: val('leadBusinessIndustryOther') || null,
+            storage_reason: val('leadStorageReason') || null,
+            storage_reason_other: val('leadStorageReasonOther') || null,
             assigned_to: document.getElementById('leadAssignedTo').value || null,
-            phones: readIdentityRows('phonesList'),
-            emails: readIdentityRows('emailsList'),
             facebook_name: document.getElementById('leadFacebook').value.trim() || null,
             instagram_username: document.getElementById('leadInstagram').value.trim() || null,
         };

@@ -15,14 +15,107 @@ class Lead extends Model
 
     public const STATUS_ARCHIVED = 'archived';
 
+    public const TITLES = ['Mr', 'Ms'];
+
+    public const CUSTOMER_TYPE_RESIDENTIAL = 'residential';
+
+    public const CUSTOMER_TYPE_BUSINESS = 'business';
+
+    public const CUSTOMER_TYPES = [
+        self::CUSTOMER_TYPE_RESIDENTIAL => 'Residential',
+        self::CUSTOMER_TYPE_BUSINESS => 'Business',
+    ];
+
+    public const RESIDENTIAL_TYPES = ['House', 'Condominium', 'Apartment'];
+
+    public const BUSINESS_INDUSTRIES = [
+        'I.T. Solutions',
+        'Hotels',
+        'Online Retailer',
+        'Insurance',
+        'Distributor',
+        'NGO',
+        'Real Estate',
+        'Government Agencies',
+        'BPO',
+        'Travel/Leisure',
+        'Legal/Consultancy',
+        'Food',
+        'Construction/Engineering',
+        'Freight Forwarding',
+        'Banking/Finance',
+        'Religious Entity',
+        'Manpower/Recruitment Agencies',
+        'Education',
+        'Manufacturing',
+        'Automotive',
+        'Medical',
+        'Telecommunications',
+        'Event/Film Production',
+        'Other',
+    ];
+
+    public const STORAGE_REASONS = [
+        'Excess stuff',
+        'Downsizing home',
+        'Renovating',
+        'Moving',
+        'Other',
+    ];
+
+    public const SOURCES = [
+        'Email',
+        'Brochure',
+        'Magazine',
+        'Online Articles',
+        'Twitter',
+        'Yelp',
+        'Newspaper',
+        'Web Ads',
+        'Events',
+        'Tv Feature',
+        'Web Search',
+        'Facebook',
+        'Facebook Leads',
+        'Facebook Message',
+        'Instagram',
+        'Instagram Leads',
+        'Instagram Message',
+        'Tiktok',
+        'SMS/Text',
+        'Referral',
+        'Website',
+        'Street Signage',
+        'Yellow Pages',
+    ];
+
     protected $fillable = [
         'company_id',
         'assigned_to',
         'client_id',
         'name',
+        'title',
+        'first_name',
+        'last_name',
+        'address',
+        'city',
+        'postal_code',
+        'date_of_birth',
         'company_name',
+        'alt_title',
+        'alt_first_name',
+        'alt_last_name',
+        'alt_address',
+        'alt_city',
+        'alt_postal_code',
         'status',
         'source',
+        'customer_type',
+        'residential_type',
+        'business_industry',
+        'business_industry_other',
+        'storage_reason',
+        'storage_reason_other',
         'notes',
         'reopen_at',
         'reopen_status',
@@ -30,7 +123,23 @@ class Lead extends Model
 
     protected $casts = [
         'reopen_at' => 'datetime',
+        'date_of_birth' => 'date',
     ];
+
+    /**
+     * @return array{titles: list<string>, sources: list<string>, customer_types: array<string, string>, residential_types: list<string>, business_industries: list<string>, storage_reasons: list<string>}
+     */
+    public static function formOptions(): array
+    {
+        return [
+            'titles' => self::TITLES,
+            'sources' => self::SOURCES,
+            'customer_types' => self::CUSTOMER_TYPES,
+            'residential_types' => self::RESIDENTIAL_TYPES,
+            'business_industries' => self::BUSINESS_INDUSTRIES,
+            'storage_reasons' => self::STORAGE_REASONS,
+        ];
+    }
 
     public function company(): BelongsTo
     {
@@ -69,12 +178,16 @@ class Lead extends Model
 
     public function getInitialsAttribute(): string
     {
-        $words = preg_split('/\s+/', trim($this->name)) ?: [];
+        $display = trim(($this->first_name ?? '').' '.($this->last_name ?? ''));
+        if ($display === '') {
+            $display = (string) $this->name;
+        }
+        $words = preg_split('/\s+/', $display) ?: [];
         if (count($words) >= 2) {
             return strtoupper(substr($words[0], 0, 1).substr($words[count($words) - 1], 0, 1));
         }
 
-        return strtoupper(substr($this->name, 0, 2));
+        return strtoupper(substr($display, 0, 2));
     }
 
     /**

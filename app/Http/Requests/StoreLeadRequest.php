@@ -11,6 +11,8 @@ use Illuminate\Validation\Validator;
 
 class StoreLeadRequest extends FormRequest
 {
+    protected bool $fullProfile = false;
+
     public function authorize(): bool
     {
         return true;
@@ -18,16 +20,31 @@ class StoreLeadRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
+        $this->fullProfile = $this->exists('first_name')
+            || $this->exists('title')
+            || $this->exists('address')
+            || $this->exists('city')
+            || $this->exists('customer_type');
         $facebook = trim((string) $this->input('facebook_name', ''));
         $instagram = trim((string) $this->input('instagram_username', ''));
         $phones = $this->normalizeContactList($this->input('phones', []));
         $emails = $this->normalizeContactList($this->input('emails', []));
+        $primaryPhones = $this->normalizeContactList($this->input('primary_phones', []));
+        $primaryEmails = $this->normalizeContactList($this->input('primary_emails', []));
+        $altPhones = $this->normalizeContactList($this->input('alt_phones', []));
+        $altEmails = $this->normalizeContactList($this->input('alt_emails', []));
 
         $extracted = $this->extractedFacebookContacts();
         $phones = $this->mergeContactValues($phones, $extracted['phones']);
         $emails = $this->mergeContactValues($emails, $extracted['emails']);
 
+        $firstName = trim((string) $this->input('first_name', ''));
+        $lastName = trim((string) $this->input('last_name', ''));
+        $composedName = trim($firstName.' '.$lastName);
         $name = trim((string) $this->input('name', ''));
+        if ($composedName !== '') {
+            $name = $composedName;
+        }
         $extractedName = $extracted['names'][0] ?? null;
         if ($extractedName && ($name === '' || FacebookConversation::isPlaceholderName($name))) {
             $name = $extractedName;
@@ -36,8 +53,26 @@ class StoreLeadRequest extends FormRequest
             $facebook = $extractedName;
         }
 
+        $phones = $this->mergeLabeledList($phones, $altPhones, 'Alternate');
+        $phones = $this->mergeLabeledList($phones, $primaryPhones, 'Primary');
+        $phones = $this->mergeLabeledContact($phones, $this->input('alt_phone'), 'Alternate');
+        $phones = $this->mergeLabeledContact($phones, $this->input('phone'), 'Primary');
+        $emails = $this->mergeLabeledList($emails, $altEmails, 'Alternate');
+        $emails = $this->mergeLabeledList($emails, $primaryEmails, 'Primary');
+        $emails = $this->mergeLabeledContact($emails, $this->input('alt_email'), 'Alternate');
+        $emails = $this->mergeLabeledContact($emails, $this->input('email'), 'Primary');
+
         $this->merge([
             'name' => $name !== '' ? $name : $this->input('name'),
+            'first_name' => $firstName !== '' ? $firstName : $this->input('first_name'),
+            'last_name' => $lastName !== '' ? $lastName : $this->input('last_name'),
+            'title' => $this->blankToNull($this->input('title')),
+            'alt_title' => $this->blankToNull($this->input('alt_title')),
+            'customer_type' => $this->blankToNull($this->input('customer_type')),
+            'residential_type' => $this->blankToNull($this->input('residential_type')),
+            'business_industry' => $this->blankToNull($this->input('business_industry')),
+            'storage_reason' => $this->blankToNull($this->input('storage_reason')),
+            'date_of_birth' => $this->blankToNull($this->input('date_of_birth')),
             'phones' => $phones,
             'emails' => $emails,
             'facebook_name' => FacebookConversation::isPlaceholderName($facebook) ? null : ($facebook !== '' ? $facebook : null),
@@ -50,11 +85,44 @@ class StoreLeadRequest extends FormRequest
      */
     public function rules(): array
     {
+        $full = $this->isFullProfile();
+
         return [
             'name' => ['required', 'string', 'max:255'],
+            'title' => [$full ? 'required' : 'nullable', 'string', Rule::in(Lead::TITLES)],
+            'first_name' => [$full ? 'required' : 'nullable', 'string', 'max:255'],
+            'last_name' => [$full ? 'required' : 'nullable', 'string', 'max:255'],
+            'address' => [$full ? 'required' : 'nullable', 'string', 'max:500'],
+            'city' => [$full ? 'required' : 'nullable', 'string', 'max:255'],
+            'postal_code' => ['nullable', 'string', 'max:20'],
             'company_name' => ['nullable', 'string', 'max:255'],
+            'date_of_birth' => ['nullable', 'date', 'before:today'],
+            'phone' => ['nullable', 'string', 'max:50'],
+            'email' => ['nullable', 'email', 'max:255'],
+            'primary_phones' => ['nullable', 'array', 'max:20'],
+            'primary_phones.*.value' => ['required', 'string', 'max:50'],
+            'primary_emails' => ['nullable', 'array', 'max:20'],
+            'primary_emails.*.value' => ['required', 'email', 'max:255'],
+            'alt_title' => ['nullable', 'string', Rule::in(Lead::TITLES)],
+            'alt_first_name' => ['nullable', 'string', 'max:255'],
+            'alt_last_name' => ['nullable', 'string', 'max:255'],
+            'alt_address' => ['nullable', 'string', 'max:500'],
+            'alt_city' => ['nullable', 'string', 'max:255'],
+            'alt_postal_code' => ['nullable', 'string', 'max:20'],
+            'alt_phone' => ['nullable', 'string', 'max:50'],
+            'alt_email' => ['nullable', 'email', 'max:255'],
+            'alt_phones' => ['nullable', 'array', 'max:20'],
+            'alt_phones.*.value' => ['required', 'string', 'max:50'],
+            'alt_emails' => ['nullable', 'array', 'max:20'],
+            'alt_emails.*.value' => ['required', 'email', 'max:255'],
             'status' => ['nullable', 'string', Rule::in(Lead::STATUSES)],
             'source' => ['nullable', 'string', 'max:255'],
+            'customer_type' => [$full ? 'required' : 'nullable', 'string', Rule::in(array_keys(Lead::CUSTOMER_TYPES))],
+            'residential_type' => ['nullable', 'string', Rule::in(Lead::RESIDENTIAL_TYPES)],
+            'business_industry' => ['nullable', 'string', Rule::in(Lead::BUSINESS_INDUSTRIES)],
+            'business_industry_other' => ['nullable', 'string', 'max:255'],
+            'storage_reason' => ['nullable', 'string', Rule::in(Lead::STORAGE_REASONS)],
+            'storage_reason_other' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string'],
             'assigned_to' => ['nullable', 'integer', 'exists:users,id'],
             'phones' => ['nullable', 'array', 'max:20'],
@@ -82,7 +150,32 @@ class StoreLeadRequest extends FormRequest
             $facebook = trim((string) $this->input('facebook_name', ''));
             $instagram = trim((string) $this->input('instagram_username', ''));
 
-            if ($phones === [] && $emails === [] && $facebook === '' && $instagram === '') {
+            if ($this->isFullProfile()) {
+                $primaryPhones = $this->normalizeContactList($this->input('primary_phones', []));
+                if ($primaryPhones === [] && trim((string) $this->input('phone', '')) === '') {
+                    $validator->errors()->add('primary_phones', 'Add at least one phone number.');
+                }
+                $primaryEmails = $this->normalizeContactList($this->input('primary_emails', []));
+                if ($primaryEmails === [] && trim((string) $this->input('email', '')) === '') {
+                    $validator->errors()->add('primary_emails', 'Add at least one email address.');
+                }
+                $customerType = (string) $this->input('customer_type', '');
+                if ($customerType === Lead::CUSTOMER_TYPE_RESIDENTIAL && trim((string) $this->input('residential_type', '')) === '') {
+                    $validator->errors()->add('residential_type', 'Select a residential type.');
+                }
+                if ($customerType === Lead::CUSTOMER_TYPE_BUSINESS) {
+                    $industry = trim((string) $this->input('business_industry', ''));
+                    if ($industry === '') {
+                        $validator->errors()->add('business_industry', 'Select a business industry.');
+                    }
+                    if ($industry === 'Other' && trim((string) $this->input('business_industry_other', '')) === '') {
+                        $validator->errors()->add('business_industry_other', 'Enter the business industry.');
+                    }
+                }
+                if ((string) $this->input('storage_reason') === 'Other' && trim((string) $this->input('storage_reason_other', '')) === '') {
+                    $validator->errors()->add('storage_reason_other', 'Enter the reason for storing.');
+                }
+            } elseif ($phones === [] && $emails === [] && $facebook === '' && $instagram === '') {
                 $validator->errors()->add('phones', 'Add at least one phone number, email, or social name so channels can match this lead.');
             }
 
@@ -94,6 +187,11 @@ class StoreLeadRequest extends FormRequest
                 }
             }
         });
+    }
+
+    public function isFullProfile(): bool
+    {
+        return $this->fullProfile;
     }
 
     /**
@@ -116,6 +214,61 @@ class StoreLeadRequest extends FormRequest
         }
 
         return app(MessageContactExtractor::class)->fromFacebookConversation($conversation);
+    }
+
+    /**
+     * @param  list<array{value: string, label: ?string}>  $existing
+     * @return list<array{value: string, label: ?string}>
+     */
+    protected function mergeLabeledContact(array $existing, mixed $value, string $label): array
+    {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return $existing;
+        }
+
+        foreach ($existing as $i => $item) {
+            if (strcasecmp((string) $item['value'], $value) === 0) {
+                $existing[$i]['label'] = $label;
+                if ($i > 0) {
+                    $row = $existing[$i];
+                    unset($existing[$i]);
+                    array_unshift($existing, $row);
+                    $existing = array_values($existing);
+                }
+
+                return $existing;
+            }
+        }
+
+        array_unshift($existing, ['value' => $value, 'label' => $label]);
+
+        return $existing;
+    }
+
+    /**
+     * @param  list<array{value: string, label: ?string}>  $existing
+     * @param  list<array{value: string, label: ?string}>  $items
+     * @return list<array{value: string, label: ?string}>
+     */
+    protected function mergeLabeledList(array $existing, array $items, string $label): array
+    {
+        foreach (array_reverse($items) as $item) {
+            $existing = $this->mergeLabeledContact($existing, $item['value'] ?? '', $label);
+        }
+
+        return $existing;
+    }
+
+    protected function blankToNull(mixed $value): mixed
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 
     /**
