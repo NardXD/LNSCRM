@@ -56,6 +56,17 @@ class FacebookGraphMessagingService
         return 'Your Facebook Page Access Token expired. Open Integrations → Facebook, paste a new long-lived Page token (Graph API Explorer → User token with pages_messaging → switch the token dropdown to your Page), then Save and Sync again. A Page token from a long-lived User token does not expire.';
     }
 
+    public function isExpiredTokenError(?string $message): bool
+    {
+        $haystack = strtolower((string) $message);
+
+        return $haystack !== '' && (
+            str_contains($haystack, 'session has expired')
+            || str_contains($haystack, 'access token has expired')
+            || str_contains($haystack, 'error validating access token')
+        );
+    }
+
     public function isMailboxPermissionError(?string $message): bool
     {
         $haystack = strtolower((string) $message);
