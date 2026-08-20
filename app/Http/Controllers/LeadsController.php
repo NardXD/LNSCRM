@@ -362,15 +362,12 @@ class LeadsController extends Controller
 
         $conversation = $this->inboxAttach->conversationForLead($lead, (int) $validated['conversation_id']);
         $result = $this->inboxAttach->attach($lead, $conversation, $request->user());
-        $lead->unsetRelation('identities');
-        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
         $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
 
         return response()->json([
             'success' => true,
             'message' => 'Shared email attached.',
             'conversation' => $result['conversation'],
-            'email_added' => $result['email_added'],
             'data' => $this->serializeWithInbox($lead),
         ]);
     }

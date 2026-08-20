@@ -1305,20 +1305,6 @@
             box.innerHTML = `<p class="lead-inbox-empty">${esc(err.message || 'Could not search emails.')}</p>`;
         }
     }
-    function ensureEmailOnForm(email) {
-        const value = String(email || '').trim();
-        if (!value) return;
-        const have = [...readContactRows('primaryEmailsList'), ...readContactRows('altEmailsList')]
-            .some(row => row.value.toLowerCase() === value.toLowerCase());
-        if (have) return;
-        const list = document.getElementById('primaryEmailsList');
-        const empty = [...(list?.querySelectorAll('.id-value') || [])].find(input => !input.value.trim());
-        if (empty) {
-            empty.value = value;
-            return;
-        }
-        addContactRow('primaryEmailsList', value, 'name@company.com', { type: 'email', max: '255' });
-    }
     async function attachInboxEmail(conversation) {
         if (state.editingId) {
             const res = await fetch(api + '/' + state.editingId + '/inbox-conversations', {
@@ -1331,8 +1317,6 @@
             if (!res.ok) throw new Error(data.message || 'Could not attach email.');
             state.attachedInboxConversations = data.data?.attached_inbox_conversations
                 || (data.conversation ? state.attachedInboxConversations.concat([data.conversation]) : state.attachedInboxConversations);
-            if (data.email_added) ensureEmailOnForm(data.email_added);
-            else if (conversation.contact_email || conversation.from_email) ensureEmailOnForm(conversation.contact_email || conversation.from_email);
             renderAttachedInboxEmails();
             loadHistory(state.editingId);
             return;
@@ -1340,7 +1324,6 @@
         if (!state.pendingInboxConversations.some(c => Number(c.id) === Number(conversation.id))) {
             state.pendingInboxConversations.push(conversation);
         }
-        ensureEmailOnForm(conversation.contact_email || conversation.from_email);
         renderAttachedInboxEmails();
     }
     async function detachInboxEmail(id) {

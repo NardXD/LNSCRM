@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Models\InboxConversation;
 use App\Models\Lead;
-use App\Models\LeadIdentity;
 use App\Models\SharedInbox;
 use App\Models\User;
 use Illuminate\Support\Collection;
@@ -82,7 +81,7 @@ class LeadInboxAttachService
     }
 
     /**
-     * @return array{conversation: array<string, mixed>, email_added: ?string, previous_lead_id: ?int}
+     * @return array{conversation: array<string, mixed>, previous_lead_id: ?int}
      */
     public function attach(Lead $lead, InboxConversation $conversation, User $user): array
     {
@@ -99,13 +98,10 @@ class LeadInboxAttachService
 
         $conversation->lead_id = $lead->id;
         $conversation->save();
-
-        $emailAdded = $this->addContactEmailIfAvailable($lead, $conversation);
         $this->leadActivity->recordInboxAttached($lead, $conversation);
 
         return [
             'conversation' => $this->serialize($conversation->fresh(['inbox:id,name,email,type']) ?? $conversation),
-            'email_added' => $emailAdded,
             'previous_lead_id' => $previousLeadId && $previousLeadId !== (int) $lead->id ? $previousLeadId : null,
         ];
     }
@@ -155,7 +151,6 @@ class LeadInboxAttachService
             'snippet' => $conversation->snippet,
             'from_name' => $conversation->from_name,
             'from_email' => $conversation->from_email,
-            'contact_email' => $this->contactEmail($conversation),
             'folder' => $conversation->folder ?: 'inbox',
             'lead_id' => $conversation->lead_id ? (int) $conversation->lead_id : null,
             'last_message_at' => $conversation->last_message_at?->toIso8601String(),
@@ -209,93 +204,5 @@ class LeadInboxAttachService
     private function recordDetach(Lead $lead, InboxConversation $conversation, User $user): void
     {
         $this->leadActivity->recordInboxDetached($lead, $conversation, $user->id);
-    }
-
-    private function addContactEmailIfAvailable(Lead $lead, InboxConversation $conversation): ?string
-    {
-        $email = $this->contactEmail($conversation);
-        if (! $email) {
-            return null;
-        }
-
-        $mailboxEmails = collect([
-            $conversation->inbox?->email,
-            $conversation->inbox?->external_mailbox,
-        ])->filter()->map(fn ($value) => strtolower(trim((string) $value)))->all();
-        if (in_array($email, $mailboxEmails, true)) {
-            return null;
-        }
-
-        $normalized = LeadIdentity::normalize(LeadIdentity::TYPE_EMAIL, $email);
-        if ($normalized === '') {
-            return null;
-        }
-
-        $ownedElsewhere = LeadIdentity::query()
-            ->where('type', LeadIdentity::TYPE_EMAIL)
-            ->where('normalized_value', $normalized)
-            ->where('lead_id', '!=', $lead->id)
-            ->whereHas('lead', fn ($q) => $q->where('company_id', $lead->company_id))
-            ->exists();
-        if ($ownedElsewhere) {
-            return null;
-        }
-
-        $existing = $lead->identities()
-            ->where('type', LeadIdentity::TYPE_EMAIL)
-            ->where('normalized_value', $normalized)
-            ->first();
-        if ($existing) {
-            return null;
-        }
-
-        $lead->addIdentity(LeadIdentity::TYPE_EMAIL, $email, 'Inbox');
-
-        return $email;
-    }
-
-    private function contactEmail(InboxConversation $conversation): ?string
-    {
-        $candidates = [$conversation->from_email];
-        if (($conversation->folder ?: 'inbox') === 'sent') {
-            $conversation->loadMissing('messages');
-            foreach ($conversation->messages as $message) {
-                $candidates[] = $message->to_emails;
-            }
-        }
-
-        $mailboxEmails = collect([
-            $conversation->inbox?->email,
-            $conversation->inbox?->external_mailbox,
-        ])->filter()->map(fn ($value) => strtolower(trim((string) $value)))->all();
-
-        foreach ($candidates as $raw) {
-            foreach ($this->extractEmails((string) $raw) as $email) {
-                if (! in_array($email, $mailboxEmails, true)) {
-                    return $email;
-                }
-            }
-        }
-
-        return $this->extractEmails((string) $conversation->from_email)[0] ?? null;
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function extractEmails(string $value): array
-    {
-        $value = trim($value);
-        if ($value === '') {
-            return [];
-        }
-
-        preg_match_all('/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i', $value, $matches);
-
-        return collect($matches[0] ?? [])
-            ->map(fn ($email) => strtolower(trim($email)))
-            ->unique()
-            ->values()
-            ->all();
     }
 }
