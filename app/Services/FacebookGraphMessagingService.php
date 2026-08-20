@@ -51,6 +51,40 @@ class FacebookGraphMessagingService
         ];
     }
 
+    /**
+     * Who /me is for this token. A Page token returns the Page id/name.
+     *
+     * @return array{ok: bool, id: string, name: ?string, error: ?string}
+     */
+    public function tokenActor(string $accessToken): array
+    {
+        $response = Http::timeout(20)->get($this->baseUrl.'/me', [
+            'fields' => 'id,name',
+            'access_token' => $accessToken,
+        ]);
+        $payload = $response->json() ?: [];
+        $id = isset($payload['id']) && is_scalar($payload['id']) ? (string) $payload['id'] : '';
+
+        return [
+            'ok' => $response->successful() && $id !== '',
+            'id' => $id,
+            'name' => isset($payload['name']) && is_string($payload['name']) ? $payload['name'] : null,
+            'error' => $response->successful() ? null : $this->errorMessage($response, 'Could not identify this token.'),
+        ];
+    }
+
+    public function tokenBelongsToPage(string $accessToken, string $pageId): bool
+    {
+        $pageId = trim($pageId);
+        if ($pageId === '') {
+            return false;
+        }
+
+        $actor = $this->tokenActor($accessToken);
+
+        return $actor['ok'] && $actor['id'] === $pageId;
+    }
+
     public function expiredTokenMessage(): string
     {
         return 'Your Facebook Page Access Token expired. Open Integrations → Facebook, paste a new long-lived Page token (Graph API Explorer → User token with pages_messaging → switch the token dropdown to your Page), then Save and Sync again. A Page token from a long-lived User token does not expire.';

@@ -1058,12 +1058,14 @@ class FacebookController extends Controller
             return ['expired' => false, 'never_expires' => false];
         }
 
-        return Cache::remember('facebook-token-status-'.$integration->id, 120, function () use ($token) {
-            $info = $this->graphMessaging->inspectToken($token);
+        return Cache::remember('facebook-token-status-'.$integration->id, 120, function () use ($token, $integration) {
+            $pageId = (string) $integration->page_id;
+            $actor = $this->graphMessaging->tokenActor($token);
+            $matchesPage = $actor['ok'] && $pageId !== '' && $actor['id'] === $pageId;
 
             return [
-                'expired' => ! $info['valid'] || $this->graphMessaging->isExpiredTokenError($info['error']),
-                'never_expires' => (bool) $info['never_expires'],
+                'expired' => ! $matchesPage && $this->graphMessaging->isExpiredTokenError($actor['error'] ?? null),
+                'never_expires' => false,
             ];
         });
     }

@@ -45,7 +45,7 @@ class FacebookGraphHistoryService
         $this->lastStats = ['threads' => 0, 'messages' => 0, 'skipped_no_peer' => 0];
         $pageId = trim($pageId);
         $ownIds = $this->normalizeOwnIds($pageId, $ownIds);
-        $this->assertPageToken($accessToken);
+        $this->assertPageToken($accessToken, $pageId);
         $deadline = microtime(true) + max(5, $deadlineSeconds);
         $rows = [];
 
@@ -105,7 +105,7 @@ class FacebookGraphHistoryService
             return [];
         }
 
-        $this->assertPageToken($accessToken);
+        $this->assertPageToken($accessToken, $pageId);
 
         $response = $this->graphGet($this->baseUrl.'/'.$pageId.'/conversations', [
             'platform' => $platform,
@@ -309,14 +309,17 @@ class FacebookGraphHistoryService
         return $rows;
     }
 
-    protected function assertPageToken(string $accessToken): void
+    protected function assertPageToken(string $accessToken, string $pageId = ''): void
     {
         $graph = app(FacebookGraphMessagingService::class);
-        $info = $graph->inspectToken($accessToken);
-        if (($info['type'] ?? null) === 'USER' || $graph->isMailboxPermissionError($info['error'])) {
+        $actor = $graph->tokenActor($accessToken);
+        if ($actor['ok'] && $pageId !== '' && $actor['id'] === $pageId) {
+            return;
+        }
+        if ($actor['ok'] && $pageId !== '' && $actor['id'] !== '' && $actor['id'] !== $pageId) {
             throw new \RuntimeException($graph->mailboxPermissionMessage());
         }
-        if (! $info['valid'] || $graph->isExpiredTokenError($info['error'])) {
+        if ($graph->isExpiredTokenError($actor['error'] ?? null)) {
             throw new \RuntimeException($graph->expiredTokenMessage());
         }
     }

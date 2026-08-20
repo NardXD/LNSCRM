@@ -582,20 +582,15 @@ class IntegrationController extends Controller
             try {
                 $graph = app(FacebookGraphMessagingService::class);
                 if ($request->filled('page_access_token')) {
-                    $tokenInfo = $graph->inspectToken($pageAccessToken);
-                    if (! $tokenInfo['valid'] || $graph->isExpiredTokenError($tokenInfo['error'])) {
+                    $actor = $graph->tokenActor($pageAccessToken);
+                    if ($graph->isExpiredTokenError($actor['error'] ?? null)) {
                         return response()->json([
                             'error' => $graph->expiredTokenMessage(),
                         ], 422);
                     }
-                    if (($tokenInfo['type'] ?? null) === 'USER' || $graph->isMailboxPermissionError($tokenInfo['error'])) {
+                    if ($actor['ok'] && $actor['id'] !== '' && $actor['id'] !== $pageId) {
                         return response()->json([
                             'error' => $graph->mailboxPermissionMessage(),
-                        ], 422);
-                    }
-                    if (! empty($tokenInfo['expires_at']) && $tokenInfo['expires_at'] < time() + 86400) {
-                        return response()->json([
-                            'error' => 'That Page token expires within 24 hours (typical of Graph API Explorer). Generate a long-lived User token, then switch the dropdown to the Page token — those do not expire.',
                         ], 422);
                     }
                 }
