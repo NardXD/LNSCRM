@@ -85,6 +85,45 @@ class MessageContactExtractor
     }
 
     /**
+     * Pull name, phone, and email from labeled lines in a message or email body.
+     * Keywords are matched case-insensitively; comma-separated aliases are allowed.
+     *
+     * @param  array{name?: string, phone?: string, email?: string, name_keyword?: string, phone_keyword?: string, email_keyword?: string}  $keywords
+     * @return array{name: ?string, phone: ?string, email: ?string}
+     */
+    public function fromKeywords(string $text, array $keywords): array
+    {
+        $nameKeys = $this->keywordList($keywords['name'] ?? $keywords['name_keyword'] ?? '');
+        $phoneKeys = $this->keywordList($keywords['phone'] ?? $keywords['phone_keyword'] ?? '');
+        $emailKeys = $this->keywordList($keywords['email'] ?? $keywords['email_keyword'] ?? '');
+        $stops = array_values(array_unique(array_merge($nameKeys, $phoneKeys, $emailKeys)));
+
+        $nameRaw = $this->valueAfterKeyword($text, $nameKeys, $stops);
+        $phoneRaw = $this->valueAfterKeyword($text, $phoneKeys, $stops);
+        $emailRaw = $this->valueAfterKeyword($text, $emailKeys, $stops);
+
+        $phone = null;
+        if ($phoneRaw) {
+            $phone = $this->phonesIn($phoneRaw)[0] ?? $this->normalizeExtractedPhone($phoneRaw);
+        }
+
+        $email = null;
+        if ($emailRaw) {
+            $email = $this->emailsIn($emailRaw)[0] ?? null;
+            $fallback = strtolower(trim($emailRaw));
+            if (! $email && filter_var($fallback, FILTER_VALIDATE_EMAIL)) {
+                $email = $fallback;
+            }
+        }
+
+        return [
+            'name' => $nameRaw ? $this->labeledName($nameRaw) : null,
+            'phone' => $phone,
+            'email' => $email,
+        ];
+    }
+
+    /**
      * @param  list<string>  $texts
      * @return array{phones: list<string>, emails: list<string>, names: list<string>}
      */
@@ -123,6 +162,81 @@ class MessageContactExtractor
             'emails' => array_values($emails),
             'names' => array_values($names),
         ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function keywordList(mixed $raw): array
+    {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return [];
+        }
+
+        return collect(preg_split('/\s*,\s*/', $raw) ?: [])
+            ->map(fn ($keyword) => trim((string) $keyword, " \t:-–—."))
+            ->filter()
+            ->unique(fn ($keyword) => mb_strtolower($keyword))
+            ->sortByDesc(fn ($keyword) => mb_strlen($keyword))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  list<string>  $labels
+     * @param  list<string>  $stopLabels
+     */
+    protected function valueAfterKeyword(string $text, array $labels, array $stopLabels): ?string
+    {
+        if ($labels === []) {
+            return null;
+        }
+
+        $normalized = str_replace(["\r\n", "\r"], "\n", $text);
+        $normalized = html_entity_decode($normalized, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        if (trim($normalized) === '') {
+            return null;
+        }
+
+        foreach ($labels as $label) {
+            $quoted = preg_quote($label, '/');
+            if (! preg_match('/(?:^|[\n\r]|[\s\*])'.$quoted.'\s*[:：\-–—.]*\s*(.+)/iu', $normalized, $match)) {
+                continue;
+            }
+
+            $value = (string) (preg_split('/\R/u', (string) ($match[1] ?? ''))[0] ?? '');
+            foreach ($stopLabels as $stop) {
+                if (strcasecmp($stop, $label) === 0) {
+                    continue;
+                }
+                $stopQuoted = preg_quote($stop, '/');
+                $value = preg_replace('/\s+'.$stopQuoted.'\s*[:：\-–—.].*$/iu', '', $value) ?? $value;
+            }
+
+            $value = trim($value, " \t\"'*:：\-–—.");
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return null;
+    }
+
+    protected function labeledName(string $raw): ?string
+    {
+        $raw = trim((string) preg_replace('/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i', '', $raw));
+        $cleaned = $this->cleanNameCandidate($raw);
+        if ($cleaned) {
+            return $cleaned;
+        }
+
+        $raw = trim($raw, " \t:-–—.");
+        if ($raw === '' || mb_strlen($raw) > 80) {
+            return null;
+        }
+
+        return mb_convert_case($raw, MB_CASE_TITLE, 'UTF-8');
     }
 
     /**

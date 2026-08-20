@@ -937,6 +937,13 @@ class LeadsController extends Controller
                     abort(response()->json(['message' => 'Choose how many days before reopen (1–365).'], 422));
                 }
             }
+            if ($type === 'create_lead' && is_array($action['value'] ?? null)) {
+                foreach (['name', 'phone', 'email', 'name_keyword', 'phone_keyword', 'email_keyword'] as $key) {
+                    if (mb_strlen(trim((string) ($action['value'][$key] ?? ''))) > 80) {
+                        abort(response()->json(['message' => 'Keep create-lead keywords under 80 characters.'], 422));
+                    }
+                }
+            }
         }
 
         if (! empty($validated['triggers'])) {

@@ -399,6 +399,11 @@
 .leads-rule-trigger-fields { display: grid; gap: 0.4rem; }
 .leads-rule-trigger-fields.has-label { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
 .leads-rule-extra-card.is-action { grid-template-columns: 1fr 1fr auto; }
+.leads-rule-extra-card.is-action.is-create-lead { grid-template-columns: minmax(0, 1fr) auto; }
+.leads-rule-extra-card.is-action.is-create-lead [data-rule-action-value] { display: none; }
+.leads-rule-create-keywords { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; }
+.leads-rule-create-keywords label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.72rem; color: var(--text-muted); }
+.leads-rule-create-help { grid-column: 1 / -1; margin: 0; font-size: 0.72rem; color: var(--text-muted); }
 .leads-rule-extra-card select, .leads-rule-extra-card input { width: 100%; padding: 0.4rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.82rem; background: var(--bg-card); }
 .leads-rule-trigger-help { margin: 0.3rem 0 0; font-size: 0.75rem; color: var(--text-muted); }
 .leads-rule-remove { border: none; background: none; color: #b91c1c; font-size: 1.1rem; cursor: pointer; padding: 0.2rem 0.35rem; }
@@ -408,9 +413,10 @@
 .leads-label-create input[type="text"] { flex: 1; min-width: 0; padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; }
 .leads-label-create input[type="color"] { width: 2.4rem; height: 2.2rem; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); cursor: pointer; }
 .leads-label-row-color { width: 2rem; height: 1.85rem; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); cursor: pointer; }
-@media (max-width: 700px) {
-    .leads-rule-extra-card, .leads-rule-extra-card.is-action { grid-template-columns: 1fr; }
-}
+        @media (max-width: 700px) {
+            .leads-rule-extra-card, .leads-rule-extra-card.is-action { grid-template-columns: 1fr; }
+            .leads-rule-create-keywords { grid-template-columns: 1fr; }
+        }
 @media (max-width: 860px) {
     .leads-modal-grid { grid-template-columns: 1fr; }
     .leads-history { border-left: 0; border-top: 1px solid var(--border); }
@@ -1521,20 +1527,64 @@
         `;
         wrap.appendChild(row);
     }
+    function actionKeywordValues(preset = {}) {
+        const value = (preset.value && typeof preset.value === 'object' && !Array.isArray(preset.value))
+            ? preset.value
+            : {};
+        return {
+            name: value.name || value.name_keyword || 'Name',
+            phone: value.phone || value.phone_keyword || 'Phone',
+            email: value.email || value.email_keyword || 'Email',
+        };
+    }
+    function createLeadKeywordsHtml(preset = {}) {
+        const kw = actionKeywordValues(preset);
+        return `
+            <div class="leads-rule-create-keywords" data-create-lead-keywords>
+                <label>Name keyword<input type="text" data-lead-keyword="name" placeholder="Name" maxlength="80" value="${esc(kw.name)}"></label>
+                <label>Phone keyword<input type="text" data-lead-keyword="phone" placeholder="Phone" maxlength="80" value="${esc(kw.phone)}"></label>
+                <label>Email keyword<input type="text" data-lead-keyword="email" placeholder="Email" maxlength="80" value="${esc(kw.email)}"></label>
+            </div>
+            <p class="leads-rule-create-help">Read these labels from the message or email body, e.g. Name: Jane Doe. Comma-separate aliases like Full name, Name.</p>
+        `;
+    }
+    function syncActionRow(row, type, preset = {}) {
+        if (!row) return;
+        row.classList.toggle('is-create-lead', type === 'create_lead');
+        const valueSel = row.querySelector('[data-rule-action-value]');
+        const needsValue = actionNeedsValue(type);
+        if (valueSel) {
+            valueSel.hidden = type === 'create_lead';
+            valueSel.disabled = !needsValue;
+            if (type !== 'create_lead') {
+                const fallback = type === 'set_status' ? 'contacted' : (type === 'reopen_after_days' ? '3' : '');
+                const selected = (preset.value && typeof preset.value !== 'object') ? preset.value : fallback;
+                valueSel.innerHTML = actionValueOptions(type, selected || fallback);
+            }
+        }
+        row.querySelector('[data-create-lead-keywords]')?.remove();
+        row.querySelector('.leads-rule-create-help')?.remove();
+        if (type === 'create_lead') {
+            row.insertAdjacentHTML('beforeend', createLeadKeywordsHtml(preset));
+        }
+    }
     function addRuleActionRow(preset = {}) {
         const wrap = document.getElementById('leadRuleActions');
         if (!wrap) return;
         const type = preset.type || 'assign';
         const needsValue = actionNeedsValue(type);
-        const defaultValue = preset.value || (type === 'reopen_after_days' ? '3' : '');
+        const defaultValue = (preset.value && typeof preset.value !== 'object')
+            ? preset.value
+            : (type === 'reopen_after_days' ? '3' : '');
         const row = document.createElement('div');
-        row.className = 'leads-rule-extra-card is-action';
+        row.className = 'leads-rule-extra-card is-action' + (type === 'create_lead' ? ' is-create-lead' : '');
         row.innerHTML = `
             <select data-rule-action-type>${actionTypeOptions(type)}</select>
-            <select data-rule-action-value ${needsValue ? '' : 'disabled'}>${actionValueOptions(type, defaultValue)}</select>
+            <select data-rule-action-value ${needsValue ? '' : 'disabled hidden'}>${actionValueOptions(type, defaultValue)}</select>
             <button type="button" class="leads-rule-remove" data-remove-rule-row title="Remove">×</button>
         `;
         wrap.appendChild(row);
+        syncActionRow(row, type, preset);
     }
     function resetRuleBuilder() {
         state.editingRuleId = null;
@@ -1622,8 +1672,19 @@
         const actions = [];
         document.querySelectorAll('#leadRuleActions .leads-rule-extra-card').forEach(row => {
             const type = row.querySelector('[data-rule-action-type]')?.value;
-            const valueSel = row.querySelector('[data-rule-action-value]');
             if (!type) return;
+            if (type === 'create_lead') {
+                actions.push({
+                    type,
+                    value: {
+                        name: row.querySelector('[data-lead-keyword="name"]')?.value.trim() || '',
+                        phone: row.querySelector('[data-lead-keyword="phone"]')?.value.trim() || '',
+                        email: row.querySelector('[data-lead-keyword="email"]')?.value.trim() || '',
+                    },
+                });
+                return;
+            }
+            const valueSel = row.querySelector('[data-rule-action-value]');
             actions.push({ type, value: valueSel && !valueSel.disabled ? (valueSel.value || null) : null });
         });
         return {
@@ -1742,13 +1803,7 @@
         const typeSel = e.target.closest('[data-rule-action-type]');
         if (!typeSel) return;
         const row = typeSel.closest('.leads-rule-extra-card');
-        const valueSel = row?.querySelector('[data-rule-action-value]');
-        if (!valueSel) return;
-        const type = typeSel.value;
-        const needsValue = actionNeedsValue(type);
-        const fallback = type === 'set_status' ? 'contacted' : (type === 'reopen_after_days' ? '3' : '');
-        valueSel.innerHTML = actionValueOptions(type, fallback);
-        valueSel.disabled = !needsValue;
+        syncActionRow(row, typeSel.value);
     });
     document.getElementById('leadRuleBuilder')?.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-remove-rule-row]');

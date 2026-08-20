@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\InboxConversation;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\LeadLabel;
@@ -313,7 +314,7 @@ class LeadRuleEngine
 
             try {
                 if ($type === 'create_lead') {
-                    $lead = $this->createLead($lead, $channel, $context, $companyId);
+                    $lead = $this->createLead($lead, $channel, $context, $companyId, $value);
                     continue;
                 }
                 if (! $lead) {
@@ -344,11 +345,11 @@ class LeadRuleEngine
     }
 
     /**
-     * @param  array{contact_name?: ?string, phone?: ?string, email?: ?string, facebook_name?: ?string, instagram_username?: ?string}  $context
+     * @param  array{company_id?: int, contact_name?: ?string, phone?: ?string, email?: ?string, facebook_name?: ?string, instagram_username?: ?string, subject?: ?string, message?: ?string, inbox_conversation_id?: int|string|null}  $context
      */
-    private function createLead(?Lead $lead, string $channel, array $context, int $companyId): ?Lead
+    private function createLead(?Lead $lead, string $channel, array $context, int $companyId, mixed $keywords = null): ?Lead
     {
-        if ($lead || $companyId < 1) {
+        if ($companyId < 1) {
             return $lead;
         }
 
@@ -358,17 +359,86 @@ class LeadRuleEngine
             return $value !== '' ? $value : null;
         };
 
+        $keywordMap = is_array($keywords) ? $keywords : [];
+        $extracted = app(MessageContactExtractor::class)->fromKeywords(
+            $this->messageHaystack($context, $keywordMap),
+            $keywordMap
+        );
+
         $created = app(LeadAutoCreateService::class)->ensure(
             $companyId,
             $channel !== '' ? $channel : 'inbox',
-            $blank($context['contact_name'] ?? null),
-            $blank($context['phone'] ?? null),
-            $blank($context['email'] ?? null),
+            $blank($extracted['name'] ?? null) ?: $blank($context['contact_name'] ?? null),
+            $blank($extracted['phone'] ?? null) ?: $blank($context['phone'] ?? null),
+            $blank($extracted['email'] ?? null) ?: $blank($context['email'] ?? null),
             $blank($context['facebook_name'] ?? null),
             $blank($context['instagram_username'] ?? null),
         );
 
-        return $created?->load(['identities', 'labels', 'assignedUser']);
+        return $created?->load(['identities', 'labels', 'assignedUser']) ?? $lead;
+    }
+
+    /**
+     * @param  array{subject?: ?string, message?: ?string, inbox_conversation_id?: int|string|null}  $context
+     * @param  array<string, mixed>  $keywords
+     */
+    private function messageHaystack(array $context, array $keywords): string
+    {
+        $parts = [
+            (string) ($context['subject'] ?? ''),
+            (string) ($context['message'] ?? ''),
+        ];
+
+        $conversationId = (int) ($context['inbox_conversation_id'] ?? 0);
+        if ($conversationId > 0 && $this->hasCreateLeadKeywords($keywords)) {
+            $body = $this->inboxBody($conversationId);
+            if ($body !== '') {
+                $parts[] = $body;
+            }
+        }
+
+        return trim(implode("\n", array_filter($parts, fn ($part) => trim($part) !== '')));
+    }
+
+    /**
+     * @param  array<string, mixed>  $keywords
+     */
+    private function hasCreateLeadKeywords(array $keywords): bool
+    {
+        foreach (['name', 'phone', 'email', 'name_keyword', 'phone_keyword', 'email_keyword'] as $key) {
+            if (trim((string) ($keywords[$key] ?? '')) !== '') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function inboxBody(int $conversationId): string
+    {
+        $conversation = InboxConversation::query()->with('inbox.account')->find($conversationId);
+        if (! $conversation) {
+            return '';
+        }
+
+        try {
+            if ($conversation->inbox) {
+                app(OutlookMailService::class)->hydrateConversationBodies($conversation->inbox, $conversation);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Lead rule could not load full inbox body', [
+                'conversation_id' => $conversationId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        $message = $conversation->messages()
+            ->where('direction', 'inbound')
+            ->orderByDesc('sent_at')
+            ->orderByDesc('id')
+            ->first();
+
+        return trim((string) ($message?->body_text ?: $conversation->snippet ?: ''));
     }
 
     private function compare(string $haystack, string $compare, string $operator): bool

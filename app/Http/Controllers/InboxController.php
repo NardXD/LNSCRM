@@ -2326,6 +2326,8 @@ class InboxController extends Controller
             return;
         }
 
+        $latest = $fresh->messages()->orderByDesc('sent_at')->orderByDesc('id')->first();
+
         $this->leadAutoCreate->applyRules(
             $this->leadAutoCreate->fromInboxConversation($fresh),
             'inbox',
@@ -2335,9 +2337,10 @@ class InboxController extends Controller
                 'contact_name' => $fresh->from_name,
                 'email' => $fresh->from_email,
                 'subject' => $fresh->subject,
-                'message' => $fresh->snippet,
+                'message' => (string) ($latest?->body_text ?: $fresh->snippet),
                 'inbox_id' => $fresh->shared_inbox_id,
                 'shared_inbox_id' => $fresh->shared_inbox_id,
+                'inbox_conversation_id' => $fresh->id,
             ]
         );
     }
