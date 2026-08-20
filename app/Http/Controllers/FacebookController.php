@@ -18,6 +18,7 @@ use App\Services\MessageContactExtractor;
 use App\Services\TimezoneService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -93,6 +94,8 @@ class FacebookController extends Controller
         $user = Auth::user();
         $q = trim((string) $request->query('q', ''));
         $channel = trim((string) $request->query('channel', ''));
+        $limit = min(max((int) $request->query('limit', 40), 1), 100);
+        $beforeId = (int) $request->query('before_id', 0);
 
         $query = FacebookConversation::query()
             ->where('company_id', $user->company_id)
@@ -112,11 +115,29 @@ class FacebookController extends Controller
             });
         }
 
-        $this->pullRecentChannelMessages($user);
+        if ($beforeId > 0) {
+            $before = FacebookConversation::query()
+                ->where('company_id', $user->company_id)
+                ->whereKey($beforeId)
+                ->first();
 
-        $conversations = $query->limit(500)->get()->map(fn (FacebookConversation $c) => $this->formatConversation($c));
+            if ($before) {
+                $this->constrainConversationsBefore($query, $before);
+            }
+        } else {
+            $this->pullRecentChannelMessages($user);
+        }
 
-        return response()->json(['data' => $conversations]);
+        $rows = $query->limit($limit + 1)->get();
+        $hasMore = $rows->count() > $limit;
+        if ($hasMore) {
+            $rows = $rows->take($limit);
+        }
+
+        return response()->json([
+            'data' => $rows->map(fn (FacebookConversation $c) => $this->formatConversation($c))->values(),
+            'has_more' => $hasMore,
+        ]);
     }
 
     protected function pullRecentChannelMessages($user): void
@@ -144,27 +165,54 @@ class FacebookController extends Controller
         }
     }
 
-    public function messages(FacebookConversation $conversation): JsonResponse
+    public function messages(Request $request, FacebookConversation $conversation): JsonResponse
     {
         $this->assertCompanyConversation($conversation);
-        $this->importGraphThread($conversation);
 
-        $messages = FacebookMessage::query()
-            ->where('facebook_conversation_id', $conversation->id)
-            ->orderBy('sent_at')
-            ->orderBy('created_at')
-            ->orderBy('id')
-            ->limit(2000)
-            ->get()
-            ->map(fn (FacebookMessage $m) => $this->formatMessage($m));
+        $limit = min(max((int) $request->query('limit', 40), 1), 100);
+        $beforeId = (int) $request->query('before_id', 0);
 
-        $conversation->update(['unread_count' => 0]);
-        $this->markConversationNotificationsRead($conversation);
+        if ($beforeId <= 0) {
+            $this->importGraphThread($conversation);
+        }
 
-        $extracted = $this->messageContacts->applyToConversation($conversation);
+        $query = FacebookMessage::query()
+            ->where('facebook_conversation_id', $conversation->id);
+
+        if ($beforeId > 0) {
+            $before = FacebookMessage::query()
+                ->where('facebook_conversation_id', $conversation->id)
+                ->whereKey($beforeId)
+                ->first();
+
+            if ($before) {
+                $this->constrainMessagesBefore($query, $before);
+            }
+        }
+
+        $messages = $query
+            ->orderByDesc('sent_at')
+            ->orderByDesc('id')
+            ->limit($limit + 1)
+            ->get();
+
+        $hasMore = $messages->count() > $limit;
+        if ($hasMore) {
+            $messages = $messages->take($limit);
+        }
+
+        $messages = $messages->reverse()->values()->map(fn (FacebookMessage $m) => $this->formatMessage($m));
+
+        $extracted = ['phones' => [], 'emails' => [], 'names' => []];
+        if ($beforeId <= 0) {
+            $conversation->update(['unread_count' => 0]);
+            $this->markConversationNotificationsRead($conversation);
+            $extracted = $this->messageContacts->applyToConversation($conversation);
+        }
+
         $fresh = $conversation->fresh();
         $payload = $this->formatConversation($fresh);
-        if (! ($payload['lead'] ?? null)) {
+        if ($beforeId <= 0 && ! ($payload['lead'] ?? null)) {
             $index = $this->crmLookup->assignedLeadIndex((int) $fresh->company_id);
             foreach ($extracted['phones'] as $phone) {
                 $payload['lead'] = $this->crmLookup->matchAssignedLead($index, $phone);
@@ -193,6 +241,7 @@ class FacebookController extends Controller
                 'extracted_name' => $extracted['names'][0] ?? null,
             ]),
             'data' => $messages,
+            'has_more' => $hasMore,
         ]);
     }
 
@@ -1152,6 +1201,47 @@ class FacebookController extends Controller
         if ((int) $conversation->company_id !== (int) Auth::user()->company_id) {
             abort(404);
         }
+    }
+
+    protected function constrainConversationsBefore(Builder $query, FacebookConversation $before): void
+    {
+        if ($before->last_message_at) {
+            $query->where(function ($builder) use ($before) {
+                $builder->where('last_message_at', '<', $before->last_message_at)
+                    ->orWhere(function ($inner) use ($before) {
+                        $inner->where('last_message_at', $before->last_message_at)
+                            ->where('id', '<', $before->id);
+                    })
+                    ->orWhereNull('last_message_at');
+            });
+
+            return;
+        }
+
+        $query->whereNull('last_message_at')->where('id', '<', $before->id);
+    }
+
+    protected function constrainMessagesBefore(Builder $query, FacebookMessage $before): void
+    {
+        $sentAt = $before->sent_at ?: $before->created_at;
+
+        $query->where(function ($builder) use ($before, $sentAt) {
+            $builder->where('sent_at', '<', $sentAt)
+                ->orWhere(function ($inner) use ($before, $sentAt) {
+                    $inner->where('sent_at', $sentAt)
+                        ->where('id', '<', $before->id);
+                })
+                ->orWhere(function ($inner) use ($before, $sentAt) {
+                    $inner->whereNull('sent_at')
+                        ->where(function ($nulls) use ($before, $sentAt) {
+                            $nulls->where('created_at', '<', $sentAt)
+                                ->orWhere(function ($tie) use ($before, $sentAt) {
+                                    $tie->where('created_at', $sentAt)
+                                        ->where('id', '<', $before->id);
+                                });
+                        });
+                });
+        });
     }
 
     protected function formatConversation(FacebookConversation $c): array

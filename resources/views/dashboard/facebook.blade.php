@@ -70,6 +70,7 @@
                 </header>
 
                 <div class="fb-messages" id="fbMessages">
+                    <div class="fb-load-older" id="fbLoadOlder" hidden>Loading earlier messages…</div>
                     <div class="fb-message-list" id="fbMessageList"></div>
                 </div>
 
@@ -248,6 +249,13 @@
     flex-direction: column;
     background: var(--fb-chat-bg);
 }
+.fb-load-older {
+    text-align: center;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    padding: 0.35rem 0 0.5rem;
+    flex-shrink: 0;
+}
 .fb-message-list {
     margin-top: auto;
     display: flex;
@@ -414,14 +422,21 @@
     const apiBase = root.dataset.apiBase;
     const csrf = root.dataset.csrf;
     const appTimezone = root.dataset.timezone || 'Asia/Manila';
+    const PAGE_SIZE = 40;
     let connected = root.dataset.connected === '1';
     let conversations = [];
     let activeId = null;
     let activeHistoryOpts = null;
     let channelFilter = '';
     let pollTimer = null;
+    let searchTimer = null;
     let uploadKind = 'file';
+    let convHasMore = false;
+    let convLoading = false;
+    let messagesHasMore = false;
+    let loadOlderInProgress = false;
     let messageIds = new Set();
+    let oldestMessageId = null;
 
     const els = {
         list: document.getElementById('fbThreadList'),
@@ -429,6 +444,7 @@
         chat: document.getElementById('fbChat'),
         messages: document.getElementById('fbMessages'),
         messageList: document.getElementById('fbMessageList'),
+        loadOlder: document.getElementById('fbLoadOlder'),
         search: document.getElementById('fbSearch'),
         text: document.getElementById('fbTextInput'),
         send: document.getElementById('fbSendBtn'),
@@ -568,19 +584,12 @@
     }
 
     function renderThreads() {
-        const q = (els.search.value || '').toLowerCase();
-        const items = conversations.filter(c => {
-            if (channelFilter && c.channel !== channelFilter) return false;
-            if (!q) return true;
-            return [c.name, c.username, c.peer_id, c.last_message_preview, c.channel].join(' ').toLowerCase().includes(q);
-        });
-
-        if (!items.length) {
+        if (!conversations.length) {
             els.list.innerHTML = `<div class="fb-list-hint">No conversations yet.</div>`;
             return;
         }
 
-        els.list.innerHTML = items.map(c => `
+        els.list.innerHTML = conversations.map(c => `
             <div class="fb-thread ${c.id === activeId ? 'active' : ''} ${c.unread_count ? 'unread' : ''}" data-id="${c.id}">
                 <div class="fb-avatar" style="${c.profile_pic ? `background-image:url('${escapeHtml(c.profile_pic)}')` : ''}">${c.profile_pic ? '' : initials(c.name)}</div>
                 <div class="fb-thread-body">
@@ -594,7 +603,7 @@
                 </div>
                 ${c.unread_count ? `<span class="fb-badge">${c.unread_count}</span>` : ''}
             </div>
-        `).join('');
+        `).join('') + (convHasMore ? `<div class="fb-list-hint" id="fbListMore">Scroll for older chats</div>` : '');
 
         els.list.querySelectorAll('.fb-thread').forEach(node => {
             node.addEventListener('click', () => openConversation(Number(node.dataset.id)));
@@ -671,9 +680,41 @@
         });
     }
 
+    function prependMessages(items) {
+        if (!items.length) return;
+        const firstStamp = els.messageList.firstElementChild?.classList.contains('fb-stamp')
+            ? els.messageList.firstElementChild
+            : null;
+        let html = '';
+        let prevIso = null;
+        items.forEach(m => {
+            if (messageIds.has(m.id)) return;
+            const iso = m.sent_at || m.created_at;
+            if (shouldStamp(prevIso, iso)) html += stampMarkup(iso);
+            html += messageMarkup(m);
+            messageIds.add(m.id);
+            prevIso = iso;
+        });
+        els.messageList.insertAdjacentHTML('afterbegin', html);
+        if (firstStamp && prevIso && !shouldStamp(prevIso, firstStamp.dataset.ts)) {
+            firstStamp.remove();
+        }
+        oldestMessageId = firstLoadedMessageId();
+        refreshThreadChrome();
+    }
+
+    function firstLoadedMessageId() {
+        const first = els.messageList.querySelector('.fb-bubble');
+        return first ? Number(first.dataset.id) : null;
+    }
+
     function resetMessages() {
         els.messageList.innerHTML = '';
         messageIds = new Set();
+        oldestMessageId = null;
+        messagesHasMore = false;
+        loadOlderInProgress = false;
+        if (els.loadOlder) els.loadOlder.hidden = true;
     }
 
     async function loadBootstrap() {
@@ -704,23 +745,78 @@
         }
     }
 
-    async function loadConversations({ merge = false } = {}) {
-        const qs = channelFilter ? `?channel=${encodeURIComponent(channelFilter)}` : '';
-        const data = await api('/conversations' + qs);
-        const rows = data.data || [];
-        if (merge) {
-            const byId = new Map(conversations.map(c => [c.id, c]));
-            rows.forEach(c => byId.set(c.id, c));
-            conversations = [...byId.values()].sort((a, b) => {
-                const ta = a.last_message_at || '';
-                const tb = b.last_message_at || '';
-                if (ta === tb) return (b.id || 0) - (a.id || 0);
-                return tb.localeCompare(ta);
-            });
-        } else {
-            conversations = rows;
+    function sortConversations(list) {
+        return list.slice().sort((a, b) => {
+            const ta = a.last_message_at || '';
+            const tb = b.last_message_at || '';
+            if (ta === tb) return (b.id || 0) - (a.id || 0);
+            return tb.localeCompare(ta);
+        });
+    }
+
+    function conversationParams({ append = false } = {}) {
+        const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+        const q = (els.search.value || '').trim();
+        if (q) params.set('q', q);
+        if (channelFilter) params.set('channel', channelFilter);
+        if (append && conversations.length) {
+            params.set('before_id', String(conversations[conversations.length - 1].id));
         }
-        renderThreads();
+        return params;
+    }
+
+    async function loadConversations({ append = false, merge = false } = {}) {
+        if (convLoading) return;
+        convLoading = true;
+        try {
+            const data = await api('/conversations?' + conversationParams({ append }).toString());
+            const rows = data.data || [];
+            if (!merge) convHasMore = !!data.has_more;
+            if (append) {
+                const seen = new Set(conversations.map(c => c.id));
+                conversations = conversations.concat(rows.filter(c => !seen.has(c.id)));
+            } else if (merge) {
+                const byId = new Map(conversations.map(c => [c.id, c]));
+                rows.forEach(c => byId.set(c.id, c));
+                conversations = sortConversations([...byId.values()]);
+            } else {
+                conversations = rows;
+            }
+            renderThreads();
+        } finally {
+            convLoading = false;
+        }
+    }
+
+    async function loadOlderMessages() {
+        if (!activeId || loadOlderInProgress || !messagesHasMore || !oldestMessageId) return false;
+        loadOlderInProgress = true;
+        if (els.loadOlder) els.loadOlder.hidden = false;
+        const prevHeight = els.messages.scrollHeight;
+        const prevTop = els.messages.scrollTop;
+        try {
+            const data = await api(`/conversations/${activeId}/messages?limit=${PAGE_SIZE}&before_id=${oldestMessageId}`);
+            const rows = data.data || [];
+            messagesHasMore = !!data.has_more;
+            prependMessages(rows);
+            els.messages.scrollTop = els.messages.scrollHeight - prevHeight + prevTop;
+            return rows.length > 0;
+        } catch (e) {
+            console.error(e);
+            return false;
+        } finally {
+            loadOlderInProgress = false;
+            if (els.loadOlder) els.loadOlder.hidden = !messagesHasMore;
+        }
+    }
+
+    async function fillUntilScrollable() {
+        let guard = 0;
+        while (messagesHasMore && els.messages.scrollHeight <= els.messages.clientHeight + 4 && guard < 8) {
+            const loaded = await loadOlderMessages();
+            if (!loaded) break;
+            guard += 1;
+        }
     }
 
     async function openConversation(id) {
@@ -743,8 +839,13 @@
         }
 
         const wasPlaceholder = ['messenger user', 'instagram user', 'facebook user'].includes(String(conv.name || '').trim().toLowerCase());
-        const data = await api(`/conversations/${id}/messages`);
+        const data = await api(`/conversations/${id}/messages?limit=${PAGE_SIZE}`);
+        messagesHasMore = !!data.has_more;
+        if (els.loadOlder) els.loadOlder.hidden = !messagesHasMore;
         (data.data || []).forEach(appendMessage);
+        oldestMessageId = firstLoadedMessageId();
+        els.messages.scrollTop = els.messages.scrollHeight;
+        await fillUntilScrollable();
         els.messages.scrollTop = els.messages.scrollHeight;
         window.updateHeaderNotificationsBadge?.();
 
@@ -803,8 +904,8 @@
     }
 
     async function pollActiveMessages() {
-        if (!activeId) return;
-        const data = await api(`/conversations/${activeId}/messages`);
+        if (!activeId || loadOlderInProgress) return;
+        const data = await api(`/conversations/${activeId}/messages?limit=${PAGE_SIZE}`);
         const incoming = data.data || [];
         const newer = incoming.filter(m => !messageIds.has(m.id));
         if (newer.length) {
@@ -957,7 +1058,10 @@
         els.sidebar.classList.remove('hidden-mobile');
         els.main.classList.add('hidden-mobile');
     });
-    els.search.addEventListener('input', renderThreads);
+    els.search.addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => loadConversations().catch(console.error), 250);
+    });
     els.send.addEventListener('click', sendText);
     els.text.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -981,6 +1085,16 @@
     document.getElementById('fbAttachVideo').addEventListener('click', () => { uploadKind = 'video'; els.file.accept = 'video/mp4,.mp4'; els.file.click(); });
     document.getElementById('fbAttachFile').addEventListener('click', () => { uploadKind = 'file'; els.file.accept = '*/*'; els.file.click(); });
     els.file.addEventListener('change', () => uploadAndSend(els.file.files[0], uploadKind));
+
+    els.list.addEventListener('scroll', () => {
+        if (convLoading || !convHasMore) return;
+        const remaining = els.list.scrollHeight - els.list.scrollTop - els.list.clientHeight;
+        if (remaining < 120) loadConversations({ append: true }).catch(console.error);
+    });
+
+    els.messages.addEventListener('scroll', () => {
+        if (els.messages.scrollTop < 48) loadOlderMessages();
+    });
 
     (async function init() {
         await loadBootstrap();
