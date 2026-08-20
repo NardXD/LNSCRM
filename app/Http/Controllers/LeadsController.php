@@ -239,8 +239,8 @@ class LeadsController extends Controller
                 'statuses' => Lead::STATUSES,
                 'inboxes' => SharedInbox::query()
                     ->where('company_id', $companyId)
+                    ->where('type', SharedInbox::TYPE_SHARED)
                     ->where('is_active', true)
-                    ->orderByRaw("CASE WHEN type = ? THEN 0 ELSE 1 END", [SharedInbox::TYPE_SHARED])
                     ->orderBy('name')
                     ->get(['id', 'name', 'email', 'type'])
                     ->map(fn (SharedInbox $inbox) => [
@@ -901,6 +901,7 @@ class LeadsController extends Controller
                 }
                 $valid = SharedInbox::query()
                     ->where('company_id', Auth::user()->company_id)
+                    ->where('type', SharedInbox::TYPE_SHARED)
                     ->whereIn('id', $ids)
                     ->count();
                 if ($valid !== $ids->count()) {

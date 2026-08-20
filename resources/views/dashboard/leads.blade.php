@@ -259,7 +259,7 @@
                                 <span>Shared inbox is</span>
                                 <div class="leads-rule-channel-picker" id="leadRuleInboxPicker">
                                     <button type="button" class="leads-rule-channel-toggle" id="leadRuleInboxToggle">
-                                        <span id="leadRuleInboxToggleLabel">All inboxes</span>
+                                        <span id="leadRuleInboxToggleLabel">All shared inboxes</span>
                                         <span>▾</span>
                                     </button>
                                     <div class="leads-rule-channel-menu" id="leadRuleInboxMenu" hidden></div>
@@ -1341,15 +1341,14 @@
             .filter(id => id > 0);
     }
     function inboxDisplayName(inbox) {
-        const name = inbox?.name || inbox?.email || ('Inbox #' + inbox?.id);
-        return inbox?.type === 'personal' ? name + ' (personal)' : name;
+        return inbox?.name || inbox?.email || ('Inbox #' + inbox?.id);
     }
     function updateRuleInboxLabel() {
         const ids = selectedRuleInboxes().map(String);
         const label = document.getElementById('leadRuleInboxToggleLabel');
         if (!label) return;
         if (!ids.length) {
-            label.textContent = 'All inboxes';
+            label.textContent = 'All shared inboxes';
             return;
         }
         const names = (state.inboxes || []).filter(inbox => ids.includes(String(inbox.id))).map(inboxDisplayName);
