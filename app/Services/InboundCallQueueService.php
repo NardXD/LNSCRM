@@ -129,7 +129,14 @@ class InboundCallQueueService
      */
     public function pickNextAgent(int $companyId, array $excludeUserIds = []): ?User
     {
-        return $this->pickNextAvailableAgent($companyId, CallRoundRobinState::class, $excludeUserIds, 'call');
+        return $this->pickNextFromPool(
+            $companyId,
+            $this->availableAgents($companyId, $excludeUserIds),
+            CallRoundRobinState::class,
+            'last_assigned_user_id',
+            $excludeUserIds,
+            'call'
+        );
     }
 
     /**
@@ -140,16 +147,48 @@ class InboundCallQueueService
      */
     public function pickNextLeadAgent(int $companyId, array $excludeUserIds = []): ?User
     {
-        return $this->pickNextAvailableAgent($companyId, LeadRoundRobinState::class, $excludeUserIds, 'lead');
+        return $this->pickNextFromPool(
+            $companyId,
+            $this->availableAgents($companyId, $excludeUserIds),
+            LeadRoundRobinState::class,
+            'last_assigned_user_id',
+            $excludeUserIds,
+            'lead-available'
+        );
     }
 
     /**
+     * Round-robin among every active teammate, whether or not they are
+     * available for inbound calls.
+     *
+     * @param  array<int>  $excludeUserIds
+     */
+    public function pickNextLeadTeammate(int $companyId, array $excludeUserIds = []): ?User
+    {
+        return $this->pickNextFromPool(
+            $companyId,
+            $this->companyTeammates($companyId, $excludeUserIds),
+            LeadRoundRobinState::class,
+            'last_assigned_all_user_id',
+            $excludeUserIds,
+            'lead-all'
+        );
+    }
+
+    /**
+     * @param  Collection<int, User>  $agents
      * @param  class-string<CallRoundRobinState|LeadRoundRobinState>  $stateClass
      * @param  array<int>  $excludeUserIds
      */
-    protected function pickNextAvailableAgent(int $companyId, string $stateClass, array $excludeUserIds = [], string $purpose = 'call'): ?User
-    {
-        return DB::transaction(function () use ($companyId, $stateClass, $excludeUserIds, $purpose) {
+    protected function pickNextFromPool(
+        int $companyId,
+        Collection $agents,
+        string $stateClass,
+        string $pointerColumn,
+        array $excludeUserIds = [],
+        string $purpose = 'call'
+    ): ?User {
+        return DB::transaction(function () use ($companyId, $agents, $stateClass, $pointerColumn, $excludeUserIds, $purpose) {
             $state = $stateClass::query()
                 ->where('company_id', $companyId)
                 ->lockForUpdate()
@@ -166,14 +205,13 @@ class InboundCallQueueService
                     ->first();
             }
 
-            $agents = $this->availableAgents($companyId, $excludeUserIds);
             if ($agents->isEmpty()) {
                 return null;
             }
 
             $sorted = $agents->sortBy('id')->values();
             $startIndex = 0;
-            $lastId = (int) ($state->last_assigned_user_id ?? 0);
+            $lastId = (int) ($state->{$pointerColumn} ?? 0);
 
             if ($lastId > 0) {
                 $idx = $sorted->search(fn (User $user) => (int) $user->id === $lastId);
@@ -184,19 +222,35 @@ class InboundCallQueueService
 
             /** @var User $picked */
             $picked = $sorted[$startIndex];
-            $state->last_assigned_user_id = $picked->id;
+            $state->{$pointerColumn} = $picked->id;
             $state->save();
 
-            Log::info('Available-agent queue picked user', [
+            Log::info('Round-robin queue picked user', [
                 'purpose' => $purpose,
                 'company_id' => $companyId,
                 'user_id' => $picked->id,
                 'excluded' => $excludeUserIds,
-                'available_count' => $sorted->count(),
+                'pool_count' => $sorted->count(),
             ]);
 
             return $picked;
         });
+    }
+
+    /**
+     * @param  array<int>  $excludeUserIds
+     * @return Collection<int, User>
+     */
+    public function companyTeammates(int $companyId, array $excludeUserIds = []): Collection
+    {
+        return User::query()
+            ->where('company_id', $companyId)
+            ->where(function ($q) {
+                $q->where('status', 'active')->orWhereNull('status');
+            })
+            ->when($excludeUserIds !== [], fn ($q) => $q->whereNotIn('id', $excludeUserIds))
+            ->orderBy('id')
+            ->get();
     }
 
     /**

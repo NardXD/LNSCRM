@@ -1100,9 +1100,13 @@ class LeadsController extends Controller
             $type = $action['type'] ?? '';
             if ($type === 'assign') {
                 $assignee = (string) ($action['value'] ?? '');
-                $special = [LeadRuleEngine::ASSIGN_AVAILABLE, LeadRuleEngine::ASSIGN_AVAILABLE_ROUND_ROBIN];
+                $special = [
+                    LeadRuleEngine::ASSIGN_AVAILABLE,
+                    LeadRuleEngine::ASSIGN_AVAILABLE_ROUND_ROBIN,
+                    LeadRuleEngine::ASSIGN_ROUND_ROBIN,
+                ];
                 if (! in_array($assignee, $special, true) && ! $this->assignedToForCompany((int) Auth::user()->company_id, $assignee)) {
-                    abort(response()->json(['message' => 'Choose a teammate or available inbound agents.'], 422));
+                    abort(response()->json(['message' => 'Choose a teammate, round robin, or available inbound agents.'], 422));
                 }
             }
             if (in_array($type, ['add_label', 'set_status'], true) && ($action['value'] === null || $action['value'] === '')) {

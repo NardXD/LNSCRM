@@ -10,6 +10,7 @@ class LeadRoundRobinState extends Model
     protected $fillable = [
         'company_id',
         'last_assigned_user_id',
+        'last_assigned_all_user_id',
     ];
 
     public function company(): BelongsTo

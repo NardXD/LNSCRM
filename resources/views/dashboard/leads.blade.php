@@ -1978,6 +1978,9 @@
                 `<option value="${m.id}" ${current === String(m.id) ? 'selected' : ''}>${esc(m.name)}</option>`
             ).join('');
             return `
+                <optgroup label="All teammates">
+                    <option value="__round_robin__" ${current === '__round_robin__' ? 'selected' : ''}>Round robin (all teammates)</option>
+                </optgroup>
                 <optgroup label="Available for inbound calls">
                     <option value="__available_round_robin__" ${current === '__available_round_robin__' ? 'selected' : ''}>Round robin among available agents</option>
                     <option value="__available__" ${current === '__available__' ? 'selected' : ''}>Any available agent</option>
