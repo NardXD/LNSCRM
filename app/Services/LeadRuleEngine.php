@@ -33,6 +33,10 @@ class LeadRuleEngine
 
     public const TRIGGER_LEAD_NOTE_ADDED = 'lead_note_added';
 
+    public const ASSIGN_AVAILABLE = '__available__';
+
+    public const ASSIGN_AVAILABLE_ROUND_ROBIN = '__available_round_robin__';
+
     public const CHANNELS = [
         'phone' => 'Phone',
         'inbox' => 'Inbox',
@@ -451,9 +455,9 @@ class LeadRuleEngine
         };
     }
 
-    private function assign(Lead $lead, mixed $userId): void
+    private function assign(Lead $lead, mixed $value): void
     {
-        $userId = (int) $userId;
+        $userId = $this->resolveAssigneeId($lead, $value);
         if ($userId < 1 || (int) $lead->assigned_to === $userId) {
             return;
         }
@@ -470,6 +474,22 @@ class LeadRuleEngine
         $lead->assigned_to = $userId;
         $lead->save();
         $this->leadActivity->recordAssignment($lead, $fromId, $userId, reason: 'rule');
+    }
+
+    private function resolveAssigneeId(Lead $lead, mixed $value): int
+    {
+        $raw = is_string($value) ? trim($value) : (string) $value;
+        if ($raw === self::ASSIGN_AVAILABLE || $raw === self::ASSIGN_AVAILABLE_ROUND_ROBIN) {
+            $queue = app(InboundCallQueueService::class);
+            $companyId = (int) $lead->company_id;
+            $agent = $raw === self::ASSIGN_AVAILABLE_ROUND_ROBIN
+                ? $queue->pickNextLeadAgent($companyId)
+                : $queue->availableAgents($companyId)->sortBy('id')->first();
+
+            return $agent instanceof User ? (int) $agent->id : 0;
+        }
+
+        return (int) $raw;
     }
 
     private function addLabel(Lead $lead, mixed $labelIdOrName): void

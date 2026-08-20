@@ -1778,9 +1778,17 @@
     }
     function actionValueOptions(type, selected = '') {
         if (type === 'assign') {
-            return (state.assignees || []).map(m =>
-                `<option value="${m.id}" ${String(selected) === String(m.id) ? 'selected' : ''}>${esc(m.name)}</option>`
-            ).join('') || '<option value="">No teammates</option>';
+            const current = String(selected || '');
+            const users = (state.assignees || []).map(m =>
+                `<option value="${m.id}" ${current === String(m.id) ? 'selected' : ''}>${esc(m.name)}</option>`
+            ).join('');
+            return `
+                <optgroup label="Available for inbound calls">
+                    <option value="__available_round_robin__" ${current === '__available_round_robin__' ? 'selected' : ''}>Round robin among available agents</option>
+                    <option value="__available__" ${current === '__available__' ? 'selected' : ''}>Any available agent</option>
+                </optgroup>
+                <optgroup label="Teammate">${users || '<option value="" disabled>No teammates</option>'}</optgroup>
+            `;
         }
         if (type === 'add_label') {
             return (state.companyLabels || []).map(l =>

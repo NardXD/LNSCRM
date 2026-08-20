@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\CallAgentPresence;
 use App\Models\CallRoundRobinState;
 use App\Models\Company;
+use App\Models\LeadRoundRobinState;
 use App\Models\PhoneCallLog;
 use App\Models\User;
 use Illuminate\Support\Collection;
@@ -128,18 +129,38 @@ class InboundCallQueueService
      */
     public function pickNextAgent(int $companyId, array $excludeUserIds = []): ?User
     {
-        return DB::transaction(function () use ($companyId, $excludeUserIds) {
-            $state = CallRoundRobinState::query()
+        return $this->pickNextAvailableAgent($companyId, CallRoundRobinState::class, $excludeUserIds, 'call');
+    }
+
+    /**
+     * Round-robin among agents currently available for inbound calls, without
+     * advancing the phone-system call queue pointer.
+     *
+     * @param  array<int>  $excludeUserIds
+     */
+    public function pickNextLeadAgent(int $companyId, array $excludeUserIds = []): ?User
+    {
+        return $this->pickNextAvailableAgent($companyId, LeadRoundRobinState::class, $excludeUserIds, 'lead');
+    }
+
+    /**
+     * @param  class-string<CallRoundRobinState|LeadRoundRobinState>  $stateClass
+     * @param  array<int>  $excludeUserIds
+     */
+    protected function pickNextAvailableAgent(int $companyId, string $stateClass, array $excludeUserIds = [], string $purpose = 'call'): ?User
+    {
+        return DB::transaction(function () use ($companyId, $stateClass, $excludeUserIds, $purpose) {
+            $state = $stateClass::query()
                 ->where('company_id', $companyId)
                 ->lockForUpdate()
                 ->first();
 
             if (! $state) {
-                $state = CallRoundRobinState::query()->create([
+                $stateClass::query()->create([
                     'company_id' => $companyId,
                     'last_assigned_user_id' => null,
                 ]);
-                $state = CallRoundRobinState::query()
+                $state = $stateClass::query()
                     ->where('company_id', $companyId)
                     ->lockForUpdate()
                     ->first();
@@ -166,7 +187,8 @@ class InboundCallQueueService
             $state->last_assigned_user_id = $picked->id;
             $state->save();
 
-            Log::info('Inbound call queue picked agent', [
+            Log::info('Available-agent queue picked user', [
+                'purpose' => $purpose,
                 'company_id' => $companyId,
                 'user_id' => $picked->id,
                 'excluded' => $excludeUserIds,
