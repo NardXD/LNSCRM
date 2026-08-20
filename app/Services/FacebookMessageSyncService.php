@@ -15,28 +15,31 @@ use Twilio\Rest\Client;
 
 class FacebookMessageSyncService
 {
+    protected bool $lastStoreCreated = true;
 
     /**
-     * Import historical Twilio Messenger / Instagram messages into the CRM inbox.
+     * Import historical Messenger inbox (and Twilio) messages into the CRM.
      *
-     * @return array{scanned: int, imported: int, skipped: int, conversations: int, days: int, sources: array{messages: int, conversations: int}}
+     * @return array{scanned: int, imported: int, skipped: int, conversations: int, days: int, hint: ?string, sources: array{graph: int, messages: int, conversations: int}}
      */
-    public function sync(FacebookIntegration $integration, TwilioService $twilio, int $days = 90, int $limit = 2000): array
+    public function sync(FacebookIntegration $integration, ?TwilioService $twilio, int $days = 90, int $limit = 2000): array
     {
         $this->correctNaiveUtcTimestamps($integration);
 
         $after = $days > 0 ? Carbon::now()->subDays($days)->startOfDay() : null;
-        $addresses = array_values(array_unique(array_filter([
-            $twilio->messengerAddress((string) $integration->page_id, 'messenger'),
-            $integration->instagram_business_account_id
-                ? $twilio->messengerAddress((string) $integration->instagram_business_account_id, 'instagram')
-                : null,
-        ])));
-
         $bySid = [];
-        foreach ($addresses as $address) {
-            foreach ($twilio->listChannelMessages($address, $after, $limit) as $message) {
-                $bySid[$message->sid] = $message;
+        if ($twilio) {
+            $addresses = array_values(array_unique(array_filter([
+                $twilio->messengerAddress((string) $integration->page_id, 'messenger'),
+                $integration->instagram_business_account_id
+                    ? $twilio->messengerAddress((string) $integration->instagram_business_account_id, 'instagram')
+                    : null,
+            ])));
+
+            foreach ($addresses as $address) {
+                foreach ($twilio->listChannelMessages($address, $after, $limit) as $message) {
+                    $bySid[$message->sid] = $message;
+                }
             }
         }
 
@@ -53,7 +56,9 @@ class FacebookMessageSyncService
                 $graphRows = app(FacebookGraphHistoryService::class)->history(
                     (string) $integration->page_id,
                     $token,
-                    $after
+                    $after,
+                    min(3000, max(200, $limit)),
+                    90
                 );
                 $graphCount = count($graphRows);
                 $existingLookup = $this->existingMids($integration, array_column($graphRows, 'mid'));
@@ -87,51 +92,19 @@ class FacebookMessageSyncService
                 $hint = 'Facebook inbox import failed: '.$e->getMessage();
             }
         } else {
-            $hint = 'Twilio only has messages that already passed through this Twilio account. Save a Facebook Page Access Token under Integrations to import the full Page inbox from Meta.';
-        }
-
-        $existingLookup = $this->existingMids(
-            $integration,
-            array_merge(array_keys($existingLookup), array_keys($bySid))
-        );
-
-        foreach ($bySid as $message) {
-            $result = $this->importIfNew($existingLookup, $message->sid, function () use ($integration, $twilio, $message) {
-                return $this->ingestProgrammableMessage($integration, $twilio, $message);
-            });
-            $imported += $result['imported'];
-            $skipped += $result['skipped'];
-            if ($result['conversation']) {
-                $touchedConversationIds[$result['conversation']->id] = $result['conversation'];
-            }
+            $hint = 'Twilio only has messages that already passed through this Twilio account. Save a Facebook Page Access Token under Integrations to import replies sent from Messenger / Page Inbox.';
         }
 
         $conversationImported = 0;
-        try {
-            $conversationRows = $this->collectConversationMessages($twilio, $integration, $after, min($limit, 200));
-            $conversationImported = count($conversationRows);
+        if ($twilio) {
             $existingLookup = $this->existingMids(
                 $integration,
-                array_merge(array_keys($existingLookup), array_column($conversationRows, 'mid'))
+                array_merge(array_keys($existingLookup), array_keys($bySid))
             );
 
-            foreach ($conversationRows as $row) {
-                $result = $this->importIfNew($existingLookup, $row['mid'], function () use ($integration, $row) {
-                    return $this->storeRecord(
-                        $integration,
-                        $row['channel'],
-                        $row['peer_id'],
-                        $row['name'],
-                        $row['direction'],
-                        $row['mid'],
-                        $row['text'],
-                        $row['type'],
-                        $row['media_url'],
-                        $row['mime_type'],
-                        $row['status'],
-                        $row['sent_at'],
-                        $row['raw']
-                    );
+            foreach ($bySid as $message) {
+                $result = $this->importIfNew($existingLookup, $message->sid, function () use ($integration, $twilio, $message) {
+                    return $this->ingestProgrammableMessage($integration, $twilio, $message);
                 });
                 $imported += $result['imported'];
                 $skipped += $result['skipped'];
@@ -139,8 +112,42 @@ class FacebookMessageSyncService
                     $touchedConversationIds[$result['conversation']->id] = $result['conversation'];
                 }
             }
-        } catch (\Throwable $e) {
-            Log::warning('Facebook Conversations history sync failed', ['error' => $e->getMessage()]);
+
+            try {
+                $conversationRows = $this->collectConversationMessages($twilio, $integration, $after, min($limit, 200));
+                $conversationImported = count($conversationRows);
+                $existingLookup = $this->existingMids(
+                    $integration,
+                    array_merge(array_keys($existingLookup), array_column($conversationRows, 'mid'))
+                );
+
+                foreach ($conversationRows as $row) {
+                    $result = $this->importIfNew($existingLookup, $row['mid'], function () use ($integration, $row) {
+                        return $this->storeRecord(
+                            $integration,
+                            $row['channel'],
+                            $row['peer_id'],
+                            $row['name'],
+                            $row['direction'],
+                            $row['mid'],
+                            $row['text'],
+                            $row['type'],
+                            $row['media_url'],
+                            $row['mime_type'],
+                            $row['status'],
+                            $row['sent_at'],
+                            $row['raw']
+                        );
+                    });
+                    $imported += $result['imported'];
+                    $skipped += $result['skipped'];
+                    if ($result['conversation']) {
+                        $touchedConversationIds[$result['conversation']->id] = $result['conversation'];
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Facebook Conversations history sync failed', ['error' => $e->getMessage()]);
+            }
         }
 
         foreach ($touchedConversationIds as $conversation) {
@@ -176,6 +183,9 @@ class FacebookMessageSyncService
             $conversation = $importer();
             if ($conversation) {
                 $existingLookup[$mid] = true;
+                if (! $this->lastStoreCreated) {
+                    return ['imported' => 0, 'skipped' => 1, 'conversation' => $conversation];
+                }
 
                 return ['imported' => 1, 'skipped' => 0, 'conversation' => $conversation];
             }
@@ -220,34 +230,38 @@ class FacebookMessageSyncService
      * Used while /facebook is open so new chats appear even if the webhook URL
      * is set on the Messaging Service instead of the Facebook sender.
      */
-    public function ingestRecent(FacebookIntegration $integration, TwilioService $twilio, int $minutes = 45, int $limit = 80): int
+    public function ingestRecent(FacebookIntegration $integration, ?TwilioService $twilio, int $minutes = 45, int $limit = 80): int
     {
         $after = Carbon::now()->subMinutes(max(5, $minutes));
-        $addresses = array_values(array_unique(array_filter([
-            $twilio->messengerAddress((string) $integration->page_id, 'messenger'),
-            $integration->instagram_business_account_id
-                ? $twilio->messengerAddress((string) $integration->instagram_business_account_id, 'instagram')
-                : null,
-        ])));
-
-        $bySid = [];
-        foreach ($addresses as $address) {
-            foreach ($twilio->listChannelMessages($address, $after, $limit) as $message) {
-                $bySid[$message->sid] = $message;
-            }
-        }
-
-        $existingLookup = $this->existingMids($integration, array_keys($bySid));
         $imported = 0;
         $touched = [];
+        $existingLookup = [];
 
-        foreach ($bySid as $message) {
-            $result = $this->importIfNew($existingLookup, $message->sid, function () use ($integration, $twilio, $message) {
-                return $this->ingestProgrammableMessage($integration, $twilio, $message);
-            });
-            $imported += $result['imported'];
-            if ($result['conversation']) {
-                $touched[$result['conversation']->id] = $result['conversation'];
+        if ($twilio) {
+            $addresses = array_values(array_unique(array_filter([
+                $twilio->messengerAddress((string) $integration->page_id, 'messenger'),
+                $integration->instagram_business_account_id
+                    ? $twilio->messengerAddress((string) $integration->instagram_business_account_id, 'instagram')
+                    : null,
+            ])));
+
+            $bySid = [];
+            foreach ($addresses as $address) {
+                foreach ($twilio->listChannelMessages($address, $after, $limit) as $message) {
+                    $bySid[$message->sid] = $message;
+                }
+            }
+
+            $existingLookup = $this->existingMids($integration, array_keys($bySid));
+
+            foreach ($bySid as $message) {
+                $result = $this->importIfNew($existingLookup, $message->sid, function () use ($integration, $twilio, $message) {
+                    return $this->ingestProgrammableMessage($integration, $twilio, $message);
+                });
+                $imported += $result['imported'];
+                if ($result['conversation']) {
+                    $touched[$result['conversation']->id] = $result['conversation'];
+                }
             }
         }
 
@@ -518,9 +532,22 @@ class FacebookMessageSyncService
         Carbon $sentAt,
         array $raw
     ): FacebookConversation {
+        $this->lastStoreCreated = true;
         $conversation = $this->upsertConversation($integration, $channel, $peerId, $name);
-
         $storedAt = TimezoneService::fromExternal($sentAt);
+
+        $duplicate = $this->findNearDuplicate($conversation->id, $direction, $type, $text, $storedAt);
+        if ($duplicate) {
+            $this->lastStoreCreated = false;
+            $payload = is_array($duplicate->raw_payload) ? $duplicate->raw_payload : [];
+            if ($mid !== '' && empty($payload['graph_mid']) && (string) $duplicate->mid !== $mid) {
+                $payload['graph_mid'] = $mid;
+                $duplicate->raw_payload = $payload;
+                $duplicate->save();
+            }
+
+            return $conversation;
+        }
 
         $record = new FacebookMessage;
         $record->fill([
@@ -541,6 +568,34 @@ class FacebookMessageSyncService
         $record->save();
 
         return $conversation;
+    }
+
+    public function findNearDuplicate(
+        int $conversationId,
+        string $direction,
+        string $type,
+        ?string $text,
+        Carbon $sentAt
+    ): ?FacebookMessage {
+        $from = $sentAt->copy()->subMinutes(3);
+        $to = $sentAt->copy()->addMinutes(3);
+        $normalized = trim((string) $text);
+
+        $query = FacebookMessage::query()
+            ->where('facebook_conversation_id', $conversationId)
+            ->where('direction', $direction)
+            ->where('type', $type)
+            ->whereBetween('sent_at', [$from, $to]);
+
+        if ($normalized !== '') {
+            $query->where('text', $text);
+        } else {
+            $query->where(function ($builder) {
+                $builder->whereNull('text')->orWhere('text', '');
+            });
+        }
+
+        return $query->orderByDesc('id')->first();
     }
 
     protected function upsertConversation(

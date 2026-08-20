@@ -101,7 +101,7 @@ class FacebookGraphMessagingService
     public function subscribePage(string $pageId, string $accessToken): void
     {
         $response = Http::timeout(30)->asForm()->post($this->baseUrl.'/'.$pageId.'/subscribed_apps', [
-            'subscribed_fields' => 'messages,messaging_postbacks,messaging_optins,message_deliveries,messaging_referrals',
+            'subscribed_fields' => 'messages,message_echoes,messaging_postbacks,messaging_optins,message_deliveries,messaging_referrals',
             'access_token' => $accessToken,
         ]);
 

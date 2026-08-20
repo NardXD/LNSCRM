@@ -28,11 +28,15 @@
                     </p>
                 </div>
                 <div class="fb-header-actions">
+                    <button type="button" class="fb-icon-btn" id="fbSyncBtn" title="Sync replies sent from Messenger">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    </button>
                     <button type="button" class="fb-icon-btn" id="fbRefreshBtn" title="Refresh">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                     </button>
                 </div>
             </div>
+            <div class="fb-sync-note" id="fbSyncNote"></div>
             <div class="fb-filters">
                 <button type="button" class="fb-chip active" data-channel="">All</button>
                 <button type="button" class="fb-chip" data-channel="messenger">Messenger</button>
@@ -48,7 +52,7 @@
             <div class="fb-empty" id="fbEmpty">
                 <div class="fb-empty-card">
                     <h3 id="fbEmptyTitle">Select a conversation</h3>
-                    <p id="fbEmptyText">Facebook Page and Instagram Direct messages appear here after customers message your Twilio-connected Page.</p>
+                    <p id="fbEmptyText">Facebook Page and Instagram Direct messages appear here. Use Sync to import replies sent from Messenger / Page Inbox.</p>
                     <a href="{{ route('integrations') }}" class="fb-link-btn" id="fbConnectLink" style="{{ $integrationConnected ? 'display:none' : '' }}">Connect Facebook in Integrations</a>
                 </div>
             </div>
@@ -374,6 +378,19 @@
 }
 .fb-icon-btn:hover { background: var(--fb-bg); color: var(--text-primary); }
 .fb-icon-btn svg { width: 16px; height: 16px; }
+.fb-icon-btn.is-syncing svg { animation: fb-spin 0.9s linear infinite; }
+@keyframes fb-spin { to { transform: rotate(360deg); } }
+.fb-sync-note {
+    display: none;
+    margin: 0 1.15rem 0.55rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 8px;
+    background: var(--fb-accent-soft);
+    color: var(--text-primary);
+    font-size: 0.72rem;
+    line-height: 1.4;
+}
+.fb-sync-note.is-visible { display: block; }
 .fb-back { display: none; }
 
 @media (max-width: 900px) {
@@ -425,7 +442,10 @@
         emptyTitle: document.getElementById('fbEmptyTitle'),
         emptyText: document.getElementById('fbEmptyText'),
         accountLabel: document.getElementById('fbAccountLabel'),
+        syncBtn: document.getElementById('fbSyncBtn'),
+        syncNote: document.getElementById('fbSyncNote'),
     };
+    let hasPageToken = false;
 
     async function api(path, options = {}) {
         const res = await fetch(apiBase + path, {
@@ -660,6 +680,7 @@
         try {
             const data = await api('/bootstrap');
             connected = !!data.connected;
+            hasPageToken = !!data.account?.has_page_access_token;
             const parts = [];
             if (data.account?.page_name) parts.push(data.account.page_name);
             if (data.account?.instagram_username) parts.push('@' + data.account.instagram_username);
@@ -820,6 +841,53 @@
         window.loadChannelContactHistory('#fbContactHistory', activeHistoryOpts);
     }
 
+    function showSyncNote(text) {
+        if (!els.syncNote) return;
+        els.syncNote.textContent = text;
+        els.syncNote.classList.toggle('is-visible', !!text);
+    }
+
+    async function syncMessengerInbox() {
+        if (!els.syncBtn || els.syncBtn.disabled) return;
+        if (!hasPageToken) {
+            const go = confirm('Add a Facebook Page Access Token under Integrations to import replies sent from Messenger / Page Inbox.\n\nSync Twilio history only?');
+            if (!go) {
+                window.location.href = root.dataset.integrationsUrl || '/integrations';
+                return;
+            }
+        }
+        els.syncBtn.disabled = true;
+        els.syncBtn.classList.add('is-syncing');
+        showSyncNote('Importing Messenger inbox, including replies sent from Facebook…');
+        try {
+            const data = await api('/sync', {
+                method: 'POST',
+                body: JSON.stringify({ days: 90, limit: 2000 }),
+            });
+            const result = data.data || {};
+            const imported = Number(result.imported || 0);
+            const skipped = Number(result.skipped || 0);
+            const scanned = Number(result.scanned || 0);
+            const hint = result.hint || '';
+            let summary = imported
+                ? `Imported ${imported} message${imported === 1 ? '' : 's'} from Messenger.`
+                : (scanned
+                    ? `No new messages. Found ${scanned} already in the CRM.`
+                    : 'No Messenger history found for the last 90 days.');
+            if (skipped && imported) summary += ` ${skipped} already in CRM.`;
+            if (hint) summary += ' ' + hint;
+            showSyncNote(summary);
+            await loadConversations({ merge: true });
+            if (activeId) await pollActiveMessages();
+        } catch (e) {
+            showSyncNote(e.message || 'Could not sync Messenger inbox.');
+            alert(e.message || 'Could not sync Messenger inbox.');
+        } finally {
+            els.syncBtn.disabled = false;
+            els.syncBtn.classList.remove('is-syncing');
+        }
+    }
+
     async function sendText() {
         if (!activeId) return;
         const text = els.text.value.trim();
@@ -871,6 +939,7 @@
         }
     }
 
+    document.getElementById('fbSyncBtn')?.addEventListener('click', () => syncMessengerInbox().catch(console.error));
     document.getElementById('fbRefreshBtn').addEventListener('click', () => loadConversations().catch(console.error));
     document.getElementById('fbBackBtn').addEventListener('click', () => {
         els.sidebar.classList.remove('hidden-mobile');

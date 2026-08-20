@@ -109,14 +109,14 @@ class FacebookController extends Controller
             });
         }
 
-        $this->pullRecentTwilioMessages($user);
+        $this->pullRecentChannelMessages($user);
 
         $conversations = $query->limit(500)->get()->map(fn (FacebookConversation $c) => $this->formatConversation($c));
 
         return response()->json(['data' => $conversations]);
     }
 
-    protected function pullRecentTwilioMessages($user): void
+    protected function pullRecentChannelMessages($user): void
     {
         $companyId = (int) ($user?->company_id ?: 0);
         if ($companyId < 1 || ! $user?->company) {
@@ -133,10 +133,9 @@ class FacebookController extends Controller
                 return;
             }
 
-            $this->facebookSync->ingestRecent(
-                $integration,
-                $this->twilioClientForCompany($user->company)
-            );
+            $twilio = $this->optionalTwilioClient($user->company);
+            $this->facebookSync->ingestRecent($integration, $twilio);
+            $this->ensurePageSubscribed($integration);
         } catch (\Throwable $e) {
             Log::warning('Facebook recent message pull failed', ['error' => $e->getMessage()]);
         }
@@ -329,7 +328,12 @@ class FacebookController extends Controller
         ]);
 
         $integration = $this->requireActiveIntegration();
-        $twilio = $this->twilioClientForCompany(Auth::user()->company);
+        $twilio = $this->optionalTwilioClient(Auth::user()->company);
+        if (! $twilio && ! $integration->getDecryptedPageAccessToken()) {
+            return response()->json([
+                'message' => 'Add a Facebook Page Access Token under Integrations to import replies sent from Messenger.',
+            ], 422);
+        }
 
         @set_time_limit(300);
 
@@ -344,7 +348,7 @@ class FacebookController extends Controller
             Log::error('Facebook history sync failed', ['error' => $e->getMessage()]);
 
             return response()->json([
-                'message' => $e->getMessage() ?: 'Could not sync old Facebook messages from Twilio.',
+                'message' => $e->getMessage() ?: 'Could not sync Messenger inbox history.',
             ], 422);
         }
 
@@ -497,12 +501,15 @@ class FacebookController extends Controller
                 $recipientId = (string) ($event['recipient']['id'] ?? '');
                 $isInstagram = $object === 'instagram'
                     || ($igId !== '' && ($entryId === $igId || $recipientId === $igId));
+                $channel = $isInstagram ? 'instagram' : 'messenger';
+                $isEcho = ! empty($event['message']['is_echo']);
 
-                if (! $isInstagram) {
+                // Messenger inbound still arrives via Twilio; only capture Page Inbox echoes.
+                if ($channel === 'messenger' && ! $isEcho) {
                     continue;
                 }
 
-                $this->handleInboundMetaInstagram($integration, $event, $ownIds);
+                $this->storeMetaMessagingEvent($integration, $event, $channel, $ownIds, $isEcho);
             }
         }
     }
@@ -511,9 +518,14 @@ class FacebookController extends Controller
      * @param  array<string, mixed>  $event
      * @param  array<int, string>  $ownIds
      */
-    protected function handleInboundMetaInstagram(FacebookIntegration $integration, array $event, array $ownIds): void
-    {
-        if (! empty($event['message']['is_echo']) || ! empty($event['message']['is_deleted'])) {
+    protected function storeMetaMessagingEvent(
+        FacebookIntegration $integration,
+        array $event,
+        string $channel,
+        array $ownIds,
+        bool $isEcho
+    ): void {
+        if (! empty($event['message']['is_deleted'])) {
             return;
         }
 
@@ -522,7 +534,10 @@ class FacebookController extends Controller
         }
 
         $senderId = (string) ($event['sender']['id'] ?? '');
-        if ($senderId === '' || in_array($senderId, $ownIds, true)) {
+        $recipientId = (string) ($event['recipient']['id'] ?? '');
+        $direction = $isEcho ? 'outbound' : 'inbound';
+        $peerId = $isEcho ? $recipientId : $senderId;
+        if ($peerId === '' || in_array($peerId, $ownIds, true)) {
             return;
         }
 
@@ -530,7 +545,7 @@ class FacebookController extends Controller
         $postback = is_array($event['postback'] ?? null) ? $event['postback'] : [];
         $mid = (string) ($message['mid'] ?? ($postback['mid'] ?? ''));
         if ($mid === '') {
-            $mid = 'meta-'.md5(json_encode($event) ?: uniqid('ig', true));
+            $mid = 'meta-'.md5(json_encode($event) ?: uniqid($channel, true));
         }
 
         if (FacebookMessage::where('mid', $mid)->exists()) {
@@ -569,7 +584,7 @@ class FacebookController extends Controller
                         $mid
                     );
                 } catch (\Throwable $e) {
-                    Log::warning('Instagram inbound media download failed', ['error' => $e->getMessage()]);
+                    Log::warning('Meta inbound media download failed', ['error' => $e->getMessage()]);
                     $mediaUrl = $remote;
                 }
             } elseif ($text === null) {
@@ -586,14 +601,14 @@ class FacebookController extends Controller
         $username = null;
         $profilePic = null;
         $token = $integration->getDecryptedPageAccessToken();
-        if ($token) {
-            $profile = $this->graphMessaging->instagramUser($senderId, $token);
+        if ($token && $channel === 'instagram' && ! $isEcho) {
+            $profile = $this->graphMessaging->instagramUser($peerId, $token);
             $profileName = isset($profile['name']) && is_string($profile['name']) ? $profile['name'] : null;
             $username = isset($profile['username']) && is_string($profile['username']) ? $profile['username'] : null;
             $profilePic = isset($profile['profile_pic']) && is_string($profile['profile_pic']) ? $profile['profile_pic'] : null;
         }
 
-        $conversation = $this->upsertConversation($integration, 'instagram', $senderId, $profileName);
+        $conversation = $this->upsertConversation($integration, $channel, $peerId, $profileName);
         if ($username && ! $conversation->username) {
             $conversation->username = $username;
         }
@@ -604,31 +619,42 @@ class FacebookController extends Controller
             $conversation->save();
         }
 
-        $isNewConversation = $conversation->wasRecentlyCreated
-            || FacebookMessage::where('facebook_conversation_id', $conversation->id)->count() === 0;
-
         $timestamp = $event['timestamp'] ?? null;
         $sentAt = is_numeric($timestamp)
             ? TimezoneService::fromExternal(\Carbon\Carbon::createFromTimestampMs((int) $timestamp))
             : now();
 
+        if ($this->facebookSync->findNearDuplicate($conversation->id, $direction, $type, $text, $sentAt)) {
+            return;
+        }
+
+        $isNewConversation = $conversation->wasRecentlyCreated
+            || FacebookMessage::where('facebook_conversation_id', $conversation->id)->count() === 0;
+
         $record = FacebookMessage::create([
             'company_id' => $integration->company_id,
             'facebook_conversation_id' => $conversation->id,
-            'direction' => 'inbound',
+            'direction' => $direction,
             'mid' => $mid,
             'type' => $type,
             'text' => $text,
             'media_url' => $mediaUrl,
             'mime_type' => $mimeType,
             'file_name' => $fileName,
-            'status' => 'received',
+            'status' => $direction === 'outbound' ? 'sent' : 'received',
             'raw_payload' => $event,
             'sent_at' => $sentAt,
         ]);
 
-        $conversation->unread_count = (int) $conversation->unread_count + 1;
+        if ($direction === 'inbound') {
+            $conversation->unread_count = (int) $conversation->unread_count + 1;
+        }
         $this->touchConversation($conversation, $record);
+
+        if ($direction === 'outbound') {
+            return;
+        }
+
         $extracted = $this->messageContacts->applyToConversation($conversation);
         $this->notifyUnread($conversation, $record);
 
@@ -972,6 +998,36 @@ class FacebookController extends Controller
         $conversation->last_message_preview = Str::limit(trim($preview), 480);
         $conversation->last_message_at = $message->sent_at ?: now();
         $conversation->save();
+    }
+
+    protected function optionalTwilioClient(?Company $company): ?TwilioService
+    {
+        try {
+            return $this->twilioClientForCompany($company);
+        } catch (HttpResponseException) {
+            return null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    protected function ensurePageSubscribed(FacebookIntegration $integration): void
+    {
+        $token = $integration->getDecryptedPageAccessToken();
+        $pageId = (string) $integration->page_id;
+        if (! $token || $pageId === '') {
+            return;
+        }
+
+        if (! Cache::add('facebook-page-subscribe-'.$integration->id, 1, 3600)) {
+            return;
+        }
+
+        try {
+            $this->graphMessaging->subscribePage($pageId, $token);
+        } catch (\Throwable $e) {
+            Log::warning('Facebook Page subscribe failed', ['error' => $e->getMessage()]);
+        }
     }
 
     protected function twilioClientForCompany(?Company $company): TwilioService

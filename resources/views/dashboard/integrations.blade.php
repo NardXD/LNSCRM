@@ -1417,7 +1417,7 @@
                 <div class="form-group">
                     <label class="form-label">Page Access Token (required for Instagram)</label>
                     <input type="password" class="form-input" id="facebook-page-access-token" value="" placeholder="${existingData && existingData.has_page_access_token ? '•••••••• (leave blank to keep)' : 'EAAB… long-lived Page token'}">
-                    <span class="form-help">Must include <code>pages_messaging</code> and <code>instagram_manage_messages</code>. Used to receive/send Instagram Direct. Messenger still uses Twilio.</span>
+                    <span class="form-help">Must include <code>pages_messaging</code> and <code>instagram_manage_messages</code>. Used to import Messenger replies and to receive/send Instagram Direct.</span>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Meta App Secret (recommended)</label>
@@ -1446,7 +1446,7 @@
                 <div class="form-group">
                     <label class="form-label">Webhook URL</label>
                     <code style="display:block;background:var(--bg-primary);padding:0.5rem 0.65rem;border-radius:6px;font-size:0.78rem;word-break:break-all;">${existingData && existingData.webhook_url ? existingData.webhook_url : 'Saved after you connect — must be public HTTPS'}</code>
-                    <span class="form-help">Paste this in Meta App → Messenger → Instagram settings → Webhooks (Callback URL). Also keep it on the Twilio Messenger sender for Facebook chat.</span>
+                    <span class="form-help">Paste this in Meta App → Messenger settings for both Facebook and Instagram (Callback URL). Also keep it on the Twilio Messenger sender for Facebook chat.</span>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Verify token</label>
@@ -1463,10 +1463,18 @@
                             <option value="365">Last 12 months</option>
                             <option value="0">All available in Twilio</option>
                         </select>
-                        <button type="button" class="btn-secondary" id="facebook-sync-btn" onclick="syncFacebookHistory(event)">Sync from Twilio</button>
+                        <button type="button" class="btn-secondary" id="facebook-sync-btn" onclick="syncFacebookHistory(event)">Sync Messenger inbox</button>
                     </div>
-                    <span class="form-help" id="facebook-sync-help">Imports Facebook Page inbox history. Instagram Direct arrives live through Meta webhooks, not this sync.</span>
+                    <span class="form-help" id="facebook-sync-help">Imports the Facebook Page inbox, including replies sent from Messenger. Instagram Direct arrives live through Meta webhooks.</span>
                 </div>` : ''}
+                <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
+                    <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">Replies sent from Messenger</strong>
+                    <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
+                        <li>Save a long-lived <strong>Page Access Token</strong> with <code>pages_messaging</code>.</li>
+                        <li>In Meta for Developers → <strong>Messenger → Facebook settings</strong>, set the same Callback URL and Verify Token. Subscribe to <code>messages</code> and <code>message_echoes</code>.</li>
+                        <li>On <a href="${TWILIO_SETUP.facebookChatUrl}">Facebook &amp; Instagram</a>, click the download Sync button to import Page Inbox history, including messages you sent from Messenger to customers.</li>
+                    </ol>
+                </div>
                 <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
                     <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">Instagram Direct</strong>
                     <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
@@ -2411,7 +2419,7 @@
         } finally {
             if (btn) {
                 btn.disabled = false;
-                btn.textContent = original || 'Sync from Twilio';
+                btn.textContent = original || 'Sync Messenger inbox';
             }
         }
     }

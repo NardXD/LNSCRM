@@ -13,11 +13,17 @@ class FacebookGraphHistoryService
     /**
      * @return array<int, array<string, mixed>>
      */
-    public function history(string $pageId, string $accessToken, ?Carbon $after = null, int $maxMessages = 1500): array
-    {
+    public function history(
+        string $pageId,
+        string $accessToken,
+        ?Carbon $after = null,
+        int $maxMessages = 1500,
+        int $deadlineSeconds = 90
+    ): array {
         $rows = [];
         $pageId = trim($pageId);
-        $deadline = microtime(true) + 20;
+        $deadline = microtime(true) + max(5, $deadlineSeconds);
+        $stopWhenStale = $after !== null && $deadlineSeconds <= 15;
 
         foreach ($this->paginate($this->baseUrl.'/'.$pageId.'/conversations', [
             'platform' => 'messenger',
@@ -31,6 +37,9 @@ class FacebookGraphHistoryService
 
             $updated = isset($thread['updated_time']) ? Carbon::parse($thread['updated_time']) : null;
             if ($after && $updated && $updated->lt($after)) {
+                if ($stopWhenStale) {
+                    break;
+                }
                 continue;
             }
 
