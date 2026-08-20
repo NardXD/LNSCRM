@@ -438,9 +438,28 @@
     }
 
     async function openConversation(id) {
+        id = Number(id);
+        if (!id) return;
+
+        let conv = conversations.find(c => Number(c.id) === id) || null;
+        if (!conv) {
+            try {
+                const preview = await api(`/conversations/${id}/messages?limit=${PAGE_SIZE}`);
+                conv = preview.conversation ? { ...preview.conversation, unread_count: 0 } : null;
+                if (conv && !conversations.some(c => Number(c.id) === id)) {
+                    conversations.unshift(conv);
+                } else if (conv) {
+                    const idx = conversations.findIndex(c => Number(c.id) === id);
+                    conversations[idx] = { ...conversations[idx], ...conv };
+                    conv = conversations[idx];
+                }
+            } catch (e) {
+                return;
+            }
+            if (!conv) return;
+        }
+
         activeId = id;
-        const conv = conversations.find(c => c.id === id);
-        if (!conv) return;
 
         conv.unread_count = 0;
         els.empty.style.display = 'none';
@@ -598,7 +617,7 @@
             await loadConversations();
             const params = new URLSearchParams(window.location.search);
             const openId = Number(params.get('conversation') || 0);
-            if (openId && conversations.some(c => c.id === openId)) {
+            if (openId) {
                 await openConversation(openId);
             }
             pollTimer = setInterval(() => loadConversations({ merge: true }).catch(() => {}), 15000);

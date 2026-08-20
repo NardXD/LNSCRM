@@ -819,11 +819,36 @@
         }
     }
 
-    async function openConversation(id) {
-        activeId = id;
-        const conv = conversations.find(c => c.id === id);
-        if (!conv) return;
+    function rememberConversation(conv) {
+        if (!conv || conv.id == null) return null;
+        const id = Number(conv.id);
+        const next = { ...conv, unread_count: 0 };
+        const idx = conversations.findIndex(c => Number(c.id) === id);
+        if (idx >= 0) {
+            conversations[idx] = { ...conversations[idx], ...next };
+            return conversations[idx];
+        }
+        conversations.unshift(next);
+        return conversations[0];
+    }
 
+    async function openConversation(id) {
+        id = Number(id);
+        if (!id) return;
+
+        let conv = conversations.find(c => Number(c.id) === id) || null;
+        let data = null;
+        if (!conv) {
+            try {
+                data = await api(`/conversations/${id}/messages?limit=${PAGE_SIZE}`);
+            } catch (e) {
+                return;
+            }
+            conv = rememberConversation(data.conversation);
+            if (!conv) return;
+        }
+
+        activeId = id;
         conv.unread_count = 0;
         els.empty.style.display = 'none';
         els.chat.style.display = 'flex';
@@ -839,7 +864,9 @@
         }
 
         const wasPlaceholder = ['messenger user', 'instagram user', 'facebook user'].includes(String(conv.name || '').trim().toLowerCase());
-        const data = await api(`/conversations/${id}/messages?limit=${PAGE_SIZE}`);
+        if (!data) {
+            data = await api(`/conversations/${id}/messages?limit=${PAGE_SIZE}`);
+        }
         messagesHasMore = !!data.has_more;
         if (els.loadOlder) els.loadOlder.hidden = !messagesHasMore;
         (data.data || []).forEach(appendMessage);
@@ -1102,7 +1129,7 @@
             await loadConversations();
             const params = new URLSearchParams(window.location.search);
             const openId = Number(params.get('conversation') || 0);
-            if (openId && conversations.some(c => c.id === openId)) {
+            if (openId) {
                 await openConversation(openId);
             }
             pollTimer = setInterval(async () => {
