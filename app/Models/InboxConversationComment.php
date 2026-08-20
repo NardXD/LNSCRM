@@ -9,6 +9,7 @@ class InboxConversationComment extends Model
 {
     protected $fillable = [
         'inbox_conversation_id',
+        'source_conversation_id',
         'user_id',
         'body_html',
         'body_text',

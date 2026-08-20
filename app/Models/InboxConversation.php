@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -24,6 +25,7 @@ class InboxConversation extends Model
         'message_count',
         'last_message_at',
         'reopen_at',
+        'merged_into_id',
     ];
 
     protected $casts = [
@@ -40,6 +42,40 @@ class InboxConversation extends Model
     public function inbox(): BelongsTo
     {
         return $this->belongsTo(SharedInbox::class, 'shared_inbox_id');
+    }
+
+    public function mergedInto(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'merged_into_id');
+    }
+
+    public function mergedConversations(): HasMany
+    {
+        return $this->hasMany(self::class, 'merged_into_id')->orderBy('last_message_at');
+    }
+
+    /**
+     * @param  Builder<static>  $query
+     * @return Builder<static>
+     */
+    public function scopeNotMerged(Builder $query): Builder
+    {
+        return $query->whereNull('merged_into_id');
+    }
+
+    public function mergeRoot(): self
+    {
+        $current = $this;
+        $guard = 0;
+        while ($current->merged_into_id && $guard++ < 25) {
+            $next = self::query()->find($current->merged_into_id);
+            if (! $next) {
+                break;
+            }
+            $current = $next;
+        }
+
+        return $current;
     }
 
     public function assignee(): BelongsTo

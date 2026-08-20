@@ -9,6 +9,7 @@ class InboxConversationActivity extends Model
 {
     protected $fillable = [
         'inbox_conversation_id',
+        'source_conversation_id',
         'user_id',
         'action',
         'summary',

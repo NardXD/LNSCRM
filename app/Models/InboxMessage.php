@@ -9,6 +9,7 @@ class InboxMessage extends Model
 {
     protected $fillable = [
         'inbox_conversation_id',
+        'source_conversation_id',
         'external_message_id',
         'direction',
         'from_name',

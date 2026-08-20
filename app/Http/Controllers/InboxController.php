@@ -20,6 +20,7 @@ use App\Notifications\InboxThreadUpdateNotification;
 use App\Services\CalendarOauthSettingsService;
 use App\Services\ChannelUnreadNotifier;
 use App\Services\FlexCrmLookupService;
+use App\Services\InboxThreadMergeService;
 use App\Services\LeadActivityService;
 use App\Services\LeadAutoCreateService;
 use App\Services\LeadRuleEngine;
@@ -46,7 +47,8 @@ class InboxController extends Controller
         protected FlexCrmLookupService $crmLookup,
         protected LeadActivityService $leadActivity,
         protected ChannelUnreadNotifier $unreadNotifier,
-        protected LeadAutoCreateService $leadAutoCreate
+        protected LeadAutoCreateService $leadAutoCreate,
+        protected InboxThreadMergeService $threadMerge
     ) {}
 
     public function index(): View
@@ -68,16 +70,16 @@ class InboxController extends Controller
 
         $inboxes = $this->accessibleInboxes($user)
             ->withCount([
-                'conversations as open_count' => fn ($q) => $q->where('folder', 'inbox')->where('status', 'open'),
-                'conversations as unread_count' => fn ($q) => $q->where('folder', 'inbox')->where('status', 'open')->where('is_read', false),
-                'conversations as archived_count' => fn ($q) => $q->where('folder', 'inbox')->where('status', 'archived')
+                'conversations as open_count' => fn ($q) => $q->notMerged()->where('folder', 'inbox')->where('status', 'open'),
+                'conversations as unread_count' => fn ($q) => $q->notMerged()->where('folder', 'inbox')->where('status', 'open')->where('is_read', false),
+                'conversations as archived_count' => fn ($q) => $q->notMerged()->where('folder', 'inbox')->where('status', 'archived')
                     ->where(fn ($q) => $q->whereNull('reopen_at')->orWhere('reopen_at', '<=', now())),
-                'conversations as snoozed_count' => fn ($q) => $q->where('folder', 'inbox')->where('status', 'archived')
+                'conversations as snoozed_count' => fn ($q) => $q->notMerged()->where('folder', 'inbox')->where('status', 'archived')
                     ->whereNotNull('reopen_at')->where('reopen_at', '>', now()),
-                'conversations as drafts_count' => fn ($q) => $q->where('folder', 'drafts'),
-                'conversations as sent_count' => fn ($q) => $q->where('folder', 'sent'),
-                'conversations as trash_count' => fn ($q) => $q->where('folder', 'trash'),
-                'conversations as spam_count' => fn ($q) => $q->where('folder', 'spam'),
+                'conversations as drafts_count' => fn ($q) => $q->notMerged()->where('folder', 'drafts'),
+                'conversations as sent_count' => fn ($q) => $q->notMerged()->where('folder', 'sent'),
+                'conversations as trash_count' => fn ($q) => $q->notMerged()->where('folder', 'trash'),
+                'conversations as spam_count' => fn ($q) => $q->notMerged()->where('folder', 'spam'),
             ])
             ->with(['members:id,name,email', 'account'])
             ->orderByRaw("CASE WHEN type = 'personal' THEN 0 ELSE 1 END")
@@ -96,6 +98,7 @@ class InboxController extends Controller
                         return;
                     }
                     $q->whereIn('shared_inbox_id', $inboxIds)
+                        ->whereNull('merged_into_id')
                         ->where('folder', 'inbox')
                         ->where('status', 'open')
                         ->where('is_read', false);
@@ -416,6 +419,8 @@ class InboxController extends Controller
         }
 
         $query = InboxConversation::with(['assignee:id,name,email', 'tags', 'inbox:id,name,type,color'])
+            ->withCount('mergedConversations')
+            ->notMerged()
             ->whereIn('shared_inbox_id', $inboxIds);
 
         // Advanced folder=any searches across all folders; otherwise apply sidebar view
@@ -642,12 +647,19 @@ class InboxController extends Controller
     public function showConversation(Request $request, InboxConversation $conversation): JsonResponse
     {
         $this->authorizeConversation($request->user(), $conversation);
+
+        if ($conversation->merged_into_id) {
+            $conversation = $conversation->mergeRoot();
+            $this->authorizeConversation($request->user(), $conversation);
+        }
+
         $conversation->load([
             'messages',
             'comments.user:id,name,email',
             'activities.user:id,name,email',
             'assignee:id,name,email',
             'tags',
+            'mergedConversations',
             // Need full inbox (incl. outlook_mail_account_id / external_mailbox)
             // so hydrate can load the Graph account and fetch the full HTML body.
             // A constrained select like inbox:id,name,... omits the FK and silently
@@ -808,6 +820,8 @@ class InboxController extends Controller
                 ->first();
 
             if ($existing) {
+                InboxConversation::where('merged_into_id', $conversation->id)
+                    ->update(['merged_into_id' => $existing->id]);
                 $conversation->messages()->update(['inbox_conversation_id' => $existing->id]);
                 $conversation->comments()->update(['inbox_conversation_id' => $existing->id]);
                 $conversation->activities()->update(['inbox_conversation_id' => $existing->id]);
@@ -878,6 +892,125 @@ class InboxController extends Controller
 
         return response()->json([
             'conversation' => $this->formatConversation($conversation->fresh(['assignee', 'tags', 'inbox'])),
+        ]);
+    }
+
+    public function mergeCandidates(Request $request, InboxConversation $conversation): JsonResponse
+    {
+        $this->authorizeConversation($request->user(), $conversation);
+        $validated = $request->validate([
+            'q' => ['nullable', 'string', 'max:200'],
+        ]);
+
+        $candidates = $this->threadMerge->candidates($conversation, $validated['q'] ?? null);
+
+        return response()->json([
+            'conversations' => $candidates->map(fn (InboxConversation $c) => $this->formatMergeCandidate($c)),
+        ]);
+    }
+
+    public function mergeConversations(Request $request, InboxConversation $conversation): JsonResponse
+    {
+        $this->authorizeConversation($request->user(), $conversation);
+        $validated = $request->validate([
+            'conversation_id' => ['nullable', 'integer', 'required_without:conversation_ids'],
+            'conversation_ids' => ['nullable', 'array', 'min:1', 'required_without:conversation_id'],
+            'conversation_ids.*' => ['integer'],
+        ]);
+
+        $sourceIds = collect($validated['conversation_ids'] ?? [])
+            ->when(
+                ! empty($validated['conversation_id']),
+                fn ($ids) => $ids->push((int) $validated['conversation_id'])
+            )
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->reject(fn ($id) => $id === (int) $conversation->id)
+            ->values();
+
+        if ($sourceIds->isEmpty()) {
+            return response()->json(['message' => 'Choose at least one other conversation to merge.'], 422);
+        }
+
+        $merged = $conversation;
+        foreach ($sourceIds as $sourceId) {
+            $source = InboxConversation::query()->findOrFail($sourceId);
+            $this->authorizeConversation($request->user(), $source);
+
+            $sourceLabel = $source->subject ?: 'Untitled';
+            $sourceEmail = $source->from_email;
+
+            $merged = $this->threadMerge->merge($merged, $source);
+            $this->recordActivity(
+                $merged,
+                $request->user(),
+                'merged',
+                $request->user()->name.' merged "'.$sourceLabel.'" into this conversation',
+                [
+                    'source_conversation_id' => $sourceId,
+                    'source_subject' => $sourceLabel,
+                    'source_from' => $sourceEmail,
+                ]
+            );
+        }
+
+        return response()->json([
+            'conversation' => $this->formatConversation(
+                $merged->fresh(['assignee', 'tags', 'inbox', 'mergedConversations'])
+            ),
+        ]);
+    }
+
+    public function unmergeConversations(Request $request, InboxConversation $conversation): JsonResponse
+    {
+        $this->authorizeConversation($request->user(), $conversation);
+        $validated = $request->validate([
+            'conversation_id' => ['nullable', 'integer'],
+        ]);
+
+        if (! empty($validated['conversation_id'])) {
+            $source = InboxConversation::query()->findOrFail((int) $validated['conversation_id']);
+            $this->authorizeConversation($request->user(), $source);
+            $sourceLabel = $source->subject ?: 'Untitled';
+            $sourceId = $source->id;
+            $merged = $this->threadMerge->unmerge($conversation, $source);
+            $this->recordActivity(
+                $merged,
+                $request->user(),
+                'unmerged',
+                $request->user()->name.' unmerged "'.$sourceLabel.'" from this conversation',
+                [
+                    'source_conversation_id' => $sourceId,
+                    'source_subject' => $sourceLabel,
+                ]
+            );
+        } else {
+            $children = InboxConversation::query()
+                ->where('merged_into_id', $conversation->mergeRoot()->id)
+                ->orderBy('id')
+                ->get();
+            $merged = $conversation;
+            foreach ($children as $source) {
+                $sourceLabel = $source->subject ?: 'Untitled';
+                $sourceId = $source->id;
+                $merged = $this->threadMerge->unmerge($merged, $source);
+                $this->recordActivity(
+                    $merged,
+                    $request->user(),
+                    'unmerged',
+                    $request->user()->name.' unmerged "'.$sourceLabel.'" from this conversation',
+                    [
+                        'source_conversation_id' => $sourceId,
+                        'source_subject' => $sourceLabel,
+                    ]
+                );
+            }
+        }
+
+        return response()->json([
+            'conversation' => $this->formatConversation(
+                $merged->fresh(['assignee', 'tags', 'inbox', 'mergedConversations'])
+            ),
         ]);
     }
 
@@ -2016,6 +2149,11 @@ class InboxController extends Controller
                 $c->from_email,
                 $c->from_name
             ),
+            'merged_count' => (int) ($c->merged_conversations_count
+                ?? ($c->relationLoaded('mergedConversations') ? $c->mergedConversations->count() : 0)),
+            'merged_threads' => $c->relationLoaded('mergedConversations')
+                ? $c->mergedConversations->map(fn (InboxConversation $m) => $this->formatMergeCandidate($m))->values()->all()
+                : [],
         ];
 
         if ($withMessages && $c->relationLoaded('messages')) {
@@ -2031,6 +2169,20 @@ class InboxController extends Controller
         }
 
         return $data;
+    }
+
+    private function formatMergeCandidate(InboxConversation $c): array
+    {
+        return [
+            'id' => $c->id,
+            'subject' => $c->subject,
+            'snippet' => $c->snippet,
+            'from_name' => $c->from_name,
+            'from_email' => $c->from_email,
+            'folder' => $c->folder ?: 'inbox',
+            'message_count' => $c->message_count,
+            'last_message_at' => $c->last_message_at?->toIso8601String(),
+        ];
     }
 
     private function formatTemplate(InboxTemplate $template): array

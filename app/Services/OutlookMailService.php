@@ -360,16 +360,31 @@ class OutlookMailService
             $conversation->is_read = (bool) ($msg['isRead'] ?? ($folder !== 'inbox'));
         }
 
-        // Don't overwrite local archive/workflow moves back from sync for inbox threads
-        if ($isNew || ! in_array($conversation->status, ['archived'], true) || $folder !== 'inbox') {
-            $conversation->status = $status;
+        $writingToMergeTarget = false;
+        $sourceConversationId = null;
+        if (! $isNew && $conversation->merged_into_id) {
+            $mergeRoot = $conversation->mergeRoot();
+            if ((int) $mergeRoot->id !== (int) $conversation->id) {
+                $sourceConversationId = (int) $conversation->id;
+                $conversation = $mergeRoot;
+                $writingToMergeTarget = true;
+            }
         }
 
-        $conversation->folder = $folder;
-        $conversation->subject = $subject;
-        $conversation->snippet = mb_substr($msg['bodyPreview'] ?? '', 0, 500);
-        $conversation->from_name = $fromName;
-        $conversation->from_email = $fromEmail;
+        if (! $writingToMergeTarget) {
+            // Don't overwrite local archive/workflow moves back from sync for inbox threads
+            if ($isNew || ! in_array($conversation->status, ['archived'], true) || $folder !== 'inbox') {
+                $conversation->status = $status;
+            }
+
+            $conversation->folder = $folder;
+            $conversation->subject = $subject;
+            $conversation->snippet = mb_substr($msg['bodyPreview'] ?? '', 0, 500);
+            $conversation->from_name = $fromName;
+            $conversation->from_email = $fromEmail;
+        } else {
+            $conversation->snippet = mb_substr($msg['bodyPreview'] ?? '', 0, 500) ?: $conversation->snippet;
+        }
 
         if (! $conversation->last_message_at || $receivedAt->gt($conversation->last_message_at)) {
             $conversation->last_message_at = $receivedAt;
@@ -422,6 +437,7 @@ class OutlookMailService
 
             InboxMessage::create([
                 'inbox_conversation_id' => $conversation->id,
+                'source_conversation_id' => $sourceConversationId,
                 'external_message_id' => $externalMessageId,
                 'direction' => ($msg['isDraft'] ?? false) ? 'outbound' : $direction,
                 'from_name' => $fromName,

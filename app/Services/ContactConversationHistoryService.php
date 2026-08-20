@@ -370,6 +370,7 @@ class ContactConversationHistoryService
         }
 
         return InboxConversation::query()
+            ->notMerged()
             ->where('company_id', $companyId)
             ->where(function ($query) use ($emails) {
                 $this->applyInboxEmailMatch($query, $emails);
@@ -576,6 +577,7 @@ class ContactConversationHistoryService
         }
 
         return InboxConversation::query()
+            ->notMerged()
             ->where('company_id', $companyId)
             ->where(function ($query) use ($emails) {
                 $this->applyInboxEmailMatch($query, $emails);

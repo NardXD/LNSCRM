@@ -570,6 +570,9 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/conversations/{conversation}/assign', [InboxController::class, 'assign'])->name('api.inbox.conversations.assign');
         Route::patch('/conversations/{conversation}/status', [InboxController::class, 'updateStatus'])->name('api.inbox.conversations.status');
         Route::post('/conversations/{conversation}/snooze', [InboxController::class, 'snooze'])->name('api.inbox.conversations.snooze');
+        Route::get('/conversations/{conversation}/merge-candidates', [InboxController::class, 'mergeCandidates'])->name('api.inbox.conversations.merge-candidates');
+        Route::post('/conversations/{conversation}/merge', [InboxController::class, 'mergeConversations'])->name('api.inbox.conversations.merge');
+        Route::post('/conversations/{conversation}/unmerge', [InboxController::class, 'unmergeConversations'])->name('api.inbox.conversations.unmerge');
         Route::patch('/conversations/{conversation}/read', [InboxController::class, 'updateRead'])->name('api.inbox.conversations.read');
         Route::post('/conversations/{conversation}/tags', [InboxController::class, 'syncTags'])->name('api.inbox.conversations.tags');
         Route::post('/conversations/{conversation}/lead-labels', [InboxController::class, 'attachLeadLabel'])->name('api.inbox.conversations.lead-labels.attach');

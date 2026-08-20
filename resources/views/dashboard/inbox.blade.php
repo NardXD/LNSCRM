@@ -117,9 +117,14 @@
                         <button type="button" class="inbox-btn ghost" id="btnToggleAdvancedSearch" title="Advanced search">Filters</button>
                     </div>
                     <div class="inbox-adv-chips" id="advFilterChips"></div>
+                    <div class="inbox-list-merge-bar" id="listMergeBar" hidden>
+                        <span class="inbox-list-merge-count" id="listMergeCount">0 selected</span>
+                        <button type="button" class="inbox-btn primary" id="btnMergeSelected">Merge conversations</button>
+                        <button type="button" class="inbox-btn ghost" id="btnClearChecked">Clear</button>
+                    </div>
                 </div>
             </div>
-            <div class="inbox-conversation-list" id="conversationList">
+            <div class="inbox-conversation-list" id="conversationList" title="Ctrl+click (Cmd+click on Mac) to select multiple threads">
                 <div class="inbox-empty" id="listEmpty">Select an inbox or connect Outlook to get started.</div>
             </div>
         </section>
@@ -148,6 +153,8 @@
                             </button>
                             <div class="inbox-pop-menu" id="threadMoreMenu" hidden>
                                 <button type="button" data-thread-action="unread">Mark as unread</button>
+                                <button type="button" data-thread-action="merge">Merge conversation…</button>
+                                <button type="button" data-thread-action="unmerge" id="btnUnmergeMenu" hidden>Unmerge conversations…</button>
                                 <button type="button" id="btnSpam">Move to spam</button>
                                 <button type="button" id="btnTrash">Move to trash</button>
                             </div>
@@ -436,6 +443,25 @@
         <div class="inbox-modal-actions">
             <button type="button" class="inbox-btn ghost" data-close-modal>Cancel</button>
             <button type="button" class="inbox-btn primary" id="btnSaveMembers">Save members</button>
+        </div>
+    </div>
+
+    <div class="inbox-modal inbox-modal-wide" id="modalMerge" style="display:none;" role="dialog" aria-labelledby="mergeModalTitle">
+        <h3 id="mergeModalTitle">Merge conversation</h3>
+        <p class="inbox-modal-help" id="mergeModalHelp">Combine another thread from this mailbox. Works in personal and shared inboxes; threads must belong to the same inbox.</p>
+
+        <div id="mergeMergedSection" hidden>
+            <div class="inbox-nav-label">Merged into this thread</div>
+            <div id="mergeMergedList" class="inbox-merge-results"></div>
+            <button type="button" class="inbox-btn ghost" id="btnUnmergeAll" style="margin-top:0.35rem;">Unmerge all</button>
+        </div>
+
+        <label>Find a thread in this inbox
+            <input type="search" id="mergeSearch" class="form-input" placeholder="Search subject or sender" autocomplete="off">
+        </label>
+        <div id="mergeCandidateList" class="inbox-merge-results"></div>
+        <div class="inbox-modal-actions">
+            <button type="button" class="inbox-btn ghost" data-close-modal>Close</button>
         </div>
     </div>
 
@@ -1117,10 +1143,31 @@
 .inbox-conv {
     width: 100%; text-align: left; border: none; background: transparent;
     padding: 0.75rem 0.7rem; border-radius: 10px; cursor: pointer; display: grid; gap: 0.2rem;
+    user-select: none;
 }
 .inbox-conv:hover { background: var(--inbox-bg); }
 .inbox-conv.active { background: #eef0f3; }
 .inbox-conv.active.unread { background: var(--inbox-accent-soft); }
+.inbox-conv.is-checked {
+    background: var(--inbox-accent-soft);
+    box-shadow: inset 3px 0 0 var(--inbox-accent);
+}
+.inbox-conv.is-checked.active { background: #dce7fb; }
+.inbox-list-merge-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin-top: 0.55rem;
+    padding: 0.45rem 0.15rem 0.15rem;
+}
+.inbox-list-merge-bar[hidden] { display: none !important; }
+.inbox-list-merge-count {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--inbox-text);
+    margin-right: auto;
+}
 .inbox-conv:not(.unread) .inbox-conv-from,
 .inbox-conv:not(.unread) .inbox-conv-subject { color: #6b7280; font-weight: 500; }
 .inbox-conv:not(.unread) .inbox-conv-snippet { color: #9ca3af; }
@@ -1148,6 +1195,37 @@
     font-size: 0.68rem; font-weight: 600; padding: 0.1rem 0.4rem; border-radius: 999px;
     background: #f1f5f9; color: #334155;
 }
+.inbox-merge-results {
+    display: grid;
+    gap: 0.35rem;
+    max-height: 280px;
+    overflow: auto;
+    margin-top: 0.25rem;
+}
+.inbox-merge-row {
+    width: 100%;
+    text-align: left;
+    border: 1px solid var(--inbox-border);
+    background: #fff;
+    border-radius: 10px;
+    padding: 0.55rem 0.7rem;
+    cursor: pointer;
+    display: grid;
+    gap: 0.12rem;
+    font: inherit;
+    color: inherit;
+}
+.inbox-merge-row:hover { border-color: var(--inbox-accent); background: var(--inbox-accent-soft); }
+.inbox-merge-row-from { font-size: 0.82rem; font-weight: 600; }
+.inbox-merge-row-subject { font-size: 0.78rem; color: var(--inbox-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inbox-merge-row-meta { font-size: 0.72rem; color: var(--inbox-muted); }
+.inbox-merge-unmerge {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+.inbox-merge-unmerge .inbox-merge-row { flex: 1; cursor: default; }
+.inbox-merge-unmerge .inbox-merge-row:hover { border-color: var(--inbox-border); background: #fff; }
 .inbox-empty, .inbox-thread-placeholder {
     display: flex; align-items: center; justify-content: center; min-height: 240px;
     color: var(--inbox-muted); padding: 2rem; text-align: center;
@@ -2009,6 +2087,7 @@
         members: [],
         leadLabels: [],
         conversations: [],
+        checkedIds: [],
         selectedInboxId: null,
         view: 'open',
         selectedId: null,
@@ -2939,7 +3018,7 @@
 
     function openModal(id) {
         el('modalBackdrop').style.display = 'flex';
-        ['modalCompose','modalInbox','modalTemplate','modalSignature','modalRule','modalMembers','modalAdvancedSearch'].forEach(m => {
+        ['modalCompose','modalInbox','modalTemplate','modalSignature','modalRule','modalMembers','modalMerge','modalAdvancedSearch'].forEach(m => {
             const node = el(m);
             if (node) node.style.display = m === id ? 'grid' : 'none';
         });
@@ -2952,6 +3031,119 @@
         updateAdvancedToggleState();
         state.editingTemplateId = null;
         closeTemplatePickers();
+    }
+
+    let mergeSearchTimer = null;
+
+    function mergeFolderLabel(folder) {
+        return { inbox: 'Inbox', drafts: 'Drafts', sent: 'Sent', trash: 'Trash', spam: 'Spam' }[folder] || folder || 'Inbox';
+    }
+
+    function renderMergeCandidates(conversations) {
+        const list = el('mergeCandidateList');
+        if (!list) return;
+        if (!conversations.length) {
+            list.innerHTML = '<div class="inbox-tool-empty">No other threads in this inbox match.</div>';
+            return;
+        }
+        list.innerHTML = conversations.map(c => `
+            <button type="button" class="inbox-merge-row" data-merge-id="${c.id}">
+                <span class="inbox-merge-row-from">${escapeHtml(c.from_name || c.from_email || 'Unknown')}</span>
+                <span class="inbox-merge-row-subject">${escapeHtml(c.subject || '(No subject)')}</span>
+                <span class="inbox-merge-row-meta">${escapeHtml(mergeFolderLabel(c.folder))} · ${escapeHtml(formatThreadTime(c.last_message_at) || '')}</span>
+            </button>
+        `).join('');
+    }
+
+    function renderMergedThreads() {
+        const section = el('mergeMergedSection');
+        const list = el('mergeMergedList');
+        const threads = state.conversation?.merged_threads || [];
+        if (!section || !list) return;
+        section.hidden = threads.length < 1;
+        if (!threads.length) {
+            list.innerHTML = '';
+            return;
+        }
+        list.innerHTML = threads.map(c => `
+            <div class="inbox-merge-unmerge">
+                <div class="inbox-merge-row">
+                    <span class="inbox-merge-row-from">${escapeHtml(c.from_name || c.from_email || 'Unknown')}</span>
+                    <span class="inbox-merge-row-subject">${escapeHtml(c.subject || '(No subject)')}</span>
+                    <span class="inbox-merge-row-meta">${escapeHtml(mergeFolderLabel(c.folder))} · ${escapeHtml(formatThreadTime(c.last_message_at) || '')}</span>
+                </div>
+                <button type="button" class="inbox-btn ghost" data-unmerge-id="${c.id}">Unmerge</button>
+            </div>
+        `).join('');
+    }
+
+    async function loadMergeCandidates(q = '') {
+        if (!state.selectedId) return;
+        const params = new URLSearchParams();
+        if (q) params.set('q', q);
+        const data = await api('/conversations/' + state.selectedId + '/merge-candidates?' + params.toString());
+        renderMergeCandidates(data.conversations || []);
+    }
+
+    async function openMergeModal() {
+        if (!state.conversation) return;
+        const inbox = state.conversation.inbox || state.inboxes.find(i => Number(i.id) === Number(state.conversation.inbox_id));
+        const kind = inbox?.type === 'personal' ? 'personal inbox' : 'shared inbox';
+        el('mergeModalHelp').textContent = inbox?.name
+            ? `Merge and unmerge threads in this ${kind} (${inbox.name}). Threads from other inboxes cannot be combined here.`
+            : 'Merge and unmerge works in personal and shared inboxes. Threads must belong to the same inbox.';
+        if (el('mergeSearch')) el('mergeSearch').value = '';
+        renderMergedThreads();
+        renderMergeCandidates([]);
+        openModal('modalMerge');
+        try {
+            await loadMergeCandidates();
+        } catch (err) {
+            el('mergeCandidateList').innerHTML = `<div class="inbox-tool-empty">${escapeHtml(err.message || 'Could not load threads.')}</div>`;
+        }
+        setTimeout(() => el('mergeSearch')?.focus(), 50);
+    }
+
+    async function mergeSelectedConversation(sourceId) {
+        if (!state.selectedId || !sourceId) return;
+        const row = el('mergeCandidateList')?.querySelector(`[data-merge-id="${sourceId}"]`);
+        const label = row?.querySelector('.inbox-merge-row-subject')?.textContent || 'this conversation';
+        if (!confirm(`Merge “${label}” into the open thread?\n\nBoth must belong to this same personal or shared inbox. You can unmerge them later.`)) {
+            return;
+        }
+        await api('/conversations/' + state.selectedId + '/merge', {
+            method: 'POST',
+            body: { conversation_id: Number(sourceId) },
+        });
+        closeModal();
+        await loadBootstrap();
+        await loadConversations();
+        await openConversation(state.selectedId);
+    }
+
+    async function unmergeSelectedConversation(sourceId = null) {
+        if (!state.selectedId) return;
+        const all = sourceId == null;
+        const ok = all
+            ? confirm('Unmerge every conversation that was merged into this thread?')
+            : confirm('Split this conversation back out into its own thread?');
+        if (!ok) return;
+        await api('/conversations/' + state.selectedId + '/unmerge', {
+            method: 'POST',
+            body: all ? {} : { conversation_id: Number(sourceId) },
+        });
+        await loadBootstrap();
+        await loadConversations();
+        await openConversation(state.selectedId);
+        renderMergedThreads();
+        try {
+            await loadMergeCandidates(el('mergeSearch')?.value || '');
+        } catch (err) {
+            console.warn(err);
+        }
+        if (!(state.conversation?.merged_threads || []).length) {
+            closeModal();
+        }
     }
 
     function openTemplateModal(templateId = null) {
@@ -3414,7 +3606,7 @@
     function conversationRowHtml(c) {
         const at = c.last_message_at || '';
         return `
-            <button type="button" class="inbox-conv ${c.id === state.selectedId ? 'active' : ''} ${c.is_read ? '' : 'unread'}" data-conv-id="${c.id}">
+            <button type="button" class="inbox-conv ${c.id === state.selectedId ? 'active' : ''} ${isConversationChecked(c.id) ? 'is-checked' : ''} ${c.is_read ? '' : 'unread'}" data-conv-id="${c.id}">
                 <div class="inbox-conv-top">
                     <span>${escapeHtml(c.inbox?.name || '')}</span>
                     <span class="inbox-conv-time" data-conv-time="${escapeHtml(at)}" title="Click to show date & time">${formatRelativeTime(at)}</span>
@@ -3426,9 +3618,98 @@
                     ${conversationTagItems(c).map(t => `<span class="inbox-pill" style="background:${t.color}22;color:${t.color}">${escapeHtml(t.name)}</span>`).join('')}
                     ${conversationAssignee(c)?.name ? `<span class="inbox-pill">${escapeHtml(conversationAssignee(c).name)}</span>` : ''}
                     ${c.reopen_at ? `<span class="inbox-pill">Snoozed ${escapeHtml(formatThreadTime(c.reopen_at) ? 'until ' + formatAbsoluteTime(c.reopen_at) : '')}</span>` : ''}
+                    ${c.merged_count ? `<span class="inbox-pill">Merged</span>` : ''}
                 </div>
             </button>
         `;
+    }
+
+    function isConversationChecked(id) {
+        return state.checkedIds.some(checkedId => Number(checkedId) === Number(id));
+    }
+
+    function conversationInboxId(c) {
+        return Number(c?.inbox_id || c?.inbox?.id || 0);
+    }
+
+    function checkedConversations() {
+        return state.checkedIds
+            .map(id => state.conversations.find(c => Number(c.id) === Number(id)))
+            .filter(Boolean);
+    }
+
+    function syncCheckedRows() {
+        el('conversationList')?.querySelectorAll('.inbox-conv').forEach(btn => {
+            btn.classList.toggle('is-checked', isConversationChecked(btn.dataset.convId));
+        });
+        updateMergeBar();
+    }
+
+    function updateMergeBar() {
+        const bar = el('listMergeBar');
+        const btn = el('btnMergeSelected');
+        const countEl = el('listMergeCount');
+        if (!bar || !btn || !countEl) return;
+
+        const selected = checkedConversations();
+        const count = selected.length;
+        if (count < 2) {
+            bar.hidden = true;
+            return;
+        }
+
+        const inboxIds = [...new Set(selected.map(conversationInboxId).filter(Boolean))];
+        const sameInbox = inboxIds.length === 1;
+        bar.hidden = false;
+        countEl.textContent = count + ' selected';
+        btn.disabled = !sameInbox;
+        btn.textContent = sameInbox ? 'Merge conversations' : 'Same inbox required';
+        btn.title = sameInbox
+            ? 'Merge the selected threads into one conversation'
+            : 'Select threads from one personal or shared inbox';
+    }
+
+    function clearCheckedConversations() {
+        state.checkedIds = [];
+        syncCheckedRows();
+    }
+
+    function toggleCheckedConversation(id) {
+        const next = new Set(state.checkedIds.map(Number));
+        if (next.size === 0 && state.selectedId && Number(state.selectedId) !== Number(id)) {
+            next.add(Number(state.selectedId));
+        }
+        if (next.has(Number(id))) next.delete(Number(id));
+        else next.add(Number(id));
+        state.checkedIds = [...next];
+        syncCheckedRows();
+    }
+
+    async function mergeCheckedConversations() {
+        const selected = checkedConversations();
+        if (selected.length < 2) return;
+        const inboxIds = [...new Set(selected.map(conversationInboxId).filter(Boolean))];
+        if (inboxIds.length !== 1) {
+            alert('Select threads from the same personal or shared inbox.');
+            return;
+        }
+
+        const target = selected.find(c => Number(c.id) === Number(state.selectedId)) || selected[0];
+        const sourceIds = selected
+            .map(c => Number(c.id))
+            .filter(id => id !== Number(target.id));
+        if (!confirm(`Merge ${selected.length} conversations into “${target.subject || '(No subject)'}”?\n\nThey must belong to the same inbox. You can unmerge them later.`)) {
+            return;
+        }
+
+        await api('/conversations/' + target.id + '/merge', {
+            method: 'POST',
+            body: { conversation_ids: sourceIds },
+        });
+        clearCheckedConversations();
+        await loadBootstrap();
+        await loadConversations();
+        await openConversation(target.id);
     }
 
     function listFooterHtml() {
@@ -3448,6 +3729,7 @@
             return;
         }
         list.innerHTML = state.conversations.map(conversationRowHtml).join('') + listFooterHtml();
+        syncCheckedRows();
     }
 
     function updateListFooter() {
@@ -3624,6 +3906,9 @@
                 else list.insertAdjacentHTML('beforeend', html);
             } else {
                 state.conversations = batch;
+                state.checkedIds = state.checkedIds.filter(id =>
+                    state.conversations.some(c => Number(c.id) === Number(id))
+                );
                 renderConversations();
                 const list = el('conversationList');
                 if (list) list.scrollTop = 0;
@@ -3664,6 +3949,13 @@
         const wasUnread = !!(prev && !prev.is_read);
         const data = await api('/conversations/' + id);
         state.conversation = data.conversation;
+        if (data.conversation?.id && Number(data.conversation.id) !== Number(id)) {
+            state.selectedId = data.conversation.id;
+            id = data.conversation.id;
+            el('conversationList')?.querySelectorAll('.inbox-conv').forEach(btn => {
+                btn.classList.toggle('active', Number(btn.dataset.convId) === Number(id));
+            });
+        }
         if (wasUnread && prev) {
             prev.is_read = true;
             el('conversationList')?.querySelector(`[data-conv-id="${id}"]`)?.classList.remove('unread');
@@ -3924,7 +4216,11 @@
         el('threadSubject').textContent = c.subject || '(No subject)';
 
         const snoozedUntil = c.reopen_at && new Date(c.reopen_at) > new Date() ? c.reopen_at : null;
-        el('threadMeta').textContent = snoozedUntil ? ('Snoozed until ' + formatAbsoluteTime(snoozedUntil)) : '';
+        const mergedCount = Number(c.merged_count || (c.merged_threads || []).length || 0);
+        const metaBits = [];
+        if (snoozedUntil) metaBits.push('Snoozed until ' + formatAbsoluteTime(snoozedUntil));
+        if (mergedCount) metaBits.push(mergedCount === 1 ? '1 conversation merged in' : mergedCount + ' conversations merged in');
+        el('threadMeta').textContent = metaBits.join(' · ');
 
         const people = collectParticipants(c);
         el('threadParticipants').innerHTML = people.slice(0, 6).map(p => `
@@ -3946,6 +4242,8 @@
         el('btnTrash').style.display = (!isTrashOrSpam && folder !== 'trash') ? '' : 'none';
         el('btnRestore').style.display = isTrashOrSpam ? '' : 'none';
         el('btnReopen').style.display = isArchived ? '' : 'none';
+        const unmergeBtn = el('btnUnmergeMenu');
+        if (unmergeBtn) unmergeBtn.hidden = mergedCount < 1;
         el('assignBtnLabel').textContent = c.assignee?.name || 'Assign';
         const inbox = c.inbox || state.inboxes.find(i => Number(i.id) === Number(c.inbox_id));
         el('archiveBtnLabel').textContent = inbox?.type === 'personal' ? 'Archive in my inbox' : 'Archive';
@@ -4445,7 +4743,28 @@
             return;
         }
         const row = e.target.closest('[data-conv-id]');
-        if (row) openConversation(Number(row.dataset.convId));
+        if (!row) return;
+        const id = Number(row.dataset.convId);
+        if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            toggleCheckedConversation(id);
+            return;
+        }
+        clearCheckedConversations();
+        openConversation(id);
+    });
+    el('conversationList').addEventListener('contextmenu', (e) => {
+        if (e.ctrlKey) e.preventDefault();
+    });
+    el('btnMergeSelected')?.addEventListener('click', async () => {
+        try {
+            await mergeCheckedConversations();
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+    el('btnClearChecked')?.addEventListener('click', () => {
+        clearCheckedConversations();
     });
 
     el('conversationList').addEventListener('scroll', () => {
@@ -5035,6 +5354,26 @@
         }
     });
     el('threadMoreMenu')?.addEventListener('click', async (e) => {
+        const merge = e.target.closest('[data-thread-action="merge"]');
+        if (merge) {
+            closeThreadPops();
+            try {
+                await openMergeModal();
+            } catch (err) {
+                alert(err.message);
+            }
+            return;
+        }
+        const unmerge = e.target.closest('[data-thread-action="unmerge"]');
+        if (unmerge) {
+            closeThreadPops();
+            try {
+                await openMergeModal();
+            } catch (err) {
+                alert(err.message);
+            }
+            return;
+        }
         const unread = e.target.closest('[data-thread-action="unread"]');
         if (!unread || !state.selectedId) return;
         closeThreadPops();
@@ -5043,6 +5382,39 @@
         if (row) row.is_read = false;
         el('conversationList')?.querySelector(`[data-conv-id="${state.selectedId}"]`)?.classList.add('unread');
         await loadConversations();
+    });
+    el('mergeSearch')?.addEventListener('input', () => {
+        clearTimeout(mergeSearchTimer);
+        mergeSearchTimer = setTimeout(() => {
+            loadMergeCandidates(el('mergeSearch').value.trim()).catch(err => {
+                el('mergeCandidateList').innerHTML = `<div class="inbox-tool-empty">${escapeHtml(err.message || 'Search failed.')}</div>`;
+            });
+        }, 250);
+    });
+    el('mergeCandidateList')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-merge-id]');
+        if (!btn) return;
+        try {
+            await mergeSelectedConversation(btn.dataset.mergeId);
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+    el('mergeMergedList')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-unmerge-id]');
+        if (!btn) return;
+        try {
+            await unmergeSelectedConversation(btn.dataset.unmergeId);
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+    el('btnUnmergeAll')?.addEventListener('click', async () => {
+        try {
+            await unmergeSelectedConversation(null);
+        } catch (err) {
+            alert(err.message);
+        }
     });
     el('threadParticipants')?.addEventListener('click', (e) => {
         if (!e.target.closest('#btnAddParticipant')) return;
@@ -5704,7 +6076,10 @@
         if (!e.target.closest('[data-template-picker]')) closeTemplatePickers();
     });
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') closeTemplatePickers();
+        if (e.key === 'Escape') {
+            closeTemplatePickers();
+            if (state.checkedIds.length) clearCheckedConversations();
+        }
     });
     loadLocalTools();
     loadBootstrap().then(async () => {

@@ -17,6 +17,7 @@ class ProcessInboxReopens extends Command
         $count = 0;
 
         InboxConversation::query()
+            ->whereNull('merged_into_id')
             ->whereNotNull('reopen_at')
             ->where('reopen_at', '<=', now())
             ->orderBy('id')
