@@ -21,21 +21,11 @@ class LeadAutoCreateService
 
     public function fromSharedInbox(SharedInbox $inbox, ?string $fromName, ?string $fromEmail): ?Lead
     {
-        if ($inbox->isPersonal()) {
-            $email = $this->cleanEmail((int) $inbox->company_id, $fromEmail);
+        $email = $this->cleanEmail((int) $inbox->company_id, $fromEmail);
 
-            return $email
-                ? $this->findExisting((int) $inbox->company_id, null, $email, null, null)
-                : null;
-        }
-
-        return $this->ensure(
-            (int) $inbox->company_id,
-            'inbox',
-            $fromName,
-            null,
-            $fromEmail
-        );
+        return $email
+            ? $this->findExisting((int) $inbox->company_id, null, $email, null, null)
+            : null;
     }
 
     public function fromInboxConversation(InboxConversation $conversation): ?Lead
@@ -95,15 +85,11 @@ class LeadAutoCreateService
 
     /**
      * @param  string|array<int, string>  $triggers
-     * @param  array{contact_name?: ?string, phone?: ?string, email?: ?string, subject?: ?string, message?: ?string}  $context
+     * @param  array{company_id?: int, contact_name?: ?string, phone?: ?string, email?: ?string, subject?: ?string, message?: ?string}  $context
      */
     public function applyRules(?Lead $lead, string $channel, string|array $triggers, array $context = []): ?Lead
     {
-        if ($lead) {
-            app(LeadRuleEngine::class)->apply($lead, $channel, $triggers, $context);
-        }
-
-        return $lead;
+        return app(LeadRuleEngine::class)->apply($lead, $channel, $triggers, $context);
     }
 
     public function fromPhoneChannel(

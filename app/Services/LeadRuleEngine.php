@@ -118,24 +118,25 @@ class LeadRuleEngine
 
     /**
      * @param  string|array<int, string>  $triggers
-     * @param  array{contact_name?: ?string, phone?: ?string, email?: ?string, subject?: ?string, message?: ?string, added_label?: ?string, added_label_id?: int|string|null, inbox_id?: int|string|null, shared_inbox_id?: int|string|null}  $context
+     * @param  array{company_id?: int, contact_name?: ?string, phone?: ?string, email?: ?string, subject?: ?string, message?: ?string, added_label?: ?string, added_label_id?: int|string|null, inbox_id?: int|string|null, shared_inbox_id?: int|string|null}  $context
      */
-    public function apply(?Lead $lead, string $channel, string|array $triggers, array $context = []): void
+    public function apply(?Lead $lead, string $channel, string|array $triggers, array $context = []): ?Lead
     {
-        if (! $lead || self::$running) {
-            return;
+        if (self::$running) {
+            return $lead;
         }
 
         $eventTriggers = array_values(array_filter(array_map('strval', (array) $triggers)));
-        if ($eventTriggers === []) {
-            return;
+        $companyId = (int) ($lead?->company_id ?: ($context['company_id'] ?? 0));
+        if ($companyId < 1 || $eventTriggers === []) {
+            return $lead;
         }
 
         $channel = $channel !== '' ? self::normalizeChannel($channel) : '';
-        $lead->loadMissing(['identities', 'labels', 'assignedUser']);
+        $lead?->loadMissing(['identities', 'labels', 'assignedUser']);
 
         $rules = LeadRule::query()
-            ->where('company_id', $lead->company_id)
+            ->where('company_id', $companyId)
             ->where('is_active', true)
             ->orderBy('priority')
             ->orderBy('id')
@@ -150,7 +151,7 @@ class LeadRuleEngine
                 if (! $this->matches($lead, $channel, $rule->conditions ?? [], $context)) {
                     continue;
                 }
-                $this->runActions($lead, $rule->actions ?? []);
+                $lead = $this->runActions($lead, $rule->actions ?? [], $channel, $context, $companyId);
                 LeadRule::whereKey($rule->id)->update(['last_applied_at' => now()]);
                 if ($rule->stop_processing) {
                     break;
@@ -159,6 +160,8 @@ class LeadRuleEngine
         } finally {
             self::$running = false;
         }
+
+        return $lead;
     }
 
     /**
@@ -176,16 +179,16 @@ class LeadRuleEngine
 
     /**
      * @param  array<int, array{field?: string, operator?: string, value?: mixed}>  $conditions
-     * @param  array{contact_name?: ?string, phone?: ?string, email?: ?string, subject?: ?string, message?: ?string, added_label?: ?string, added_label_id?: int|string|null, inbox_id?: int|string|null, shared_inbox_id?: int|string|null}  $context
+     * @param  array{company_id?: int, contact_name?: ?string, phone?: ?string, email?: ?string, subject?: ?string, message?: ?string, added_label?: ?string, added_label_id?: int|string|null, inbox_id?: int|string|null, shared_inbox_id?: int|string|null}  $context
      */
-    public function matches(Lead $lead, string $channel, array $conditions, array $context): bool
+    public function matches(?Lead $lead, string $channel, array $conditions, array $context): bool
     {
         if ($conditions === []) {
             return false;
         }
 
-        $leadPhones = implode(' ', $lead->phoneValues());
-        $leadEmails = implode(' ', $lead->emailValues());
+        $leadPhones = $lead ? implode(' ', $lead->phoneValues()) : '';
+        $leadEmails = $lead ? implode(' ', $lead->emailValues()) : '';
 
         foreach ($conditions as $condition) {
             $field = $condition['field'] ?? '';
@@ -224,13 +227,16 @@ class LeadRuleEngine
             }
 
             if ($field === 'lead_status') {
-                if (! $this->compare((string) $lead->status, (string) $value, $operator === 'equals' ? 'equals' : 'equals')) {
+                if (! $lead || ! $this->compare((string) $lead->status, (string) $value, $operator === 'equals' ? 'equals' : 'equals')) {
                     return false;
                 }
                 continue;
             }
 
             if ($field === 'lead_label') {
+                if (! $lead) {
+                    return false;
+                }
                 $wanted = mb_strtolower(trim((string) $value));
                 $has = $lead->labels->contains(
                     fn (LeadLabel $label) => mb_strtolower($label->name) === $wanted
@@ -270,7 +276,7 @@ class LeadRuleEngine
             }
 
             $haystack = match ($field) {
-                'contact_name' => (string) ($context['contact_name'] ?? $lead->name),
+                'contact_name' => (string) ($context['contact_name'] ?? $lead?->name ?? ''),
                 'phone' => (string) ($context['phone'] ?? $leadPhones),
                 'email' => (string) ($context['email'] ?? $leadEmails),
                 'subject' => (string) ($context['subject'] ?? ''),
@@ -288,14 +294,31 @@ class LeadRuleEngine
 
     /**
      * @param  array<int, array{type?: string, value?: mixed}>  $actions
+     * @param  array{company_id?: int, contact_name?: ?string, phone?: ?string, email?: ?string, facebook_name?: ?string, instagram_username?: ?string}  $context
      */
-    public function runActions(Lead $lead, array $actions): void
+    public function runActions(?Lead $lead, array $actions, string $channel = '', array $context = [], int $companyId = 0): ?Lead
     {
+        $ordered = [];
         foreach ($actions as $action) {
+            if (($action['type'] ?? '') === 'create_lead') {
+                array_unshift($ordered, $action);
+            } else {
+                $ordered[] = $action;
+            }
+        }
+
+        foreach ($ordered as $action) {
             $type = $action['type'] ?? '';
             $value = $action['value'] ?? null;
 
             try {
+                if ($type === 'create_lead') {
+                    $lead = $this->createLead($lead, $channel, $context, $companyId);
+                    continue;
+                }
+                if (! $lead) {
+                    continue;
+                }
                 match ($type) {
                     'assign' => $this->assign($lead, $value),
                     'add_label' => $this->addLabel($lead, $value),
@@ -306,14 +329,46 @@ class LeadRuleEngine
                 };
             } catch (\Throwable $e) {
                 Log::warning('Lead rule action failed', [
-                    'lead_id' => $lead->id,
+                    'lead_id' => $lead?->id,
                     'action' => $type,
                     'error' => $e->getMessage(),
                 ]);
             }
         }
 
-        $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
+        if ($lead) {
+            $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
+        }
+
+        return $lead;
+    }
+
+    /**
+     * @param  array{contact_name?: ?string, phone?: ?string, email?: ?string, facebook_name?: ?string, instagram_username?: ?string}  $context
+     */
+    private function createLead(?Lead $lead, string $channel, array $context, int $companyId): ?Lead
+    {
+        if ($lead || $companyId < 1) {
+            return $lead;
+        }
+
+        $blank = static function (mixed $value): ?string {
+            $value = trim((string) $value);
+
+            return $value !== '' ? $value : null;
+        };
+
+        $created = app(LeadAutoCreateService::class)->ensure(
+            $companyId,
+            $channel !== '' ? $channel : 'inbox',
+            $blank($context['contact_name'] ?? null),
+            $blank($context['phone'] ?? null),
+            $blank($context['email'] ?? null),
+            $blank($context['facebook_name'] ?? null),
+            $blank($context['instagram_username'] ?? null),
+        );
+
+        return $created?->load(['identities', 'labels', 'assignedUser']);
     }
 
     private function compare(string $haystack, string $compare, string $operator): bool

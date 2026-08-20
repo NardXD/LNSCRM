@@ -447,6 +447,7 @@ class OutlookMailService
                         'inbox',
                         LeadRuleEngine::inboundTriggers($isNew),
                         [
+                            'company_id' => (int) $fresh->company_id,
                             'contact_name' => $fresh->from_name,
                             'email' => $fresh->from_email,
                             'subject' => $fresh->subject,

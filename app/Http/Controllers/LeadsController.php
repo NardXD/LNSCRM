@@ -875,7 +875,7 @@ class LeadsController extends Controller
             'conditions.*.operator' => ['required', 'in:contains,equals,starts_with,in'],
             'conditions.*.value' => ['nullable'],
             'actions' => [$required, 'array', 'min:1'],
-            'actions.*.type' => ['required', 'in:assign,add_label,set_status,notify_assignee,reopen_after_days'],
+            'actions.*.type' => ['required', 'in:create_lead,assign,add_label,set_status,notify_assignee,reopen_after_days'],
             'actions.*.value' => ['nullable'],
         ]);
 

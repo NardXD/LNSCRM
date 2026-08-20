@@ -2331,6 +2331,7 @@ class InboxController extends Controller
             'inbox',
             $triggers,
             [
+                'company_id' => (int) $fresh->company_id,
                 'contact_name' => $fresh->from_name,
                 'email' => $fresh->from_email,
                 'subject' => $fresh->subject,

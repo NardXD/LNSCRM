@@ -1412,8 +1412,12 @@
         }
         return `<input type="text" data-rule-cond-value placeholder="Value" value="${esc(selected || '')}">`;
     }
+    function actionNeedsValue(type) {
+        return !['create_lead', 'notify_assignee'].includes(type);
+    }
     function actionTypeOptions(selected = 'assign') {
         return [
+            ['create_lead', 'Create a lead'],
             ['assign', 'Assign lead to'],
             ['add_label', 'Add label'],
             ['set_status', 'Set status'],
@@ -1521,7 +1525,7 @@
         const wrap = document.getElementById('leadRuleActions');
         if (!wrap) return;
         const type = preset.type || 'assign';
-        const needsValue = type !== 'notify_assignee';
+        const needsValue = actionNeedsValue(type);
         const defaultValue = preset.value || (type === 'reopen_after_days' ? '3' : '');
         const row = document.createElement('div');
         row.className = 'leads-rule-extra-card is-action';
@@ -1741,7 +1745,7 @@
         const valueSel = row?.querySelector('[data-rule-action-value]');
         if (!valueSel) return;
         const type = typeSel.value;
-        const needsValue = type !== 'notify_assignee';
+        const needsValue = actionNeedsValue(type);
         const fallback = type === 'set_status' ? 'contacted' : (type === 'reopen_after_days' ? '3' : '');
         valueSel.innerHTML = actionValueOptions(type, fallback);
         valueSel.disabled = !needsValue;
