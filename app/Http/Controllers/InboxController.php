@@ -70,6 +70,10 @@ class InboxController extends Controller
             ->withCount([
                 'conversations as open_count' => fn ($q) => $q->where('folder', 'inbox')->where('status', 'open'),
                 'conversations as unread_count' => fn ($q) => $q->where('folder', 'inbox')->where('status', 'open')->where('is_read', false),
+                'conversations as archived_count' => fn ($q) => $q->where('folder', 'inbox')->where('status', 'archived')
+                    ->where(fn ($q) => $q->whereNull('reopen_at')->orWhere('reopen_at', '<=', now())),
+                'conversations as snoozed_count' => fn ($q) => $q->where('folder', 'inbox')->where('status', 'archived')
+                    ->whereNotNull('reopen_at')->where('reopen_at', '>', now()),
                 'conversations as drafts_count' => fn ($q) => $q->where('folder', 'drafts'),
                 'conversations as sent_count' => fn ($q) => $q->where('folder', 'sent'),
                 'conversations as trash_count' => fn ($q) => $q->where('folder', 'trash'),
@@ -1958,6 +1962,8 @@ class InboxController extends Controller
             'last_synced_at' => $inbox->last_synced_at?->toIso8601String(),
             'open_count' => $inbox->open_count ?? null,
             'unread_count' => $inbox->unread_count ?? null,
+            'archived_count' => $inbox->archived_count ?? null,
+            'snoozed_count' => $inbox->snoozed_count ?? null,
             'drafts_count' => $inbox->drafts_count ?? null,
             'sent_count' => $inbox->sent_count ?? null,
             'trash_count' => $inbox->trash_count ?? null,

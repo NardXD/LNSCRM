@@ -1987,6 +1987,8 @@
 
     const MAILBOX_FOLDERS = [
         { view: 'open', label: 'Inbox', countKey: 'open_count' },
+        { view: 'archived', label: 'Archived', countKey: 'archived_count' },
+        { view: 'snoozed', label: 'Snoozed', countKey: 'snoozed_count' },
         { view: 'drafts', label: 'Drafts', countKey: 'drafts_count' },
         { view: 'sent', label: 'Sent', countKey: 'sent_count' },
         { view: 'trash', label: 'Trash', countKey: 'trash_count' },
