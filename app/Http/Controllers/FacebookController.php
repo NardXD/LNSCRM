@@ -8,6 +8,7 @@ use App\Models\FacebookIntegration;
 use App\Models\FacebookMessage;
 use App\Models\User;
 use App\Notifications\FacebookMessageNotification;
+use App\Services\FacebookGraphHistoryService;
 use App\Services\FacebookGraphMessagingService;
 use App\Services\FacebookMessageSyncService;
 use App\Services\FlexCrmLookupService;
@@ -144,6 +145,7 @@ class FacebookController extends Controller
     public function messages(FacebookConversation $conversation): JsonResponse
     {
         $this->assertCompanyConversation($conversation);
+        $this->importGraphThread($conversation);
 
         $messages = FacebookMessage::query()
             ->where('facebook_conversation_id', $conversation->id)
@@ -190,6 +192,50 @@ class FacebookController extends Controller
             ]),
             'data' => $messages,
         ]);
+    }
+
+    protected function importGraphThread(FacebookConversation $conversation): void
+    {
+        $integration = $this->channelIntegrationForCompany((int) $conversation->company_id);
+        $token = $integration?->getDecryptedPageAccessToken();
+        if (! $integration || ! $token) {
+            return;
+        }
+
+        if (! Cache::add('facebook-graph-thread-'.$conversation->id, 1, 20)) {
+            return;
+        }
+
+        try {
+            $graph = app(FacebookGraphHistoryService::class);
+            $rows = $graph->thread(
+                (string) $integration->page_id,
+                $token,
+                (string) $conversation->peer_id,
+                (string) $conversation->channel,
+                array_values(array_filter([
+                    (string) $integration->page_id,
+                    (string) $integration->instagram_business_account_id,
+                ]))
+            );
+            $imported = $this->facebookSync->importGraphRows($integration, $rows);
+            if ($graph->lastError()) {
+                Log::warning('Facebook Graph thread lookup failed', [
+                    'conversation_id' => $conversation->id,
+                    'error' => $graph->lastError(),
+                ]);
+            } elseif ($imported > 0) {
+                Log::info('Facebook Graph thread imported Page Inbox replies', [
+                    'conversation_id' => $conversation->id,
+                    'imported' => $imported,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Facebook Graph thread import failed', [
+                'conversation_id' => $conversation->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     public function sendMessage(Request $request, FacebookConversation $conversation): JsonResponse

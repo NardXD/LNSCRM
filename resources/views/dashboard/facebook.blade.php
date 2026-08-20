@@ -868,7 +868,7 @@
             const imported = Number(result.imported || 0);
             const skipped = Number(result.skipped || 0);
             const scanned = Number(result.scanned || 0);
-            const hint = result.hint || '';
+            const hint = result.hint || result.graph_error || '';
             let summary = imported
                 ? `Imported ${imported} message${imported === 1 ? '' : 's'} from Messenger.`
                 : (scanned

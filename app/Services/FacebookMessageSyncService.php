@@ -49,18 +49,27 @@ class FacebookMessageSyncService
         $graphCount = 0;
         $hint = null;
         $existingLookup = [];
+        $graphError = null;
 
         $token = $integration->getDecryptedPageAccessToken();
         if ($token) {
             try {
-                $graphRows = app(FacebookGraphHistoryService::class)->history(
+                $graph = app(FacebookGraphHistoryService::class);
+                $platforms = ['messenger'];
+                if ($integration->instagram_business_account_id) {
+                    $platforms[] = 'instagram';
+                }
+                $graphRows = $graph->history(
                     (string) $integration->page_id,
                     $token,
                     $after,
                     min(3000, max(200, $limit)),
-                    90
+                    90,
+                    $this->ownIds($integration),
+                    $platforms
                 );
                 $graphCount = count($graphRows);
+                $graphError = $graph->lastError();
                 $existingLookup = $this->existingMids($integration, array_column($graphRows, 'mid'));
 
                 foreach ($graphRows as $row) {
@@ -87,9 +96,14 @@ class FacebookMessageSyncService
                         $touchedConversationIds[$result['conversation']->id] = $result['conversation'];
                     }
                 }
+
+                if ($graphCount === 0 && $graphError) {
+                    $hint = 'Facebook inbox import failed: '.$graphError;
+                }
             } catch (\Throwable $e) {
                 Log::warning('Facebook Graph history sync failed', ['error' => $e->getMessage()]);
                 $hint = 'Facebook inbox import failed: '.$e->getMessage();
+                $graphError = $e->getMessage();
             }
         } else {
             $hint = 'Twilio only has messages that already passed through this Twilio account. Save a Facebook Page Access Token under Integrations to import replies sent from Messenger / Page Inbox.';
@@ -161,6 +175,7 @@ class FacebookMessageSyncService
             'conversations' => count($touchedConversationIds),
             'days' => $days,
             'hint' => $hint,
+            'graph_error' => $graphError,
             'sources' => [
                 'graph' => $graphCount,
                 'messages' => count($bySid),
@@ -262,6 +277,56 @@ class FacebookMessageSyncService
                 if ($result['conversation']) {
                     $touched[$result['conversation']->id] = $result['conversation'];
                 }
+            }
+        }
+
+        foreach ($touched as $conversation) {
+            $this->refreshPreview($conversation);
+        }
+
+        return $imported;
+    }
+
+    /**
+     * Import Graph Page Inbox rows (used when opening a conversation).
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    public function importGraphRows(FacebookIntegration $integration, array $rows): int
+    {
+        if ($rows === []) {
+            return 0;
+        }
+
+        $existingLookup = $this->existingMids($integration, array_column($rows, 'mid'));
+        $imported = 0;
+        $touched = [];
+
+        foreach ($rows as $row) {
+            $mid = (string) ($row['mid'] ?? '');
+            if ($mid === '') {
+                continue;
+            }
+            $result = $this->importIfNew($existingLookup, $mid, function () use ($integration, $row) {
+                return $this->storeRecord(
+                    $integration,
+                    $row['channel'],
+                    $row['peer_id'],
+                    $row['name'],
+                    $row['direction'],
+                    $row['mid'],
+                    $row['text'],
+                    $row['type'],
+                    $row['media_url'],
+                    $row['mime_type'],
+                    $row['status'],
+                    $row['sent_at'],
+                    $row['raw']
+                );
+            });
+            $imported += $result['imported'];
+            if ($result['conversation']) {
+                $touched[$result['conversation']->id] = $result['conversation'];
             }
         }
 
