@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\InboxConversation;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\LeadIdentity;
@@ -233,6 +234,41 @@ class LeadActivityService
                 'added_label_id' => $labelId,
             ]);
         }
+    }
+
+    public function recordInboxAttached(Lead $lead, InboxConversation $conversation, ?int $userId = null): void
+    {
+        $actor = $this->actorName($userId ?? Auth::id());
+        $subject = trim((string) ($conversation->subject ?: 'Untitled'));
+        $this->record(
+            $lead,
+            LeadActivity::INBOX_ATTACHED,
+            $actor.' attached shared email "'.$subject.'"',
+            [
+                'conversation_id' => $conversation->id,
+                'subject' => $subject,
+                'from_email' => $conversation->from_email,
+                'inbox_id' => $conversation->shared_inbox_id,
+            ],
+            $userId
+        );
+    }
+
+    public function recordInboxDetached(Lead $lead, InboxConversation $conversation, ?int $userId = null): void
+    {
+        $actor = $this->actorName($userId ?? Auth::id());
+        $subject = trim((string) ($conversation->subject ?: 'Untitled'));
+        $this->record(
+            $lead,
+            LeadActivity::INBOX_DETACHED,
+            $actor.' detached shared email "'.$subject.'"',
+            [
+                'conversation_id' => $conversation->id,
+                'subject' => $subject,
+                'from_email' => $conversation->from_email,
+            ],
+            $userId
+        );
     }
 
     public function recordNote(Lead $lead, bool $added, ?int $userId = null, ?string $note = null): void

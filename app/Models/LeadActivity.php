@@ -21,6 +21,8 @@ class LeadActivity extends Model
     public const NOTE_REMOVED = 'note_removed';
     public const SNOOZED = 'snoozed';
     public const REOPENED = 'reopened';
+    public const INBOX_ATTACHED = 'inbox_attached';
+    public const INBOX_DETACHED = 'inbox_detached';
 
     protected $fillable = [
         'lead_id',

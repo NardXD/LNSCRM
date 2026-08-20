@@ -297,6 +297,13 @@
                                 <input type="text" id="leadInstagram" maxlength="255" placeholder="Matches Instagram DMs">
                             </div>
                         </div>
+                        <h4>Shared inbox emails</h4>
+                        <p class="form-hint">Attach a thread from a shared mailbox. It stays on this lead even if the sender address is different.</p>
+                        <div id="leadInboxAttachedList" class="lead-inbox-list"></div>
+                        <div class="lead-inbox-search">
+                            <input type="search" id="leadInboxSearch" maxlength="200" placeholder="Search subject or sender" autocomplete="off">
+                        </div>
+                        <div id="leadInboxResults" class="lead-inbox-list"></div>
                     </section>
                     <section class="lead-form-panel" data-lead-panel="notes" role="tabpanel" aria-labelledby="leadTabNotes" hidden>
                     <div id="leadExtras" hidden>
@@ -484,6 +491,21 @@
 .lead-label-chip button { background: none; border: none; color: inherit; cursor: pointer; font-size: 0.9rem; line-height: 1; padding: 0; opacity: 0.8; }
 .lead-label-add { display: flex; gap: 0.4rem; }
 .lead-label-add input { flex: 1; }
+.lead-inbox-search { margin-top: 0.55rem; }
+.lead-inbox-list { display: grid; gap: 0.4rem; margin-top: 0.45rem; }
+.lead-inbox-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.45rem 0.7rem;
+    align-items: start;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-primary);
+}
+.lead-inbox-row strong { display: block; font-size: 0.82rem; }
+.lead-inbox-row .lead-meta { margin-top: 0.15rem; }
+.lead-inbox-empty { font-size: 0.78rem; color: var(--text-muted); }
 .lead-note-item { padding: 0.7rem 0.8rem; background: var(--bg-primary); border-radius: 8px; border-left: 3px solid var(--accent); }
 .lead-note-text { font-size: 0.875rem; line-height: 1.45; white-space: pre-wrap; }
 .lead-note-meta { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-top: 0.45rem; padding-top: 0.4rem; border-top: 1px solid var(--border); font-size: 0.75rem; color: var(--text-muted); }
@@ -603,7 +625,7 @@
     const api = '/api/leads';
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
     const LEAD_OPTIONS = @json($leadFormOptions);
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }} };
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -1065,6 +1087,9 @@
             panel.classList.toggle('active', active);
             panel.hidden = !active;
         });
+        if (tabName === 'matching') {
+            searchInboxEmails(document.getElementById('leadInboxSearch').value.trim());
+        }
     }
     function showLeadTabForElement(el) {
         const panel = el?.closest?.('[data-lead-panel]');
@@ -1095,6 +1120,11 @@
         renderNotes([]);
         setExtrasVisible(false);
         state.editingId = null;
+        state.attachedInboxConversations = [];
+        state.pendingInboxConversations = [];
+        document.getElementById('leadInboxSearch').value = '';
+        document.getElementById('leadInboxResults').innerHTML = '';
+        renderAttachedInboxEmails();
         renderActivities([]);
     }
 
@@ -1131,6 +1161,14 @@
         fillAssigneeSelect(document.getElementById('leadAssignedTo'), lead.assigned_to, lead.assigned_user);
         document.getElementById('leadFacebook').value = lead.facebook_name || '';
         document.getElementById('leadInstagram').value = lead.instagram_username || '';
+        document.getElementById('leadInboxSearch').value = '';
+        document.getElementById('leadInboxResults').innerHTML = '';
+        state.pendingInboxConversations = [];
+        state.attachedInboxConversations = Array.isArray(lead.attached_inbox_conversations) ? lead.attached_inbox_conversations : [];
+        renderAttachedInboxEmails();
+        if (!lead.attached_inbox_conversations) {
+            loadAttachedInboxEmails(lead.id);
+        }
         document.getElementById('leadModalTitle').textContent = [lead.title, lead.name].filter(Boolean).join(' ') || 'Lead';
         document.getElementById('deleteLeadBtn').hidden = false;
         state.editingId = lead.id;
@@ -1182,6 +1220,145 @@
         } catch (err) {
             empty.textContent = err.message || 'Could not load contact history.';
         }
+    }
+
+    function inboxEmailIds(list) {
+        return (list || []).map(c => Number(c.id));
+    }
+    function inboxEmailMeta(c) {
+        const from = c.from_name || c.from_email || 'Unknown sender';
+        const mailbox = c.inbox?.name || c.inbox?.email || 'Shared inbox';
+        const subject = c.subject || '(No subject)';
+        return { from, mailbox, subject };
+    }
+    function renderAttachedInboxEmails() {
+        const list = document.getElementById('leadInboxAttachedList');
+        if (!list) return;
+        const items = state.editingId ? state.attachedInboxConversations : state.pendingInboxConversations;
+        if (!items.length) {
+            list.innerHTML = '<p class="lead-inbox-empty">No shared emails attached yet.</p>';
+            return;
+        }
+        list.innerHTML = items.map(c => {
+            const meta = inboxEmailMeta(c);
+            return `
+                <div class="lead-inbox-row" data-inbox-id="${c.id}">
+                    <div>
+                        <strong>${esc(meta.subject)}</strong>
+                        <div class="lead-meta">${esc(meta.from)}${c.from_email && c.from_name ? ' · ' + esc(c.from_email) : ''}</div>
+                        <div class="lead-meta">${esc(meta.mailbox)}</div>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" data-inbox-detach="${c.id}">Remove</button>
+                </div>
+            `;
+        }).join('');
+    }
+    function renderInboxSearchResults(items) {
+        const box = document.getElementById('leadInboxResults');
+        if (!box) return;
+        const attached = new Set(inboxEmailIds(state.editingId ? state.attachedInboxConversations : state.pendingInboxConversations));
+        const rows = (items || []).filter(c => !attached.has(Number(c.id)));
+        if (!rows.length) {
+            box.innerHTML = '<p class="lead-inbox-empty">No matching shared emails.</p>';
+            return;
+        }
+        box.innerHTML = rows.map(c => {
+            const meta = inboxEmailMeta(c);
+            return `
+                <div class="lead-inbox-row" data-inbox-id="${c.id}">
+                    <div>
+                        <strong>${esc(meta.subject)}</strong>
+                        <div class="lead-meta">${esc(meta.from)}${c.from_email && c.from_name ? ' · ' + esc(c.from_email) : ''}</div>
+                        <div class="lead-meta">${esc(meta.mailbox)}</div>
+                    </div>
+                    <button type="button" class="btn btn-primary btn-sm" data-inbox-attach="${c.id}">Attach</button>
+                </div>
+            `;
+        }).join('');
+        box._results = rows;
+    }
+    async function loadAttachedInboxEmails(id) {
+        if (!id) return;
+        try {
+            const res = await fetch(api + '/' + id + '/inbox-conversations', { credentials: 'same-origin', headers: headers() });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Could not load attached emails.');
+            state.attachedInboxConversations = data.data || [];
+            renderAttachedInboxEmails();
+        } catch (err) {
+            document.getElementById('leadInboxAttachedList').innerHTML =
+                `<p class="lead-inbox-empty">${esc(err.message || 'Could not load attached emails.')}</p>`;
+        }
+    }
+    async function searchInboxEmails(q) {
+        const box = document.getElementById('leadInboxResults');
+        if (!box) return;
+        box.innerHTML = '<p class="lead-inbox-empty">Searching…</p>';
+        try {
+            const params = new URLSearchParams({ q });
+            if (state.editingId) params.set('except_lead_id', String(state.editingId));
+            const res = await fetch(api + '/inbox-conversations?' + params.toString(), { credentials: 'same-origin', headers: headers() });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Could not search emails.');
+            renderInboxSearchResults(data.data || []);
+        } catch (err) {
+            box.innerHTML = `<p class="lead-inbox-empty">${esc(err.message || 'Could not search emails.')}</p>`;
+        }
+    }
+    function ensureEmailOnForm(email) {
+        const value = String(email || '').trim();
+        if (!value) return;
+        const have = [...readContactRows('primaryEmailsList'), ...readContactRows('altEmailsList')]
+            .some(row => row.value.toLowerCase() === value.toLowerCase());
+        if (have) return;
+        const list = document.getElementById('primaryEmailsList');
+        const empty = [...(list?.querySelectorAll('.id-value') || [])].find(input => !input.value.trim());
+        if (empty) {
+            empty.value = value;
+            return;
+        }
+        addContactRow('primaryEmailsList', value, 'name@company.com', { type: 'email', max: '255' });
+    }
+    async function attachInboxEmail(conversation) {
+        if (state.editingId) {
+            const res = await fetch(api + '/' + state.editingId + '/inbox-conversations', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: headers(true),
+                body: JSON.stringify({ conversation_id: conversation.id }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.message || 'Could not attach email.');
+            state.attachedInboxConversations = data.data?.attached_inbox_conversations
+                || (data.conversation ? state.attachedInboxConversations.concat([data.conversation]) : state.attachedInboxConversations);
+            if (data.email_added) ensureEmailOnForm(data.email_added);
+            else if (conversation.contact_email || conversation.from_email) ensureEmailOnForm(conversation.contact_email || conversation.from_email);
+            renderAttachedInboxEmails();
+            loadHistory(state.editingId);
+            return;
+        }
+        if (!state.pendingInboxConversations.some(c => Number(c.id) === Number(conversation.id))) {
+            state.pendingInboxConversations.push(conversation);
+        }
+        ensureEmailOnForm(conversation.contact_email || conversation.from_email);
+        renderAttachedInboxEmails();
+    }
+    async function detachInboxEmail(id) {
+        if (state.editingId) {
+            const res = await fetch(api + '/' + state.editingId + '/inbox-conversations/' + id, {
+                method: 'DELETE',
+                credentials: 'same-origin',
+                headers: headers(),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.message || 'Could not detach email.');
+            state.attachedInboxConversations = data.data || [];
+            renderAttachedInboxEmails();
+            loadHistory(state.editingId);
+            return;
+        }
+        state.pendingInboxConversations = state.pendingInboxConversations.filter(c => Number(c.id) !== Number(id));
+        renderAttachedInboxEmails();
     }
 
     function openModal() { modal.classList.add('open'); }
@@ -1253,6 +1430,40 @@
     document.getElementById('addPrimaryEmailBtn').addEventListener('click', () => addContactRow('primaryEmailsList', '', 'name@company.com', { type: 'email', keepOne: true, max: '255' }));
     document.getElementById('addAltPhoneBtn').addEventListener('click', () => addContactRow('altPhonesList', '', 'Phone number', { type: 'tel' }));
     document.getElementById('addAltEmailBtn').addEventListener('click', () => addContactRow('altEmailsList', '', 'name@company.com', { type: 'email', max: '255' }));
+    document.getElementById('leadInboxSearch').addEventListener('input', () => {
+        const q = document.getElementById('leadInboxSearch').value.trim();
+        clearTimeout(state.inboxSearchTimer);
+        state.inboxSearchTimer = setTimeout(() => searchInboxEmails(q), 250);
+    });
+    document.getElementById('leadInboxAttachedList').addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-inbox-detach]');
+        if (!btn) return;
+        btn.disabled = true;
+        try {
+            await detachInboxEmail(btn.dataset.inboxDetach);
+        } catch (err) {
+            alert(err.message || 'Could not detach email.');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+    document.getElementById('leadInboxResults').addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-inbox-attach]');
+        if (!btn) return;
+        const id = Number(btn.dataset.inboxAttach);
+        const results = document.getElementById('leadInboxResults')._results || [];
+        const conversation = results.find(c => Number(c.id) === id);
+        if (!conversation) return;
+        btn.disabled = true;
+        try {
+            await attachInboxEmail(conversation);
+            await searchInboxEmails(document.getElementById('leadInboxSearch').value.trim());
+        } catch (err) {
+            alert(err.message || 'Could not attach email.');
+        } finally {
+            btn.disabled = false;
+        }
+    });
     document.querySelectorAll('.lead-form-tab').forEach((tab) => {
         tab.addEventListener('click', () => showLeadTab(tab.dataset.leadTab));
     });
@@ -1387,6 +1598,7 @@
             assigned_to: document.getElementById('leadAssignedTo').value || null,
             facebook_name: document.getElementById('leadFacebook').value.trim() || null,
             instagram_username: document.getElementById('leadInstagram').value.trim() || null,
+            inbox_conversation_ids: state.pendingInboxConversations.map(c => c.id),
         };
         const id = document.getElementById('leadId').value;
         document.getElementById('saveLeadBtn').disabled = true;

@@ -134,7 +134,7 @@ class ContactConversationHistoryService
             ->merge($this->safeChannel('whatsapp-threads', fn () => $this->whatsappThreads($companyId, $phones)))
             ->merge($this->safeChannel('viber-threads', fn () => $this->viberThreads($companyId, $phones)))
             ->merge($this->safeChannel('sms-threads', fn () => $this->smsThreads($companyId, $phones)))
-            ->merge($this->safeChannel('inbox-threads', fn () => $this->inboxThreads($companyId, $emails)))
+            ->merge($this->safeChannel('inbox-threads', fn () => $this->inboxThreads($companyId, $emails, $lead?->id)))
             ->merge($this->safeChannel('facebook-threads', fn () => $this->facebookThreads($companyId, $client, $lookup, $lead)))
             ->values()
             ->all();
@@ -143,7 +143,7 @@ class ContactConversationHistoryService
             ->merge($this->safeChannel('whatsapp-events', fn () => $this->whatsappEvents($companyId, $phones, 40)))
             ->merge($this->safeChannel('viber-events', fn () => $this->viberEvents($companyId, $phones, 40)))
             ->merge($this->safeChannel('sms-events', fn () => $this->smsEvents($companyId, $phones, 40)))
-            ->merge($this->safeChannel('inbox-events', fn () => $this->inboxEvents($companyId, $emails, 40)))
+            ->merge($this->safeChannel('inbox-events', fn () => $this->inboxEvents($companyId, $emails, 40, $lead?->id)))
             ->merge($this->safeChannel('call-events', fn () => $this->callEvents($companyId, $phones, 40)))
             ->merge($this->safeChannel('facebook-events', fn () => $this->facebookEvents($companyId, $threads, 40)))
             ->sortByDesc(fn (array $e) => $e['at'] ?? '')
@@ -363,23 +363,36 @@ class ContactConversationHistoryService
      * @param  list<string>  $emails
      * @return Collection<int, array<string, mixed>>
      */
-    protected function inboxThreads(int $companyId, array $emails): Collection
+    protected function inboxThreads(int $companyId, array $emails, ?int $leadId = null): Collection
     {
-        if ($emails === []) {
+        if ($emails === [] && ! $leadId) {
             return collect();
         }
 
         return InboxConversation::query()
             ->notMerged()
             ->where('company_id', $companyId)
-            ->where(function ($query) use ($emails) {
-                $this->applyInboxEmailMatch($query, $emails);
+            ->where(function ($query) use ($emails, $leadId) {
+                if ($leadId) {
+                    $query->where('lead_id', $leadId);
+                }
+                if ($emails !== []) {
+                    $query->orWhere(function ($emailQuery) use ($emails) {
+                        $this->applyInboxEmailMatch($emailQuery, $emails);
+                    });
+                }
             })
             ->with('messages')
             ->orderByDesc('last_message_at')
             ->limit(80)
             ->get()
-            ->filter(fn (InboxConversation $c) => $this->inboxConversationMatchesEmails($c, $emails))
+            ->filter(function (InboxConversation $c) use ($emails, $leadId) {
+                if ($leadId && (int) $c->lead_id === (int) $leadId) {
+                    return true;
+                }
+
+                return $this->inboxConversationMatchesEmails($c, $emails);
+            })
             ->map(fn (InboxConversation $c) => [
                 'channel' => 'inbox',
                 'label' => 'Inbox',
@@ -388,6 +401,7 @@ class ContactConversationHistoryService
                 'preview' => $c->snippet,
                 'last_at' => $c->last_message_at?->toIso8601String(),
                 'unread' => $c->is_read ? 0 : 1,
+                'attached' => $leadId && (int) $c->lead_id === (int) $leadId,
                 'deep_link' => url('/inbox').'?conversation='.$c->id,
             ]);
     }
@@ -570,23 +584,36 @@ class ContactConversationHistoryService
      * @param  list<string>  $emails
      * @return Collection<int, array<string, mixed>>
      */
-    protected function inboxEvents(int $companyId, array $emails, int $limit): Collection
+    protected function inboxEvents(int $companyId, array $emails, int $limit, ?int $leadId = null): Collection
     {
-        if ($emails === []) {
+        if ($emails === [] && ! $leadId) {
             return collect();
         }
 
         return InboxConversation::query()
             ->notMerged()
             ->where('company_id', $companyId)
-            ->where(function ($query) use ($emails) {
-                $this->applyInboxEmailMatch($query, $emails);
+            ->where(function ($query) use ($emails, $leadId) {
+                if ($leadId) {
+                    $query->where('lead_id', $leadId);
+                }
+                if ($emails !== []) {
+                    $query->orWhere(function ($emailQuery) use ($emails) {
+                        $this->applyInboxEmailMatch($emailQuery, $emails);
+                    });
+                }
             })
             ->with('messages')
             ->orderByDesc('last_message_at')
             ->limit(80)
             ->get()
-            ->filter(fn (InboxConversation $c) => $this->inboxConversationMatchesEmails($c, $emails))
+            ->filter(function (InboxConversation $c) use ($emails, $leadId) {
+                if ($leadId && (int) $c->lead_id === (int) $leadId) {
+                    return true;
+                }
+
+                return $this->inboxConversationMatchesEmails($c, $emails);
+            })
             ->take($limit)
             ->map(fn (InboxConversation $c) => [
                 'channel' => 'inbox',

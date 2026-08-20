@@ -173,6 +173,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::patch('/labels/{leadLabel}', [LeadsController::class, 'updateLabel'])->name('api.leads.labels.update');
         Route::delete('/labels/{leadLabel}', [LeadsController::class, 'destroyLabel'])->name('api.leads.labels.destroy');
         Route::get('/assignees', [LeadsController::class, 'assignees'])->name('api.leads.assignees');
+        Route::get('/inbox-conversations', [LeadsController::class, 'searchInboxConversations'])->name('api.leads.inbox-conversations.search');
         Route::get('/rules', [LeadsController::class, 'listRules'])->name('api.leads.rules.index');
         Route::post('/rules', [LeadsController::class, 'storeRule'])->name('api.leads.rules.store');
         Route::patch('/rules/{leadRule}', [LeadsController::class, 'updateRule'])->name('api.leads.rules.update');
@@ -180,6 +181,9 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::whereNumber('lead')->group(function () {
             Route::get('/{lead}/activity-log', [LeadsController::class, 'listActivities'])->name('api.leads.activities');
             Route::get('/{lead}/history', [LeadsController::class, 'history'])->name('api.leads.history');
+            Route::get('/{lead}/inbox-conversations', [LeadsController::class, 'listInboxConversations'])->name('api.leads.inbox-conversations.index');
+            Route::post('/{lead}/inbox-conversations', [LeadsController::class, 'attachInboxConversation'])->name('api.leads.inbox-conversations.attach');
+            Route::delete('/{lead}/inbox-conversations/{conversation}', [LeadsController::class, 'detachInboxConversation'])->name('api.leads.inbox-conversations.detach');
             Route::patch('/{lead}/assign', [LeadsController::class, 'assign'])->name('api.leads.assign');
             Route::post('/{lead}/notes', [LeadsController::class, 'storeNote'])->name('api.leads.notes.store');
             Route::delete('/{lead}/notes/{note}', [LeadsController::class, 'destroyNote'])->name('api.leads.notes.destroy');
@@ -577,6 +581,8 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/conversations/{conversation}/tags', [InboxController::class, 'syncTags'])->name('api.inbox.conversations.tags');
         Route::post('/conversations/{conversation}/lead-labels', [InboxController::class, 'attachLeadLabel'])->name('api.inbox.conversations.lead-labels.attach');
         Route::delete('/conversations/{conversation}/lead-labels/{leadLabel}', [InboxController::class, 'detachLeadLabel'])->name('api.inbox.conversations.lead-labels.detach');
+        Route::post('/conversations/{conversation}/lead', [InboxController::class, 'attachLead'])->name('api.inbox.conversations.lead.attach');
+        Route::delete('/conversations/{conversation}/lead', [InboxController::class, 'detachLead'])->name('api.inbox.conversations.lead.detach');
         Route::post('/conversations/{conversation}/reply', [InboxController::class, 'reply'])->name('api.inbox.conversations.reply');
         Route::post('/conversations/{conversation}/comments', [InboxController::class, 'storeComment'])->name('api.inbox.conversations.comments.store');
         Route::get('/conversations/{conversation}/comments/{comment}/attachments/{index}', [InboxController::class, 'downloadCommentAttachment'])->name('api.inbox.conversations.comments.attachments');

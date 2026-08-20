@@ -134,6 +134,8 @@ class StoreLeadRequest extends FormRequest
             'facebook_name' => ['nullable', 'string', 'max:255'],
             'instagram_username' => ['nullable', 'string', 'max:255'],
             'facebook_conversation_id' => ['nullable', 'integer'],
+            'inbox_conversation_ids' => ['nullable', 'array', 'max:50'],
+            'inbox_conversation_ids.*' => ['integer'],
         ];
     }
 

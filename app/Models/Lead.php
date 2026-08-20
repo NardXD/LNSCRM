@@ -176,6 +176,11 @@ class Lead extends Model
         return $this->hasMany(LeadActivity::class)->orderByDesc('created_at');
     }
 
+    public function inboxConversations(): HasMany
+    {
+        return $this->hasMany(InboxConversation::class);
+    }
+
     public function getInitialsAttribute(): string
     {
         $display = trim(($this->first_name ?? '').' '.($this->last_name ?? ''));

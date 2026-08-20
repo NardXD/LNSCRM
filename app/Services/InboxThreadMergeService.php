@@ -34,6 +34,10 @@ class InboxThreadMergeService
             $source->message_count = 0;
             $source->save();
 
+            if (! $target->lead_id && $source->lead_id) {
+                $target->lead_id = $source->lead_id;
+            }
+
             $this->refreshStats($target);
         });
 

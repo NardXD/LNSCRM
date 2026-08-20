@@ -30,7 +30,10 @@ class LeadAutoCreateService
 
     public function fromInboxConversation(InboxConversation $conversation): ?Lead
     {
-        $conversation->loadMissing('inbox');
+        $conversation->loadMissing(['inbox', 'lead']);
+        if ($conversation->lead_id && $conversation->lead) {
+            return $conversation->lead;
+        }
         if (! $conversation->inbox) {
             return null;
         }

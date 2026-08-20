@@ -23,6 +23,7 @@ use App\Services\FlexCrmLookupService;
 use App\Services\InboxThreadMergeService;
 use App\Services\LeadActivityService;
 use App\Services\LeadAutoCreateService;
+use App\Services\LeadInboxAttachService;
 use App\Services\LeadRuleEngine;
 use App\Services\OutlookMailService;
 use Illuminate\Http\JsonResponse;
@@ -48,7 +49,8 @@ class InboxController extends Controller
         protected LeadActivityService $leadActivity,
         protected ChannelUnreadNotifier $unreadNotifier,
         protected LeadAutoCreateService $leadAutoCreate,
-        protected InboxThreadMergeService $threadMerge
+        protected InboxThreadMergeService $threadMerge,
+        protected LeadInboxAttachService $inboxAttach
     ) {}
 
     public function index(): View
@@ -418,7 +420,7 @@ class InboxController extends Controller
             $inboxIds = collect([(int) $validated['inbox_id']]);
         }
 
-        $query = InboxConversation::with(['assignee:id,name,email', 'tags', 'inbox:id,name,type,color'])
+        $query = InboxConversation::with(['assignee:id,name,email', 'tags', 'inbox:id,name,type,color', 'lead.identities', 'lead.assignedUser:id,name', 'lead.labels'])
             ->withCount('mergedConversations')
             ->notMerged()
             ->whereIn('shared_inbox_id', $inboxIds);
@@ -665,6 +667,9 @@ class InboxController extends Controller
             // A constrained select like inbox:id,name,... omits the FK and silently
             // skips hydration — leaving only Graph bodyPreview (~255 chars).
             'inbox.account',
+            'lead.identities',
+            'lead.assignedUser:id,name',
+            'lead.labels',
         ]);
 
         if ($conversation->inbox) {
@@ -1153,7 +1158,55 @@ class InboxController extends Controller
         $this->leadActivity->recordLabel($lead, $leadLabel->name, false);
         $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
 
-        return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'inbox', 'assignee']))]);
+        return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'inbox', 'assignee', 'lead.identities', 'lead.assignedUser:id,name', 'lead.labels']))]);
+    }
+
+    public function attachLead(Request $request, InboxConversation $conversation): JsonResponse
+    {
+        $this->authorizeConversation($request->user(), $conversation);
+        $validated = $request->validate([
+            'lead_id' => ['required', 'integer'],
+        ]);
+
+        $lead = Lead::query()
+            ->where('company_id', $request->user()->company_id)
+            ->find((int) $validated['lead_id']);
+        if (! $lead) {
+            return response()->json(['message' => 'Lead not found.'], 404);
+        }
+
+        $this->inboxAttach->attach($lead, $conversation, $request->user());
+        $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
+
+        return response()->json([
+            'conversation' => $this->formatConversation($conversation->fresh([
+                'tags',
+                'inbox',
+                'assignee',
+                'lead.identities',
+                'lead.assignedUser:id,name',
+                'lead.labels',
+            ])),
+        ]);
+    }
+
+    public function detachLead(Request $request, InboxConversation $conversation): JsonResponse
+    {
+        $this->authorizeConversation($request->user(), $conversation);
+        $conversation = $conversation->mergeRoot();
+        $lead = $conversation->lead_id
+            ? Lead::query()->where('company_id', $conversation->company_id)->find($conversation->lead_id)
+            : null;
+        if (! $lead) {
+            return response()->json(['message' => 'This email is not attached to a lead.'], 422);
+        }
+
+        $this->inboxAttach->detach($lead, $conversation, $request->user());
+        $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
+
+        return response()->json([
+            'conversation' => $this->formatConversation($conversation->fresh(['tags', 'inbox', 'assignee'])),
+        ]);
     }
 
     public function reply(Request $request, InboxConversation $conversation): JsonResponse
@@ -2135,6 +2188,7 @@ class InboxController extends Controller
             'last_message_at' => $c->last_message_at?->toIso8601String(),
             'reopen_at' => $c->reopen_at?->toIso8601String(),
             'assigned_to' => $c->assigned_to,
+            'lead_id' => $c->lead_id ? (int) $c->lead_id : null,
             'assignee' => $c->relationLoaded('assignee') && $c->assignee ? [
                 'id' => $c->assignee->id,
                 'name' => $c->assignee->name,
@@ -2143,12 +2197,7 @@ class InboxController extends Controller
             'tags' => $c->relationLoaded('tags')
                 ? $c->tags->map(fn ($t) => ['id' => $t->id, 'name' => $t->name, 'color' => $t->color])
                 : [],
-            'lead' => $this->crmLookup->matchAssignedLead(
-                $this->crmLookup->leadIndex((int) $c->company_id),
-                null,
-                $c->from_email,
-                $c->from_name
-            ),
+            'lead' => $this->conversationLeadPayload($c),
             'merged_count' => (int) ($c->merged_conversations_count
                 ?? ($c->relationLoaded('mergedConversations') ? $c->mergedConversations->count() : 0)),
             'merged_threads' => $c->relationLoaded('mergedConversations')
@@ -2545,6 +2594,13 @@ class InboxController extends Controller
             }
         }
 
+        if ($conversation->lead_id) {
+            $attached = Lead::query()->where('company_id', $companyId)->find($conversation->lead_id);
+            if ($attached) {
+                return $attached;
+            }
+        }
+
         $email = $this->contactEmail($conversation->from_email);
         if ($email) {
             $lead = $this->crmLookup->findLeadByEmail($companyId, $email);
@@ -2557,6 +2613,26 @@ class InboxController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function conversationLeadPayload(InboxConversation $c): ?array
+    {
+        if ($c->lead_id) {
+            $lead = $c->relationLoaded('lead') ? $c->lead : Lead::query()->where('company_id', $c->company_id)->find($c->lead_id);
+            if ($lead) {
+                return $this->crmLookup->serializeLead($lead);
+            }
+        }
+
+        return $this->crmLookup->matchAssignedLead(
+            $this->crmLookup->leadIndex((int) $c->company_id),
+            null,
+            $c->from_email,
+            $c->from_name
+        );
     }
 
     private function contactEmail(?string $value): ?string

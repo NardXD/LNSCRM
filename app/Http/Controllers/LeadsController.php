@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreLeadRequest;
 use App\Http\Requests\UpdateLeadRequest;
 use App\Models\FacebookConversation;
+use App\Models\InboxConversation;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\LeadIdentity;
@@ -16,6 +17,7 @@ use App\Models\User;
 use App\Services\ContactConversationHistoryService;
 use App\Services\FlexCrmLookupService;
 use App\Services\LeadActivityService;
+use App\Services\LeadInboxAttachService;
 use App\Services\LeadRuleEngine;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,7 +28,8 @@ class LeadsController extends Controller
 {
     public function __construct(
         protected LeadActivityService $leadActivity,
-        protected FlexCrmLookupService $crmLookup
+        protected FlexCrmLookupService $crmLookup,
+        protected LeadInboxAttachService $inboxAttach
     ) {}
 
     public function index(): View
@@ -151,6 +154,7 @@ class LeadsController extends Controller
         $lead->syncIdentities($identities);
         $this->applyFacebookConversationName($lead, $request);
         $this->leadActivity->recordCreated($lead, $request->input('source') ?: 'manual');
+        $this->inboxAttach->attachMany($lead, $request->input('inbox_conversation_ids', []), $user);
         if ($lead->assigned_to) {
             $this->leadActivity->recordAssignment($lead, null, $lead->assigned_to);
         }
@@ -162,7 +166,7 @@ class LeadsController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Lead created.',
-            'data' => $this->serializeWithActivity($lead),
+            'data' => $this->serializeWithInbox($lead),
         ], 201);
     }
 
@@ -173,7 +177,7 @@ class LeadsController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->serializeWithActivity($lead),
+            'data' => $this->serializeWithInbox($lead),
         ]);
     }
 
@@ -205,7 +209,7 @@ class LeadsController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Lead updated.',
-            'data' => $this->serializeWithActivity($lead),
+            'data' => $this->serializeWithInbox($lead),
         ]);
     }
 
@@ -320,6 +324,68 @@ class LeadsController extends Controller
             null,
             $lead->id
         ));
+    }
+
+    public function searchInboxConversations(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'q' => ['nullable', 'string', 'max:200'],
+            'except_lead_id' => ['nullable', 'integer'],
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->inboxAttach->search(
+                $request->user(),
+                (string) ($validated['q'] ?? ''),
+                isset($validated['except_lead_id']) ? (int) $validated['except_lead_id'] : null
+            ),
+        ]);
+    }
+
+    public function listInboxConversations(Lead $lead): JsonResponse
+    {
+        $lead = $this->leadForUser($lead);
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->inboxAttach->attached($lead),
+        ]);
+    }
+
+    public function attachInboxConversation(Request $request, Lead $lead): JsonResponse
+    {
+        $lead = $this->leadForUser($lead);
+        $validated = $request->validate([
+            'conversation_id' => ['required', 'integer'],
+        ]);
+
+        $conversation = $this->inboxAttach->conversationForLead($lead, (int) $validated['conversation_id']);
+        $result = $this->inboxAttach->attach($lead, $conversation, $request->user());
+        $lead->unsetRelation('identities');
+        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
+        $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Shared email attached.',
+            'conversation' => $result['conversation'],
+            'email_added' => $result['email_added'],
+            'data' => $this->serializeWithInbox($lead),
+        ]);
+    }
+
+    public function detachInboxConversation(Lead $lead, InboxConversation $conversation): JsonResponse
+    {
+        $lead = $this->leadForUser($lead);
+        $this->inboxAttach->detach($lead, $conversation, Auth::user());
+        $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Shared email detached.',
+            'data' => $this->inboxAttach->attached($lead),
+        ]);
     }
 
     public function listActivities(Request $request, Lead $lead): JsonResponse
@@ -661,6 +727,17 @@ class LeadsController extends Controller
         $data['latest_activity'] = $latest ? $this->serializeActivity($latest) : null;
         $data['activity_count'] = $lead->activities()->count();
         $data['activities'] = $latest ? [$data['latest_activity']] : [];
+
+        return $data;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function serializeWithInbox(Lead $lead): array
+    {
+        $data = $this->serializeWithActivity($lead);
+        $data['attached_inbox_conversations'] = $this->inboxAttach->attached($lead);
 
         return $data;
     }

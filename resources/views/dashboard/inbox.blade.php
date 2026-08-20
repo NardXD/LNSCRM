@@ -1836,8 +1836,10 @@
     width: 100%; border: 1px solid var(--inbox-border); border-radius: 8px; padding: 0.5rem 0.65rem; font-size: 0.84rem; background: #fff;
 }
 .inbox-prop-value { font-size: 0.88rem; }
-.inbox-prop-lead { margin-top: 0.5rem; }
+.inbox-prop-lead { margin-top: 0.5rem; display: grid; gap: 0.4rem; }
 .inbox-prop-lead .inbox-btn { font-size: 0.78rem; padding: 0.28rem 0.7rem; }
+.inbox-attach-lead { display: grid; gap: 0.3rem; }
+.inbox-attach-lead .form-input { width: 100%; }
 .inbox-props .chp-save-lead { display: inline-block; margin-top: 0.45rem; padding: 0.28rem 0.6rem; border: 1px solid #0b5cab; border-radius: 6px; background: #fff; color: #0b5cab; font-size: 0.78rem; font-weight: 600; cursor: pointer; }
 .inbox-props .chp-panel { display: block !important; width: 100%; max-width: none; border: 0; background: transparent; height: auto; min-height: 0; }
 .inbox-props .chp-body { padding: 0; overflow: visible; }
@@ -4428,21 +4430,116 @@
         if (!wrap) return;
         const canSave = el('inboxContactHistory')?.dataset.canSaveLead !== '0';
         const contact = data?.contact || {};
-        if (contact.lead?.crm_url) {
-            wrap.innerHTML = leadAssignedBlock(contact.lead);
-            return;
-        }
+        const conversation = state.conversation;
+        const attached = !!(conversation?.lead_id);
+        const isSharedMailbox = (conversation?.inbox?.type || '') === 'shared';
+        const lead = conversationLead() || contact.lead;
         const emails = [...(contact.matched_emails || []), opts.email].filter(Boolean);
         const phones = [...(contact.matched_phones || []), opts.phone].filter(Boolean);
-        if (!canSave || (!emails.length && !phones.length)) {
-            wrap.innerHTML = '';
-            return;
+        const parts = [];
+
+        if (lead?.crm_url) {
+            parts.push(leadAssignedBlock(lead));
+            if (attached) {
+                parts.push('<button type="button" class="inbox-btn ghost" id="btnDetachLead">Detach email</button>');
+            }
+        } else if (canSave && (emails.length || phones.length)) {
+            parts.push('<button type="button" class="inbox-btn ghost" id="btnSaveAsLead">Save as lead</button>');
         }
-        wrap.innerHTML = '<button type="button" class="inbox-btn ghost" id="btnSaveAsLead">Save as lead</button>';
+
+        if (canSave && isSharedMailbox) {
+            parts.push(`
+                <div class="inbox-attach-lead">
+                    <input type="search" id="inboxAttachLeadSearch" class="form-input" placeholder="Attach to existing lead" autocomplete="off">
+                    <div id="inboxAttachLeadResults" class="inbox-merge-results" hidden></div>
+                </div>
+            `);
+        }
+
+        wrap.innerHTML = parts.join('');
         el('btnSaveAsLead')?.addEventListener('click', () => {
             const body = el('inboxContactHistoryBody') || el('inboxContactHistory');
             saveInboxAsLead(body, opts, contact, el('btnSaveAsLead'));
         });
+        el('btnDetachLead')?.addEventListener('click', () => detachInboxLead());
+        bindInboxAttachLeadSearch();
+    }
+
+    let inboxAttachLeadTimer = null;
+    function bindInboxAttachLeadSearch() {
+        const input = el('inboxAttachLeadSearch');
+        const results = el('inboxAttachLeadResults');
+        if (!input || !results) return;
+        input.addEventListener('input', () => {
+            const q = input.value.trim();
+            clearTimeout(inboxAttachLeadTimer);
+            if (q.length < 2) {
+                results.hidden = true;
+                results.innerHTML = '';
+                return;
+            }
+            inboxAttachLeadTimer = setTimeout(() => searchLeadsToAttach(q, results), 250);
+        });
+    }
+
+    async function searchLeadsToAttach(q, results) {
+        results.hidden = false;
+        results.innerHTML = '<div class="inbox-merge-row-meta">Searching…</div>';
+        try {
+            const res = await fetch('/api/leads?' + new URLSearchParams({ search: q, per_page: '8' }).toString(), {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.message || 'Could not search leads.');
+            const leads = data.data || [];
+            if (!leads.length) {
+                results.innerHTML = '<div class="inbox-merge-row-meta">No matching leads.</div>';
+                return;
+            }
+            results.innerHTML = leads.map((lead) => `
+                <button type="button" class="inbox-merge-row" data-attach-lead="${lead.id}">
+                    <span class="inbox-merge-row-from">${escapeHtml(lead.name || 'Lead')}</span>
+                    <span class="inbox-merge-row-meta">${escapeHtml([lead.email, lead.status].filter(Boolean).join(' · '))}</span>
+                </button>
+            `).join('');
+            results.querySelectorAll('[data-attach-lead]').forEach((btn) => {
+                btn.addEventListener('click', () => attachInboxLead(Number(btn.dataset.attachLead)));
+            });
+        } catch (err) {
+            results.innerHTML = `<div class="inbox-merge-row-meta">${escapeHtml(err.message || 'Could not search leads.')}</div>`;
+        }
+    }
+
+    async function attachInboxLead(leadId) {
+        if (!state.selectedId || !leadId) return;
+        try {
+            const data = await api('/conversations/' + state.selectedId + '/lead', {
+                method: 'POST',
+                body: { lead_id: leadId },
+            });
+            if (data.conversation) {
+                state.conversation = data.conversation;
+                const idx = state.conversations.findIndex((c) => Number(c.id) === Number(data.conversation.id));
+                if (idx >= 0) state.conversations[idx] = { ...state.conversations[idx], ...data.conversation };
+            }
+            await openConversation(state.selectedId);
+        } catch (err) {
+            alert(err.message || 'Could not attach this email.');
+        }
+    }
+
+    async function detachInboxLead() {
+        if (!state.selectedId) return;
+        try {
+            const data = await api('/conversations/' + state.selectedId + '/lead', { method: 'DELETE' });
+            if (data.conversation) {
+                state.conversation = data.conversation;
+            }
+            await openConversation(state.selectedId);
+        } catch (err) {
+            alert(err.message || 'Could not detach this email.');
+        }
     }
 
     async function saveInboxAsLead(bodyEl, opts, contact, button) {
@@ -4485,6 +4582,7 @@
                     phones,
                     emails,
                     source: 'inbox',
+                    inbox_conversation_ids: state.selectedId ? [state.selectedId] : [],
                 }),
             });
             const data = await res.json().catch(() => ({}));

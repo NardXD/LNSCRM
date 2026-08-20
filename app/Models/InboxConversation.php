@@ -21,6 +21,7 @@ class InboxConversation extends Model
         'from_email',
         'status',
         'assigned_to',
+        'lead_id',
         'is_read',
         'message_count',
         'last_message_at',
@@ -42,6 +43,11 @@ class InboxConversation extends Model
     public function inbox(): BelongsTo
     {
         return $this->belongsTo(SharedInbox::class, 'shared_inbox_id');
+    }
+
+    public function lead(): BelongsTo
+    {
+        return $this->belongsTo(Lead::class);
     }
 
     public function mergedInto(): BelongsTo
