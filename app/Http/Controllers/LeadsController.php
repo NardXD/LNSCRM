@@ -84,6 +84,13 @@ class LeadsController extends Controller
             $query->whereHas('labels', fn ($label) => $label->where('lead_labels.id', $labelId));
         }
 
+        $assignedTo = trim((string) $request->get('assigned_to', ''));
+        if ($assignedTo === '__none__') {
+            $query->whereNull('assigned_to');
+        } elseif ($assignedTo !== '' && ctype_digit($assignedTo)) {
+            $query->where('assigned_to', (int) $assignedTo);
+        }
+
         $perPage = min(100, max(10, (int) $request->get('per_page', 20)));
         $leads = $query->paginate($perPage);
 

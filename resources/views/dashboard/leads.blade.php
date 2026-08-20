@@ -29,6 +29,10 @@
         <select id="leadSourceFilter" class="leads-source-filter" aria-label="Filter by source">
             <option value="">All sources</option>
         </select>
+        <select id="leadAssigneeFilter" class="leads-assignee-filter" aria-label="Filter by assignee">
+            <option value="">All assignees</option>
+            <option value="__none__">Unassigned</option>
+        </select>
         <div class="leads-tabs" role="tablist">
             <button type="button" class="leads-tab active" data-status="all">All</button>
             <button type="button" class="leads-tab" data-status="new">New</button>
@@ -283,7 +287,7 @@
 .leads-search { flex: 1; min-width: 220px; padding: 0.55rem 0.85rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; background: var(--bg-card); }
 .leads-label-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; min-width: 220px; padding: 0.3rem 0.45rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); }
 .leads-label-filter select { border: none; background: transparent; font-size: 0.9rem; color: var(--text-primary); min-width: 140px; padding: 0.25rem 0.2rem; }
-.leads-source-filter { min-width: 160px; padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; background: var(--bg-card); color: var(--text-primary); }
+.leads-source-filter, .leads-assignee-filter { min-width: 160px; padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; background: var(--bg-card); color: var(--text-primary); }
 .lead-label-filter-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 .leads-tabs { display: flex; gap: 0.25rem; flex-wrap: wrap; }
 .leads-tab { border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary); border-radius: 999px; padding: 0.35rem 0.75rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
@@ -410,7 +414,7 @@
 (function () {
     const api = '/api/leads';
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
-    const state = { page: 1, status: 'all', search: '', source: '', labelIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], assignees: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }} };
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], assignees: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }} };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -502,6 +506,18 @@
         if (current && current !== '__none__' && !list.includes(current)) list.push(current);
         select.innerHTML = `<option value="">All sources</option><option value="__none__">No source</option>` +
             list.map(source => `<option value="${esc(source)}">${esc(source)}</option>`).join('');
+        select.value = current;
+    }
+    function renderAssigneeFilter() {
+        const select = document.getElementById('leadAssigneeFilter');
+        if (!select) return;
+        const current = state.assignedTo || '';
+        const users = [...state.assignees];
+        if (current && current !== '__none__' && !users.some(user => String(user.id) === String(current))) {
+            users.push({ id: current, name: 'Assignee #' + current });
+        }
+        select.innerHTML = `<option value="">All assignees</option><option value="__none__">Unassigned</option>` +
+            users.map(user => `<option value="${esc(user.id)}">${esc(user.name)}</option>`).join('');
         select.value = current;
     }
     function renderLabels(labels) {
@@ -659,6 +675,7 @@
         } catch {
             state.assignees = [];
         }
+        renderAssigneeFilter();
         fillAssigneeSelect(document.getElementById('leadAssignedTo'), document.getElementById('leadAssignedTo')?.value || '');
     }
 
@@ -727,6 +744,7 @@
         const q = new URLSearchParams({ page: String(state.page), per_page: '20', status: state.status });
         if (state.search) q.set('search', state.search);
         if (state.source) q.set('source', state.source);
+        if (state.assignedTo) q.set('assigned_to', state.assignedTo);
         state.labelIds.forEach(id => q.append('label_ids[]', id));
         const res = await fetch(api + '?' + q.toString(), { credentials: 'same-origin', headers: headers() });
         const data = await res.json();
@@ -749,7 +767,7 @@
                 <td class="lead-meta">${esc(formatAt(lead.updated_at))}</td>
                 <td><button type="button" class="btn btn-secondary btn-sm" data-open="${lead.id}">Open</button></td>
             </tr>
-        `).join('') : `<tr><td colspan="8" class="empty-state">${state.search || state.labelIds.length || state.source ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
+        `).join('') : `<tr><td colspan="8" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
 
         const pag = data.pagination || {};
         document.getElementById('leadsPageInfo').textContent = `Showing page ${pag.current_page || 1} of ${pag.last_page || 1} (${pag.total || 0} leads)`;
@@ -948,6 +966,11 @@
     });
     document.getElementById('leadSourceFilter')?.addEventListener('change', (e) => {
         state.source = e.target.value || '';
+        state.page = 1;
+        loadLeads();
+    });
+    document.getElementById('leadAssigneeFilter')?.addEventListener('change', (e) => {
+        state.assignedTo = e.target.value || '';
         state.page = 1;
         loadLeads();
     });
