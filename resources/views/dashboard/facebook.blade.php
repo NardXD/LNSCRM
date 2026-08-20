@@ -681,6 +681,13 @@
             const data = await api('/bootstrap');
             connected = !!data.connected;
             hasPageToken = !!data.account?.has_page_access_token;
+            if (data.account?.token_expired) {
+                showSyncNote('Your Facebook Page Access Token expired. Update it under Integrations, then click Sync.');
+                if (els.connectLink) {
+                    els.connectLink.style.display = '';
+                    els.connectLink.textContent = 'Update Page Access Token';
+                }
+            }
             const parts = [];
             if (data.account?.page_name) parts.push(data.account.page_name);
             if (data.account?.instagram_username) parts.push('@' + data.account.instagram_username);
@@ -869,6 +876,11 @@
             const skipped = Number(result.skipped || 0);
             const scanned = Number(result.scanned || 0);
             const hint = result.hint || result.graph_error || '';
+            if (imported === 0 && /expired|user token|personal mailbox|read_mailbox/i.test(hint)) {
+                showSyncNote(hint);
+                alert(hint);
+                return;
+            }
             let summary = imported
                 ? `Imported ${imported} message${imported === 1 ? '' : 's'} from Messenger.`
                 : (scanned

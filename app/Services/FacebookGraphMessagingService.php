@@ -28,6 +28,50 @@ class FacebookGraphMessagingService
     }
 
     /**
+     * @return array{valid: bool, type: ?string, expires_at: ?int, never_expires: bool, error: ?string}
+     */
+    public function inspectToken(string $accessToken): array
+    {
+        $response = Http::timeout(20)->get($this->baseUrl.'/debug_token', [
+            'input_token' => $accessToken,
+            'access_token' => $accessToken,
+        ]);
+        $payload = $response->json() ?: [];
+        $data = is_array($payload['data'] ?? null) ? $payload['data'] : [];
+        $expiresAt = isset($data['expires_at']) ? (int) $data['expires_at'] : 0;
+        $valid = (bool) ($data['is_valid'] ?? false);
+        $error = $data['error']['message'] ?? $payload['error']['message'] ?? null;
+
+        return [
+            'valid' => $valid,
+            'type' => isset($data['type']) && is_string($data['type']) ? strtoupper($data['type']) : null,
+            'expires_at' => $expiresAt > 0 ? $expiresAt : null,
+            'never_expires' => $valid && $expiresAt === 0,
+            'error' => is_string($error) && $error !== '' ? $error : null,
+        ];
+    }
+
+    public function expiredTokenMessage(): string
+    {
+        return 'Your Facebook Page Access Token expired. Open Integrations → Facebook, paste a new long-lived Page token (Graph API Explorer → User token with pages_messaging → switch the token dropdown to your Page), then Save and Sync again. A Page token from a long-lived User token does not expire.';
+    }
+
+    public function isMailboxPermissionError(?string $message): bool
+    {
+        $haystack = strtolower((string) $message);
+
+        return $haystack !== '' && (
+            str_contains($haystack, 'read_mailbox')
+            || str_contains($haystack, '(#298)')
+        );
+    }
+
+    public function mailboxPermissionMessage(): string
+    {
+        return 'Facebook treated this as a personal mailbox, not the Page inbox. The saved token is a User token. In Graph API Explorer, open the token dropdown, select your Page (not User Token), copy that Page token, paste it under Integrations → Facebook, Save, then Sync again.';
+    }
+
+    /**
      * @return array{id?: string, name?: string, username?: string, profile_pic?: string}
      */
     public function instagramUser(string $igsid, string $accessToken): array

@@ -68,6 +68,7 @@ class FacebookController extends Controller
         $twilioReady = $user->company
             ? (bool) $this->twilioCompany->getActiveIntegration($user->company)
             : false;
+        $tokenStatus = $this->pageTokenStatus($integration);
 
         return response()->json([
             'connected' => (bool) ($integration && $integration->is_active && $integration->page_id && ($twilioReady || $integration->hasInstagramGraph())),
@@ -80,6 +81,7 @@ class FacebookController extends Controller
                 'webhook_set_at' => $integration->webhook_set_at?->toIso8601String(),
                 'twilio_connected' => $twilioReady,
                 'has_page_access_token' => (bool) $integration->getDecryptedPageAccessToken(),
+                'token_expired' => $tokenStatus['expired'],
                 'instagram_graph' => $integration->hasInstagramGraph(),
                 'integrations_url' => route('integrations'),
             ] : null,
@@ -1044,6 +1046,26 @@ class FacebookController extends Controller
         $conversation->last_message_preview = Str::limit(trim($preview), 480);
         $conversation->last_message_at = $message->sent_at ?: now();
         $conversation->save();
+    }
+
+    /**
+     * @return array{expired: bool, never_expires: bool}
+     */
+    protected function pageTokenStatus(?FacebookIntegration $integration): array
+    {
+        $token = $integration?->getDecryptedPageAccessToken();
+        if (! $integration || ! $token) {
+            return ['expired' => false, 'never_expires' => false];
+        }
+
+        return Cache::remember('facebook-token-status-'.$integration->id, 120, function () use ($token) {
+            $info = $this->graphMessaging->inspectToken($token);
+
+            return [
+                'expired' => ! $info['valid'] || $this->graphMessaging->isExpiredTokenError($info['error']),
+                'never_expires' => (bool) $info['never_expires'],
+            ];
+        });
     }
 
     protected function optionalTwilioClient(?Company $company): ?TwilioService

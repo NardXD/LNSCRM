@@ -45,6 +45,7 @@ class FacebookGraphHistoryService
         $this->lastStats = ['threads' => 0, 'messages' => 0, 'skipped_no_peer' => 0];
         $pageId = trim($pageId);
         $ownIds = $this->normalizeOwnIds($pageId, $ownIds);
+        $this->assertPageToken($accessToken);
         $deadline = microtime(true) + max(5, $deadlineSeconds);
         $rows = [];
 
@@ -65,6 +66,7 @@ class FacebookGraphHistoryService
                     continue;
                 }
 
+                $thread = $this->enrichThread($thread, $accessToken);
                 $mapped = $this->mapThread($thread, $platform, $ownIds, $after);
                 $this->lastStats['skipped_no_peer'] += $mapped['skipped_no_peer'];
                 foreach ($mapped['rows'] as $row) {
@@ -103,10 +105,12 @@ class FacebookGraphHistoryService
             return [];
         }
 
+        $this->assertPageToken($accessToken);
+
         $response = $this->graphGet($this->baseUrl.'/'.$pageId.'/conversations', [
             'platform' => $platform,
             'user_id' => $peerId,
-            'fields' => $this->conversationFields(),
+            'fields' => $this->conversationListFields(),
             'limit' => 5,
             'access_token' => $accessToken,
         ]);
@@ -123,7 +127,7 @@ class FacebookGraphHistoryService
 
         $rows = [];
         foreach ($response['data'] as $thread) {
-            $mapped = $this->mapThread($thread, $platform, $ownIds, null, $peerId);
+            $mapped = $this->mapThread($this->enrichThread($thread, $accessToken), $platform, $ownIds, null, $peerId);
             foreach ($mapped['rows'] as $row) {
                 $rows[] = $row;
             }
@@ -145,7 +149,7 @@ class FacebookGraphHistoryService
                 if (! $peer || $peer['id'] !== $peerId) {
                     continue;
                 }
-                $mapped = $this->mapThread($thread, $platform, $ownIds, null, $peerId);
+                $mapped = $this->mapThread($this->enrichThread($thread, $accessToken), $platform, $ownIds, null, $peerId);
                 foreach ($mapped['rows'] as $row) {
                     $rows[] = $row;
                 }
@@ -188,49 +192,32 @@ class FacebookGraphHistoryService
      */
     protected function conversations(string $pageId, string $accessToken, string $platform): \Generator
     {
-        $query = [
+        $pages = 0;
+        $next = $this->baseUrl.'/'.$pageId.'/conversations';
+        $params = [
             'platform' => $platform,
-            'fields' => $this->conversationFields(),
+            'fields' => $this->conversationListFields(),
             'limit' => 25,
             'access_token' => $accessToken,
         ];
-
         $firstError = null;
         $yielded = false;
 
-        foreach ([$this->baseUrl.'/'.$pageId.'/conversations', $this->baseUrl.'/me/conversations'] as $index => $url) {
-            $pages = 0;
-            $next = $url;
-            $params = $query;
-
-            while ($next && $pages < 40) {
-                $pages++;
-                $response = $this->graphGet($next, $params);
-                if (! $response['ok']) {
-                    $firstError = $response['error'];
-                    break;
-                }
-
-                foreach ($response['data'] as $item) {
-                    $yielded = true;
-                    yield $item;
-                }
-
-                $next = $response['next'];
-                $params = [];
+        while ($next && $pages < 40) {
+            $pages++;
+            $response = $this->graphGet($next, $params);
+            if (! $response['ok']) {
+                $firstError = $response['error'];
+                break;
             }
 
-            if ($yielded) {
-                return;
+            foreach ($response['data'] as $item) {
+                $yielded = true;
+                yield $item;
             }
 
-            // /me/conversations is a fallback when /{page-id}/conversations is denied.
-            if ($index === 0 && $firstError) {
-                Log::warning('Facebook Graph conversations fallback to /me', [
-                    'platform' => $platform,
-                    'error' => $firstError,
-                ]);
-            }
+            $next = $response['next'];
+            $params = [];
         }
 
         if (! $yielded && $firstError) {
@@ -239,9 +226,104 @@ class FacebookGraphHistoryService
         }
     }
 
+    protected function conversationListFields(): string
+    {
+        return 'id,updated_time,snippet,message_count,participants';
+    }
+
+    /**
+     * Messenger Platform only returns message ids on the conversation. Fetch
+     * bodies from /{message-id} so Graph does not treat this as a user mailbox.
+     *
+     * @param  array<string, mixed>  $thread
+     * @return array<string, mixed>
+     */
+    protected function enrichThread(array $thread, string $accessToken): array
+    {
+        $conversationId = (string) ($thread['id'] ?? '');
+        if ($conversationId === '') {
+            return $thread;
+        }
+
+        $node = $this->graphGetNode($this->baseUrl.'/'.$conversationId, [
+            'fields' => 'participants,messages.limit(20)',
+            'access_token' => $accessToken,
+        ]);
+        if (! $node['ok']) {
+            $this->lastError = $this->lastError ?: $node['error'];
+
+            return $thread;
+        }
+
+        if (empty($thread['participants']) && ! empty($node['node']['participants'])) {
+            $thread['participants'] = $node['node']['participants'];
+        }
+
+        $stubs = $node['node']['messages']['data'] ?? [];
+        if (! is_array($stubs) || $stubs === []) {
+            return $thread;
+        }
+
+        $ids = [];
+        foreach ($stubs as $stub) {
+            if (is_array($stub) && ! empty($stub['id'])) {
+                $ids[] = (string) $stub['id'];
+            }
+        }
+
+        $details = $this->messageDetails($ids, $accessToken);
+        $thread['messages'] = ['data' => $details !== [] ? $details : $stubs];
+
+        return $thread;
+    }
+
+    /**
+     * @param  array<int, string>  $ids
+     * @return array<int, array<string, mixed>>
+     */
+    protected function messageDetails(array $ids, string $accessToken): array
+    {
+        $ids = array_values(array_unique(array_filter($ids)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $payload = $this->graphGetNode($this->baseUrl.'/', [
+            'ids' => implode(',', array_slice($ids, 0, 20)),
+            'fields' => 'id,created_time,from,to,message,sticker,attachments{mime_type,name,image_data,file_url,video_data}',
+            'access_token' => $accessToken,
+        ]);
+        if (! $payload['ok']) {
+            $this->lastError = $this->lastError ?: $payload['error'];
+
+            return [];
+        }
+
+        $rows = [];
+        foreach ($payload['node'] as $item) {
+            if (is_array($item) && ! empty($item['id']) && empty($item['error'])) {
+                $rows[] = $item;
+            }
+        }
+
+        return $rows;
+    }
+
+    protected function assertPageToken(string $accessToken): void
+    {
+        $graph = app(FacebookGraphMessagingService::class);
+        $info = $graph->inspectToken($accessToken);
+        if (($info['type'] ?? null) === 'USER' || $graph->isMailboxPermissionError($info['error'])) {
+            throw new \RuntimeException($graph->mailboxPermissionMessage());
+        }
+        if (! $info['valid'] || $graph->isExpiredTokenError($info['error'])) {
+            throw new \RuntimeException($graph->expiredTokenMessage());
+        }
+    }
+
     protected function conversationFields(): string
     {
-        return 'id,updated_time,snippet,message_count,participants,messages.limit(20){id,message,from,to,created_time,sticker,attachments{mime_type,name,image_data,file_url,video_data}}';
+        return $this->conversationListFields();
     }
 
     /**
@@ -518,6 +600,29 @@ class FacebookGraphHistoryService
             'next' => isset($payload['paging']['next']) && is_string($payload['paging']['next'])
                 ? $payload['paging']['next']
                 : null,
+            'error' => null,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $query
+     * @return array{ok: bool, node: array<string, mixed>, error: ?string}
+     */
+    protected function graphGetNode(string $url, array $query = []): array
+    {
+        $response = Http::timeout(20)->get($url, $query);
+        $payload = $response->json() ?: [];
+        if (! $response->successful()) {
+            return [
+                'ok' => false,
+                'node' => [],
+                'error' => $this->errorMessage($payload, 'HTTP '.$response->status()),
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'node' => is_array($payload) ? $payload : [],
             'error' => null,
         ];
     }

@@ -98,11 +98,11 @@ class FacebookMessageSyncService
                 }
 
                 if ($graphCount === 0 && $graphError) {
-                    $hint = 'Facebook inbox import failed: '.$graphError;
+                    $hint = $this->graphHint($graphError);
                 }
             } catch (\Throwable $e) {
                 Log::warning('Facebook Graph history sync failed', ['error' => $e->getMessage()]);
-                $hint = 'Facebook inbox import failed: '.$e->getMessage();
+                $hint = $this->graphHint($e->getMessage());
                 $graphError = $e->getMessage();
             }
         } else {
@@ -182,6 +182,19 @@ class FacebookMessageSyncService
                 'conversations' => $conversationImported,
             ],
         ];
+    }
+
+    protected function graphHint(?string $error): string
+    {
+        $graph = app(FacebookGraphMessagingService::class);
+        if ($graph->isExpiredTokenError($error)) {
+            return $graph->expiredTokenMessage();
+        }
+        if ($graph->isMailboxPermissionError($error)) {
+            return $graph->mailboxPermissionMessage();
+        }
+
+        return 'Facebook inbox import failed: '.($error ?: 'unknown error');
     }
 
     /**

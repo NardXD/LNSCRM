@@ -20,6 +20,7 @@ use App\Services\TwilioIntegrationValidator;
 use App\Services\WiseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -579,7 +580,27 @@ class IntegrationController extends Controller
 
         if ($pageAccessToken) {
             try {
-                $pageInfo = app(FacebookGraphMessagingService::class)->pageInfo($pageId, $pageAccessToken);
+                $graph = app(FacebookGraphMessagingService::class);
+                if ($request->filled('page_access_token')) {
+                    $tokenInfo = $graph->inspectToken($pageAccessToken);
+                    if (! $tokenInfo['valid'] || $graph->isExpiredTokenError($tokenInfo['error'])) {
+                        return response()->json([
+                            'error' => $graph->expiredTokenMessage(),
+                        ], 422);
+                    }
+                    if (($tokenInfo['type'] ?? null) === 'USER' || $graph->isMailboxPermissionError($tokenInfo['error'])) {
+                        return response()->json([
+                            'error' => $graph->mailboxPermissionMessage(),
+                        ], 422);
+                    }
+                    if (! empty($tokenInfo['expires_at']) && $tokenInfo['expires_at'] < time() + 86400) {
+                        return response()->json([
+                            'error' => 'That Page token expires within 24 hours (typical of Graph API Explorer). Generate a long-lived User token, then switch the dropdown to the Page token — those do not expire.',
+                        ], 422);
+                    }
+                }
+
+                $pageInfo = $graph->pageInfo($pageId, $pageAccessToken);
                 $pageName = $pageName ?: ($pageInfo['name'] ?? null);
                 $ig = is_array($pageInfo['instagram_business_account'] ?? null)
                     ? $pageInfo['instagram_business_account']
@@ -592,7 +613,15 @@ class IntegrationController extends Controller
                 }
             } catch (\Throwable $e) {
                 if ($request->filled('page_access_token')) {
-                    return response()->json(['error' => $e->getMessage()], 422);
+                    $graph = app(FacebookGraphMessagingService::class);
+                    $raw = $e->getMessage();
+                    $message = $graph->isExpiredTokenError($raw)
+                        ? $graph->expiredTokenMessage()
+                        : ($graph->isMailboxPermissionError($raw)
+                            ? $graph->mailboxPermissionMessage()
+                            : $raw);
+
+                    return response()->json(['error' => $message], 422);
                 }
             }
         }
@@ -622,6 +651,7 @@ class IntegrationController extends Controller
             ['company_id' => $company->id],
             $payload
         );
+        Cache::forget('facebook-token-status-'.$integration->id);
 
         if ($pageAccessToken) {
             try {

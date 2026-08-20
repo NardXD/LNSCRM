@@ -1417,7 +1417,7 @@
                 <div class="form-group">
                     <label class="form-label">Page Access Token (required for Instagram)</label>
                     <input type="password" class="form-input" id="facebook-page-access-token" value="" placeholder="${existingData && existingData.has_page_access_token ? '•••••••• (leave blank to keep)' : 'EAAB… long-lived Page token'}">
-                    <span class="form-help">Must include <code>pages_messaging</code> and <code>instagram_manage_messages</code>. Used to import Messenger replies and to receive/send Instagram Direct.</span>
+                    <span class="form-help">Must be a <strong>Page</strong> token (not User) that does not expire. In <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener">Graph API Explorer</a> get a User token with <code>pages_messaging</code>, <code>pages_manage_metadata</code>, and <code>pages_read_engagement</code>, then switch the token dropdown to your Page. Explorer tokens expire in 1–2 hours.</span>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Meta App Secret (recommended)</label>
@@ -1470,7 +1470,7 @@
                 <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
                     <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">Replies sent from Messenger</strong>
                     <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
-                        <li>Save a long-lived <strong>Page Access Token</strong> with <code>pages_messaging</code>.</li>
+                        <li>Save a <strong>Page Access Token that does not expire</strong>. Graph API Explorer tokens die in 1–2 hours. Use a long-lived User token, then switch the dropdown to the Page.</li>
                         <li>In Meta for Developers → <strong>Messenger → Facebook settings</strong>, set the same Callback URL and Verify Token. Subscribe to <code>messages</code> and <code>message_echoes</code>.</li>
                         <li>On <a href="${TWILIO_SETUP.facebookChatUrl}">Facebook &amp; Instagram</a>, click the download Sync button to import Page Inbox history, including messages you sent from Messenger to customers.</li>
                     </ol>
