@@ -34,6 +34,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -65,6 +66,17 @@ class InboxController extends Controller
     {
         $user = $request->user();
         $companyId = $user->company_id;
+
+        // Opportunistic send-later flush when the inbox is opened (throttled).
+        if (Cache::add('inbox:flush-scheduled-sends', 1, now()->addMinute())) {
+            try {
+                $this->replyService->processDue(20);
+            } catch (\Throwable $e) {
+                Log::warning('Inbox bootstrap scheduled send flush failed', [
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
 
         $inboxesQuery = $this->accessibleInboxes($user)->with(['members:id,name,email', 'account']);
 
@@ -1328,7 +1340,10 @@ class InboxController extends Controller
         $archive = $request->boolean('archive');
 
         if (! empty($validated['send_at'])) {
-            $sendAt = Carbon::parse($validated['send_at']);
+            $sendAt = $this->parseScheduledSendAt($validated['send_at']);
+            if (! $sendAt || $sendAt->lte(now())) {
+                return response()->json(['message' => 'Choose a future date and time.'], 422);
+            }
             $scheduled = ScheduledInboxReply::create([
                 'inbox_conversation_id' => $conversation->id,
                 'user_id' => $request->user()->id,
@@ -1664,7 +1679,10 @@ class InboxController extends Controller
         $fromEmail = $inbox->email ?? $inbox->account->email;
 
         if (! empty($validated['send_at'])) {
-            $sendAt = Carbon::parse($validated['send_at']);
+            $sendAt = $this->parseScheduledSendAt($validated['send_at']);
+            if (! $sendAt || $sendAt->lte(now())) {
+                return response()->json(['message' => 'Choose a future date and time.'], 422);
+            }
             $localId = 'local-scheduled-compose-'.uniqid();
 
             $conversation = InboxConversation::create([
@@ -2322,6 +2340,33 @@ class InboxController extends Controller
         }
 
         return $normalized;
+    }
+
+    /**
+     * Parse a scheduled send time in the app timezone.
+     * Accepts "YYYY-MM-DD HH:MM:SS", "YYYY-MM-DDTHH:MM", or ISO-8601.
+     */
+    private function parseScheduledSendAt(mixed $value): ?Carbon
+    {
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return null;
+        }
+
+        $tz = config('app.timezone') ?: 'UTC';
+
+        try {
+            if (preg_match('/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$/', $raw)) {
+                return Carbon::createFromFormat('Y-m-d H:i', str_replace('T', ' ', $raw), $tz);
+            }
+            if (preg_match('/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/', $raw)) {
+                return Carbon::createFromFormat('Y-m-d H:i:s', str_replace('T', ' ', $raw), $tz);
+            }
+
+            return Carbon::parse($raw, $tz);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function authorizeConversation(User $user, InboxConversation $conversation): void

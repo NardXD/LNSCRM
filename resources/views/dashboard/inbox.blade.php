@@ -3189,6 +3189,39 @@ select.inbox-reply-header-input {
         });
     }
 
+    function pad2(n) {
+        return String(n).padStart(2, '0');
+    }
+
+    /** datetime-local value from a Date in the browser's local wall clock */
+    function toDatetimeLocalValue(date) {
+        const d = date instanceof Date ? date : new Date(date);
+        return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    }
+
+    /**
+     * Convert datetime-local input to an API send_at string (app timezone wall clock).
+     * Avoids UTC shifts from Date#toISOString().
+     */
+    function datetimeLocalToApi(raw) {
+        const value = String(raw || '').trim();
+        if (!value) return null;
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) {
+            return value.replace('T', ' ') + ':00';
+        }
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) {
+            return value.replace('T', ' ').slice(0, 19);
+        }
+        return value;
+    }
+
+    function isDatetimeLocalInFuture(raw) {
+        const api = datetimeLocalToApi(raw);
+        if (!api) return false;
+        const when = new Date(api.replace(' ', 'T'));
+        return !Number.isNaN(when.getTime()) && when.getTime() > Date.now();
+    }
+
     function timeAgo(iso) {
         return formatRelativeTime(iso);
     }
@@ -6049,9 +6082,7 @@ select.inbox-reply-header-input {
                 fields.hidden = false;
                 const input = el('sendLaterAt');
                 if (input && !input.value) {
-                    const d = new Date(Date.now() + 60 * 60 * 1000);
-                    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-                    input.value = d.toISOString().slice(0, 16);
+                    input.value = toDatetimeLocalValue(new Date(Date.now() + 60 * 60 * 1000));
                 }
                 input?.focus();
             }
@@ -6069,12 +6100,11 @@ select.inbox-reply-header-input {
         e.stopPropagation();
         const raw = el('sendLaterAt')?.value;
         if (!raw) return alert('Pick a date and time.');
-        const when = new Date(raw);
-        if (Number.isNaN(when.getTime()) || when.getTime() <= Date.now()) {
+        if (!isDatetimeLocalInFuture(raw)) {
             return alert('Choose a future date and time.');
         }
         closeThreadPops();
-        await sendReply({ sendAt: when.toISOString() });
+        await sendReply({ sendAt: datetimeLocalToApi(raw) });
     });
 
     async function sendReply(opts = {}) {
@@ -6409,9 +6439,7 @@ select.inbox-reply-header-input {
                 fields.hidden = false;
                 const input = el('composeSendLaterAt');
                 if (input && !input.value) {
-                    const d = new Date(Date.now() + 60 * 60 * 1000);
-                    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-                    input.value = d.toISOString().slice(0, 16);
+                    input.value = toDatetimeLocalValue(new Date(Date.now() + 60 * 60 * 1000));
                 }
                 input?.focus();
             }
@@ -6425,12 +6453,11 @@ select.inbox-reply-header-input {
         e.stopPropagation();
         const raw = el('composeSendLaterAt')?.value;
         if (!raw) return alert('Pick a date and time.');
-        const when = new Date(raw);
-        if (Number.isNaN(when.getTime()) || when.getTime() <= Date.now()) {
+        if (!isDatetimeLocalInFuture(raw)) {
             return alert('Choose a future date and time.');
         }
         closeThreadPops();
-        await sendCompose({ sendAt: when.toISOString() });
+        await sendCompose({ sendAt: datetimeLocalToApi(raw) });
     });
 
     async function sendCompose(opts = {}) {

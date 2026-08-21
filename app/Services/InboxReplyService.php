@@ -243,6 +243,55 @@ class InboxReplyService
     }
 
     /**
+     * Send any pending scheduled replies/composes whose send_at has passed.
+     *
+     * @return array{sent: int, failed: int}
+     */
+    public function processDue(int $limit = 50): array
+    {
+        $sent = 0;
+        $failed = 0;
+
+        ScheduledInboxReply::query()
+            ->where('status', ScheduledInboxReply::STATUS_SENDING)
+            ->where('updated_at', '<', now()->subMinutes(10))
+            ->update([
+                'status' => ScheduledInboxReply::STATUS_PENDING,
+                'error_message' => null,
+            ]);
+
+        $due = ScheduledInboxReply::query()
+            ->where('status', ScheduledInboxReply::STATUS_PENDING)
+            ->where('send_at', '<=', now())
+            ->orderBy('send_at')
+            ->orderBy('id')
+            ->limit(max(1, $limit))
+            ->get();
+
+        foreach ($due as $scheduled) {
+            $fresh = $scheduled->fresh(['conversation', 'user', 'inbox.account']);
+            if (! $fresh) {
+                $failed++;
+                continue;
+            }
+
+            $result = $this->dispatchScheduled($fresh);
+            if ($result) {
+                $sent++;
+            } else {
+                $failed++;
+                Log::warning('Scheduled inbox send did not complete', [
+                    'scheduled_id' => $fresh->id,
+                    'status' => $fresh->fresh()?->status,
+                    'error' => $fresh->fresh()?->error_message,
+                ]);
+            }
+        }
+
+        return ['sent' => $sent, 'failed' => $failed];
+    }
+
+    /**
      * @return array{message: InboxMessage, conversation: InboxConversation}|null
      */
     public function dispatchScheduled(ScheduledInboxReply $scheduled): ?array

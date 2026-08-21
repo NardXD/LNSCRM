@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\SharedInbox;
+use App\Services\InboxReplyService;
 use App\Services\OutlookMailService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -16,9 +17,23 @@ class SyncInboxMail extends Command
 
     protected $description = 'Background-sync connected personal and shared Outlook inboxes (no /inbox page required)';
 
-    public function handle(OutlookMailService $mailService): int
+    public function handle(OutlookMailService $mailService, InboxReplyService $replies): int
     {
         @set_time_limit(600);
+
+        // Send-later mail must go out even if the dedicated schedule entry is missed.
+        try {
+            $scheduled = $replies->processDue(50);
+            if ($scheduled['sent'] > 0 || $scheduled['failed'] > 0) {
+                $this->line('Scheduled sends: '.$scheduled['sent'].' sent'
+                    .($scheduled['failed'] ? ', '.$scheduled['failed'].' failed' : ''));
+            }
+        } catch (Throwable $e) {
+            Log::warning('Scheduled inbox send processing failed during sync', [
+                'message' => $e->getMessage(),
+            ]);
+            $this->warn('Scheduled send processing failed: '.$e->getMessage());
+        }
 
         $query = SharedInbox::query()
             ->with('account')
