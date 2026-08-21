@@ -475,6 +475,30 @@
 .leads-table tbody tr:hover { background: var(--bg-primary); }
 .lead-name { font-weight: 600; }
 .lead-company { font-size: 0.78rem; color: var(--text-secondary); }
+.lead-source {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28rem;
+    margin-top: 0.28rem;
+    max-width: 100%;
+    padding: 0.12rem 0.45rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1.2;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.lead-source svg { width: 11px; height: 11px; flex-shrink: 0; }
+.lead-source.has-thread {
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-card));
+    color: var(--accent);
+}
+.lead-source.has-thread:hover { border-color: var(--accent); }
 .lead-meta { font-size: 0.8rem; color: var(--text-secondary); }
 .lead-badge { display: inline-block; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; padding: 0.15rem 0.45rem; border-radius: 999px; background: #eef2ff; color: #4338ca; }
 .lead-badge.contacted { background: #e0f2fe; color: #0369a1; }
@@ -661,6 +685,19 @@
             ? 'snoozed until ' + formatDate(lead.reopen_at)
             : status;
         return `<span class="lead-badge ${esc(status)}">${esc(label)}</span>`;
+    }
+    function sourceVisual(lead) {
+        const source = String(lead.source || '').trim();
+        const hasThread = !!lead.has_connected_thread;
+        if (!hasThread) {
+            return source ? `<div class="lead-company">${esc(source)}</div>` : '';
+        }
+        const label = source || 'Inbox thread';
+        const icon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>`;
+        if (lead.connected_thread_url) {
+            return `<a class="lead-source has-thread" href="${esc(lead.connected_thread_url)}" title="Open connected inbox thread" onclick="event.stopPropagation()">${icon}<span>${esc(label)}</span></a>`;
+        }
+        return `<span class="lead-source has-thread" title="Connected inbox thread">${icon}<span>${esc(label)}</span></span>`;
     }
     function chipText(hex) {
         const c = String(hex || '#4338ca').replace('#', '');
@@ -998,7 +1035,8 @@
             <tr data-id="${lead.id}">
                 <td>
                     <div class="lead-name">${esc([lead.title, lead.name].filter(Boolean).join(' '))}</div>
-                    <div class="lead-company">${esc(lead.company_name || lead.source || '')}</div>
+                    ${lead.company_name ? `<div class="lead-company">${esc(lead.company_name)}</div>` : ''}
+                    ${sourceVisual(lead)}
                 </td>
                 <td class="lead-meta">${esc((lead.phones || []).map(p => p.value).join(', ') || '—')}</td>
                 <td class="lead-meta">${esc((lead.emails || []).map(e => e.value).join(', ') || '—')}</td>

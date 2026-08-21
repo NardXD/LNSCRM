@@ -44,8 +44,20 @@ class LeadsController extends Controller
     {
         $companyId = (int) Auth::user()->company_id;
         $query = Lead::query()
-            ->where('company_id', $companyId)
+            ->select('leads.*')
+            ->where('leads.company_id', $companyId)
             ->with(['identities', 'assignedUser:id,name', 'labels'])
+            ->withCount([
+                'inboxConversations as attached_inbox_count' => fn ($q) => $q->notMerged(),
+            ])
+            ->addSelect([
+                'connected_thread_id' => InboxConversation::query()
+                    ->select('id')
+                    ->whereColumn('lead_id', 'leads.id')
+                    ->whereNull('merged_into_id')
+                    ->orderByDesc('last_message_at')
+                    ->limit(1),
+            ])
             ->orderByDesc('updated_at');
 
         if ($request->filled('search')) {
@@ -679,6 +691,11 @@ class LeadsController extends Controller
             'reopen_at' => $lead->reopen_at?->toIso8601String(),
             'reopen_status' => $lead->reopen_status,
             'source' => $lead->source,
+            'has_connected_thread' => ((int) ($lead->attached_inbox_count ?? 0) > 0)
+                || filled($lead->connected_thread_id ?? null),
+            'connected_thread_url' => filled($lead->connected_thread_id ?? null)
+                ? url('/inbox').'?conversation='.(int) $lead->connected_thread_id
+                : null,
             'customer_type' => $lead->customer_type,
             'residential_type' => $lead->residential_type,
             'business_industry' => $lead->business_industry,
