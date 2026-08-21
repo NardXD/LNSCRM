@@ -499,6 +499,12 @@
     color: var(--accent);
 }
 .lead-source.has-thread:hover { border-color: var(--accent); }
+.lead-source.has-thread.whatsapp { border-color: #86efac; background: #ecfdf5; color: #047857; }
+.lead-source.has-thread.viber { border-color: #c4b5fd; background: #f5f3ff; color: #5b21b6; }
+.lead-source.has-thread.sms { border-color: #86efac; background: #f0fdf4; color: #166534; }
+.lead-source.has-thread.facebook { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
+.lead-source.has-thread.instagram { border-color: #f9a8d4; background: #fdf2f8; color: #be185d; }
+.lead-source.has-thread.inbox { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, var(--bg-card)); color: var(--accent); }
 .lead-meta { font-size: 0.8rem; color: var(--text-secondary); }
 .lead-badge { display: inline-block; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; padding: 0.15rem 0.45rem; border-radius: 999px; background: #eef2ff; color: #4338ca; }
 .lead-badge.contacted { background: #e0f2fe; color: #0369a1; }
@@ -692,12 +698,26 @@
         if (!hasThread) {
             return source ? `<div class="lead-company">${esc(source)}</div>` : '';
         }
-        const label = source || 'Inbox thread';
-        const icon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>`;
+        const channel = String(lead.connected_thread_channel || 'inbox');
+        const label = source || lead.connected_thread_label || 'Connected thread';
+        const title = lead.connected_thread_label
+            ? `Open ${lead.connected_thread_label} thread`
+            : 'Open connected thread';
+        const icon = channelIcon(channel);
+        const cls = `lead-source has-thread ${esc(channel)}`;
         if (lead.connected_thread_url) {
-            return `<a class="lead-source has-thread" href="${esc(lead.connected_thread_url)}" title="Open connected inbox thread" onclick="event.stopPropagation()">${icon}<span>${esc(label)}</span></a>`;
+            return `<a class="${cls}" href="${esc(lead.connected_thread_url)}" title="${esc(title)}" onclick="event.stopPropagation()">${icon}<span>${esc(label)}</span></a>`;
         }
-        return `<span class="lead-source has-thread" title="Connected inbox thread">${icon}<span>${esc(label)}</span></span>`;
+        return `<span class="${cls}" title="${esc(title)}">${icon}<span>${esc(label)}</span></span>`;
+    }
+    function channelIcon(channel) {
+        if (channel === 'whatsapp' || channel === 'viber' || channel === 'sms') {
+            return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+        }
+        if (channel === 'facebook' || channel === 'instagram') {
+            return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`;
+        }
+        return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>`;
     }
     function chipText(hex) {
         const c = String(hex || '#4338ca').replace('#', '');

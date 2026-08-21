@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Services\ContactConversationHistoryService;
 use App\Services\FlexCrmLookupService;
 use App\Services\LeadActivityService;
+use App\Services\LeadConnectedThreadService;
 use App\Services\LeadInboxAttachService;
 use App\Services\LeadRuleEngine;
 use Illuminate\Http\JsonResponse;
@@ -29,7 +30,8 @@ class LeadsController extends Controller
     public function __construct(
         protected LeadActivityService $leadActivity,
         protected FlexCrmLookupService $crmLookup,
-        protected LeadInboxAttachService $inboxAttach
+        protected LeadInboxAttachService $inboxAttach,
+        protected LeadConnectedThreadService $connectedThreads
     ) {}
 
     public function index(): View
@@ -104,16 +106,15 @@ class LeadsController extends Controller
 
         $perPage = min(100, max(10, (int) $request->get('per_page', 20)));
         $leads = $query->paginate($perPage);
-        $threadIds = $this->latestConnectedThreadIds(
-            collect($leads->items())->pluck('id')->map(fn ($id) => (int) $id)->all()
+        $threads = $this->connectedThreads->forLeads(
+            $companyId,
+            collect($leads->items())
         );
 
         return response()->json([
             'success' => true,
-            'data' => collect($leads->items())->map(function (Lead $lead) use ($threadIds) {
-                $threadId = $threadIds[(int) $lead->id] ?? null;
-                $lead->setAttribute('connected_thread_id', $threadId);
-                $lead->setAttribute('attached_inbox_count', $threadId ? 1 : 0);
+            'data' => collect($leads->items())->map(function (Lead $lead) use ($threads) {
+                $lead->setAttribute('connected_thread', $threads[(int) $lead->id] ?? null);
 
                 return $this->serialize($lead);
             })->all(),
@@ -651,30 +652,6 @@ class LeadsController extends Controller
     }
 
     /**
-     * Latest attached inbox thread id per lead (one query for the page).
-     *
-     * @param  list<int>  $leadIds
-     * @return array<int, int>
-     */
-    protected function latestConnectedThreadIds(array $leadIds): array
-    {
-        $leadIds = array_values(array_unique(array_filter($leadIds)));
-        if ($leadIds === []) {
-            return [];
-        }
-
-        return InboxConversation::query()
-            ->whereIn('lead_id', $leadIds)
-            ->whereNull('merged_into_id')
-            ->orderByDesc('last_message_at')
-            ->orderByDesc('id')
-            ->get(['id', 'lead_id'])
-            ->unique('lead_id')
-            ->mapWithKeys(fn (InboxConversation $c) => [(int) $c->lead_id => (int) $c->id])
-            ->all();
-    }
-
-    /**
      * @return array<string, mixed>
      */
     protected function serialize(Lead $lead): array
@@ -689,6 +666,7 @@ class LeadsController extends Controller
             'label' => $i->label,
             'is_primary' => $i->is_primary,
         ];
+        $connected = is_array($lead->connected_thread ?? null) ? $lead->connected_thread : null;
 
         return [
             'id' => $lead->id,
@@ -712,11 +690,10 @@ class LeadsController extends Controller
             'reopen_at' => $lead->reopen_at?->toIso8601String(),
             'reopen_status' => $lead->reopen_status,
             'source' => $lead->source,
-            'has_connected_thread' => ((int) ($lead->attached_inbox_count ?? 0) > 0)
-                || filled($lead->connected_thread_id ?? null),
-            'connected_thread_url' => filled($lead->connected_thread_id ?? null)
-                ? url('/inbox').'?conversation='.(int) $lead->connected_thread_id
-                : null,
+            'has_connected_thread' => $connected !== null,
+            'connected_thread_url' => $connected['url'] ?? null,
+            'connected_thread_channel' => $connected['channel'] ?? null,
+            'connected_thread_label' => $connected['label'] ?? null,
             'customer_type' => $lead->customer_type,
             'residential_type' => $lead->residential_type,
             'business_industry' => $lead->business_industry,
