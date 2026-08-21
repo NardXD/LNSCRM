@@ -9,7 +9,7 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('live-view:cleanup')->everyFiveMinutes();
-Schedule::command('inbox:process-reopens')->everyFiveMinutes();
+Schedule::command('inbox:process-reopens')->everyMinute();
 Schedule::command('leads:process-reopens')->everyFiveMinutes();
 Schedule::command('inbox:process-scheduled-replies')->everyMinute();
 Schedule::command('inbox:sync-mail')

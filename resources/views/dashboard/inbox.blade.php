@@ -4326,9 +4326,13 @@ select.inbox-reply-header-input {
 
     async function snoozeConversation(until) {
         if (!state.selectedId || !until) return;
+        const untilValue = until instanceof Date
+            ? datetimeLocalToApi(toDatetimeLocalValue(until))
+            : (typeof until === 'string' ? (datetimeLocalToApi(until) || until) : null);
+        if (!untilValue) return;
         await api('/conversations/' + state.selectedId + '/snooze', {
             method: 'POST',
-            body: { until: until.toISOString() },
+            body: { until: untilValue },
         });
         state.conversation = null;
         state.selectedId = null;
@@ -5789,14 +5793,13 @@ select.inbox-reply-header-input {
     el('snoozeCustom')?.addEventListener('change', async () => {
         const raw = el('snoozeCustom').value;
         if (!raw) return;
-        const until = new Date(raw);
-        if (Number.isNaN(until.getTime()) || until <= new Date()) {
+        if (!isDatetimeLocalInFuture(raw)) {
             alert('Pick a future date and time.');
             return;
         }
         closeThreadPops();
         try {
-            await snoozeConversation(until);
+            await snoozeConversation(raw);
         } catch (err) {
             alert(err.message);
         }

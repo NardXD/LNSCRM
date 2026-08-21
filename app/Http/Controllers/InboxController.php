@@ -21,6 +21,7 @@ use App\Notifications\InboxThreadUpdateNotification;
 use App\Services\CalendarOauthSettingsService;
 use App\Services\ChannelUnreadNotifier;
 use App\Services\FlexCrmLookupService;
+use App\Services\InboxReopenService;
 use App\Services\InboxReplyService;
 use App\Services\InboxThreadMergeService;
 use App\Services\LeadActivityService;
@@ -54,7 +55,8 @@ class InboxController extends Controller
         protected LeadAutoCreateService $leadAutoCreate,
         protected InboxThreadMergeService $threadMerge,
         protected LeadInboxAttachService $inboxAttach,
-        protected InboxReplyService $replyService
+        protected InboxReplyService $replyService,
+        protected InboxReopenService $reopenService
     ) {}
 
     public function index(): View
@@ -67,12 +69,19 @@ class InboxController extends Controller
         $user = $request->user();
         $companyId = $user->company_id;
 
-        // Opportunistic send-later flush when the inbox is opened (throttled).
+        // Opportunistic send-later + snooze reopen when the inbox is opened (throttled).
         if (Cache::add('inbox:flush-scheduled-sends', 1, now()->addMinute())) {
             try {
                 $this->replyService->processDue(20);
             } catch (\Throwable $e) {
                 Log::warning('Inbox bootstrap scheduled send flush failed', [
+                    'message' => $e->getMessage(),
+                ]);
+            }
+            try {
+                $this->reopenService->processDue(100);
+            } catch (\Throwable $e) {
+                Log::warning('Inbox bootstrap snooze reopen flush failed', [
                     'message' => $e->getMessage(),
                 ]);
             }
@@ -918,7 +927,11 @@ class InboxController extends Controller
             'until' => ['required', 'date', 'after:now'],
         ]);
 
-        $until = Carbon::parse($validated['until']);
+        $until = $this->parseScheduledSendAt($validated['until']);
+        if (! $until || $until->lte(now())) {
+            return response()->json(['message' => 'Choose a future date and time.'], 422);
+        }
+
         $conversation->status = 'archived';
         $conversation->folder = 'inbox';
         $conversation->reopen_at = $until;

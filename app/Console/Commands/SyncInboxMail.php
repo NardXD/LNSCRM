@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\SharedInbox;
+use App\Services\InboxReopenService;
 use App\Services\InboxReplyService;
 use App\Services\OutlookMailService;
 use Illuminate\Console\Command;
@@ -17,11 +18,14 @@ class SyncInboxMail extends Command
 
     protected $description = 'Background-sync connected personal and shared Outlook inboxes (no /inbox page required)';
 
-    public function handle(OutlookMailService $mailService, InboxReplyService $replies): int
-    {
+    public function handle(
+        OutlookMailService $mailService,
+        InboxReplyService $replies,
+        InboxReopenService $reopens
+    ): int {
         @set_time_limit(600);
 
-        // Send-later mail must go out even if the dedicated schedule entry is missed.
+        // Send-later + snooze reopen even if dedicated schedule entries are missed.
         try {
             $scheduled = $replies->processDue(50);
             if ($scheduled['sent'] > 0 || $scheduled['failed'] > 0) {
@@ -33,6 +37,18 @@ class SyncInboxMail extends Command
                 'message' => $e->getMessage(),
             ]);
             $this->warn('Scheduled send processing failed: '.$e->getMessage());
+        }
+
+        try {
+            $reopened = $reopens->processDue(200);
+            if ($reopened > 0) {
+                $this->line("Snooze reopens: {$reopened}");
+            }
+        } catch (Throwable $e) {
+            Log::warning('Inbox snooze reopen processing failed during sync', [
+                'message' => $e->getMessage(),
+            ]);
+            $this->warn('Snooze reopen processing failed: '.$e->getMessage());
         }
 
         $query = SharedInbox::query()
