@@ -783,6 +783,7 @@
                 conversations = rows;
             }
             renderThreads();
+            window.updateSidebarUnreadBadges?.();
         } finally {
             convLoading = false;
         }

@@ -284,7 +284,7 @@ class FacebookMessageSyncService
 
             foreach ($bySid as $message) {
                 $result = $this->importIfNew($existingLookup, $message->sid, function () use ($integration, $twilio, $message) {
-                    return $this->ingestProgrammableMessage($integration, $twilio, $message);
+                    return $this->ingestProgrammableMessage($integration, $twilio, $message, true);
                 });
                 $imported += $result['imported'];
                 if ($result['conversation']) {
@@ -353,7 +353,8 @@ class FacebookMessageSyncService
     protected function ingestProgrammableMessage(
         FacebookIntegration $integration,
         TwilioService $twilio,
-        MessageInstance $message
+        MessageInstance $message,
+        bool $countAsUnread = false
     ): ?FacebookConversation {
         $from = TwilioService::parseMessengerAddress((string) $message->from);
         $to = TwilioService::parseMessengerAddress((string) $message->to);
@@ -433,7 +434,8 @@ class FacebookMessageSyncService
                 'direction' => $message->direction,
                 'synced' => true,
                 'source' => 'messages',
-            ]
+            ],
+            $countAsUnread
         );
     }
 
@@ -608,7 +610,8 @@ class FacebookMessageSyncService
         ?string $mimeType,
         ?string $status,
         Carbon $sentAt,
-        array $raw
+        array $raw,
+        bool $countAsUnread = false
     ): FacebookConversation {
         $this->lastStoreCreated = true;
         $conversation = $this->upsertConversation($integration, $channel, $peerId, $name);
@@ -644,6 +647,12 @@ class FacebookMessageSyncService
         $record->created_at = $storedAt;
         $record->updated_at = $storedAt;
         $record->save();
+
+        // Live poll/ingest only — bulk history sync must not flood unread badges.
+        if ($countAsUnread && $direction === 'inbound') {
+            $conversation->unread_count = (int) $conversation->unread_count + 1;
+            $conversation->save();
+        }
 
         return $conversation;
     }
