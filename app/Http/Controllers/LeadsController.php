@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exports\LeadReportExport;
 use App\Http\Requests\StoreLeadRequest;
 use App\Http\Requests\UpdateLeadRequest;
 use App\Models\FacebookConversation;
@@ -19,11 +20,14 @@ use App\Services\FlexCrmLookupService;
 use App\Services\LeadActivityService;
 use App\Services\LeadConnectedThreadService;
 use App\Services\LeadInboxAttachService;
+use App\Services\LeadReportService;
 use App\Services\LeadRuleEngine;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class LeadsController extends Controller
 {
@@ -31,7 +35,8 @@ class LeadsController extends Controller
         protected LeadActivityService $leadActivity,
         protected FlexCrmLookupService $crmLookup,
         protected LeadInboxAttachService $inboxAttach,
-        protected LeadConnectedThreadService $connectedThreads
+        protected LeadConnectedThreadService $connectedThreads,
+        protected LeadReportService $leadReports
     ) {}
 
     public function index(): View
@@ -42,67 +47,61 @@ class LeadsController extends Controller
         ]);
     }
 
+    public function reports(): View
+    {
+        $companyId = (int) Auth::user()->company_id;
+
+        return view('dashboard.lead-reports', [
+            'leadFormOptions' => Lead::formOptions(),
+            'labels' => LeadLabel::query()
+                ->where('company_id', $companyId)
+                ->orderBy('name')
+                ->get(['id', 'name', 'color']),
+            'assignees' => User::query()
+                ->where('company_id', $companyId)
+                ->where(function ($q) {
+                    $q->where('status', 'active')->orWhereNull('status');
+                })
+                ->orderBy('name')
+                ->get(['id', 'name']),
+        ]);
+    }
+
+    public function reportSummary(Request $request): JsonResponse
+    {
+        $companyId = (int) Auth::user()->company_id;
+        $summary = $this->leadReports->summary($companyId, $request);
+
+        return response()->json([
+            'success' => true,
+            'data' => $summary,
+        ]);
+    }
+
+    public function exportReport(Request $request): BinaryFileResponse
+    {
+        $user = Auth::user();
+        $companyId = (int) $user->company_id;
+        $workbook = $this->leadReports->exportWorkbook($companyId, $request);
+        $filename = 'lead-report-'.now()->format('Y-m-d-His').'.xlsx';
+
+        return Excel::download(
+            new LeadReportExport(
+                $workbook['leads'],
+                $workbook['activities'],
+                $workbook['conversations'],
+                (string) ($user->company?->name ?? '')
+            ),
+            $filename
+        );
+    }
+
     public function list(Request $request): JsonResponse
     {
         $companyId = (int) Auth::user()->company_id;
-        $query = Lead::query()
-            ->where('company_id', $companyId)
+        $query = $this->leadReports->filteredQuery($companyId, $request)
             ->with(['identities', 'assignedUser:id,name', 'labels'])
             ->orderByDesc('updated_at');
-
-        if ($request->filled('search')) {
-            $search = trim((string) $request->get('search'));
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('first_name', 'like', "%{$search}%")
-                    ->orWhere('last_name', 'like', "%{$search}%")
-                    ->orWhere('alt_first_name', 'like', "%{$search}%")
-                    ->orWhere('alt_last_name', 'like', "%{$search}%")
-                    ->orWhere('company_name', 'like', "%{$search}%")
-                    ->orWhere('city', 'like', "%{$search}%")
-                    ->orWhere('address', 'like', "%{$search}%")
-                    ->orWhereHas('identities', function ($identity) use ($search) {
-                        $identity->where('value', 'like', "%{$search}%")
-                            ->orWhere('normalized_value', 'like', "%{$search}%");
-                    })
-                    ->orWhereHas('labels', function ($label) use ($search) {
-                        $label->where('lead_labels.name', 'like', "%{$search}%");
-                    });
-            });
-        }
-
-        if ($request->filled('status') && $request->get('status') !== 'all') {
-            $query->where('status', $request->get('status'));
-        } else {
-            $query->where('status', '!=', Lead::STATUS_ARCHIVED);
-        }
-
-        $source = trim((string) $request->get('source', ''));
-        if ($source === '__none__') {
-            $query->where(function ($q) {
-                $q->whereNull('source')->orWhere('source', '');
-            });
-        } elseif ($source !== '') {
-            $query->where('source', $source);
-        }
-
-        $labelIds = $request->input('label_ids', $request->input('label_id'));
-        if (! is_array($labelIds)) {
-            $labelIds = $labelIds !== null && $labelIds !== ''
-                ? preg_split('/\s*,\s*/', (string) $labelIds)
-                : [];
-        }
-        $labelIds = array_values(array_unique(array_filter(array_map('intval', $labelIds))));
-        foreach ($labelIds as $labelId) {
-            $query->whereHas('labels', fn ($label) => $label->where('lead_labels.id', $labelId));
-        }
-
-        $assignedTo = trim((string) $request->get('assigned_to', ''));
-        if ($assignedTo === '__none__') {
-            $query->whereNull('assigned_to');
-        } elseif ($assignedTo !== '' && ctype_digit($assignedTo)) {
-            $query->where('assigned_to', (int) $assignedTo);
-        }
 
         $perPage = min(100, max(10, (int) $request->get('per_page', 20)));
         $leads = $query->paginate($perPage);

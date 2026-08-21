@@ -167,9 +167,12 @@ Route::middleware(['auth', 'company.active'])->group(function () {
     Route::patch('/api/hiring-queue/{item}/candidates/{candidate}/status', [HiringQueueController::class, 'updateCandidateStatus'])->middleware('permission:view_client_management')->name('api.hiring-queue.candidates.status.update');
 
     Route::get('/leads', [LeadsController::class, 'index'])->middleware('permission:view_leads')->name('leads');
+    Route::get('/leads/reports', [LeadsController::class, 'reports'])->middleware('permission:view_leads')->name('lead-reports');
     Route::prefix('api/leads')->middleware('permission:view_leads')->group(function () {
         Route::get('/', [LeadsController::class, 'list'])->name('api.leads.index');
         Route::post('/', [LeadsController::class, 'store'])->name('api.leads.store');
+        Route::get('/reports', [LeadsController::class, 'reportSummary'])->name('api.leads.reports');
+        Route::get('/reports/export', [LeadsController::class, 'exportReport'])->name('api.leads.reports.export');
         Route::get('/labels', [LeadsController::class, 'labels'])->name('api.leads.labels');
         Route::post('/labels', [LeadsController::class, 'storeLabel'])->name('api.leads.labels.store');
         Route::patch('/labels/{leadLabel}', [LeadsController::class, 'updateLabel'])->name('api.leads.labels.update');

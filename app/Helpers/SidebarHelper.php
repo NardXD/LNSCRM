@@ -94,6 +94,14 @@ class SidebarHelper
                 'category' => 'main',
             ],
             [
+                'route' => 'lead-reports',
+                'permission' => 'view_leads',
+                'module_slug' => 'client-management',
+                'label' => 'Lead Reports',
+                'icon' => 'bar-chart',
+                'category' => 'main',
+            ],
+            [
                 'route' => 'hiring-queue',
                 'permission' => 'view_client_management',
                 'module_slug' => 'client-management',
