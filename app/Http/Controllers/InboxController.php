@@ -1216,6 +1216,7 @@ class InboxController extends Controller
             'body' => ['required', 'string', 'max:50000'],
             'to' => ['nullable', 'string', 'max:2000'],
             'cc' => ['nullable', 'string', 'max:2000'],
+            'inbox_id' => ['nullable', 'integer'],
             'reply_all' => ['nullable', 'boolean'],
             'attachments' => ['nullable', 'array', 'max:5'],
             'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
@@ -1224,6 +1225,16 @@ class InboxController extends Controller
         ]);
 
         $inbox = $conversation->inbox;
+        if (! empty($validated['inbox_id']) && (int) $validated['inbox_id'] !== (int) $inbox?->id) {
+            $requestedInbox = $this->accessibleInboxes($request->user())
+                ->where('id', $validated['inbox_id'])
+                ->with('account')
+                ->first();
+            if (! $requestedInbox) {
+                return response()->json(['message' => 'From inbox not found.'], 404);
+            }
+            $inbox = $requestedInbox;
+        }
         if (! $inbox?->account) {
             return response()->json(['message' => 'This inbox is not connected to Outlook.'], 422);
         }
@@ -1231,29 +1242,56 @@ class InboxController extends Controller
         $lastInbound = $conversation->messages()->where('direction', 'inbound')->orderByDesc('sent_at')->first();
         $source = $lastInbound ?: $conversation->messages()->orderByDesc('sent_at')->first();
         $mailboxEmail = strtolower(trim((string) ($inbox->email ?: $inbox->account->email ?: '')));
-        $to = trim((string) ($validated['to'] ?? $conversation->from_email ?? ''));
-        $cc = $validated['cc'] ?? null;
+        $requestedTo = $this->normalizeRecipientEmails($validated['to'] ?? null);
+        $requestedCc = $this->normalizeRecipientEmails($validated['cc'] ?? null);
+        $honorRecipients = $request->exists('to') || $request->exists('cc');
 
-        if ($request->boolean('reply_all') && $source) {
-            $others = collect()
-                ->merge($this->parseEmailList($source->from_email))
-                ->merge($this->parseEmailList($source->to_emails))
-                ->merge($this->parseEmailList($source->cc_emails))
-                ->map(fn ($email) => strtolower($email))
-                ->filter()
-                ->unique()
-                ->reject(fn ($email) => $email === $mailboxEmail)
-                ->values();
-            if ($others->isNotEmpty()) {
-                $to = $others->shift();
-                $existingCc = collect($this->parseEmailList($cc))->map(fn ($email) => strtolower($email));
-                $cc = $others->merge($existingCc)->unique()->implode(', ') ?: null;
+        if ($honorRecipients) {
+            $toEmails = $requestedTo;
+            $ccEmails = $requestedCc->reject(fn ($email) => $toEmails->contains($email))->values();
+        } else {
+            $toEmails = $requestedTo->isNotEmpty()
+                ? $requestedTo
+                : $this->normalizeRecipientEmails($conversation->from_email);
+            $ccEmails = $requestedCc;
+
+            if ($request->boolean('reply_all') && $source) {
+                $others = collect()
+                    ->merge($this->normalizeRecipientEmails($source->from_email))
+                    ->merge($this->normalizeRecipientEmails($source->to_emails))
+                    ->merge($this->normalizeRecipientEmails($source->cc_emails))
+                    ->filter()
+                    ->unique()
+                    ->reject(fn ($email) => $email === $mailboxEmail)
+                    ->values();
+                if ($others->isNotEmpty()) {
+                    $toEmails = collect([$others->shift()]);
+                    $ccEmails = $others->merge($ccEmails)->unique()->values();
+                }
             }
         }
 
-        if (! $to) {
+        $toEmails = $toEmails
+            ->reject(fn ($email) => $email === '')
+            ->unique()
+            ->values();
+        $ccEmails = $ccEmails
+            ->reject(fn ($email) => $email === '' || $toEmails->contains($email))
+            ->unique()
+            ->values();
+
+        if ($toEmails->isEmpty()) {
             return response()->json(['message' => 'No recipient found.'], 422);
         }
+
+        foreach ($toEmails->merge($ccEmails) as $email) {
+            if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return response()->json(['message' => "Invalid recipient: {$email}"], 422);
+            }
+        }
+
+        $to = $toEmails->implode(', ');
+        $cc = $ccEmails->isNotEmpty() ? $ccEmails->implode(', ') : null;
 
         $attachments = $this->normalizeAttachments($validated['attachments'] ?? []);
         if ($attachments === false) {
@@ -1267,6 +1305,7 @@ class InboxController extends Controller
             'body' => $validated['body'],
             'reply_to_message_id' => $lastInbound?->external_message_id,
             'attachments' => $attachments,
+            'honor_recipients' => true,
         ]);
 
         if (! $result) {
@@ -2299,11 +2338,29 @@ class InboxController extends Controller
      */
     private function parseEmailList(?string $value): array
     {
+        return $this->normalizeRecipientEmails($value)->all();
+    }
+
+    /**
+     * @return Collection<int, string>
+     */
+    private function normalizeRecipientEmails(?string $value): Collection
+    {
         return collect(preg_split('/[,;]+/', (string) $value) ?: [])
-            ->map(fn ($email) => trim((string) $email))
+            ->map(function ($part) {
+                $part = trim((string) $part);
+                if ($part === '') {
+                    return '';
+                }
+                if (preg_match('/<([^>]+)>/', $part, $matches)) {
+                    $part = trim($matches[1]);
+                }
+
+                return strtolower($part);
+            })
             ->filter()
-            ->values()
-            ->all();
+            ->unique()
+            ->values();
     }
 
     /**

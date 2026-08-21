@@ -227,6 +227,20 @@
                     </div>
 
                     <div id="replyComposerPanel" hidden>
+                        <div class="inbox-reply-headers">
+                            <div class="inbox-reply-header-row">
+                                <label for="replyFrom">From</label>
+                                <select id="replyFrom" class="inbox-reply-header-input" aria-label="From"></select>
+                            </div>
+                            <div class="inbox-reply-header-row">
+                                <label for="replyTo">To</label>
+                                <input type="text" id="replyTo" class="inbox-reply-header-input" placeholder="name@company.com, other@company.com" autocomplete="off">
+                            </div>
+                            <div class="inbox-reply-header-row">
+                                <label for="replyCc">Cc</label>
+                                <input type="text" id="replyCc" class="inbox-reply-header-input" placeholder="optional" autocomplete="off">
+                            </div>
+                        </div>
                         <div class="inbox-composer-row">
                             <div class="inbox-mention-popup" id="replyMentionPopup" hidden></div>
                             <div id="replyBody" class="inbox-composer-editor" contenteditable="true" data-placeholder="Write a reply… Type @ to mention teammates." role="textbox" aria-multiline="true"></div>
@@ -1420,6 +1434,41 @@
     border-color: #c7d7fb;
     box-shadow: 0 0 0 3px rgba(47, 111, 237, 0.08);
 }
+.inbox-reply-headers {
+    display: grid;
+    gap: 0;
+    padding: 0.2rem 0.65rem 0.1rem;
+    border-bottom: 1px solid #eef0f3;
+}
+.inbox-reply-header-row {
+    display: grid;
+    grid-template-columns: 2.75rem minmax(0, 1fr);
+    align-items: center;
+    gap: 0.45rem;
+    border-bottom: 1px solid #f3f4f6;
+}
+.inbox-reply-header-row:last-child { border-bottom: none; }
+.inbox-reply-header-row label {
+    margin: 0;
+    font-size: 0.74rem;
+    font-weight: 650;
+    color: #9ca3af;
+}
+.inbox-reply-header-input {
+    width: 100%;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    font-size: 0.82rem;
+    color: var(--inbox-text);
+    padding: 0.38rem 0;
+    outline: none;
+}
+.inbox-reply-header-input:focus { color: var(--inbox-text); }
+select.inbox-reply-header-input {
+    cursor: pointer;
+    padding-right: 1.1rem;
+}
 .inbox-msg-meta {
     display: flex;
     align-items: center;
@@ -2419,6 +2468,7 @@
         hideMentionPopup('comment');
         hideMentionPopup('reply');
         if (next === 'reply') {
+            populateReplyHeaders();
             applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
         }
     }
@@ -2772,14 +2822,7 @@
                 cc.value = parts.join(', ');
             }
         } else if (member.email && kind === 'reply') {
-            state.replyCcEmails = state.replyCcEmails || [];
-            if (!state.replyCcEmails.some(e => e.toLowerCase() === member.email.toLowerCase())) {
-                state.replyCcEmails.push(member.email);
-            }
-            const hint = el('composerHint');
-            if (hint && state.replyCcEmails.length) {
-                hint.textContent = 'CC: ' + state.replyCcEmails.join(', ');
-            }
+            addEmailToField('replyCc', member.email);
         }
         hideMentionPopup(kind);
     }
@@ -3932,6 +3975,8 @@
         state.commentAttachments = [];
         state.replyCcEmails = [];
         state.replyAll = false;
+        if (el('replyTo')) el('replyTo').value = '';
+        if (el('replyCc')) el('replyCc').value = '';
         state.expandedMessageIds = {};
         state.composerExpanded = false;
         renderAttachChips('reply');
@@ -3997,8 +4042,10 @@
     }
 
     function parseEmailList(value) {
-        if (Array.isArray(value)) return value.map(v => String(v || '').trim()).filter(Boolean);
-        return String(value || '').split(/[,;]+/).map(v => v.trim()).filter(Boolean);
+        const parts = Array.isArray(value)
+            ? value.map(v => String(v || '').trim()).filter(Boolean)
+            : String(value || '').split(/[,;]+/).map(v => v.trim()).filter(Boolean);
+        return parts.map(extractEmailAddress).filter(email => email.includes('@'));
     }
 
     function messagePreviewText(m) {
@@ -4104,24 +4151,103 @@
         await loadConversations();
     }
 
+    function conversationInbox() {
+        const c = state.conversation;
+        if (!c) return null;
+        return c.inbox || state.inboxes.find(i => Number(i.id) === Number(c.inbox_id)) || null;
+    }
+
+    function mailboxEmail(inbox) {
+        return String(inbox?.email || inbox?.account_email || '').trim().toLowerCase();
+    }
+
+    function extractEmailAddress(value) {
+        const raw = String(value || '').trim();
+        const angle = raw.match(/<([^>]+)>/);
+        return (angle ? angle[1] : raw).trim().toLowerCase();
+    }
+
+    function addEmailToField(fieldId, email) {
+        const input = el(fieldId);
+        if (!input || !email) return;
+        const next = extractEmailAddress(email);
+        if (!next.includes('@')) return;
+        const parts = parseEmailList(input.value);
+        if (parts.some(existing => existing === next)) return;
+        parts.push(next);
+        input.value = parts.join(', ');
+    }
+
+    function fillReplyFromSelect() {
+        const select = el('replyFrom');
+        if (!select) return;
+        const previous = select.value;
+        const connected = state.inboxes.filter(i => i.connected);
+        const currentId = Number(state.conversation?.inbox_id || state.conversation?.inbox?.id || 0);
+        const options = connected.slice();
+        if (currentId && !options.some(i => Number(i.id) === currentId)) {
+            const current = conversationInbox();
+            if (current) options.unshift(current);
+        }
+        select.innerHTML = options.map(i => {
+            const address = i.email || i.account_email || '';
+            const label = address ? `${i.name || address} (${address})` : (i.name || 'Inbox');
+            return `<option value="${escapeHtml(String(i.id))}">${escapeHtml(label)}</option>`;
+        }).join('');
+        if (previous && [...select.options].some(o => o.value === previous)) {
+            select.value = previous;
+        } else if (currentId && [...select.options].some(o => o.value === String(currentId))) {
+            select.value = String(currentId);
+        } else if (options[0]) {
+            select.value = String(options[0].id);
+        }
+    }
+
+    function replySourceMessage(preferred) {
+        if (preferred) return preferred;
+        const messages = state.conversation?.messages || [];
+        const inbound = [...messages].slice().reverse().find(m => m.direction === 'inbound');
+        return inbound || messages[messages.length - 1] || null;
+    }
+
+    function defaultReplyRecipients(message, replyAll) {
+        const mine = mailboxEmail(conversationInbox());
+        const source = replySourceMessage(message);
+        const fromList = parseEmailList(source?.from_email || state.conversation?.from_email);
+        const toList = parseEmailList(source?.to || source?.to_emails);
+        const ccList = parseEmailList(source?.cc || source?.cc_emails);
+        const notMe = email => email && email !== mine;
+        const isFromMe = fromList.some(email => email === mine);
+
+        if (replyAll) {
+            const unique = [...new Set([...fromList, ...toList, ...ccList].filter(notMe))];
+            return { to: unique.slice(0, 1), cc: unique.slice(1) };
+        }
+
+        let to = isFromMe
+            ? toList.filter(notMe)
+            : fromList.filter(notMe);
+        if (!to.length) {
+            to = parseEmailList(state.conversation?.from_email).filter(notMe);
+        }
+        return { to: [...new Set(to)], cc: [] };
+    }
+
+    function populateReplyHeaders(message = null, { replyAll = false, force = false } = {}) {
+        fillReplyFromSelect();
+        const toEl = el('replyTo');
+        const ccEl = el('replyCc');
+        if (!force && toEl?.value.trim()) return;
+        const { to, cc } = defaultReplyRecipients(message, replyAll);
+        if (toEl) toEl.value = to.join(', ');
+        if (ccEl) ccEl.value = cc.join(', ');
+    }
+
     function startReplyFromMessage(message, replyAll) {
         if (!state.composerCanReply) return;
         state.replyAll = !!replyAll;
-        const inbox = state.inboxes.find(i => Number(i.id) === Number(state.conversation?.inbox_id || state.conversation?.inbox?.id));
-        const myEmail = String(inbox?.email || inbox?.account_email || '').toLowerCase();
-        const unique = [...new Set([
-            ...parseEmailList(message.from_email),
-            ...parseEmailList(message.to || message.to_emails),
-            ...parseEmailList(message.cc || message.cc_emails),
-        ].map(email => email.toLowerCase()).filter(email => email && email !== myEmail))];
-        state.replyCcEmails = unique.slice(1);
+        populateReplyHeaders(message, { replyAll: !!replyAll, force: true });
         setComposerMode('reply');
-        const hint = el('composerHint');
-        if (hint) {
-            hint.textContent = unique.length
-                ? ((replyAll ? 'Reply all' : 'Reply') + ' · ' + unique.join(', '))
-                : 'Reply via Outlook';
-        }
         el('replyBody')?.focus();
     }
 
@@ -5691,25 +5817,30 @@
         if (!state.selectedId) return;
         const html = getComposerHtml('reply');
         if (isComposerEmpty('reply')) return alert('Write a reply first.');
+        const to = (el('replyTo')?.value || '').trim();
+        const cc = (el('replyCc')?.value || '').trim();
+        const inboxId = Number(el('replyFrom')?.value || 0);
+        if (!to) return alert('Add at least one To recipient.');
         el('btnSendReply').disabled = true;
         try {
             const payload = {
                 body: html,
+                to,
+                cc: cc || null,
                 attachments: state.replyAttachments.map(a => ({
                     name: a.name,
                     contentType: a.contentType,
                     contentBytes: a.contentBytes,
                 })),
             };
-            if (state.replyCcEmails?.length) {
-                payload.cc = state.replyCcEmails.join(', ');
-            }
-            if (state.replyAll) payload.reply_all = true;
+            if (inboxId) payload.inbox_id = inboxId;
             const data = await api('/conversations/' + state.selectedId + '/reply', { method: 'POST', body: payload });
             applyComposerSignature('reply');
             state.replyAttachments = [];
             state.replyCcEmails = [];
             state.replyAll = false;
+            if (el('replyTo')) el('replyTo').value = '';
+            if (el('replyCc')) el('replyCc').value = '';
             renderAttachChips('reply');
             hideMentionPopup('reply');
             el('composerHint').textContent = 'Reply via Outlook';

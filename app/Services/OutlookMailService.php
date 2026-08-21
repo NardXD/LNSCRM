@@ -820,7 +820,7 @@ class OutlookMailService
     }
 
     /**
-     * @param  array{to: string, subject: string, body: string, cc?: string|null, reply_to_message_id?: string|null}  $payload
+     * @param  array{to: string, subject: string, body: string, cc?: string|null, reply_to_message_id?: string|null, honor_recipients?: bool}  $payload
      */
     public function sendMail(SharedInbox $inbox, array $payload): ?array
     {
@@ -871,11 +871,13 @@ class OutlookMailService
         }
 
         $hasAttachments = ! empty($message['attachments']);
+        $honorRecipients = ! empty($payload['honor_recipients']) || $ccList !== [];
 
-        // Graph /reply only accepts a comment — use sendMail when attaching files.
+        // Graph /reply ignores To/CC — use sendMail when the user set recipients or attached files.
         if (! empty($payload['reply_to_message_id'])
             && ! str_starts_with((string) $payload['reply_to_message_id'], 'local-')
             && ! $hasAttachments
+            && ! $honorRecipients
         ) {
             $response = Http::withToken($account->access_token)
                 ->post(self::GRAPH_BASE."/{$mailboxPath}/messages/{$payload['reply_to_message_id']}/reply", [
