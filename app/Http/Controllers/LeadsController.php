@@ -44,20 +44,8 @@ class LeadsController extends Controller
     {
         $companyId = (int) Auth::user()->company_id;
         $query = Lead::query()
-            ->select('leads.*')
-            ->where('leads.company_id', $companyId)
+            ->where('company_id', $companyId)
             ->with(['identities', 'assignedUser:id,name', 'labels'])
-            ->withCount([
-                'inboxConversations as attached_inbox_count' => fn ($q) => $q->notMerged(),
-            ])
-            ->addSelect([
-                'connected_thread_id' => InboxConversation::query()
-                    ->select('id')
-                    ->whereColumn('lead_id', 'leads.id')
-                    ->whereNull('merged_into_id')
-                    ->orderByDesc('last_message_at')
-                    ->limit(1),
-            ])
             ->orderByDesc('updated_at');
 
         if ($request->filled('search')) {
@@ -116,10 +104,19 @@ class LeadsController extends Controller
 
         $perPage = min(100, max(10, (int) $request->get('per_page', 20)));
         $leads = $query->paginate($perPage);
+        $threadIds = $this->latestConnectedThreadIds(
+            collect($leads->items())->pluck('id')->map(fn ($id) => (int) $id)->all()
+        );
 
         return response()->json([
             'success' => true,
-            'data' => collect($leads->items())->map(fn (Lead $lead) => $this->serialize($lead))->all(),
+            'data' => collect($leads->items())->map(function (Lead $lead) use ($threadIds) {
+                $threadId = $threadIds[(int) $lead->id] ?? null;
+                $lead->setAttribute('connected_thread_id', $threadId);
+                $lead->setAttribute('attached_inbox_count', $threadId ? 1 : 0);
+
+                return $this->serialize($lead);
+            })->all(),
             'sources' => Lead::query()
                 ->where('company_id', $companyId)
                 ->whereNotNull('source')
@@ -651,6 +648,30 @@ class LeadsController extends Controller
             'message' => 'Label removed.',
             'labels' => $lead->labels->map(fn (LeadLabel $item) => $this->serializeLabel($item))->values()->all(),
         ]);
+    }
+
+    /**
+     * Latest attached inbox thread id per lead (one query for the page).
+     *
+     * @param  list<int>  $leadIds
+     * @return array<int, int>
+     */
+    protected function latestConnectedThreadIds(array $leadIds): array
+    {
+        $leadIds = array_values(array_unique(array_filter($leadIds)));
+        if ($leadIds === []) {
+            return [];
+        }
+
+        return InboxConversation::query()
+            ->whereIn('lead_id', $leadIds)
+            ->whereNull('merged_into_id')
+            ->orderByDesc('last_message_at')
+            ->orderByDesc('id')
+            ->get(['id', 'lead_id'])
+            ->unique('lead_id')
+            ->mapWithKeys(fn (InboxConversation $c) => [(int) $c->lead_id => (int) $c->id])
+            ->all();
     }
 
     /**
