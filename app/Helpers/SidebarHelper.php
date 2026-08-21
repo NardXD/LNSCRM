@@ -174,6 +174,14 @@ class SidebarHelper
                 'category' => 'main',
             ],
             [
+                'route' => 'broadcast-messaging',
+                'permission' => 'view_broadcast_messaging',
+                'module_slug' => 'broadcast-messaging',
+                'label' => 'Broadcast Messaging',
+                'icon' => 'megaphone',
+                'category' => 'main',
+            ],
+            [
                 'route' => 'billing',
                 'permission' => 'view_billing',
                 'module_slug' => 'billing',

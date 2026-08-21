@@ -16,6 +16,7 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\BillingInvoiceController;
 use App\Http\Controllers\BillingSubscriptionController;
+use App\Http\Controllers\BroadcastMessagingController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\ChangePasswordController;
 use App\Http\Controllers\Client\ClientAuthController;
@@ -116,6 +117,7 @@ Route::prefix('twilio')->group(function () {
     Route::match(['get', 'post'], '/recording-callback', [CallController::class, 'recordingStatusCallback'])->name('twilio.recording-callback');
     Route::post('/sms-webhook', [PhoneSystemController::class, 'smsWebhook'])->name('twilio.sms-webhook');
     Route::post('/sms-status', [PhoneSystemController::class, 'smsStatus'])->name('twilio.sms-status');
+    Route::post('/broadcast-sms-status', [BroadcastMessagingController::class, 'smsStatus'])->name('twilio.broadcast-sms-status');
 });
 
 // Viber (Twilio Messaging) inbound webhook (public, CSRF-exempt)
@@ -535,6 +537,20 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/conversations/{conversation}/call-link', [SmsController::class, 'callLink'])->name('api.sms.call-link');
     });
 
+    Route::get('/broadcast-messaging', [BroadcastMessagingController::class, 'index'])
+        ->middleware('permission:view_broadcast_messaging')
+        ->name('broadcast-messaging');
+
+    Route::prefix('api/broadcast')->middleware('permission:view_broadcast_messaging')->group(function () {
+        Route::get('/bootstrap', [BroadcastMessagingController::class, 'bootstrap'])->name('api.broadcast.bootstrap');
+        Route::get('/campaigns', [BroadcastMessagingController::class, 'list'])->name('api.broadcast.campaigns');
+        Route::post('/campaigns', [BroadcastMessagingController::class, 'store'])
+            ->middleware('permission:send_broadcast_sms|send_broadcast_email')
+            ->name('api.broadcast.campaigns.store');
+        Route::get('/campaigns/{campaign}', [BroadcastMessagingController::class, 'show'])->name('api.broadcast.campaigns.show');
+        Route::get('/recipients', [BroadcastMessagingController::class, 'recipients'])->name('api.broadcast.recipients');
+    });
+
     Route::prefix('api/messaging')->middleware('permission:view_messaging')->group(function () {
         Route::get('/unread-count', [MessagingController::class, 'getUnreadCount'])->name('api.messaging.unread-count');
         Route::get('/conversations', [MessagingController::class, 'getConversations'])->name('api.messaging.conversations');
@@ -557,10 +573,10 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         ->middleware('permission:view_inbox')
         ->name('inbox');
     Route::get('/inbox/connect/outlook', [InboxController::class, 'redirectOutlook'])
-        ->middleware('permission:view_inbox')
+        ->middleware('permission:view_inbox|view_broadcast_messaging')
         ->name('inbox.connect.outlook');
     Route::get('/inbox/connect/outlook/callback', [InboxController::class, 'callbackOutlook'])
-        ->middleware('permission:view_inbox')
+        ->middleware('permission:view_inbox|view_broadcast_messaging')
         ->name('inbox.connect.outlook.callback');
 
     Route::prefix('api/inbox')->middleware('permission:view_inbox')->group(function () {

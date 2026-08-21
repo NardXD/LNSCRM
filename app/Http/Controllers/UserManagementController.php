@@ -9,10 +9,12 @@ use App\Models\Department;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SalesRep;
+use App\Models\SystemSetting;
 use App\Models\TwilioPhoneNumber;
 use App\Models\User;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioNumberAssignmentService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -21,6 +23,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class UserManagementController extends Controller
 {
@@ -94,7 +97,7 @@ class UserManagementController extends Controller
 
         // Load other settings from system_settings if available
         if ($company && $company->id) {
-            $settings = \App\Models\SystemSetting::where('group', 'company_'.$company->id)
+            $settings = SystemSetting::where('group', 'company_'.$company->id)
                 ->whereNotIn('key', ['timezone']) // Exclude timezone as it's now in companies table
                 ->pluck('value', 'key')
                 ->toArray();
@@ -756,6 +759,12 @@ class UserManagementController extends Controller
             'WhatsApp' => ['view_whatsapp', 'module_slug' => 'whatsapp'],
             'Facebook & Instagram' => ['view_facebook', 'module_slug' => 'facebook'],
             'SMS' => ['view_sms', 'send_sms', 'module_slug' => 'sms'],
+            'Broadcast Messaging' => [
+                'view_broadcast_messaging',
+                'send_broadcast_sms',
+                'send_broadcast_email',
+                'module_slug' => 'broadcast-messaging',
+            ],
             'Billing & Payments' => ['view_billing', 'delete_billing', 'module_slug' => 'billing'],
             'Client Management' => ['view_client_management', 'module_slug' => 'client-management'],
             'Leads' => ['view_leads', 'create_lead_rules', 'module_slug' => 'client-management'],
@@ -1127,7 +1136,7 @@ class UserManagementController extends Controller
             $assignment = app(TwilioNumberAssignmentService::class);
             $assignment->assignToUser($employee, $request->input('twilio_number'), TwilioNumberAssignmentService::PURPOSE_VOICE);
             $assignment->assignToUser($employee, $request->input('twilio_sms_number'), TwilioNumberAssignmentService::PURPOSE_SMS);
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             return response()->json([
                 'success' => false,
                 'message' => collect($e->errors())->flatten()->first(),
@@ -1323,7 +1332,7 @@ class UserManagementController extends Controller
                 if ($request->has('twilio_sms_number')) {
                     $assignment->assignToUser($employee, $request->input('twilio_sms_number'), TwilioNumberAssignmentService::PURPOSE_SMS);
                 }
-            } catch (\Illuminate\Validation\ValidationException $e) {
+            } catch (ValidationException $e) {
                 return response()->json([
                     'success' => false,
                     'message' => collect($e->errors())->flatten()->first(),
@@ -1396,7 +1405,7 @@ class UserManagementController extends Controller
     /**
      * API: List clients for the company (for assigning to employees).
      */
-    public function getClientsList(): \Illuminate\Http\JsonResponse
+    public function getClientsList(): JsonResponse
     {
         $user = Auth::user();
 
@@ -1490,7 +1499,7 @@ class UserManagementController extends Controller
         $otherSettingsFields = ['date_format', 'currency', 'language'];
         foreach ($otherSettingsFields as $field) {
             if (isset($validated[$field]) && $validated[$field] !== null) {
-                \App\Models\SystemSetting::setValue(
+                SystemSetting::setValue(
                     $field,
                     $validated[$field],
                     'string',

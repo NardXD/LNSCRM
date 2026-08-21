@@ -1,5 +1,14 @@
 <?php
 
+use App\Http\Middleware\AdminMiddleware;
+use App\Http\Middleware\CheckPermission;
+use App\Http\Middleware\EnsureClientCompanyNotSuspended;
+use App\Http\Middleware\EnsureCompanyNotSuspended;
+use App\Http\Middleware\FlexApiKeyAuth;
+use App\Http\Middleware\IdentifyCompanyBySubdomain;
+use App\Http\Middleware\McpApiKeyAuth;
+use App\Http\Middleware\RecorderTokenAuth;
+use App\Http\Middleware\SetCompanyTimezone;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -20,18 +29,18 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->trustProxies(at: '*');
 
         $middleware->alias([
-            'admin' => \App\Http\Middleware\AdminMiddleware::class,
-            'permission' => \App\Http\Middleware\CheckPermission::class,
-            'company.active' => \App\Http\Middleware\EnsureCompanyNotSuspended::class,
-            'client.company.active' => \App\Http\Middleware\EnsureClientCompanyNotSuspended::class,
-            'mcp.api_key' => \App\Http\Middleware\McpApiKeyAuth::class,
-            'recorder.token' => \App\Http\Middleware\RecorderTokenAuth::class,
-            'flex.api_key' => \App\Http\Middleware\FlexApiKeyAuth::class,
+            'admin' => AdminMiddleware::class,
+            'permission' => CheckPermission::class,
+            'company.active' => EnsureCompanyNotSuspended::class,
+            'client.company.active' => EnsureClientCompanyNotSuspended::class,
+            'mcp.api_key' => McpApiKeyAuth::class,
+            'recorder.token' => RecorderTokenAuth::class,
+            'flex.api_key' => FlexApiKeyAuth::class,
         ]);
         $middleware->web(prepend: [
-            \App\Http\Middleware\IdentifyCompanyBySubdomain::class,
+            IdentifyCompanyBySubdomain::class,
         ], append: [
-            \App\Http\Middleware\SetCompanyTimezone::class,
+            SetCompanyTimezone::class,
         ]);
 
         // Exclude webhook routes from CSRF protection
@@ -43,6 +52,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'twilio/recording-callback',
             'twilio/sms-webhook',
             'twilio/sms-status',
+            'twilio/broadcast-sms-status',
             'webhooks/stripe/*',
             'webhooks/wise/*',
             'webhooks/viber/*',

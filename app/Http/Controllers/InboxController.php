@@ -174,7 +174,9 @@ class InboxController extends Controller
         $companyId = $request->user()->company_id;
         $creds = $this->mailService->getMailCredentials($companyId);
         if (empty($creds['client_id']) || empty($creds['client_secret'])) {
-            return redirect()->route('inbox')->with('error', 'Outlook is not configured. Add Microsoft OAuth credentials in Integrations.');
+            $home = $request->query('intent') === 'broadcast' ? 'broadcast-messaging' : 'inbox';
+
+            return redirect()->route($home)->with('error', 'Outlook is not configured. Add Microsoft OAuth credentials in Integrations.');
         }
 
         $tenant = $this->oauthSettings->getMicrosoftTenant($companyId);
@@ -219,16 +221,18 @@ class InboxController extends Controller
         $companyId = $request->user()->company_id;
         $creds = $this->mailService->getMailCredentials($companyId);
 
+        $state = $this->outlookOauthState($request);
+
         if ($request->filled('error')) {
             $msError = $request->input('error_description', $request->input('error'));
             Log::warning('Outlook mail OAuth error', ['error' => $msError]);
 
-            return redirect()->route('inbox')->with('error', $this->friendlyOauthError($msError));
+            return $this->outlookConnectRedirect($state, 'error', $this->friendlyOauthError($msError));
         }
 
         $code = $request->input('code');
         if (! $code) {
-            return redirect()->route('inbox')->with('error', 'Missing authorization code.');
+            return $this->outlookConnectRedirect($state, 'error', 'Missing authorization code.');
         }
 
         $tenant = $this->oauthSettings->getMicrosoftTenant($companyId);
@@ -248,7 +252,7 @@ class InboxController extends Controller
             $msError = $body['error_description'] ?? $body['error'] ?? $response->body();
             Log::warning('Outlook mail token exchange failed', ['body' => $response->body()]);
 
-            return redirect()->route('inbox')->with('error', $this->friendlyOauthError($msError));
+            return $this->outlookConnectRedirect($state, 'error', $this->friendlyOauthError($msError));
         }
 
         try {
@@ -257,7 +261,7 @@ class InboxController extends Controller
             $userInfo = Http::withToken($accessToken)->get('https://graph.microsoft.com/v1.0/me')->json();
             $email = $userInfo['mail'] ?? $userInfo['userPrincipalName'] ?? null;
             if (! $email) {
-                return redirect()->route('inbox')->with('error', 'Connected to Microsoft, but no email was returned for this account.');
+                return $this->outlookConnectRedirect($state, 'error', 'Connected to Microsoft, but no email was returned for this account.');
             }
             $user = $request->user();
 
@@ -275,14 +279,7 @@ class InboxController extends Controller
                 ]
             );
 
-            $state = [];
-            try {
-                $state = decrypt($request->input('state'));
-            } catch (\Throwable) {
-                $state = ['intent' => 'personal'];
-            }
-
-            if (($state['intent'] ?? 'personal') === 'personal') {
+            if (in_array($state['intent'] ?? 'personal', ['personal', 'broadcast'], true)) {
                 $inbox = SharedInbox::updateOrCreate(
                     [
                         'company_id' => $user->company_id,
@@ -322,7 +319,8 @@ class InboxController extends Controller
                     } elseif (empty($inbox->external_mailbox)) {
                         // mailbox_login: require the MS365 account to match the inbox email.
                         if ($inbox->email && strcasecmp((string) $inbox->email, (string) $email) !== 0) {
-                            return redirect()->route('inbox')->with(
+                            return $this->outlookConnectRedirect(
+                                $state,
                                 'error',
                                 'Shared inbox is set to '.$inbox->email.'. Sign in with that Microsoft 365 account, not '.$email.'.'
                             );
@@ -351,10 +349,33 @@ class InboxController extends Controller
                 'message' => $e->getMessage(),
             ]);
 
-            return redirect()->route('inbox')->with('error', 'Connected to Microsoft, but saving the mailbox failed: '.$e->getMessage());
+            return $this->outlookConnectRedirect($state, 'error', 'Connected to Microsoft, but saving the mailbox failed: '.$e->getMessage());
         }
 
-        return redirect()->route('inbox')->with('status', 'outlook-mail-connected');
+        return $this->outlookConnectRedirect($state, 'status', 'outlook-mail-connected');
+    }
+
+    /**
+     * @return array{user_id?: int, intent?: string, shared_inbox_id?: mixed}
+     */
+    private function outlookOauthState(Request $request): array
+    {
+        try {
+            $state = decrypt((string) $request->input('state', ''));
+
+            return is_array($state) ? $state : ['intent' => 'personal'];
+        } catch (\Throwable) {
+            return ['intent' => 'personal'];
+        }
+    }
+
+    private function outlookConnectRedirect(array $state, string $flashKey, mixed $flashValue): RedirectResponse
+    {
+        $route = (($state['intent'] ?? '') === 'broadcast')
+            ? 'broadcast-messaging'
+            : 'inbox';
+
+        return redirect()->route($route)->with($flashKey, $flashValue);
     }
 
     private function friendlyOauthError(mixed $msError): string
