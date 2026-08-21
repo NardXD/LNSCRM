@@ -7,6 +7,7 @@ use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\LeadIdentity;
 use App\Models\User;
+use App\Notifications\LeadAssignedNotification;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 
@@ -213,7 +214,42 @@ class LeadActivityService
         ], $userId);
 
         if ($toId) {
+            $this->notifyAssignee($lead, $toId, $fromId, $userId ?? Auth::id(), $reason);
             app(LeadRuleEngine::class)->apply($lead, '', [LeadRuleEngine::TRIGGER_LEAD_ASSIGNED]);
+        }
+    }
+
+    protected function notifyAssignee(
+        Lead $lead,
+        int $toId,
+        mixed $fromId,
+        ?int $actorId,
+        ?string $reason
+    ): void {
+        if ($actorId && $actorId === $toId) {
+            return;
+        }
+
+        try {
+            $assignee = User::query()->find($toId);
+            if (! $assignee instanceof User) {
+                return;
+            }
+
+            $isNew = $reason === 'created' || ($lead->wasRecentlyCreated && ! $fromId);
+
+            $assignee->notify(new LeadAssignedNotification(
+                $lead,
+                $isNew,
+                $this->userName($actorId),
+                $reason
+            ));
+        } catch (\Throwable $e) {
+            Log::warning('Failed to notify lead assignee', [
+                'lead_id' => $lead->id,
+                'user_id' => $toId,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 

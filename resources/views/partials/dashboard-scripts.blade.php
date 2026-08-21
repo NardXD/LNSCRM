@@ -172,6 +172,10 @@
                     title = data.summary || `New SMS from ${data.contact_name || 'a contact'}`;
                 } else if (isFacebook) {
                     title = data.summary || `New message from ${data.contact_name || 'a contact'}`;
+                } else if (data.type === 'lead_assigned') {
+                    title = data.summary || (data.event === 'created'
+                        ? `New lead assigned to you: ${data.contact_name || 'a lead'}`
+                        : `${data.contact_name || 'A lead'} was assigned to you`);
                 } else if (data.type === 'lead_rule') {
                     title = data.summary || `Lead rule: ${data.contact_name || 'a lead'}`;
                 } else if (isMention) {

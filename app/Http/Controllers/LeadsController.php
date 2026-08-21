@@ -156,7 +156,7 @@ class LeadsController extends Controller
         $this->leadActivity->recordCreated($lead, $request->input('source') ?: 'manual');
         $this->inboxAttach->attachMany($lead, $request->input('inbox_conversation_ids', []), $user);
         if ($lead->assigned_to) {
-            $this->leadActivity->recordAssignment($lead, null, $lead->assigned_to);
+            $this->leadActivity->recordAssignment($lead, null, $lead->assigned_to, reason: 'created');
         }
         if ($legacyNote !== '') {
             $this->leadActivity->recordNote($lead, true, note: $legacyNote);
