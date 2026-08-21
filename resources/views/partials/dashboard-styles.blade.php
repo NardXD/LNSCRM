@@ -190,6 +190,34 @@
         overflow: hidden;
     }
 
+    .nav-unread-badge {
+        margin-left: auto;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        line-height: 18px;
+        color: #fff;
+        text-align: center;
+        background: #ef4444;
+        border-radius: 9px;
+        flex-shrink: 0;
+    }
+
+    .sidebar.collapsed .nav-unread-badge {
+        position: absolute;
+        top: 0.35rem;
+        right: 0.35rem;
+        margin-left: 0;
+        min-width: 16px;
+        height: 16px;
+        line-height: 16px;
+        font-size: 0.65rem;
+        padding: 0 4px;
+        border: 2px solid var(--bg-card, #fff);
+    }
+
     /* Submenu Styles */
     .nav-item-parent {
         position: relative;

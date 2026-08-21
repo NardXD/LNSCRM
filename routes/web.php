@@ -617,6 +617,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
 
     Route::prefix('api/notifications')->group(function () {
         Route::get('/unread-count', [NotificationController::class, 'unreadCount'])->name('api.notifications.unread-count');
+        Route::get('/channel-unread-counts', [NotificationController::class, 'channelUnreadCounts'])->name('api.notifications.channel-unread-counts');
         Route::get('/', [NotificationController::class, 'index'])->name('api.notifications.index');
         Route::post('/read-all', [NotificationController::class, 'markAllRead'])->name('api.notifications.read-all');
         Route::post('/{id}/read', [NotificationController::class, 'markRead'])->name('api.notifications.read');

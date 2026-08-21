@@ -875,6 +875,7 @@
         await fillUntilScrollable();
         els.messages.scrollTop = els.messages.scrollHeight;
         window.updateHeaderNotificationsBadge?.();
+        window.updateSidebarUnreadBadges?.();
 
         if (data.conversation) {
             const idx = conversations.findIndex(c => c.id === id);

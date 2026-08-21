@@ -499,6 +499,7 @@
         document.querySelector('.viber-layout')?.classList.add('with-history');
         window.loadChannelContactHistory('#viberContactHistory', contactHistoryOpts(conv));
         window.updateHeaderNotificationsBadge?.();
+        window.updateSidebarUnreadBadges?.();
     }
 
     async function sendText() {

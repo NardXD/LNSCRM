@@ -42,6 +42,55 @@ class NotificationController extends Controller
         ]);
     }
 
+    /**
+     * Per-channel unread message totals for sidebar badges.
+     */
+    public function channelUnreadCounts(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $companyId = (int) $user->company_id;
+        $counts = [
+            'messaging' => 0,
+            'viber' => 0,
+            'whatsapp' => 0,
+            'facebook' => 0,
+            'sms' => 0,
+        ];
+
+        if ($user->hasPermission('view_messaging') && $companyId) {
+            $counts['messaging'] = $this->messagingUnreadCount($user, $companyId);
+        }
+
+        if ($user->hasPermission('view_viber') && $companyId) {
+            $counts['viber'] = (int) ViberConversation::query()
+                ->where('company_id', $companyId)
+                ->sum('unread_count');
+        }
+
+        if ($user->hasPermission('view_whatsapp') && $companyId) {
+            $counts['whatsapp'] = (int) WhatsAppConversation::query()
+                ->where('company_id', $companyId)
+                ->sum('unread_count');
+        }
+
+        if ($user->hasPermission('view_facebook') && $companyId) {
+            $counts['facebook'] = (int) FacebookConversation::query()
+                ->where('company_id', $companyId)
+                ->sum('unread_count');
+        }
+
+        if ($user->hasPermission('view_sms') && $companyId) {
+            $counts['sms'] = (int) SmsConversation::query()
+                ->where('company_id', $companyId)
+                ->sum('unread_count');
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $counts,
+        ]);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -233,6 +282,22 @@ class NotificationController extends Controller
             $total += FacebookConversation::query()
                 ->where('company_id', $companyId)
                 ->where('unread_count', '>', 0)
+                ->count();
+        }
+
+        return $total;
+    }
+
+    private function messagingUnreadCount(User $user, int $companyId): int
+    {
+        $total = 0;
+
+        foreach ($user->conversations()->where('conversations.company_id', $companyId)->get() as $conv) {
+            $pivot = $conv->participants()->where('users.id', $user->id)->first()?->pivot;
+            $lastRead = $pivot?->last_read_at;
+            $total += $conv->messages()
+                ->where('user_id', '!=', $user->id)
+                ->where('created_at', '>', $lastRead ?? '1970-01-01')
                 ->count();
         }
 

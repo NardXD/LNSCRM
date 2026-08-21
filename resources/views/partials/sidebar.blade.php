@@ -316,6 +316,9 @@
                                 </svg>
                             @endif
                             <span class="nav-text">{{ $item['label'] }}</span>
+                            @if(in_array($item['route'], ['messaging', 'viber', 'whatsapp', 'facebook', 'sms'], true))
+                                <span class="nav-unread-badge" data-channel="{{ $item['route'] }}" style="display: none;" aria-hidden="true"></span>
+                            @endif
                         </a>
                     @endif
                 @endif

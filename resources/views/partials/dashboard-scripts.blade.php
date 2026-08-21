@@ -104,7 +104,6 @@
     window.updateHeaderMessagingBadge = function() {
         const badge = document.getElementById('headerMessagingBadge');
         if (!badge) return;
-        const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
         fetch('{{ url("api/messaging/unread-count") }}', {
             headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
         })
@@ -123,6 +122,40 @@
     if (document.getElementById('headerMessagingBadge')) {
         window.updateHeaderMessagingBadge();
         setInterval(window.updateHeaderMessagingBadge, 30000);
+    }
+
+    // Sidebar channel unread badges (messaging, viber, whatsapp, facebook, sms)
+    window.updateSidebarUnreadBadges = function() {
+        const badges = document.querySelectorAll('.nav-unread-badge[data-channel]');
+        if (!badges.length) return;
+
+        fetch('{{ url("api/notifications/channel-unread-counts") }}', {
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success || !data.data) return;
+                badges.forEach(badge => {
+                    const channel = badge.getAttribute('data-channel');
+                    const total = Number(data.data[channel] || 0);
+                    if (total > 0) {
+                        badge.textContent = total > 99 ? '99+' : String(total);
+                        badge.style.display = '';
+                        badge.setAttribute('aria-label', total + ' unread');
+                        badge.removeAttribute('aria-hidden');
+                    } else {
+                        badge.textContent = '';
+                        badge.style.display = 'none';
+                        badge.setAttribute('aria-hidden', 'true');
+                        badge.removeAttribute('aria-label');
+                    }
+                });
+            })
+            .catch(() => {});
+    };
+    if (document.querySelector('.nav-unread-badge[data-channel]')) {
+        window.updateSidebarUnreadBadges();
+        setInterval(window.updateSidebarUnreadBadges, 30000);
     }
 
     // App notifications (inbox mentions, etc.)

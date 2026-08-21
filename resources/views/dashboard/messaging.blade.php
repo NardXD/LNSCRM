@@ -1602,6 +1602,7 @@
         if (loadOlderEl) loadOlderEl.hidden = !messagesHasMore;
         document.getElementById('messagesArea').scrollTop = document.getElementById('messagesArea').scrollHeight;
         if (typeof window.updateHeaderMessagingBadge === 'function') window.updateHeaderMessagingBadge();
+        if (typeof window.updateSidebarUnreadBadges === 'function') window.updateSidebarUnreadBadges();
     }
 
     async function loadOlderMessages() {

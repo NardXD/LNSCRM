@@ -826,6 +826,7 @@
         document.querySelector('.sms-layout')?.classList.add('with-history');
         window.loadChannelContactHistory('#smsContactHistory', contactHistoryOpts(conv));
         window.updateHeaderNotificationsBadge?.();
+        window.updateSidebarUnreadBadges?.();
     }
 
     async function pollActiveMessages() {

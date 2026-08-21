@@ -496,6 +496,7 @@
             renderThreads();
         }
         window.updateHeaderNotificationsBadge?.();
+        window.updateSidebarUnreadBadges?.();
 
         const layout = document.querySelector('.wa-layout');
         layout?.classList.add('with-history');
