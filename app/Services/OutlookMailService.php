@@ -127,6 +127,68 @@ class OutlookMailService
     }
 
     /**
+     * Lightweight newest-first probe for background / scheduled sync.
+     * Mirrors the inbox UI auto-sync (Inbox + Sent only, few pages, early stop).
+     */
+    public function syncRecent(SharedInbox $inbox): int
+    {
+        $account = $inbox->account;
+        if (! $account || ! $account->is_active) {
+            return 0;
+        }
+
+        if (! $this->assertAccountMatchesInbox($inbox, $account)) {
+            $this->clearInboxConversations($inbox);
+            $inbox->outlook_mail_account_id = null;
+            $inbox->save();
+
+            return 0;
+        }
+
+        $account = $this->refreshTokenIfNeeded($account);
+        $imported = 0;
+
+        // Same probe targets as the /inbox auto-sync (quiet + recentOnly).
+        $probes = [
+            'inbox' => 2,
+            'sent' => 1,
+        ];
+
+        foreach ($probes as $folder => $maxPages) {
+            if (! isset(self::FOLDERS[$folder])) {
+                continue;
+            }
+
+            $meta = self::FOLDERS[$folder];
+            $nextLink = null;
+            $fetched = 0;
+
+            for ($page = 0; $page < $maxPages; $page++) {
+                $result = $this->syncFolderPage($inbox, $account, $folder, $meta, $nextLink, $fetched);
+                $imported += $result['imported'];
+                $fetched += $result['fetched'];
+                $account = $inbox->account()->first() ?: $account;
+
+                // First page all already synced → recent mail is current.
+                if ($result['imported'] === 0 && $result['fetched'] > 0 && $page === 0) {
+                    break;
+                }
+
+                if ($result['done'] || ($result['caught_up'] ?? false) || ! $result['next_link']) {
+                    break;
+                }
+
+                $nextLink = $result['next_link'];
+            }
+        }
+
+        $inbox->last_synced_at = now();
+        $inbox->save();
+
+        return $imported;
+    }
+
+    /**
      * Graph vs local message counts for this mailbox.
      * `remaining` = emails not yet in CRM (used for sync progress).
      *
