@@ -264,7 +264,22 @@
                         <div class="inbox-attach-chips" id="replyAttachChips"></div>
                         <div class="inbox-composer-bar">
                             <span class="inbox-composer-hint" id="composerHint">Reply via Outlook</span>
-                            <button type="button" class="inbox-btn primary" id="btnSendReply">Send reply</button>
+                            <div class="inbox-send-group inbox-pop" id="sendReplyPop">
+                                <button type="button" class="inbox-send-main" id="btnSendReply">Send reply</button>
+                                <button type="button" class="inbox-send-caret" id="btnSendReplyMenu" title="More send options" aria-haspopup="menu" aria-label="More send options">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <div class="inbox-pop-menu inbox-send-menu" id="sendReplyMenu" hidden>
+                                    <button type="button" data-send-mode="send">Send reply</button>
+                                    <button type="button" data-send-mode="archive">Send and archive</button>
+                                    <button type="button" data-send-mode="later">Send later…</button>
+                                    <div class="inbox-send-later" id="sendLaterFields" hidden>
+                                        Send at
+                                        <input type="datetime-local" id="sendLaterAt">
+                                        <button type="button" class="inbox-btn primary" id="btnConfirmSendLater">Schedule send</button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     </div>
@@ -357,7 +372,21 @@
         </label>
         <div class="inbox-modal-actions">
             <button type="button" class="inbox-btn ghost" data-close-modal>Cancel</button>
-            <button type="button" class="inbox-btn primary" id="btnSendCompose">Send</button>
+            <div class="inbox-send-group inbox-pop" id="composeSendPop">
+                <button type="button" class="inbox-send-main" id="btnSendCompose">Send</button>
+                <button type="button" class="inbox-send-caret" id="btnSendComposeMenu" title="More send options" aria-haspopup="menu" aria-label="More send options">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="inbox-pop-menu inbox-send-menu inbox-compose-send-menu" id="composeSendMenu" hidden>
+                    <button type="button" data-compose-send-mode="send">Send</button>
+                    <button type="button" data-compose-send-mode="later">Send later…</button>
+                    <div class="inbox-send-later" id="composeSendLaterFields" hidden>
+                        Send at
+                        <input type="datetime-local" id="composeSendLaterAt">
+                        <button type="button" class="inbox-btn primary" id="btnConfirmComposeSendLater">Schedule send</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1869,8 +1898,128 @@ select.inbox-reply-header-input {
 .inbox-mention-item.is-active { background: var(--inbox-accent-soft); }
 .inbox-mention-name { font-size: 0.82rem; font-weight: 600; color: var(--inbox-text); }
 .inbox-mention-email { font-size: 0.72rem; color: var(--inbox-muted); }
-.inbox-composer-bar { display: flex; justify-content: space-between; align-items: center; margin-top: 0.55rem; }
+.inbox-composer-bar { display: flex; justify-content: space-between; align-items: center; margin-top: 0.55rem; gap: 0.75rem; }
 .inbox-composer-hint { font-size: 0.75rem; color: var(--inbox-muted); }
+.inbox-send-group {
+    --inbox-send-bg: var(--inbox-accent, #2f6fed);
+    position: relative;
+    display: inline-flex;
+    align-items: stretch;
+    height: 36px;
+    border-radius: 8px;
+    background: var(--inbox-send-bg);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    overflow: visible;
+    flex-shrink: 0;
+}
+.inbox-send-group:has(.inbox-send-main:disabled),
+.inbox-send-group:has(.inbox-send-caret:disabled) {
+    opacity: 0.55;
+}
+.inbox-send-main,
+.inbox-send-caret {
+    appearance: none;
+    -webkit-appearance: none;
+    margin: 0;
+    border: 0;
+    background: transparent;
+    color: #fff;
+    font: inherit;
+    font-size: 0.84rem;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    transition: background 0.12s ease;
+}
+.inbox-send-main {
+    padding: 0 0.95rem 0 1rem;
+    border-radius: 8px 0 0 8px;
+    white-space: nowrap;
+}
+.inbox-send-caret {
+    width: 32px;
+    padding: 0;
+    border-radius: 0 8px 8px 0;
+    border-left: 1px solid rgba(255, 255, 255, 0.22);
+}
+.inbox-send-caret svg {
+    width: 14px;
+    height: 14px;
+    display: block;
+}
+.inbox-send-main:hover,
+.inbox-send-caret:hover,
+.inbox-send-caret.is-open {
+    background: rgba(0, 0, 0, 0.12);
+}
+.inbox-send-main:focus-visible,
+.inbox-send-caret:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: -3px;
+    z-index: 1;
+}
+.inbox-send-main:disabled,
+.inbox-send-caret:disabled {
+    cursor: not-allowed;
+}
+.inbox-send-menu {
+    right: 0;
+    left: auto;
+    min-width: 220px;
+    bottom: calc(100% + 8px);
+    top: auto;
+}
+.inbox-send-later {
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.4rem 0.55rem 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--inbox-muted);
+    border-top: 1px solid var(--inbox-border);
+    margin-top: 0.15rem;
+}
+.inbox-send-later[hidden] { display: none !important; }
+.inbox-send-later input {
+    width: 100%;
+    border: 1px solid var(--inbox-border);
+    border-radius: 7px;
+    padding: 0.35rem 0.45rem;
+    font: inherit;
+    font-size: 0.78rem;
+}
+.inbox-send-menu .inbox-send-later .inbox-btn {
+    width: 100%;
+    margin-top: 0.25rem;
+    text-align: center;
+    justify-content: center;
+    background: var(--inbox-accent, #2f6fed);
+    border: 1px solid var(--inbox-accent, #2f6fed);
+    color: #fff;
+    border-radius: 8px;
+    padding: 0.4rem 0.65rem;
+    font-weight: 600;
+}
+.inbox-compose-send-menu {
+    bottom: auto;
+    top: calc(100% + 8px);
+}
+.inbox-msg.scheduled {
+    border-style: dashed;
+    background: #f8fafc;
+}
+.inbox-msg.scheduled .inbox-msg-preview { color: var(--inbox-muted); }
+.inbox-scheduled-actions {
+    display: flex;
+    gap: 0.35rem;
+    align-items: center;
+    margin-top: 0.45rem;
+}
+.inbox-scheduled-actions .inbox-btn { font-size: 0.75rem; padding: 0.28rem 0.65rem; }
 .inbox-modal .inbox-composer-tools { margin-top: 0.15rem; }
 .inbox-modal .inbox-mention-popup {
     position: static;
@@ -4070,13 +4219,17 @@ select.inbox-reply-header-input {
     }
 
     function closeThreadPops() {
-        ['threadMoreMenu', 'snoozeMenu', 'assignMenu', 'commentEmojiMenu'].forEach(id => {
+        ['threadMoreMenu', 'snoozeMenu', 'assignMenu', 'commentEmojiMenu', 'sendReplyMenu', 'composeSendMenu'].forEach(id => {
             const node = el(id);
             if (node) node.hidden = true;
         });
-        document.querySelectorAll('.inbox-icon-action.is-open, .inbox-assign-btn.is-open').forEach(btn => {
+        document.querySelectorAll('.inbox-icon-action.is-open, .inbox-assign-btn.is-open, .inbox-send-caret.is-open').forEach(btn => {
             btn.classList.remove('is-open');
         });
+        const laterFields = el('sendLaterFields');
+        if (laterFields) laterFields.hidden = true;
+        const composeLater = el('composeSendLaterFields');
+        if (composeLater) composeLater.hidden = true;
     }
 
     function togglePop(menuId, btn) {
@@ -4327,6 +4480,39 @@ select.inbox-reply-header-input {
             </div>`;
     }
 
+    function scheduledReplyCardHtml(item) {
+        const name = item.user?.name || 'You';
+        const preview = String(item.body_text || htmlToPlain(item.body_html || '') || '').replace(/\s+/g, ' ').trim();
+        const when = item.send_at ? formatAbsoluteTime(item.send_at) : 'later';
+        const isCompose = item.type === 'compose';
+        const kindLabel = isCompose ? 'scheduled message' : 'scheduled reply';
+        const attachNote = Number(item.attachment_count || 0) > 0
+            ? ` · ${item.attachment_count} attachment${Number(item.attachment_count) === 1 ? '' : 's'}`
+            : '';
+        const archiveNote = item.archive_after ? ' · then archive' : '';
+        return `
+            <div class="inbox-msg scheduled is-expanded" data-scheduled-reply-id="${escapeHtml(String(item.id))}">
+                <div class="inbox-msg-row" style="cursor:default;">
+                    <span class="inbox-avatar" style="background:#64748b">${escapeHtml(initials(name))}</span>
+                    <div class="inbox-msg-summary">
+                        <span class="inbox-msg-from">${escapeHtml(name)}</span>
+                        <span class="inbox-msg-email">${escapeHtml(kindLabel)}</span>
+                        <span class="inbox-msg-preview">${escapeHtml(preview)}</span>
+                    </div>
+                    <div class="inbox-msg-meta">
+                        <span class="inbox-msg-time" title="${escapeHtml(when)}">${escapeHtml(when)}</span>
+                    </div>
+                </div>
+                <div class="inbox-msg-expanded">
+                    <div class="inbox-msg-body">${formatMessageBodyHtml({ body_html: item.body_html, body_text: item.body_text })}</div>
+                    <div class="inbox-scheduled-actions">
+                        <span class="inbox-composer-hint">Scheduled for ${escapeHtml(when)}${escapeHtml(attachNote)}${escapeHtml(archiveNote)}</span>
+                        <button type="button" class="inbox-btn ghost" data-cancel-scheduled="${escapeHtml(String(item.id))}">Cancel</button>
+                    </div>
+                </div>
+            </div>`;
+    }
+
     function renderThread() {
         const c = state.conversation;
         const shell = document.querySelector('.inbox-shell');
@@ -4451,6 +4637,11 @@ select.inbox-reply-header-input {
                 type: 'comment',
                 sort: comment.created_at || '',
                 html: commentCardHtml(comment, true),
+            })),
+            ...(c.scheduled_replies || []).map(item => ({
+                type: 'scheduled',
+                sort: item.send_at || item.created_at || '',
+                html: scheduledReplyCardHtml(item),
             })),
             ...(c.activities || []).map(activity => ({
                 type: 'activity',
@@ -5647,6 +5838,31 @@ select.inbox-reply-header-input {
         togglePop('assignMenu', el('btnAssignToggle'));
     });
     el('threadMessages')?.addEventListener('click', (e) => {
+        const cancelBtn = e.target.closest('[data-cancel-scheduled]');
+        if (cancelBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const id = cancelBtn.dataset.cancelScheduled;
+            if (!id || !state.selectedId) return;
+            (async () => {
+                if (!confirm('Cancel this scheduled message?')) return;
+                try {
+                    const data = await api('/conversations/' + state.selectedId + '/scheduled-replies/' + id, { method: 'DELETE' });
+                    if (data.deleted) {
+                        state.conversation = null;
+                        state.selectedId = null;
+                        renderThread();
+                        await loadBootstrap();
+                        await loadConversations();
+                        return;
+                    }
+                    await openConversation(state.selectedId);
+                } catch (err) {
+                    alert(err.message);
+                }
+            })();
+            return;
+        }
         const replyBtn = e.target.closest('[data-reply-msg]');
         if (replyBtn) {
             e.preventDefault();
@@ -5814,6 +6030,54 @@ select.inbox-reply-header-input {
     });
 
     el('btnSendReply').addEventListener('click', async () => {
+        await sendReply({});
+    });
+
+    el('btnSendReplyMenu')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePop('sendReplyMenu', e.currentTarget);
+    });
+
+    el('sendReplyMenu')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-send-mode]');
+        if (!btn) return;
+        e.stopPropagation();
+        const mode = btn.dataset.sendMode;
+        if (mode === 'later') {
+            const fields = el('sendLaterFields');
+            if (fields) {
+                fields.hidden = false;
+                const input = el('sendLaterAt');
+                if (input && !input.value) {
+                    const d = new Date(Date.now() + 60 * 60 * 1000);
+                    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+                    input.value = d.toISOString().slice(0, 16);
+                }
+                input?.focus();
+            }
+            return;
+        }
+        closeThreadPops();
+        if (mode === 'archive') {
+            await sendReply({ archive: true });
+        } else {
+            await sendReply({});
+        }
+    });
+
+    el('btnConfirmSendLater')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const raw = el('sendLaterAt')?.value;
+        if (!raw) return alert('Pick a date and time.');
+        const when = new Date(raw);
+        if (Number.isNaN(when.getTime()) || when.getTime() <= Date.now()) {
+            return alert('Choose a future date and time.');
+        }
+        closeThreadPops();
+        await sendReply({ sendAt: when.toISOString() });
+    });
+
+    async function sendReply(opts = {}) {
         if (!state.selectedId) return;
         const html = getComposerHtml('reply');
         if (isComposerEmpty('reply')) return alert('Write a reply first.');
@@ -5821,7 +6085,10 @@ select.inbox-reply-header-input {
         const cc = (el('replyCc')?.value || '').trim();
         const inboxId = Number(el('replyFrom')?.value || 0);
         if (!to) return alert('Add at least one To recipient.');
+        const archive = !!opts.archive;
+        const sendAt = opts.sendAt || null;
         el('btnSendReply').disabled = true;
+        el('btnSendReplyMenu') && (el('btnSendReplyMenu').disabled = true);
         try {
             const payload = {
                 body: html,
@@ -5834,6 +6101,8 @@ select.inbox-reply-header-input {
                 })),
             };
             if (inboxId) payload.inbox_id = inboxId;
+            if (archive) payload.archive = true;
+            if (sendAt) payload.send_at = sendAt;
             const data = await api('/conversations/' + state.selectedId + '/reply', { method: 'POST', body: payload });
             applyComposerSignature('reply');
             state.replyAttachments = [];
@@ -5844,14 +6113,31 @@ select.inbox-reply-header-input {
             renderAttachChips('reply');
             hideMentionPopup('reply');
             el('composerHint').textContent = 'Reply via Outlook';
+
+            if (data.scheduled) {
+                await openConversation(data.conversation?.id || state.selectedId);
+                await loadConversations();
+                return;
+            }
+
+            if (data.archived || archive) {
+                state.conversation = null;
+                state.selectedId = null;
+                renderThread();
+                await loadBootstrap();
+                await loadConversations();
+                return;
+            }
+
             await openConversation(data.conversation?.id || state.selectedId);
             await loadConversations();
         } catch (err) {
             alert(err.message);
         } finally {
             el('btnSendReply').disabled = false;
+            if (el('btnSendReplyMenu')) el('btnSendReplyMenu').disabled = false;
         }
-    });
+    }
 
     document.querySelectorAll('[data-composer-mode]').forEach(btn => {
         btn.addEventListener('click', () => setComposerMode(btn.dataset.composerMode));
@@ -6104,6 +6390,50 @@ select.inbox-reply-header-input {
     });
 
     el('btnSendCompose').addEventListener('click', async () => {
+        await sendCompose({});
+    });
+
+    el('btnSendComposeMenu')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePop('composeSendMenu', e.currentTarget);
+    });
+
+    el('composeSendMenu')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-compose-send-mode]');
+        if (!btn) return;
+        e.stopPropagation();
+        const mode = btn.dataset.composeSendMode;
+        if (mode === 'later') {
+            const fields = el('composeSendLaterFields');
+            if (fields) {
+                fields.hidden = false;
+                const input = el('composeSendLaterAt');
+                if (input && !input.value) {
+                    const d = new Date(Date.now() + 60 * 60 * 1000);
+                    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+                    input.value = d.toISOString().slice(0, 16);
+                }
+                input?.focus();
+            }
+            return;
+        }
+        closeThreadPops();
+        await sendCompose({});
+    });
+
+    el('btnConfirmComposeSendLater')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const raw = el('composeSendLaterAt')?.value;
+        if (!raw) return alert('Pick a date and time.');
+        const when = new Date(raw);
+        if (Number.isNaN(when.getTime()) || when.getTime() <= Date.now()) {
+            return alert('Choose a future date and time.');
+        }
+        closeThreadPops();
+        await sendCompose({ sendAt: when.toISOString() });
+    });
+
+    async function sendCompose(opts = {}) {
         const inboxId = Number(el('composeFrom').value);
         const to = el('composeTo').value.trim();
         const subject = el('composeSubject').value.trim();
@@ -6113,29 +6443,43 @@ select.inbox-reply-header-input {
         if (!subject) return alert('Subject is required.');
         if (isComposerEmpty('compose')) return alert('Write a message first.');
 
+        const sendAt = opts.sendAt || null;
         el('btnSendCompose').disabled = true;
-        el('btnSendCompose').textContent = 'Sending…';
+        el('btnSendCompose').textContent = sendAt ? 'Scheduling…' : 'Sending…';
+        if (el('btnSendComposeMenu')) el('btnSendComposeMenu').disabled = true;
         try {
-            const data = await api('/compose', {
-                method: 'POST',
-                body: {
-                    inbox_id: inboxId,
-                    to,
-                    cc: el('composeCc').value.trim() || null,
-                    subject,
-                    body: html,
-                    attachments: state.composeAttachments.map(a => ({
-                        name: a.name,
-                        contentType: a.contentType,
-                        contentBytes: a.contentBytes,
-                    })),
-                },
-            });
+            const payload = {
+                inbox_id: inboxId,
+                to,
+                cc: el('composeCc').value.trim() || null,
+                subject,
+                body: html,
+                attachments: state.composeAttachments.map(a => ({
+                    name: a.name,
+                    contentType: a.contentType,
+                    contentBytes: a.contentBytes,
+                })),
+            };
+            if (sendAt) payload.send_at = sendAt;
+            const data = await api('/compose', { method: 'POST', body: payload });
             state.composeAttachments = [];
             renderAttachChips('compose');
             hideMentionPopup('compose');
             setComposerHtml('compose', '');
             closeModal();
+
+            if (data.scheduled) {
+                state.view = 'drafts';
+                state.selectedInboxId = inboxId;
+                state.expandedInboxIds[inboxId] = true;
+                await loadBootstrap();
+                await loadConversations();
+                if (data.conversation?.id) {
+                    await openConversation(data.conversation.id);
+                }
+                return;
+            }
+
             state.view = 'sent';
             state.selectedInboxId = inboxId;
             state.expandedInboxIds[inboxId] = true;
@@ -6149,8 +6493,9 @@ select.inbox-reply-header-input {
         } finally {
             el('btnSendCompose').disabled = false;
             el('btnSendCompose').textContent = 'Send';
+            if (el('btnSendComposeMenu')) el('btnSendComposeMenu').disabled = false;
         }
-    });
+    }
 
     function getConnectMode() {
         return document.querySelector('input[name="connectMode"]:checked')?.value || 'mailbox_login';

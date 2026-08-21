@@ -104,6 +104,11 @@ class InboxConversation extends Model
         return $this->hasMany(InboxConversationActivity::class)->orderBy('created_at');
     }
 
+    public function scheduledReplies(): HasMany
+    {
+        return $this->hasMany(ScheduledInboxReply::class)->orderBy('send_at');
+    }
+
     public function tags(): BelongsToMany
     {
         return $this->belongsToMany(InboxTag::class, 'inbox_conversation_tag')

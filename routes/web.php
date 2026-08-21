@@ -600,6 +600,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/conversations/{conversation}/lead', [InboxController::class, 'attachLead'])->name('api.inbox.conversations.lead.attach');
         Route::delete('/conversations/{conversation}/lead', [InboxController::class, 'detachLead'])->name('api.inbox.conversations.lead.detach');
         Route::post('/conversations/{conversation}/reply', [InboxController::class, 'reply'])->name('api.inbox.conversations.reply');
+        Route::delete('/conversations/{conversation}/scheduled-replies/{scheduledReply}', [InboxController::class, 'cancelScheduledReply'])->name('api.inbox.conversations.scheduled-replies.cancel');
         Route::post('/conversations/{conversation}/comments', [InboxController::class, 'storeComment'])->name('api.inbox.conversations.comments.store');
         Route::get('/conversations/{conversation}/comments/{comment}/attachments/{index}', [InboxController::class, 'downloadCommentAttachment'])->name('api.inbox.conversations.comments.attachments');
         Route::get('/conversations/{conversation}/messages/{message}/attachments/{index}', [InboxController::class, 'downloadMessageAttachment'])->name('api.inbox.conversations.messages.attachments')->whereNumber('index');

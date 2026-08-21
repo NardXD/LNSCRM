@@ -12,6 +12,7 @@ use App\Models\InboxUserSetting;
 use App\Models\Lead;
 use App\Models\LeadLabel;
 use App\Models\OutlookMailAccount;
+use App\Models\ScheduledInboxReply;
 use App\Models\SharedInbox;
 use App\Models\SharedInboxMember;
 use App\Models\User;
@@ -20,6 +21,7 @@ use App\Notifications\InboxThreadUpdateNotification;
 use App\Services\CalendarOauthSettingsService;
 use App\Services\ChannelUnreadNotifier;
 use App\Services\FlexCrmLookupService;
+use App\Services\InboxReplyService;
 use App\Services\InboxThreadMergeService;
 use App\Services\LeadActivityService;
 use App\Services\LeadAutoCreateService;
@@ -50,7 +52,8 @@ class InboxController extends Controller
         protected ChannelUnreadNotifier $unreadNotifier,
         protected LeadAutoCreateService $leadAutoCreate,
         protected InboxThreadMergeService $threadMerge,
-        protected LeadInboxAttachService $inboxAttach
+        protected LeadInboxAttachService $inboxAttach,
+        protected InboxReplyService $replyService
     ) {}
 
     public function index(): View
@@ -680,6 +683,7 @@ class InboxController extends Controller
             'messages',
             'comments.user:id,name,email',
             'activities.user:id,name,email',
+            'scheduledReplies' => fn ($q) => $q->where('status', ScheduledInboxReply::STATUS_PENDING)->with('user:id,name,email'),
             'assignee:id,name,email',
             'tags',
             'mergedConversations',
@@ -1239,6 +1243,8 @@ class InboxController extends Controller
             'cc' => ['nullable', 'string', 'max:2000'],
             'inbox_id' => ['nullable', 'integer'],
             'reply_all' => ['nullable', 'boolean'],
+            'archive' => ['nullable', 'boolean'],
+            'send_at' => ['nullable', 'date', 'after:now'],
             'attachments' => ['nullable', 'array', 'max:5'],
             'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
@@ -1319,55 +1325,146 @@ class InboxController extends Controller
             return response()->json(['message' => 'Attachments are too large. Keep each file under 3 MB.'], 422);
         }
 
-        $result = $this->mailService->sendMail($inbox, [
-            'to' => $to,
-            'cc' => $cc,
-            'subject' => (str_starts_with(strtolower((string) $conversation->subject), 're:') ? '' : 'Re: ').$conversation->subject,
-            'body' => $validated['body'],
-            'reply_to_message_id' => $lastInbound?->external_message_id,
-            'attachments' => $attachments,
-            'honor_recipients' => true,
-        ]);
+        $archive = $request->boolean('archive');
 
-        if (! $result) {
-            return response()->json(['message' => 'Failed to send via Outlook.'], 502);
+        if (! empty($validated['send_at'])) {
+            $sendAt = Carbon::parse($validated['send_at']);
+            $scheduled = ScheduledInboxReply::create([
+                'inbox_conversation_id' => $conversation->id,
+                'user_id' => $request->user()->id,
+                'shared_inbox_id' => $inbox->id,
+                'type' => ScheduledInboxReply::TYPE_REPLY,
+                'to_emails' => $to,
+                'cc_emails' => $cc,
+                'body_html' => $validated['body'],
+                'body_text' => strip_tags($validated['body']),
+                'attachments' => [],
+                'send_at' => $sendAt,
+                'archive_after' => $archive,
+                'status' => ScheduledInboxReply::STATUS_PENDING,
+            ]);
+
+            if ($attachments !== []) {
+                $scheduled->update([
+                    'attachments' => $this->replyService->storeScheduledAttachments($scheduled, $attachments),
+                ]);
+            }
+
+            $this->recordActivity(
+                $conversation,
+                $request->user(),
+                'reply_scheduled',
+                $request->user()->name.' scheduled a reply for '.$sendAt->timezone(config('app.timezone'))->format('M j, g:ia'),
+                [
+                    'scheduled_reply_id' => $scheduled->id,
+                    'send_at' => $sendAt->toIso8601String(),
+                    'archive_after' => $archive,
+                ]
+            );
+
+            $conversation->load([
+                'assignee',
+                'tags',
+                'inbox',
+                'scheduledReplies' => fn ($q) => $q->where('status', ScheduledInboxReply::STATUS_PENDING)->with('user:id,name,email'),
+            ]);
+
+            return response()->json([
+                'scheduled' => true,
+                'scheduled_reply' => $this->formatScheduledReply($scheduled->fresh(['user:id,name,email'])),
+                'conversation' => $this->formatConversation($conversation),
+            ]);
         }
 
-        $message = InboxMessage::create([
-            'inbox_conversation_id' => $conversation->id,
-            'external_message_id' => 'local-'.uniqid(),
-            'direction' => 'outbound',
-            'from_name' => $request->user()->name,
-            'from_email' => $inbox->email ?? $inbox->account->email,
-            'to_emails' => $to,
-            'cc_emails' => $cc,
-            'subject' => $conversation->subject,
-            'body_html' => $validated['body'],
-            'body_text' => strip_tags($validated['body']),
-            'is_read' => true,
-            'sent_at' => now(),
-        ]);
-
-        $conversation->update([
-            'last_message_at' => now(),
-            'snippet' => mb_substr(strip_tags($validated['body']), 0, 500),
-            'message_count' => $conversation->messages()->count(),
-            'status' => 'open',
-        ]);
+        try {
+            $result = $this->replyService->send($conversation, $inbox, $request->user(), [
+                'body' => $validated['body'],
+                'to' => $to,
+                'cc' => $cc,
+                'attachments' => $attachments,
+                'archive' => $archive,
+                'reply_to_message_id' => $lastInbound?->external_message_id,
+            ]);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 502);
+        }
 
         $this->recordActivity(
             $conversation,
             $request->user(),
             'replied',
             $request->user()->name.' sent a reply',
-            ['message_id' => $message->id]
+            ['message_id' => $result['message']->id]
         );
+
+        if ($archive) {
+            $this->recordActivity(
+                $conversation,
+                $request->user(),
+                'archived',
+                $request->user()->name.' archived this conversation',
+                ['source' => 'send_and_archive', 'message_id' => $result['message']->id]
+            );
+        }
 
         $this->applyLeadRules($conversation, LeadRuleEngine::TRIGGER_OUTBOUND_REPLY);
 
         return response()->json([
-            'message' => $this->formatMessage($message),
-            'conversation' => $this->formatConversation($conversation->fresh(['assignee', 'tags', 'inbox'])),
+            'message' => $this->formatMessage($result['message']),
+            'conversation' => $this->formatConversation($result['conversation']),
+            'archived' => $archive,
+        ]);
+    }
+
+    public function cancelScheduledReply(
+        Request $request,
+        InboxConversation $conversation,
+        ScheduledInboxReply $scheduledReply
+    ): JsonResponse {
+        $this->authorizeConversation($request->user(), $conversation);
+        if ((int) $scheduledReply->inbox_conversation_id !== (int) $conversation->id) {
+            return response()->json(['message' => 'Scheduled reply not found.'], 404);
+        }
+        if ($scheduledReply->status !== ScheduledInboxReply::STATUS_PENDING) {
+            return response()->json(['message' => 'Only pending scheduled replies can be cancelled.'], 422);
+        }
+
+        $wasCompose = $scheduledReply->isCompose();
+        $scheduledReply->status = ScheduledInboxReply::STATUS_CANCELLED;
+        $scheduledReply->save();
+        $this->replyService->deleteScheduledAttachmentFiles($scheduledReply);
+
+        $this->recordActivity(
+            $conversation,
+            $request->user(),
+            $wasCompose ? 'compose_schedule_cancelled' : 'reply_schedule_cancelled',
+            $request->user()->name.' cancelled a scheduled '.($wasCompose ? 'message' : 'reply'),
+            ['scheduled_reply_id' => $scheduledReply->id]
+        );
+
+        // Scheduled new messages live as empty draft threads — remove them on cancel.
+        if ($wasCompose
+            && ($conversation->folder === 'drafts' || $conversation->status === 'drafts')
+            && $conversation->messages()->count() === 0
+        ) {
+            $conversationId = $conversation->id;
+            $conversation->delete();
+
+            return response()->json([
+                'deleted' => true,
+                'conversation_id' => $conversationId,
+            ]);
+        }
+
+        $conversation->load([
+            'assignee',
+            'tags',
+            'inbox',
+            'scheduledReplies' => fn ($q) => $q->where('status', ScheduledInboxReply::STATUS_PENDING)->with('user:id,name,email'),
+        ]);
+
+        return response()->json([
+            'conversation' => $this->formatConversation($conversation),
         ]);
     }
 
@@ -1508,6 +1605,7 @@ class InboxController extends Controller
             'cc' => ['nullable', 'string', 'max:2000'],
             'subject' => ['required', 'string', 'max:500'],
             'body' => ['required', 'string', 'max:50000'],
+            'send_at' => ['nullable', 'date', 'after:now'],
             'attachments' => ['nullable', 'array', 'max:5'],
             'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
@@ -1542,6 +1640,15 @@ class InboxController extends Controller
             }
         }
 
+        $ccEmails = $this->normalizeRecipientEmails($validated['cc'] ?? null)
+            ->reject(fn ($email) => $toEmails->contains($email))
+            ->values();
+        foreach ($ccEmails as $email) {
+            if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return response()->json(['message' => "Invalid recipient: {$email}"], 422);
+            }
+        }
+
         $htmlBody = $validated['body'];
         if (! str_contains($htmlBody, '<')) {
             $htmlBody = nl2br(e($htmlBody));
@@ -1552,60 +1659,97 @@ class InboxController extends Controller
             return response()->json(['message' => 'Attachments are too large. Keep each file under 3 MB.'], 422);
         }
 
-        $result = $this->mailService->sendMail($inbox, [
-            'to' => $toEmails->implode(', '),
-            'cc' => $validated['cc'] ?? null,
-            'subject' => $validated['subject'],
-            'body' => $htmlBody,
-            'attachments' => $attachments,
-        ]);
+        $to = $toEmails->implode(', ');
+        $cc = $ccEmails->isNotEmpty() ? $ccEmails->implode(', ') : null;
+        $fromEmail = $inbox->email ?? $inbox->account->email;
 
-        if (! $result) {
-            return response()->json(['message' => 'Failed to send via Outlook.'], 502);
+        if (! empty($validated['send_at'])) {
+            $sendAt = Carbon::parse($validated['send_at']);
+            $localId = 'local-scheduled-compose-'.uniqid();
+
+            $conversation = InboxConversation::create([
+                'company_id' => $user->company_id,
+                'shared_inbox_id' => $inbox->id,
+                'folder' => 'drafts',
+                'external_conversation_id' => $localId,
+                'subject' => $validated['subject'],
+                'snippet' => mb_substr(strip_tags($htmlBody), 0, 500),
+                'from_name' => $user->name,
+                'from_email' => $fromEmail,
+                'status' => 'drafts',
+                'assigned_to' => $user->id,
+                'is_read' => true,
+                'message_count' => 0,
+                'last_message_at' => $sendAt,
+            ]);
+
+            $scheduled = ScheduledInboxReply::create([
+                'inbox_conversation_id' => $conversation->id,
+                'user_id' => $user->id,
+                'shared_inbox_id' => $inbox->id,
+                'type' => ScheduledInboxReply::TYPE_COMPOSE,
+                'to_emails' => $to,
+                'cc_emails' => $cc,
+                'subject' => $validated['subject'],
+                'body_html' => $htmlBody,
+                'body_text' => strip_tags($htmlBody),
+                'attachments' => [],
+                'send_at' => $sendAt,
+                'archive_after' => false,
+                'status' => ScheduledInboxReply::STATUS_PENDING,
+            ]);
+
+            if ($attachments !== []) {
+                $scheduled->update([
+                    'attachments' => $this->replyService->storeScheduledAttachments($scheduled, $attachments),
+                ]);
+            }
+
+            $this->recordActivity(
+                $conversation,
+                $user,
+                'compose_scheduled',
+                $user->name.' scheduled a message for '.$sendAt->timezone(config('app.timezone'))->format('M j, g:ia'),
+                [
+                    'scheduled_reply_id' => $scheduled->id,
+                    'send_at' => $sendAt->toIso8601String(),
+                ]
+            );
+
+            $conversation->load([
+                'assignee',
+                'tags',
+                'inbox',
+                'scheduledReplies' => fn ($q) => $q->where('status', ScheduledInboxReply::STATUS_PENDING)->with('user:id,name,email'),
+            ]);
+
+            return response()->json([
+                'scheduled' => true,
+                'scheduled_reply' => $this->formatScheduledReply($scheduled->fresh(['user:id,name,email'])),
+                'conversation' => $this->formatConversation($conversation),
+            ], 201);
         }
 
-        $fromEmail = $inbox->email ?? $inbox->account->email;
-        $localId = 'local-compose-'.uniqid();
+        try {
+            $result = $this->replyService->sendCompose($inbox, $user, [
+                'to' => $to,
+                'cc' => $cc,
+                'subject' => $validated['subject'],
+                'body' => $htmlBody,
+                'attachments' => $attachments,
+            ]);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 502);
+        }
 
-        $conversation = InboxConversation::create([
-            'company_id' => $user->company_id,
-            'shared_inbox_id' => $inbox->id,
-            'folder' => 'sent',
-            'external_conversation_id' => $localId,
-            'subject' => $validated['subject'],
-            'snippet' => mb_substr(strip_tags($htmlBody), 0, 500),
-            'from_name' => $user->name,
-            'from_email' => $fromEmail,
-            'status' => 'sent',
-            'assigned_to' => $user->id,
-            'is_read' => true,
-            'message_count' => 1,
-            'last_message_at' => now(),
-        ]);
-
-        $message = InboxMessage::create([
-            'inbox_conversation_id' => $conversation->id,
-            'external_message_id' => $localId,
-            'direction' => 'outbound',
-            'from_name' => $user->name,
-            'from_email' => $fromEmail,
-            'to_emails' => $toEmails->implode(', '),
-            'cc_emails' => $validated['cc'] ?: null,
-            'subject' => $validated['subject'],
-            'body_html' => $htmlBody,
-            'body_text' => strip_tags($htmlBody),
-            'is_read' => true,
-            'sent_at' => now(),
-        ]);
-
-        $this->applyLeadRules($conversation, LeadRuleEngine::TRIGGER_OUTBOUND_MESSAGE_NEW);
+        $this->applyLeadRules($result['conversation'], LeadRuleEngine::TRIGGER_OUTBOUND_MESSAGE_NEW);
 
         return response()->json([
             'conversation' => $this->formatConversation(
-                $conversation->fresh(['assignee', 'tags', 'inbox', 'messages']),
+                $result['conversation']->fresh(['assignee', 'tags', 'inbox', 'messages']) ?? $result['conversation'],
                 true
             ),
-            'message' => $this->formatMessage($message),
+            'message' => $this->formatMessage($result['message']),
         ], 201);
     }
 
@@ -2277,7 +2421,37 @@ class InboxController extends Controller
             $data['activities'] = $c->activities->map(fn ($activity) => $this->formatActivity($activity));
         }
 
+        if ($c->relationLoaded('scheduledReplies')) {
+            $data['scheduled_replies'] = $c->scheduledReplies
+                ->filter(fn (ScheduledInboxReply $r) => $r->status === ScheduledInboxReply::STATUS_PENDING)
+                ->map(fn (ScheduledInboxReply $r) => $this->formatScheduledReply($r))
+                ->values();
+        }
+
         return $data;
+    }
+
+    private function formatScheduledReply(ScheduledInboxReply $reply): array
+    {
+        return [
+            'id' => $reply->id,
+            'type' => $reply->type ?: ScheduledInboxReply::TYPE_REPLY,
+            'to' => $reply->to_emails,
+            'cc' => $reply->cc_emails,
+            'subject' => $reply->subject,
+            'body_html' => $reply->body_html,
+            'body_text' => $reply->body_text,
+            'send_at' => $reply->send_at?->toIso8601String(),
+            'archive_after' => (bool) $reply->archive_after,
+            'status' => $reply->status,
+            'attachment_count' => count($reply->attachments ?? []),
+            'user' => $reply->relationLoaded('user') && $reply->user ? [
+                'id' => $reply->user->id,
+                'name' => $reply->user->name,
+                'email' => $reply->user->email,
+            ] : null,
+            'created_at' => $reply->created_at?->toIso8601String(),
+        ];
     }
 
     private function formatMergeCandidate(InboxConversation $c): array
