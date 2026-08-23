@@ -9,13 +9,21 @@
     <div class="page-header leads-header">
         <div>
             <h1 class="page-title">Lead Reports</h1>
-            <p class="page-subtitle">Filter leads, review charts, and download a detailed Excel workbook with conversation starts and every tagging/status movement.</p>
+            <p class="page-subtitle">Filter leads, review charts, and download separate Excel files for leads, activity logs, or conversations.</p>
         </div>
         <div class="leads-header-actions">
             <a href="{{ route('leads') }}" class="btn btn-secondary">Back to Leads</a>
-            <button type="button" class="btn btn-primary" id="leadReportDownloadBtn">
+            <button type="button" class="btn btn-secondary lead-report-export-btn" data-export-type="leads">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Download Excel
+                Download Leads
+            </button>
+            <button type="button" class="btn btn-secondary lead-report-export-btn" data-export-type="activities">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Download Activity Log
+            </button>
+            <button type="button" class="btn btn-secondary lead-report-export-btn" data-export-type="conversations">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Download Conversations
             </button>
         </div>
     </div>
@@ -515,9 +523,13 @@
             document.getElementById(id).addEventListener('change', loadReport);
         });
 
-    document.getElementById('leadReportDownloadBtn').addEventListener('click', () => {
-        syncFiltersFromDom();
-        window.location.href = exportUrl + '?' + buildParams().toString();
+    document.querySelectorAll('.lead-report-export-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            syncFiltersFromDom();
+            const params = buildParams();
+            params.set('type', btn.dataset.exportType || 'leads');
+            window.location.href = exportUrl + '?' + params.toString();
+        });
     });
 
     renderLabelFilter();

@@ -9,6 +9,7 @@ use App\Models\LeadActivity;
 use App\Models\LeadIdentity;
 use App\Models\LeadLabel;
 use App\Models\SmsMessage;
+use App\Models\User;
 use App\Models\ViberMessage;
 use App\Models\WhatsAppMessage;
 use Illuminate\Database\Eloquent\Builder;
@@ -18,8 +19,14 @@ use Illuminate\Support\Facades\DB;
 
 class LeadReportService
 {
+    /** @var array<int, string> */
+    protected array $labelNameById = [];
+
+    /** @var array<int, string> */
+    protected array $userNameById = [];
+
     public function __construct(
-        protected ContactConversationHistoryService $conversationHistory
+        protected LeadConnectedThreadService $connectedThreads
     ) {}
 
     /**
@@ -230,35 +237,72 @@ class LeadReportService
      *     conversations: Collection<int, array<string, mixed>>
      * }
      */
-    public function exportWorkbook(int $companyId, array|Request $filters): array
+    public function exportWorkbook(int $companyId, array|Request $filters, string $type = 'leads'): array
     {
+        $type = in_array($type, ['leads', 'activities', 'conversations'], true) ? $type : 'leads';
+
+        $this->labelNameById = LeadLabel::query()
+            ->where('company_id', $companyId)
+            ->pluck('name', 'id')
+            ->all();
+
+        $with = ['identities', 'assignedUser:id,name', 'labels'];
+        if ($type === 'leads' || $type === 'activities') {
+            $with['activities'] = fn ($q) => $q->with('user:id,name')->reorder('created_at')->orderBy('id');
+        }
+        if ($type === 'leads') {
+            $with[] = 'leadNotes.user:id,name';
+        }
+
         $leads = $this->filteredQuery($companyId, $filters)
-            ->with([
-                'identities',
-                'assignedUser:id,name',
-                'labels',
-                'leadNotes.user:id,name',
-                'activities' => fn ($q) => $q->with('user:id,name')->reorder('created_at')->orderBy('id'),
-            ])
+            ->with($with)
             ->orderByDesc('created_at')
             ->get();
+
+        if ($type === 'leads' || $type === 'activities') {
+            $this->userNameById = $this->loadUserNamesFromActivities($leads);
+        }
 
         $leadRows = collect();
         $activityRows = collect();
         $conversationRows = collect();
 
-        foreach ($leads as $lead) {
-            $conversations = $this->conversationRowsForLead($companyId, $lead);
-            $activities = $this->activityRowsForLead($lead);
+        $threadsByLead = [];
+        $firstMessages = [];
+        if ($type === 'leads' || $type === 'conversations') {
+            $threadsByLead = $this->connectedThreads->allThreadsForLeads($companyId, $leads);
+            $firstMessages = $this->loadFirstMessagesBatch($this->collectConversationIdsByChannel($threadsByLead));
+        }
 
-            $firstConversation = $conversations
+        foreach ($leads as $lead) {
+            $leadId = (int) $lead->id;
+            $threads = collect($threadsByLead[$leadId] ?? []);
+            $activities = ($type === 'leads' || $type === 'activities')
+                ? $this->activityRowsForLead($lead)
+                : collect();
+
+            if ($type === 'activities') {
+                $activityRows = $activityRows->merge($activities);
+
+                continue;
+            }
+
+            $conversationExportRows = ($type === 'leads' || $type === 'conversations')
+                ? $this->conversationRowsFromThreads($lead, $threads, $firstMessages)
+                : collect();
+
+            $firstConversation = $conversationExportRows
                 ->filter(fn (array $row) => ($row['started_at'] ?? '') !== '')
                 ->sortBy('started_at')
                 ->first();
 
-            $leadRows->push($this->exportLeadRow($lead, $activities, $conversations, $firstConversation));
-            $activityRows = $activityRows->merge($activities);
-            $conversationRows = $conversationRows->merge($conversations);
+            if ($type === 'leads') {
+                $leadRows->push($this->exportLeadRow($lead, $activities, $conversationExportRows, $firstConversation));
+            }
+
+            if ($type === 'conversations') {
+                $conversationRows = $conversationRows->merge($conversationExportRows);
+            }
         }
 
         return [
@@ -434,43 +478,466 @@ class LeadReportService
     protected function activityRowsForLead(Lead $lead): Collection
     {
         $leadName = $this->displayName($lead);
+        $labelsOnLead = [];
+        $statusHistory = [];
+        $assigneeHistory = [];
+        $userHistory = [];
+        $detailsHistory = [];
 
-        return $lead->activities->map(function (LeadActivity $activity) use ($lead, $leadName) {
+        $activities = $lead->activities
+            ->sortBy(fn (LeadActivity $activity) => [
+                $activity->created_at?->timestamp ?? 0,
+                $activity->id,
+            ])
+            ->values();
+
+        return $activities->map(function (LeadActivity $activity) use ($lead, $leadName, &$labelsOnLead, &$statusHistory, &$assigneeHistory, &$userHistory, &$detailsHistory) {
+            $meta = is_array($activity->meta) ? $activity->meta : [];
+            $action = (string) $activity->action;
+            $activityLabels = $this->resolveActivityLabels($meta);
+
+            if ($action === LeadActivity::LABEL_ADDED) {
+                foreach ($activityLabels as $activityLabel) {
+                    $this->appendUnique($labelsOnLead, $activityLabel);
+                }
+            } elseif ($action === LeadActivity::LABEL_REMOVED) {
+                foreach ($activityLabels as $activityLabel) {
+                    $labelsOnLead = array_values(array_filter(
+                        $labelsOnLead,
+                        fn (string $name) => strcasecmp($name, $activityLabel) !== 0
+                    ));
+                }
+            }
+
+            if ($action === LeadActivity::STATUS_CHANGED) {
+                $toStatus = $this->humanStatus((string) ($meta['to'] ?? ''));
+                if ($toStatus !== '') {
+                    $this->appendUnique($statusHistory, $toStatus);
+                }
+            }
+
+            if (in_array($action, [LeadActivity::ASSIGNED, LeadActivity::REASSIGNED, LeadActivity::UNASSIGNED], true)) {
+                $fromUser = $this->resolveActivityUserName($meta, 'from');
+                $toUser = $this->resolveActivityUserName($meta, 'to');
+
+                if ($fromUser !== '' && in_array($action, [LeadActivity::REASSIGNED, LeadActivity::UNASSIGNED], true)) {
+                    $this->appendUnique($userHistory, $fromUser);
+                }
+                if ($toUser !== '' && in_array($action, [LeadActivity::ASSIGNED, LeadActivity::REASSIGNED], true)) {
+                    $this->appendUnique($assigneeHistory, $toUser);
+                }
+            }
+
+            if ($action === LeadActivity::CREATED) {
+                $assignee = $this->resolveActivityUserName($meta, 'assigned');
+                if ($assignee !== '') {
+                    $this->appendUnique($assigneeHistory, $assignee);
+                }
+            }
+
+            $detail = $this->formatActivityDetails($meta, $action);
+            $addedDetail = $detail !== '';
+            if ($addedDetail) {
+                $detailsHistory[] = $detail;
+            }
+
             return [
                 'lead_id' => $lead->id,
                 'lead_name' => $leadName,
                 'occurred_at' => $activity->created_at?->format('Y-m-d H:i:s') ?? '',
                 'actor' => $activity->user?->name ?: 'System',
-                'action' => $this->humanAction((string) $activity->action),
+                'action' => $this->humanAction($action),
                 'summary' => (string) ($activity->summary ?? ''),
-                'details' => $this->formatActivityDetails($activity->meta ?? []),
+                'label' => $action === LeadActivity::LABEL_ADDED
+                    ? implode(', ', $labelsOnLead)
+                    : '',
+                'user' => $this->isAssignmentAction($action)
+                    ? implode(', ', $userHistory)
+                    : '',
+                'status' => $action === LeadActivity::STATUS_CHANGED
+                    ? implode(', ', $statusHistory)
+                    : '',
+                'assignee' => $this->isAssigneeAction($action)
+                    ? implode(', ', $assigneeHistory)
+                    : '',
+                'details' => $addedDetail
+                    ? implode('; ', $detailsHistory)
+                    : '',
             ];
         })->values();
     }
 
     /**
+     * @param  list<string>  $list
+     */
+    protected function appendUnique(array &$list, string $value): void
+    {
+        if ($value === '' || in_array($value, $list, true)) {
+            return;
+        }
+
+        $list[] = $value;
+    }
+
+    protected function isAssignmentAction(string $action): bool
+    {
+        return in_array($action, [LeadActivity::ASSIGNED, LeadActivity::REASSIGNED, LeadActivity::UNASSIGNED], true);
+    }
+
+    protected function isAssigneeAction(string $action): bool
+    {
+        return $action === LeadActivity::CREATED
+            || in_array($action, [LeadActivity::ASSIGNED, LeadActivity::REASSIGNED], true);
+    }
+
+    /**
+     * @param  array<string, mixed>  $meta
+     */
+    protected function resolveActivityUserName(array $meta, string $which): string
+    {
+        return match ($which) {
+            'from' => $this->resolveNamedUser($meta, 'from_user_name', 'from_user_id'),
+            'to' => $this->resolveNamedUser($meta, 'to_user_name', 'to_user_id'),
+            'assigned' => $this->resolveNamedUser($meta, null, 'assigned_to'),
+            default => '',
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $meta
+     */
+    protected function resolveNamedUser(array $meta, ?string $nameKey, string $idKey): string
+    {
+        if ($nameKey !== null) {
+            $name = trim((string) ($meta[$nameKey] ?? ''));
+            if ($name !== '') {
+                return $name;
+            }
+        }
+
+        if (! empty($meta[$idKey])) {
+            return (string) ($this->userNameById[(int) $meta[$idKey]] ?? '');
+        }
+
+        return '';
+    }
+
+    /**
+     * @param  Collection<int, Lead>  $leads
+     * @return array<int, string>
+     */
+    protected function loadUserNamesFromActivities(Collection $leads): array
+    {
+        $userIds = [];
+        foreach ($leads as $lead) {
+            foreach ($lead->activities as $activity) {
+                $meta = is_array($activity->meta) ? $activity->meta : [];
+                foreach (['from_user_id', 'to_user_id', 'assigned_to'] as $key) {
+                    if (! empty($meta[$key])) {
+                        $userIds[] = (int) $meta[$key];
+                    }
+                }
+            }
+        }
+
+        $userIds = array_values(array_unique(array_filter($userIds)));
+        if ($userIds === []) {
+            return [];
+        }
+
+        return User::query()
+            ->whereIn('id', $userIds)
+            ->pluck('name', 'id')
+            ->all();
+    }
+
+    /**
+     * @param  array<string, mixed>  $meta
+     * @return list<string>
+     */
+    protected function resolveActivityLabels(array $meta): array
+    {
+        $labels = [];
+
+        if (isset($meta['labels']) && is_array($meta['labels'])) {
+            foreach ($meta['labels'] as $label) {
+                if (is_array($label)) {
+                    $name = trim((string) ($label['name'] ?? ''));
+                    if ($name === '' && ! empty($label['label_id'])) {
+                        $name = (string) ($this->labelNameById[(int) $label['label_id']] ?? '');
+                    }
+                    if ($name === '' && ! empty($label['id'])) {
+                        $name = (string) ($this->labelNameById[(int) $label['id']] ?? '');
+                    }
+                } else {
+                    $name = trim((string) $label);
+                }
+
+                if ($name !== '') {
+                    $labels[] = $name;
+                }
+            }
+        }
+
+        if ($labels === []) {
+            $single = $this->resolveActivityLabel($meta);
+            if ($single !== '') {
+                $labels[] = $single;
+            }
+        }
+
+        return array_values(array_unique($labels));
+    }
+
+    /**
+     * @param  array<string, mixed>  $meta
+     */
+    protected function resolveActivityLabel(array $meta): string
+    {
+        $label = trim((string) ($meta['label'] ?? ''));
+        if ($label !== '') {
+            return $label;
+        }
+
+        $labelId = (int) ($meta['label_id'] ?? 0);
+        if ($labelId <= 0) {
+            return '';
+        }
+
+        return (string) ($this->labelNameById[$labelId] ?? '');
+    }
+
+    protected function humanStatus(string $status): string
+    {
+        $status = trim(strtolower($status));
+
+        return $status !== '' ? ucfirst($status) : '';
+    }
+
+    /**
+     * @param  array<int, list<array{channel: string, label: string, conversation_id: int, title: string, preview: string, deep_link: string, last_at: ?string}>>  $threadsByLead
+     * @return array<string, list<int>>
+     */
+    protected function collectConversationIdsByChannel(array $threadsByLead): array
+    {
+        $idsByChannel = [
+            'whatsapp' => [],
+            'viber' => [],
+            'sms' => [],
+            'inbox' => [],
+            'facebook' => [],
+            'instagram' => [],
+        ];
+
+        foreach ($threadsByLead as $threads) {
+            foreach ($threads as $thread) {
+                $channel = (string) ($thread['channel'] ?? '');
+                $conversationId = (int) ($thread['conversation_id'] ?? 0);
+                if ($conversationId <= 0 || ! isset($idsByChannel[$channel])) {
+                    continue;
+                }
+                $idsByChannel[$channel][] = $conversationId;
+            }
+        }
+
+        foreach ($idsByChannel as $channel => $ids) {
+            $idsByChannel[$channel] = array_values(array_unique($ids));
+        }
+
+        return $idsByChannel;
+    }
+
+    /**
+     * @param  array<string, list<int>>  $idsByChannel
+     * @return array<string, array{at: string, direction: string, preview: string}>
+     */
+    protected function loadFirstMessagesBatch(array $idsByChannel): array
+    {
+        $firstMessages = [];
+
+        if ($idsByChannel['whatsapp'] !== []) {
+            foreach ($this->loadWhatsAppFirstMessages($idsByChannel['whatsapp']) as $conversationId => $message) {
+                $firstMessages['whatsapp:'.$conversationId] = $message;
+            }
+        }
+        if ($idsByChannel['viber'] !== []) {
+            foreach ($this->loadViberFirstMessages($idsByChannel['viber']) as $conversationId => $message) {
+                $firstMessages['viber:'.$conversationId] = $message;
+            }
+        }
+        if ($idsByChannel['sms'] !== []) {
+            foreach ($this->loadSmsFirstMessages($idsByChannel['sms']) as $conversationId => $message) {
+                $firstMessages['sms:'.$conversationId] = $message;
+            }
+        }
+        if ($idsByChannel['inbox'] !== []) {
+            foreach ($this->loadInboxFirstMessages($idsByChannel['inbox']) as $conversationId => $message) {
+                $firstMessages['inbox:'.$conversationId] = $message;
+            }
+        }
+        $facebookIds = array_values(array_unique(array_merge(
+            $idsByChannel['facebook'],
+            $idsByChannel['instagram']
+        )));
+        if ($facebookIds !== []) {
+            foreach ($this->loadFacebookFirstMessages($facebookIds) as $conversationId => $message) {
+                $firstMessages['facebook:'.$conversationId] = $message;
+                $firstMessages['instagram:'.$conversationId] = $message;
+            }
+        }
+
+        return $firstMessages;
+    }
+
+    /**
+     * @param  list<int>  $conversationIds
+     * @return array<int, array{at: string, direction: string, preview: string}>
+     */
+    protected function loadWhatsAppFirstMessages(array $conversationIds): array
+    {
+        return $this->loadFirstMessagesByConversation(
+            WhatsAppMessage::query(),
+            'whatsapp_conversation_id',
+            $conversationIds,
+            fn (WhatsAppMessage $m) => [
+                'at' => ($m->sent_at ?? $m->created_at)?->format('Y-m-d H:i:s') ?? '',
+                'direction' => (string) ($m->direction ?? ''),
+                'preview' => (string) ($m->text ?: ($m->type !== 'text' ? '['.$m->type.']' : '')),
+            ]
+        );
+    }
+
+    /**
+     * @param  list<int>  $conversationIds
+     * @return array<int, array{at: string, direction: string, preview: string}>
+     */
+    protected function loadViberFirstMessages(array $conversationIds): array
+    {
+        return $this->loadFirstMessagesByConversation(
+            ViberMessage::query(),
+            'viber_conversation_id',
+            $conversationIds,
+            fn (ViberMessage $m) => [
+                'at' => ($m->sent_at ?? $m->created_at)?->format('Y-m-d H:i:s') ?? '',
+                'direction' => (string) ($m->direction ?? ''),
+                'preview' => (string) ($m->text ?: ($m->type !== 'text' ? '['.$m->type.']' : '')),
+            ]
+        );
+    }
+
+    /**
+     * @param  list<int>  $conversationIds
+     * @return array<int, array{at: string, direction: string, preview: string}>
+     */
+    protected function loadSmsFirstMessages(array $conversationIds): array
+    {
+        return $this->loadFirstMessagesByConversation(
+            SmsMessage::query(),
+            'sms_conversation_id',
+            $conversationIds,
+            fn (SmsMessage $m) => [
+                'at' => ($m->sent_at ?? $m->created_at)?->format('Y-m-d H:i:s') ?? '',
+                'direction' => (string) ($m->direction ?? ''),
+                'preview' => (string) ($m->body ?? ''),
+            ]
+        );
+    }
+
+    /**
+     * @param  list<int>  $conversationIds
+     * @return array<int, array{at: string, direction: string, preview: string}>
+     */
+    protected function loadInboxFirstMessages(array $conversationIds): array
+    {
+        return $this->loadFirstMessagesByConversation(
+            InboxMessage::query(),
+            'inbox_conversation_id',
+            $conversationIds,
+            function (InboxMessage $m) {
+                $body = trim((string) ($m->body_text ?: ''));
+                if ($body === '') {
+                    $body = trim(html_entity_decode(strip_tags((string) ($m->body_html ?? '')), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                }
+                $preview = trim(($m->subject ? $m->subject.' — ' : '').$body);
+
+                return [
+                    'at' => ($m->sent_at ?? $m->created_at)?->format('Y-m-d H:i:s') ?? '',
+                    'direction' => (string) ($m->direction ?? ''),
+                    'preview' => mb_substr(preg_replace('/\s+/u', ' ', $preview) ?? $preview, 0, 500),
+                ];
+            }
+        );
+    }
+
+    /**
+     * @param  list<int>  $conversationIds
+     * @return array<int, array{at: string, direction: string, preview: string}>
+     */
+    protected function loadFacebookFirstMessages(array $conversationIds): array
+    {
+        return $this->loadFirstMessagesByConversation(
+            FacebookMessage::query(),
+            'facebook_conversation_id',
+            $conversationIds,
+            fn (FacebookMessage $m) => [
+                'at' => ($m->sent_at ?? $m->created_at)?->format('Y-m-d H:i:s') ?? '',
+                'direction' => (string) ($m->direction ?? ''),
+                'preview' => (string) ($m->text ?: ($m->type !== 'text' ? '['.$m->type.']' : '')),
+            ]
+        );
+    }
+
+    /**
+     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
+     * @param  list<int>  $conversationIds
+     * @param  callable(object): array{at: string, direction: string, preview: string}  $mapper
+     * @return array<int, array{at: string, direction: string, preview: string}>
+     */
+    protected function loadFirstMessagesByConversation($query, string $conversationColumn, array $conversationIds, callable $mapper): array
+    {
+        if ($conversationIds === []) {
+            return [];
+        }
+
+        $table = $query->getModel()->getTable();
+        $sub = DB::table($table)
+            ->select($conversationColumn, DB::raw('MIN(COALESCE(sent_at, created_at)) as first_at'))
+            ->whereIn($conversationColumn, $conversationIds)
+            ->groupBy($conversationColumn);
+
+        $messages = (clone $query)
+            ->joinSub($sub, 'first_msg', function ($join) use ($table, $conversationColumn) {
+                $join->on($table.'.'.$conversationColumn, '=', 'first_msg.'.$conversationColumn)
+                    ->whereRaw('COALESCE('.$table.'.sent_at, '.$table.'.created_at) = first_msg.first_at');
+            })
+            ->orderBy($table.'.id')
+            ->get();
+
+        $first = [];
+        foreach ($messages as $message) {
+            $conversationId = (int) $message->{$conversationColumn};
+            if (isset($first[$conversationId])) {
+                continue;
+            }
+            $first[$conversationId] = $mapper($message);
+        }
+
+        return $first;
+    }
+
+    /**
+     * @param  Collection<int, array{channel: string, label: string, conversation_id: int, title: string, preview: string, deep_link: string, last_at: ?string}>  $threads
+     * @param  array<string, array{at: string, direction: string, preview: string}>  $firstMessages
      * @return Collection<int, array<string, mixed>>
      */
-    protected function conversationRowsForLead(int $companyId, Lead $lead): Collection
+    protected function conversationRowsFromThreads(Lead $lead, Collection $threads, array $firstMessages): Collection
     {
-        $history = $this->conversationHistory->history(
-            $companyId,
-            null,
-            null,
-            50,
-            null,
-            (int) $lead->id
-        );
-
-        $threads = collect($history['threads'] ?? []);
         $leadName = $this->displayName($lead);
 
-        return $threads->map(function (array $thread) use ($lead, $leadName) {
+        return $threads->map(function (array $thread) use ($lead, $leadName, $firstMessages) {
             $channel = (string) ($thread['channel'] ?? '');
             $conversationId = (int) ($thread['conversation_id'] ?? 0);
-            $first = $conversationId > 0
-                ? $this->firstMessageForThread($channel, $conversationId)
-                : null;
+            $first = $firstMessages[$channel.':'.$conversationId] ?? null;
 
             return [
                 'lead_id' => $lead->id,
@@ -487,110 +954,34 @@ class LeadReportService
     }
 
     /**
-     * @return array{at: string, direction: string, preview: string}|null
-     */
-    protected function firstMessageForThread(string $channel, int $conversationId): ?array
-    {
-        return match ($channel) {
-            'whatsapp' => $this->mapFirstMessage(
-                WhatsAppMessage::query()
-                    ->where('whatsapp_conversation_id', $conversationId)
-                    ->orderBy('sent_at')
-                    ->orderBy('id')
-                    ->first(),
-                fn (WhatsAppMessage $m) => [
-                    'at' => ($m->sent_at ?? $m->created_at)?->format('Y-m-d H:i:s') ?? '',
-                    'direction' => (string) ($m->direction ?? ''),
-                    'preview' => (string) ($m->text ?: ($m->type !== 'text' ? '['.$m->type.']' : '')),
-                ]
-            ),
-            'viber' => $this->mapFirstMessage(
-                ViberMessage::query()
-                    ->where('viber_conversation_id', $conversationId)
-                    ->orderBy('sent_at')
-                    ->orderBy('id')
-                    ->first(),
-                fn (ViberMessage $m) => [
-                    'at' => ($m->sent_at ?? $m->created_at)?->format('Y-m-d H:i:s') ?? '',
-                    'direction' => (string) ($m->direction ?? ''),
-                    'preview' => (string) ($m->text ?: ($m->type !== 'text' ? '['.$m->type.']' : '')),
-                ]
-            ),
-            'sms' => $this->mapFirstMessage(
-                SmsMessage::query()
-                    ->where('sms_conversation_id', $conversationId)
-                    ->orderBy('sent_at')
-                    ->orderBy('id')
-                    ->first(),
-                fn (SmsMessage $m) => [
-                    'at' => ($m->sent_at ?? $m->created_at)?->format('Y-m-d H:i:s') ?? '',
-                    'direction' => (string) ($m->direction ?? ''),
-                    'preview' => (string) ($m->body ?? ''),
-                ]
-            ),
-            'inbox' => $this->mapFirstMessage(
-                InboxMessage::query()
-                    ->where('inbox_conversation_id', $conversationId)
-                    ->orderBy('sent_at')
-                    ->orderBy('id')
-                    ->first(),
-                function (InboxMessage $m) {
-                    $body = trim((string) ($m->body_text ?: ''));
-                    if ($body === '') {
-                        $body = trim(html_entity_decode(strip_tags((string) ($m->body_html ?? '')), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-                    }
-                    $preview = trim(($m->subject ? $m->subject.' — ' : '').$body);
-
-                    return [
-                        'at' => ($m->sent_at ?? $m->created_at)?->format('Y-m-d H:i:s') ?? '',
-                        'direction' => (string) ($m->direction ?? ''),
-                        'preview' => mb_substr(preg_replace('/\s+/u', ' ', $preview) ?? $preview, 0, 500),
-                    ];
-                }
-            ),
-            'facebook' => $this->mapFirstMessage(
-                FacebookMessage::query()
-                    ->where('facebook_conversation_id', $conversationId)
-                    ->orderBy('sent_at')
-                    ->orderBy('id')
-                    ->first(),
-                fn (FacebookMessage $m) => [
-                    'at' => ($m->sent_at ?? $m->created_at)?->format('Y-m-d H:i:s') ?? '',
-                    'direction' => (string) ($m->direction ?? ''),
-                    'preview' => (string) ($m->text ?: ($m->type !== 'text' ? '['.$m->type.']' : '')),
-                ]
-            ),
-            default => null,
-        };
-    }
-
-    /**
-     * @template T of object
-     *
-     * @param  T|null  $message
-     * @param  callable(T): array{at: string, direction: string, preview: string}  $mapper
-     * @return array{at: string, direction: string, preview: string}|null
-     */
-    protected function mapFirstMessage(?object $message, callable $mapper): ?array
-    {
-        if (! $message) {
-            return null;
-        }
-
-        return $mapper($message);
-    }
-
-    /**
      * @param  array<string, mixed>  $meta
      */
-    protected function formatActivityDetails(array $meta): string
+    protected function formatActivityDetails(array $meta, string $action = ''): string
     {
         if ($meta === []) {
             return '';
         }
 
+        $skip = [
+            'label',
+            'label_id',
+            'from_user_id',
+            'from_user_name',
+            'to_user_id',
+            'to_user_name',
+            'assigned_to',
+        ];
+        if ($action === LeadActivity::STATUS_CHANGED) {
+            $skip[] = 'from';
+            $skip[] = 'to';
+        }
+
         $parts = [];
         foreach ($meta as $key => $value) {
+            if (in_array($key, $skip, true)) {
+                continue;
+            }
+
             if (is_array($value)) {
                 $value = json_encode($value, JSON_UNESCAPED_UNICODE);
             } elseif (is_bool($value)) {
@@ -598,6 +989,7 @@ class LeadReportService
             } elseif ($value === null) {
                 continue;
             }
+
             $parts[] = $key.': '.$value;
         }
 

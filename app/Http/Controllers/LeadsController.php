@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Exports\LeadReportExport;
+use App\Exports\LeadReportActivitySheet;
+use App\Exports\LeadReportConversationsSheet;
+use App\Exports\LeadReportLeadsSheet;
 use App\Http\Requests\StoreLeadRequest;
 use App\Http\Requests\UpdateLeadRequest;
 use App\Models\FacebookConversation;
@@ -80,20 +82,25 @@ class LeadsController extends Controller
 
     public function exportReport(Request $request): BinaryFileResponse
     {
-        $user = Auth::user();
-        $companyId = (int) $user->company_id;
-        $workbook = $this->leadReports->exportWorkbook($companyId, $request);
-        $filename = 'lead-report-'.now()->format('Y-m-d-His').'.xlsx';
+        $companyId = (int) Auth::user()->company_id;
+        $type = (string) $request->get('type', 'leads');
+        $workbook = $this->leadReports->exportWorkbook($companyId, $request, $type);
+        $timestamp = now()->format('Y-m-d-His');
 
-        return Excel::download(
-            new LeadReportExport(
-                $workbook['leads'],
-                $workbook['activities'],
-                $workbook['conversations'],
-                (string) ($user->company?->name ?? '')
+        return match ($type) {
+            'activities' => Excel::download(
+                new LeadReportActivitySheet($workbook['activities']),
+                'lead-report-activity-'.$timestamp.'.xlsx'
             ),
-            $filename
-        );
+            'conversations' => Excel::download(
+                new LeadReportConversationsSheet($workbook['conversations']),
+                'lead-report-conversations-'.$timestamp.'.xlsx'
+            ),
+            default => Excel::download(
+                new LeadReportLeadsSheet($workbook['leads']),
+                'lead-report-leads-'.$timestamp.'.xlsx'
+            ),
+        };
     }
 
     public function list(Request $request): JsonResponse

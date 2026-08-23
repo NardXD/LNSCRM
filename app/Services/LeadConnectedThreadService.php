@@ -32,6 +32,69 @@ class LeadConnectedThreadService
         }
 
         $leadIds = $leads->map(fn (Lead $lead) => (int) $lead->id)->all();
+        $candidates = $this->buildThreadCandidates($companyId, $leads);
+
+        $preferred = [];
+        foreach ($leads as $lead) {
+            $preferred[(int) $lead->id] = $this->preferredChannel($lead->source);
+        }
+
+        $result = [];
+        foreach ($leadIds as $leadId) {
+            $best = $this->pickBest($candidates[$leadId] ?? [], $preferred[$leadId] ?? null);
+            if ($best) {
+                $result[$leadId] = [
+                    'channel' => $best['channel'],
+                    'label' => $best['label'],
+                    'url' => $best['url'],
+                    'conversation_id' => $best['conversation_id'],
+                ];
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * All connected channel threads per lead (bulk, for report exports).
+     *
+     * @param  iterable<Lead>  $leads
+     * @return array<int, list<array{channel: string, label: string, conversation_id: int, title: string, preview: string, deep_link: string, last_at: ?string}>>
+     */
+    public function allThreadsForLeads(int $companyId, iterable $leads): array
+    {
+        /** @var Collection<int, Lead> $leads */
+        $leads = collect($leads)->filter(fn ($lead) => $lead instanceof Lead)->values();
+        if ($leads->isEmpty()) {
+            return [];
+        }
+
+        $leadIds = $leads->map(fn (Lead $lead) => (int) $lead->id)->all();
+        $candidates = $this->buildThreadCandidates($companyId, $leads);
+        $result = [];
+
+        foreach ($leadIds as $leadId) {
+            $result[$leadId] = array_map(fn (array $candidate) => [
+                'channel' => $candidate['channel'],
+                'label' => $candidate['label'],
+                'conversation_id' => $candidate['conversation_id'],
+                'title' => $candidate['title'],
+                'preview' => $candidate['preview'],
+                'deep_link' => $candidate['url'],
+                'last_at' => $candidate['at'],
+            ], $candidates[$leadId] ?? []);
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param  Collection<int, Lead>  $leads
+     * @return array<int, list<array{channel: string, label: string, url: string, conversation_id: int, at: ?string, score: int, title: string, preview: string}>>
+     */
+    protected function buildThreadCandidates(int $companyId, Collection $leads): array
+    {
+        $leadIds = $leads->map(fn (Lead $lead) => (int) $lead->id)->all();
         $phonesByLead = [];
         $emailsByLead = [];
         $socialByLead = [];
@@ -85,7 +148,7 @@ class LeadConnectedThreadService
         $allEmails = array_values(array_unique($allEmails));
         $allSocial = array_values(array_unique($allSocial));
 
-        /** @var array<int, list<array{channel: string, label: string, url: string, conversation_id: int, at: ?string, score: int}>> $candidates */
+        /** @var array<int, list<array{channel: string, label: string, url: string, conversation_id: int, at: ?string, score: int, title: string, preview: string}>> $candidates */
         $candidates = [];
         foreach ($leadIds as $leadId) {
             $candidates[$leadId] = [];
@@ -101,7 +164,8 @@ class LeadConnectedThreadService
             'whatsapp',
             'WhatsApp',
             fn (WhatsAppConversation $c) => [(string) $c->wa_id, (string) $c->phone],
-            fn (WhatsAppConversation $c) => url('/whatsapp').'?conversation='.$c->id
+            fn (WhatsAppConversation $c) => url('/whatsapp').'?conversation='.$c->id,
+            fn (WhatsAppConversation $c) => (string) ($c->name ?: $c->profile_name ?: $c->wa_id ?: $c->phone)
         );
         $this->collectPhoneChannel(
             $companyId,
@@ -112,7 +176,8 @@ class LeadConnectedThreadService
             'viber',
             'Viber',
             fn (ViberConversation $c) => [(string) $c->viber_user_id, (string) $c->phone],
-            fn (ViberConversation $c) => url('/viber').'?conversation='.$c->id
+            fn (ViberConversation $c) => url('/viber').'?conversation='.$c->id,
+            fn (ViberConversation $c) => (string) ($c->name ?: $c->viber_user_id ?: $c->phone)
         );
         $this->collectPhoneChannel(
             $companyId,
@@ -123,36 +188,19 @@ class LeadConnectedThreadService
             'sms',
             'SMS',
             fn (SmsConversation $c) => [(string) $c->peer_phone],
-            fn (SmsConversation $c) => url('/sms').'?conversation='.$c->id
+            fn (SmsConversation $c) => url('/sms').'?conversation='.$c->id,
+            fn (SmsConversation $c) => (string) ($c->name ?: $c->peer_phone)
         );
         $this->collectFacebook($companyId, $socialByLead, $allSocial, $candidates);
 
-        $preferred = [];
-        foreach ($leads as $lead) {
-            $preferred[(int) $lead->id] = $this->preferredChannel($lead->source);
-        }
-
-        $result = [];
-        foreach ($leadIds as $leadId) {
-            $best = $this->pickBest($candidates[$leadId] ?? [], $preferred[$leadId] ?? null);
-            if ($best) {
-                $result[$leadId] = [
-                    'channel' => $best['channel'],
-                    'label' => $best['label'],
-                    'url' => $best['url'],
-                    'conversation_id' => $best['conversation_id'],
-                ];
-            }
-        }
-
-        return $result;
+        return $candidates;
     }
 
     /**
      * @param  list<int>  $leadIds
      * @param  array<int, list<string>>  $emailsByLead
      * @param  list<string>  $allEmails
-     * @param  array<int, list<array{channel: string, label: string, url: string, conversation_id: int, at: ?string, score: int}>>  $candidates
+     * @param  array<int, list<array{channel: string, label: string, url: string, conversation_id: int, at: ?string, score: int, title: string, preview: string}>>  $candidates
      */
     protected function collectInbox(
         int $companyId,
@@ -177,22 +225,29 @@ class LeadConnectedThreadService
             ->orderByDesc('last_message_at')
             ->orderByDesc('id')
             ->limit(200)
-            ->get(['id', 'lead_id', 'from_email', 'last_message_at']);
+            ->get(['id', 'lead_id', 'from_email', 'from_name', 'subject', 'snippet', 'last_message_at']);
 
         foreach ($query as $conversation) {
             $url = url('/inbox').'?conversation='.$conversation->id;
             $at = $conversation->last_message_at?->toIso8601String();
             $from = strtolower(trim((string) $conversation->from_email));
+            $title = (string) ($conversation->subject ?: ($conversation->from_name ?: $conversation->from_email));
+            $preview = (string) ($conversation->snippet ?? '');
+            $entry = [
+                'channel' => 'inbox',
+                'label' => 'Inbox',
+                'url' => $url,
+                'conversation_id' => (int) $conversation->id,
+                'at' => $at,
+                'score' => 100,
+                'title' => $title,
+                'preview' => $preview,
+            ];
 
             if ($conversation->lead_id && isset($candidates[(int) $conversation->lead_id])) {
-                $candidates[(int) $conversation->lead_id][] = [
-                    'channel' => 'inbox',
-                    'label' => 'Inbox',
-                    'url' => $url,
-                    'conversation_id' => (int) $conversation->id,
-                    'at' => $at,
-                    'score' => 1000,
-                ];
+                $attached = $entry;
+                $attached['score'] = 1000;
+                $candidates[(int) $conversation->lead_id][] = $attached;
             }
 
             if ($from === '') {
@@ -203,14 +258,7 @@ class LeadConnectedThreadService
                 if (! in_array($from, $emails, true)) {
                     continue;
                 }
-                $candidates[$leadId][] = [
-                    'channel' => 'inbox',
-                    'label' => 'Inbox',
-                    'url' => $url,
-                    'conversation_id' => (int) $conversation->id,
-                    'at' => $at,
-                    'score' => 100,
-                ];
+                $candidates[$leadId][] = $entry;
             }
         }
     }
@@ -220,10 +268,11 @@ class LeadConnectedThreadService
      *
      * @param  array<int, list<string>>  $phonesByLead
      * @param  list<string>  $allPhoneDigits
-     * @param  array<int, list<array{channel: string, label: string, url: string, conversation_id: int, at: ?string, score: int}>>  $candidates
+     * @param  array<int, list<array{channel: string, label: string, url: string, conversation_id: int, at: ?string, score: int, title: string, preview: string}>>  $candidates
      * @param  class-string<T>  $model
      * @param  callable(T): list<string>  $phoneFields
      * @param  callable(T): string  $url
+     * @param  callable(T): string  $title
      */
     protected function collectPhoneChannel(
         int $companyId,
@@ -234,7 +283,8 @@ class LeadConnectedThreadService
         string $channel,
         string $label,
         callable $phoneFields,
-        callable $url
+        callable $url,
+        callable $title
     ): void {
         $suffixes = [];
         foreach ($allPhoneDigits as $digits) {
@@ -248,9 +298,9 @@ class LeadConnectedThreadService
         }
 
         $columns = match ($channel) {
-            'whatsapp' => ['id', 'wa_id', 'phone', 'last_message_at'],
-            'viber' => ['id', 'viber_user_id', 'phone', 'last_message_at'],
-            default => ['id', 'peer_phone', 'last_message_at'],
+            'whatsapp' => ['id', 'wa_id', 'phone', 'name', 'profile_name', 'last_message_preview', 'last_message_at'],
+            'viber' => ['id', 'viber_user_id', 'phone', 'name', 'last_message_preview', 'last_message_at'],
+            default => ['id', 'peer_phone', 'name', 'last_message_preview', 'last_message_at'],
         };
 
         $rows = $model::query()
@@ -303,6 +353,8 @@ class LeadConnectedThreadService
                     'conversation_id' => (int) $conversation->id,
                     'at' => $at,
                     'score' => 100,
+                    'title' => $title($conversation),
+                    'preview' => (string) ($conversation->last_message_preview ?? ''),
                 ];
             }
         }
@@ -311,7 +363,7 @@ class LeadConnectedThreadService
     /**
      * @param  array<int, list<string>>  $socialByLead
      * @param  list<string>  $allSocial
-     * @param  array<int, list<array{channel: string, label: string, url: string, conversation_id: int, at: ?string, score: int}>>  $candidates
+     * @param  array<int, list<array{channel: string, label: string, url: string, conversation_id: int, at: ?string, score: int, title: string, preview: string}>>  $candidates
      */
     protected function collectFacebook(
         int $companyId,
@@ -334,7 +386,7 @@ class LeadConnectedThreadService
             ->orderByDesc('last_message_at')
             ->orderByDesc('id')
             ->limit(200)
-            ->get(['id', 'channel', 'name', 'username', 'last_message_at']);
+            ->get(['id', 'channel', 'name', 'username', 'last_message_preview', 'last_message_at']);
 
         foreach ($rows as $conversation) {
             $names = array_values(array_filter([
@@ -362,6 +414,8 @@ class LeadConnectedThreadService
                     'conversation_id' => (int) $conversation->id,
                     'at' => $at,
                     'score' => 100,
+                    'title' => (string) ($conversation->name ?: $conversation->username ?: $conversation->peer_id),
+                    'preview' => (string) ($conversation->last_message_preview ?? ''),
                 ];
             }
         }
@@ -446,8 +500,8 @@ class LeadConnectedThreadService
     }
 
     /**
-     * @param  list<array{channel: string, label: string, url: string, conversation_id: int, at: ?string, score: int}>  $candidates
-     * @return array{channel: string, label: string, url: string, conversation_id: int, at: ?string, score: int}|null
+     * @param  list<array{channel: string, label: string, url: string, conversation_id: int, at: ?string, score: int, title: string, preview: string}>  $candidates
+     * @return array{channel: string, label: string, url: string, conversation_id: int, at: ?string, score: int, title: string, preview: string}|null
      */
     protected function pickBest(array $candidates, ?string $preferred): ?array
     {

@@ -28,6 +28,10 @@ class LeadReportActivitySheet implements FromCollection, WithHeadings, WithMappi
                 'actor' => '',
                 'action' => '',
                 'summary' => 'No activity recorded for the filtered leads.',
+                'label' => '',
+                'user' => '',
+                'status' => '',
+                'assignee' => '',
                 'details' => '',
             ]])
             : $this->rows;
@@ -47,6 +51,10 @@ class LeadReportActivitySheet implements FromCollection, WithHeadings, WithMappi
             'Actor',
             'Action',
             'Summary',
+            'Label',
+            'User',
+            'Status',
+            'Assignee',
             'Details',
         ];
     }
@@ -63,6 +71,10 @@ class LeadReportActivitySheet implements FromCollection, WithHeadings, WithMappi
             $row['actor'] ?? '',
             $row['action'] ?? '',
             $row['summary'] ?? '',
+            $row['label'] ?? '',
+            $row['user'] ?? '',
+            $row['status'] ?? '',
+            $row['assignee'] ?? '',
             $row['details'] ?? '',
         ];
     }
