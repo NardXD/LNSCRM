@@ -149,9 +149,31 @@
                         <label class="bc-label">Subject</label>
                         <input type="text" id="fSubject" class="bc-input" maxlength="500" placeholder="Email subject">
                     </div>
-                    <label class="bc-label" id="bodyLabel">Message</label>
-                    <textarea id="fBody" class="bc-input" rows="10" placeholder="Write your message…"></textarea>
-                    <div class="bc-char" id="charCount"></div>
+                    <div id="smsBodyBlock">
+                        <label class="bc-label">SMS message</label>
+                        <textarea id="fBody" class="bc-input" rows="10" placeholder="Write your message…"></textarea>
+                        <div class="bc-char" id="charCount"></div>
+                    </div>
+                    <div id="emailBodyBlock" hidden>
+                        <label class="bc-label">Email body</label>
+                        <div class="bc-html-editor" id="emailHtmlEditor" data-html-editor="broadcast">
+                            <div class="bc-html-toolbar">
+                                <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
+                                <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
+                                <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
+                                <button type="button" data-cmd="insertUnorderedList" title="Bullet list">• List</button>
+                                <button type="button" data-cmd="createLink" title="Link">Link</button>
+                                <button type="button" data-cmd="removeFormat" title="Clear formatting">Clear</button>
+                                <span class="bc-html-toolbar-spacer"></span>
+                                <button type="button" class="is-active" data-html-mode="visual">Visual</button>
+                                <button type="button" data-html-mode="source">HTML</button>
+                            </div>
+                            <div id="fEmailVisual" class="bc-html-visual" contenteditable="true" data-placeholder="Write your email… Use Visual for formatting or switch to HTML to paste templates." role="textbox" aria-multiline="true"></div>
+                            <textarea id="fEmailSource" class="bc-input bc-html-source" rows="10" hidden placeholder="<p>Hi,</p><p>Your message here…</p>"></textarea>
+                        </div>
+                        <div class="bc-char" id="emailCharCount"></div>
+                        <p class="bc-hint">Emails are sent as HTML. Switch to HTML mode to paste full templates with markup.</p>
+                    </div>
                 </section>
 
                 <section class="bc-panel" data-panel="4" hidden>
@@ -284,6 +306,29 @@
     .bc-stat strong { font-size: 1.25rem; }
     .bc-detail-body { display: grid; grid-template-columns: 0.9fr 1.4fr; gap: 1.25rem; padding: 1.25rem; }
     .bc-message-preview { white-space: pre-wrap; background: var(--bg-primary); border-radius: 10px; padding: 1rem; font-size: 0.875rem; min-height: 120px; }
+    .bc-message-preview.is-html { white-space: normal; line-height: 1.5; }
+    .bc-html-editor {
+        display: grid; gap: 0.45rem; border: 1px solid var(--border); border-radius: 10px;
+        padding: 0.55rem; background: var(--bg-primary);
+    }
+    .bc-html-toolbar { display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; }
+    .bc-html-toolbar button {
+        border: 1px solid var(--border); background: #fff; border-radius: 6px; padding: 0.25rem 0.45rem;
+        font-size: 0.75rem; font-weight: 600; cursor: pointer; color: var(--text-primary); font-family: inherit;
+    }
+    .bc-html-toolbar button:hover, .bc-html-toolbar button.is-active {
+        border-color: var(--accent); color: var(--accent); background: var(--accent-light);
+    }
+    .bc-html-toolbar-spacer { flex: 1; }
+    .bc-html-visual {
+        min-height: 180px; max-height: 360px; overflow: auto; border: 1px solid var(--border); border-radius: 8px;
+        padding: 0.65rem 0.75rem; background: #fff; font-size: 0.875rem; line-height: 1.5;
+    }
+    .bc-html-visual:empty:before { content: attr(data-placeholder); color: var(--text-muted); }
+    .bc-html-source {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8125rem;
+        min-height: 180px; max-height: 360px; overflow: auto; resize: vertical;
+    }
     .bc-type-card.is-disabled { opacity: 0.5; pointer-events: none; }
     @media (max-width: 900px) {
         .bc-recip-layout, .bc-detail-body, .bc-stats, .bc-type-row { grid-template-columns: 1fr; }
@@ -327,6 +372,81 @@
 
     function escapeHtml(value) {
         return String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    }
+
+    function sanitizeHtml(html) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = String(html || '');
+        wrap.querySelectorAll('script,iframe,object,embed,link,meta').forEach((node) => node.remove());
+        wrap.querySelectorAll('*').forEach((node) => {
+            [...node.attributes].forEach((attr) => {
+                const name = attr.name.toLowerCase();
+                const value = String(attr.value || '');
+                if (name.startsWith('on') || (name === 'href' && /^\s*javascript:/i.test(value))) {
+                    node.removeAttribute(attr.name);
+                }
+            });
+        });
+        return wrap.innerHTML;
+    }
+
+    function htmlToPlain(html) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = String(html || '');
+        return (wrap.textContent || '').replace(/\u00a0/g, ' ').trim();
+    }
+
+    function getEmailEditor() {
+        return {
+            root: el('emailHtmlEditor'),
+            visual: el('fEmailVisual'),
+            source: el('fEmailSource'),
+        };
+    }
+
+    function setEmailBody(html) {
+        const ed = getEmailEditor();
+        const clean = sanitizeHtml(html || '');
+        if (ed.visual) ed.visual.innerHTML = clean;
+        if (ed.source) ed.source.value = clean;
+        updateCompose();
+    }
+
+    function getEmailBody() {
+        const ed = getEmailEditor();
+        if (!ed.source) return '';
+        if (ed.source.hidden === false) {
+            return sanitizeHtml(ed.source.value.trim());
+        }
+        return sanitizeHtml((ed.visual?.innerHTML || '').trim());
+    }
+
+    function setEmailEditorMode(mode) {
+        const ed = getEmailEditor();
+        if (!ed.root) return;
+        const visualMode = mode !== 'source';
+        if (visualMode) {
+            if (ed.visual && ed.source) ed.visual.innerHTML = sanitizeHtml(ed.source.value);
+            if (ed.visual) ed.visual.hidden = false;
+            if (ed.source) ed.source.hidden = true;
+        } else {
+            if (ed.source && ed.visual) ed.source.value = sanitizeHtml(ed.visual.innerHTML);
+            if (ed.visual) ed.visual.hidden = true;
+            if (ed.source) ed.source.hidden = false;
+        }
+        ed.root.querySelectorAll('[data-html-mode]').forEach((btn) => {
+            btn.classList.toggle('is-active', btn.dataset.htmlMode === (visualMode ? 'visual' : 'source'));
+        });
+    }
+
+    function getComposeBody() {
+        return selectedType() === 'email' ? getEmailBody() : (el('fBody').value || '');
+    }
+
+    function clearComposeBody() {
+        el('fBody').value = '';
+        setEmailBody('');
+        setEmailEditorMode('visual');
     }
 
     function formatDate(value) {
@@ -393,7 +513,8 @@
         el('smsSenderBlock').hidden = type !== 'sms';
         el('emailSenderBlock').hidden = type !== 'email';
         el('emailSubjectBlock').hidden = type !== 'email';
-        el('bodyLabel').textContent = type === 'email' ? 'Email body' : 'SMS message';
+        el('smsBodyBlock').hidden = type !== 'sms';
+        el('emailBodyBlock').hidden = type !== 'email';
         el('typeHint').textContent = type === 'sms'
             ? (state.bootstrap?.twilio_connected ? '' : 'Connect Twilio in Integrations before sending SMS broadcasts.')
             : (state.bootstrap?.outlook_configured ? '' : 'Add Microsoft OAuth credentials in Integrations before connecting a mailbox.');
@@ -404,11 +525,12 @@
     }
 
     function updateCompose() {
-        const body = el('fBody').value || '';
         if (selectedType() === 'sms') {
+            const body = el('fBody').value || '';
             el('charCount').textContent = `${body.length} / 1600 characters`;
         } else {
-            el('charCount').textContent = `${body.length} characters`;
+            const body = getEmailBody();
+            el('emailCharCount').textContent = `${body.length} characters`;
         }
     }
 
@@ -508,8 +630,10 @@
         if (step === 2 && state.selected.size === 0) return 'Select at least one recipient.';
         if (step === 3) {
             if (selectedType() === 'email' && !el('fSubject').value.trim()) return 'Enter an email subject.';
-            if (!el('fBody').value.trim()) return 'Compose a message.';
-            if (selectedType() === 'sms' && el('fBody').value.length > 1600) return 'SMS messages can be at most 1600 characters.';
+            const body = getComposeBody();
+            const plain = selectedType() === 'email' ? htmlToPlain(body) : body.trim();
+            if (!plain) return 'Compose a message.';
+            if (selectedType() === 'sms' && body.length > 1600) return 'SMS messages can be at most 1600 characters.';
         }
         return null;
     }
@@ -526,7 +650,7 @@
                 from_number: el('fFromNumber').value || null,
                 shared_inbox_id: el('fInbox').value ? Number(el('fInbox').value) : null,
                 subject: el('fSubject').value.trim(),
-                body: el('fBody').value,
+                body: getComposeBody(),
                 recipients: [...state.selected.values()].map((row) => ({
                     source: row.source,
                     source_id: row.source_id,
@@ -587,10 +711,18 @@
             [campaign.type === 'sms' ? 'Delivered' : 'Successful', campaign.delivered_count],
             ['Failed', campaign.failed_count],
         ].map(([label, value]) => `<div class="bc-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
-        const body = campaign.type === 'email' && campaign.subject
-            ? `Subject: ${campaign.subject}\n\n${campaign.body}`
-            : campaign.body;
-        el('detailMessage').textContent = body || '';
+        const preview = el('detailMessage');
+        if (campaign.type === 'email') {
+            const subjectLine = campaign.subject ? `<p><strong>Subject:</strong> ${escapeHtml(campaign.subject)}</p>` : '';
+            const bodyHtml = String(campaign.body || '').includes('<')
+                ? sanitizeHtml(campaign.body)
+                : escapeHtml(campaign.body || '').replace(/\r?\n/g, '<br>');
+            preview.classList.add('is-html');
+            preview.innerHTML = subjectLine + bodyHtml;
+        } else {
+            preview.classList.remove('is-html');
+            preview.textContent = campaign.body || '';
+        }
         const recipients = campaign.recipients || [];
         el('detailRecipients').innerHTML = recipients.length
             ? recipients.map((row) => `<tr>
@@ -626,7 +758,7 @@
     function resetWizard() {
         el('fName').value = '';
         el('fSubject').value = '';
-        el('fBody').value = '';
+        clearComposeBody();
         el('recipSearch').value = '';
         el('recipPaste').value = '';
         state.selected.clear();
@@ -672,6 +804,40 @@
     });
     document.querySelectorAll('input[name="bcType"]').forEach((input) => input.addEventListener('change', applyType));
     el('fBody').addEventListener('input', updateCompose);
+    el('emailHtmlEditor')?.addEventListener('click', (e) => {
+        const modeBtn = e.target.closest('[data-html-mode]');
+        if (modeBtn) {
+            e.preventDefault();
+            setEmailEditorMode(modeBtn.dataset.htmlMode);
+            return;
+        }
+        const cmdBtn = e.target.closest('[data-cmd]');
+        if (!cmdBtn) return;
+        e.preventDefault();
+        const ed = getEmailEditor();
+        if (ed.source && !ed.source.hidden) {
+            alert('Switch to Visual mode to use formatting buttons, or edit HTML directly in HTML mode.');
+            return;
+        }
+        ed.visual?.focus();
+        const cmd = cmdBtn.dataset.cmd;
+        if (cmd === 'createLink') {
+            const url = prompt('Link URL', 'https://');
+            if (url) document.execCommand('createLink', false, url);
+        } else {
+            document.execCommand(cmd, false, null);
+        }
+        if (ed.source) ed.source.value = sanitizeHtml(ed.visual?.innerHTML || '');
+        updateCompose();
+    });
+    el('emailHtmlEditor')?.addEventListener('input', () => {
+        const ed = getEmailEditor();
+        if (ed.source?.hidden !== false && ed.visual && ed.source) {
+            ed.source.value = sanitizeHtml(ed.visual.innerHTML);
+        }
+        updateCompose();
+    });
+    el('fEmailSource')?.addEventListener('input', updateCompose);
     el('recipSearch').addEventListener('input', () => { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(searchRecipients, 250); });
     el('recipSource').addEventListener('change', searchRecipients);
     el('btnPaste').addEventListener('click', addPasted);
