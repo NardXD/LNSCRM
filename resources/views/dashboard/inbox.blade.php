@@ -5908,7 +5908,12 @@ select.inbox-reply-header-input {
             return;
         }
         if (e.target.closest('a, button')) return;
-        const card = e.target.closest('.inbox-msg[data-msg-id], .inbox-msg[data-comment-id]');
+        if (e.target.closest('.inbox-msg-expanded')) return;
+        const row = e.target.closest('.inbox-msg-row');
+        if (!row) return;
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed) return;
+        const card = row.closest('.inbox-msg[data-msg-id], .inbox-msg[data-comment-id]');
         if (!card) return;
         card.classList.toggle('is-expanded');
         if (card.dataset.msgId) {
