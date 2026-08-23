@@ -232,9 +232,106 @@ class BroadcastMessagingService
             return $campaign;
         });
 
-        // Process as many batches as we can in this request, then queue the rest.
+        return $this->resumeSending($campaign);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $input
+     */
+    public function addRecipients(User $user, BroadcastCampaign $campaign, array $input): BroadcastCampaign
+    {
+        $this->authorizeCampaign($user, $campaign);
+        $this->authorizeSendPermission($user, $campaign);
+        $this->ensureCampaignCanSend($campaign);
+
+        $normalized = $this->normalizeRecipientInput($user, $campaign->type, $input);
+        if ($normalized === []) {
+            throw new \InvalidArgumentException('Add at least one valid recipient.');
+        }
+
+        $existing = $campaign->recipients()
+            ->pluck('address')
+            ->map(fn (string $address) => strtolower($address))
+            ->all();
+
+        $toAdd = array_values(array_filter(
+            $normalized,
+            fn (array $row) => ! in_array(strtolower($row['address']), $existing, true)
+        ));
+
+        if ($toAdd === []) {
+            throw new \InvalidArgumentException('Every address is already on this broadcast.');
+        }
+
+        $total = (int) $campaign->recipient_count + count($toAdd);
+        if ($total > self::MAX_RECIPIENTS) {
+            throw new \InvalidArgumentException('This broadcast can include at most '.self::MAX_RECIPIENTS.' recipients.');
+        }
+
+        $this->verifyCampaignSender($user, $campaign);
+
+        DB::transaction(function () use ($campaign, $toAdd, $total) {
+            foreach ($toAdd as $recipient) {
+                $campaign->recipients()->create($recipient);
+            }
+
+            $campaign->update([
+                'status' => BroadcastCampaign::STATUS_SENDING,
+                'recipient_count' => $total,
+            ]);
+        });
+
+        return $this->resumeSending($campaign->fresh());
+    }
+
+    /**
+     * @param  list<int>|null  $recipientIds
+     */
+    public function retryFailed(User $user, BroadcastCampaign $campaign, ?array $recipientIds = null): BroadcastCampaign
+    {
+        $this->authorizeCampaign($user, $campaign);
+        $this->authorizeSendPermission($user, $campaign);
+        $this->ensureCampaignCanSend($campaign);
+
+        $retryStatuses = [
+            BroadcastCampaignRecipient::STATUS_FAILED,
+            BroadcastCampaignRecipient::STATUS_UNDELIVERED,
+        ];
+
+        $query = $campaign->recipients()->whereIn('status', $retryStatuses);
+        if ($recipientIds !== null && $recipientIds !== []) {
+            $query->whereIn('id', $recipientIds);
+        }
+
+        $rows = $query->get();
+        if ($rows->isEmpty()) {
+            throw new \InvalidArgumentException('No failed recipients to retry.');
+        }
+
+        $this->verifyCampaignSender($user, $campaign);
+
+        DB::transaction(function () use ($rows, $campaign) {
+            foreach ($rows as $recipient) {
+                $recipient->update([
+                    'status' => BroadcastCampaignRecipient::STATUS_PENDING,
+                    'provider_sid' => null,
+                    'error_message' => null,
+                    'sent_at' => null,
+                    'delivered_at' => null,
+                ]);
+            }
+
+            $campaign->update(['status' => BroadcastCampaign::STATUS_SENDING]);
+        });
+
+        return $this->resumeSending($campaign->fresh());
+    }
+
+    public function resumeSending(BroadcastCampaign $campaign): BroadcastCampaign
+    {
         $started = microtime(true);
         $processed = 0;
+
         do {
             $batchCount = $this->processBatch($campaign, dispatchRemainder: false);
             $processed += $batchCount;
@@ -830,5 +927,45 @@ class BroadcastMessagingService
 
             return $item;
         }, $attachments));
+    }
+
+    protected function authorizeCampaign(User $user, BroadcastCampaign $campaign): void
+    {
+        if ((int) $campaign->company_id !== (int) $user->company_id) {
+            throw new \InvalidArgumentException('Broadcast not found.');
+        }
+    }
+
+    protected function authorizeSendPermission(User $user, BroadcastCampaign $campaign): void
+    {
+        $permission = $campaign->isSms() ? 'send_broadcast_sms' : 'send_broadcast_email';
+        if (! $user->hasPermission($permission)) {
+            throw new \InvalidArgumentException('You do not have permission to send this broadcast.');
+        }
+    }
+
+    protected function ensureCampaignCanSend(BroadcastCampaign $campaign): void
+    {
+        if ($campaign->status === BroadcastCampaign::STATUS_SENDING) {
+            throw new \InvalidArgumentException('This broadcast is still sending. Wait for it to finish before adding recipients or retrying.');
+        }
+    }
+
+    protected function verifyCampaignSender(User $user, BroadcastCampaign $campaign): void
+    {
+        if ($campaign->isSms()) {
+            if (! $campaign->from_number) {
+                throw new \InvalidArgumentException('This SMS broadcast has no sender number.');
+            }
+            $this->resolveSmsSender($user, (string) $campaign->from_number);
+
+            return;
+        }
+
+        if (! $campaign->shared_inbox_id) {
+            throw new \InvalidArgumentException('This email broadcast has no sender mailbox.');
+        }
+
+        $this->resolveEmailSender($user, (int) $campaign->shared_inbox_id);
     }
 }

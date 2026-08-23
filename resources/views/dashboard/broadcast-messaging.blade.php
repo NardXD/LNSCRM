@@ -230,7 +230,35 @@
                         <div id="detailAttachments" class="bc-detail-attachments" hidden></div>
                     </div>
                     <div>
-                        <h3 class="bc-review-title">Results</h3>
+                        <div class="bc-detail-results-head">
+                            <h3 class="bc-review-title">Results</h3>
+                            <div class="bc-detail-actions" id="detailActions" hidden>
+                                <button type="button" class="btn btn-secondary" id="btnRetryFailed" hidden>Retry failed</button>
+                                <button type="button" class="btn btn-primary" id="btnToggleAddRecipients">Add recipients</button>
+                            </div>
+                        </div>
+                        <div class="bc-add-recipients" id="detailAddPanel" hidden>
+                            <div class="bc-recip-tools">
+                                <input type="search" id="detailRecipSearch" class="bc-input" placeholder="Search leads, clients, and contacts…">
+                                <select id="detailRecipSource" class="bc-select">
+                                    <option value="all">All sources</option>
+                                    <option value="leads">Leads</option>
+                                    <option value="clients">Clients</option>
+                                    <option value="contacts">Contacts</option>
+                                </select>
+                            </div>
+                            <div class="bc-recip-results bc-recip-results-compact" id="detailRecipResults">
+                                <div class="bc-empty">Search to find people with a phone number or email address.</div>
+                            </div>
+                            <label class="bc-label">Or paste addresses (one per line)</label>
+                            <textarea id="detailRecipPaste" class="bc-input" rows="3" placeholder="+15551234567 or name@example.com"></textarea>
+                            <div class="bc-detail-add-bar">
+                                <button type="button" class="btn btn-secondary" id="btnDetailPaste">Add pasted addresses</button>
+                                <span class="bc-hint" id="detailSelectedCount">0 selected</span>
+                                <button type="button" class="btn btn-primary" id="btnSendDetailRecipients">Send to selected</button>
+                            </div>
+                            <div id="detailSelectedList" class="bc-selected-list bc-selected-list-compact"></div>
+                        </div>
                         <div class="table-container">
                             <table class="data-table">
                                 <thead>
@@ -239,6 +267,7 @@
                                         <th>Address</th>
                                         <th>Status</th>
                                         <th>Error</th>
+                                        <th></th>
                                     </tr>
                                 </thead>
                                 <tbody id="detailRecipients"></tbody>
@@ -365,6 +394,19 @@
         display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid var(--border);
         background: #fff; border-radius: 8px; padding: 0.35rem 0.55rem; font-size: 0.75rem;
     }
+    .bc-detail-results-head { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+    .bc-detail-results-head .bc-review-title { margin: 0; }
+    .bc-detail-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .bc-add-recipients {
+        border: 1px solid var(--border); border-radius: 10px; padding: 0.85rem; margin-bottom: 0.85rem;
+        background: var(--bg-primary);
+    }
+    .bc-recip-results-compact { max-height: 200px; }
+    .bc-selected-list-compact { max-height: 140px; margin-top: 0.65rem; }
+    .bc-detail-add-bar { display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; margin-top: 0.65rem; }
+    .bc-detail-add-bar .bc-hint { margin: 0; flex: 1; }
+    .bc-row-action { border: none; background: none; color: var(--accent); cursor: pointer; font-size: 0.8125rem; font-weight: 600; padding: 0; font-family: inherit; }
+    .bc-row-action:hover { text-decoration: underline; }
     .bc-html-visual img { max-width: 100%; height: auto; }
     .bc-type-card.is-disabled { opacity: 0.5; pointer-events: none; }
     @media (max-width: 900px) {
@@ -395,6 +437,7 @@
         poll: null,
         type: canSms ? 'sms' : 'email',
         emailAttachments: [],
+        detailSelected: new Map(),
     };
 
     const el = (id) => document.getElementById(id);
@@ -621,6 +664,186 @@
         if (files.length) parts.push(`${files.length} file${files.length === 1 ? '' : 's'}`);
         if (inline.length) parts.push(`${inline.length} inline image${inline.length === 1 ? '' : 's'}`);
         return parts.join(', ') || '—';
+    }
+
+    function isRetryableStatus(status) {
+        return status === 'failed' || status === 'undelivered';
+    }
+
+    function canManageCampaign(campaign) {
+        if (!campaign?.can_send) return false;
+        return campaign.status !== 'sending';
+    }
+
+    function clearDetailSelected() {
+        state.detailSelected.clear();
+        renderDetailSelected();
+    }
+
+    function renderDetailSelected() {
+        const items = [...state.detailSelected.values()];
+        const countEl = el('detailSelectedCount');
+        if (countEl) countEl.textContent = `${items.length} selected`;
+        const list = el('detailSelectedList');
+        if (!list) return;
+        list.innerHTML = items.length
+            ? items.map((row) => `<div class="bc-chip"><div><strong>${escapeHtml(row.name || row.address)}</strong><small style="display:block;color:var(--text-secondary)">${escapeHtml(row.address)}</small></div><button type="button" data-detail-key="${escapeHtml(recipientKey(row))}">Remove</button></div>`).join('')
+            : '';
+        list.querySelectorAll('button[data-detail-key]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                state.detailSelected.delete(btn.dataset.detailKey);
+                renderDetailSelected();
+                searchDetailRecipients();
+            });
+        });
+    }
+
+    async function searchDetailRecipients() {
+        const campaign = state.current;
+        const box = el('detailRecipResults');
+        if (!box || !campaign) return;
+        box.innerHTML = '<div class="bc-empty">Searching…</div>';
+        try {
+            const params = new URLSearchParams({
+                channel: campaign.type,
+                q: el('detailRecipSearch').value.trim(),
+                source: el('detailRecipSource').value,
+            });
+            const data = await api('/recipients?' + params.toString());
+            const rows = data.data || [];
+            const existing = new Set((campaign.recipients || []).map((r) => String(r.address || '').toLowerCase()));
+            const available = rows.filter((row) => !existing.has(String(row.address || '').toLowerCase()));
+            if (!available.length) {
+                box.innerHTML = '<div class="bc-empty">No new matching people found.</div>';
+                return;
+            }
+            box.innerHTML = available.map((row) => {
+                const key = recipientKey(row);
+                const checked = state.detailSelected.has(key) ? 'checked' : '';
+                return `<label class="bc-recip-row">
+                    <input type="checkbox" data-detail-key="${escapeHtml(key)}" ${checked}>
+                    <div>
+                        <strong>${escapeHtml(row.name || row.address)}</strong>
+                        <small>${escapeHtml(row.address)} · ${escapeHtml(row.meta || row.source)}</small>
+                    </div>
+                </label>`;
+            }).join('');
+            box.querySelectorAll('input[type="checkbox"]').forEach((input, index) => {
+                input.addEventListener('change', () => {
+                    const row = available[index];
+                    const key = recipientKey(row);
+                    if (input.checked) state.detailSelected.set(key, row);
+                    else state.detailSelected.delete(key);
+                    renderDetailSelected();
+                });
+            });
+        } catch (err) {
+            box.innerHTML = `<div class="bc-empty">${escapeHtml(err.message)}</div>`;
+        }
+    }
+
+    function addDetailPasted() {
+        const campaign = state.current;
+        if (!campaign) return;
+        const existing = new Set((campaign.recipients || []).map((r) => String(r.address || '').toLowerCase()));
+        const lines = el('detailRecipPaste').value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        lines.forEach((address) => {
+            if (existing.has(address.toLowerCase())) return;
+            const row = { source: 'manual', source_id: null, name: address, address, meta: 'Manual' };
+            state.detailSelected.set(recipientKey(row), row);
+        });
+        el('detailRecipPaste').value = '';
+        renderDetailSelected();
+    }
+
+    async function sendDetailRecipients() {
+        const campaign = state.current;
+        if (!campaign) return;
+        const recipients = [...state.detailSelected.values()];
+        if (!recipients.length) {
+            alert('Select at least one new recipient.');
+            return;
+        }
+        const btn = el('btnSendDetailRecipients');
+        btn.disabled = true;
+        btn.textContent = 'Sending…';
+        try {
+            const data = await api(`/campaigns/${campaign.id}/recipients`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    recipients: recipients.map((row) => ({
+                        source: row.source,
+                        source_id: row.source_id,
+                        name: row.name,
+                        address: row.address,
+                    })),
+                }),
+            });
+            state.current = data.data;
+            clearDetailSelected();
+            el('detailAddPanel').hidden = true;
+            renderDetail(state.current);
+            startDetailPoll(campaign.id);
+            loadList();
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Send to selected';
+        }
+    }
+
+    async function retryFailedRecipients(recipientIds) {
+        const campaign = state.current;
+        if (!campaign) return;
+        const count = recipientIds?.length || campaign.retryable_count || 0;
+        if (!count) return;
+        const label = recipientIds?.length === 1 ? 'Retry this failed recipient?' : `Retry ${count} failed recipient${count === 1 ? '' : 's'}?`;
+        if (!confirm(label)) return;
+
+        const btn = el('btnRetryFailed');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Retrying…';
+        }
+        try {
+            const payload = recipientIds?.length ? { recipient_ids: recipientIds } : {};
+            const data = await api(`/campaigns/${campaign.id}/retry`, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            state.current = data.data;
+            renderDetail(state.current);
+            startDetailPoll(campaign.id);
+            loadList();
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = `Retry failed (${state.current?.retryable_count || 0})`;
+            }
+        }
+    }
+
+    function startDetailPoll(id) {
+        if (state.poll) {
+            clearInterval(state.poll);
+            state.poll = null;
+        }
+        if (state.current?.status !== 'sending') return;
+        state.poll = setInterval(async () => {
+            try {
+                const fresh = await api('/campaigns/' + id);
+                state.current = fresh.data;
+                renderDetail(state.current);
+                if (state.current.status !== 'sending') {
+                    clearInterval(state.poll);
+                    state.poll = null;
+                    loadList();
+                }
+            } catch (_) {}
+        }, 2500);
     }
 
     function formatDate(value) {
@@ -924,35 +1147,52 @@
             }
         }
         const recipients = campaign.recipients || [];
+        const manageable = canManageCampaign(campaign);
+        const actions = el('detailActions');
+        const retryBtn = el('btnRetryFailed');
+        const addBtn = el('btnToggleAddRecipients');
+        const addPanel = el('detailAddPanel');
+        if (actions) actions.hidden = !manageable;
+        if (retryBtn) {
+            const retryCount = campaign.retryable_count || recipients.filter((r) => isRetryableStatus(r.status)).length;
+            retryBtn.hidden = retryCount === 0;
+            retryBtn.textContent = `Retry failed (${retryCount})`;
+            retryBtn.disabled = false;
+        }
+        if (addBtn) addBtn.textContent = addPanel?.hidden === false ? 'Hide add recipients' : 'Add recipients';
+        if (addPanel && !manageable) addPanel.hidden = true;
+        if (el('detailRecipPaste')) {
+            el('detailRecipPaste').placeholder = campaign.type === 'sms'
+                ? '+15551234567'
+                : 'name@example.com';
+        }
         el('detailRecipients').innerHTML = recipients.length
-            ? recipients.map((row) => `<tr>
+            ? recipients.map((row) => {
+                const retryCell = manageable && isRetryableStatus(row.status)
+                    ? `<td><button type="button" class="bc-row-action" data-retry-id="${row.id}">Retry</button></td>`
+                    : '<td></td>';
+                return `<tr>
                 <td>${escapeHtml(row.name || '—')}</td>
                 <td>${escapeHtml(row.address)}</td>
                 <td>${badge(row.status, statusLabel(row.status))}</td>
                 <td>${escapeHtml(row.error_message || '—')}</td>
-            </tr>`).join('')
-            : '<tr><td colspan="4" class="bc-empty">No recipient results yet.</td></tr>';
+                ${retryCell}
+            </tr>`;
+            }).join('')
+            : '<tr><td colspan="5" class="bc-empty">No recipient results yet.</td></tr>';
+        el('detailRecipients').querySelectorAll('[data-retry-id]').forEach((btn) => {
+            btn.addEventListener('click', () => retryFailedRecipients([Number(btn.dataset.retryId)]));
+        });
     }
 
     async function openDetail(id) {
         const data = await api('/campaigns/' + id);
         state.current = data.data;
+        clearDetailSelected();
+        if (el('detailAddPanel')) el('detailAddPanel').hidden = true;
         renderDetail(state.current);
         showView('detail');
-        if (state.current.status === 'sending') {
-            state.poll = setInterval(async () => {
-                try {
-                    const fresh = await api('/campaigns/' + id);
-                    state.current = fresh.data;
-                    renderDetail(state.current);
-                    if (state.current.status !== 'sending') {
-                        clearInterval(state.poll);
-                        state.poll = null;
-                        loadList();
-                    }
-                } catch (_) {}
-            }, 2500);
-        }
+        startDetailPoll(id);
     }
 
     function resetWizard() {
@@ -1053,6 +1293,23 @@
     el('recipSource').addEventListener('change', searchRecipients);
     el('btnPaste').addEventListener('click', addPasted);
     el('btnClearSelected').addEventListener('click', () => { state.selected.clear(); renderSelected(); searchRecipients(); });
+    el('btnRetryFailed')?.addEventListener('click', () => retryFailedRecipients());
+    el('btnToggleAddRecipients')?.addEventListener('click', () => {
+        const panel = el('detailAddPanel');
+        if (!panel) return;
+        panel.hidden = !panel.hidden;
+        if (!panel.hidden) {
+            searchDetailRecipients();
+        }
+        if (state.current) renderDetail(state.current);
+    });
+    el('btnDetailPaste')?.addEventListener('click', addDetailPasted);
+    el('btnSendDetailRecipients')?.addEventListener('click', sendDetailRecipients);
+    el('detailRecipSearch')?.addEventListener('input', () => {
+        clearTimeout(state.detailSearchTimer);
+        state.detailSearchTimer = setTimeout(searchDetailRecipients, 250);
+    });
+    el('detailRecipSource')?.addEventListener('change', searchDetailRecipients);
     ['listSearch', 'listType', 'listStatus'].forEach((id) => {
         el(id).addEventListener('change', () => { state.page = 1; loadList(); });
         el(id).addEventListener('input', () => { state.page = 1; clearTimeout(state.listTimer); state.listTimer = setTimeout(loadList, 250); });

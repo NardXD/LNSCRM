@@ -186,6 +186,59 @@ class BroadcastMessagingController extends Controller
         ], 201);
     }
 
+    public function addRecipients(Request $request, BroadcastCampaign $campaign): JsonResponse
+    {
+        @set_time_limit(120);
+
+        $user = $request->user();
+        $validated = $request->validate([
+            'recipients' => ['required', 'array', 'min:1', 'max:'.BroadcastMessagingService::MAX_RECIPIENTS],
+            'recipients.*.source' => ['nullable', 'string', 'max:32'],
+            'recipients.*.source_id' => ['nullable', 'integer'],
+            'recipients.*.name' => ['nullable', 'string', 'max:160'],
+            'recipients.*.address' => ['required', 'string', 'max:190'],
+        ]);
+
+        try {
+            $updated = $this->broadcasts->addRecipients($user, $campaign, $validated['recipients']);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Recipients added and sending started.',
+            'data' => $this->serializeCampaign($updated, true),
+        ]);
+    }
+
+    public function retryFailed(Request $request, BroadcastCampaign $campaign): JsonResponse
+    {
+        @set_time_limit(120);
+
+        $user = $request->user();
+        $validated = $request->validate([
+            'recipient_ids' => ['nullable', 'array', 'max:'.BroadcastMessagingService::MAX_RECIPIENTS],
+            'recipient_ids.*' => ['integer'],
+        ]);
+
+        try {
+            $updated = $this->broadcasts->retryFailed(
+                $user,
+                $campaign,
+                $validated['recipient_ids'] ?? null
+            );
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Retry started.',
+            'data' => $this->serializeCampaign($updated, true),
+        ]);
+    }
+
     public function smsStatus(Request $request)
     {
         $messageSid = (string) $request->input('MessageSid', '');
@@ -221,6 +274,20 @@ class BroadcastMessagingController extends Controller
             'created_by' => $campaign->creator?->name,
             'created_at' => $campaign->created_at?->toIso8601String(),
             'sent_at' => $campaign->sent_at?->toIso8601String(),
+            'can_send' => $this->userCanSendCampaign($campaign),
+            'retryable_count' => $withRecipients
+                ? $campaign->recipients
+                    ->whereIn('status', [
+                        BroadcastCampaignRecipient::STATUS_FAILED,
+                        BroadcastCampaignRecipient::STATUS_UNDELIVERED,
+                    ])
+                    ->count()
+                : (int) $campaign->recipients()
+                    ->whereIn('status', [
+                        BroadcastCampaignRecipient::STATUS_FAILED,
+                        BroadcastCampaignRecipient::STATUS_UNDELIVERED,
+                    ])
+                    ->count(),
         ];
 
         if ($withRecipients) {
@@ -269,5 +336,17 @@ class BroadcastMessagingController extends Controller
 
             return $item;
         })->values()->all();
+    }
+
+    protected function userCanSendCampaign(BroadcastCampaign $campaign): bool
+    {
+        $user = auth()->user();
+        if (! $user) {
+            return false;
+        }
+
+        $permission = $campaign->isSms() ? 'send_broadcast_sms' : 'send_broadcast_email';
+
+        return $user->hasPermission($permission);
     }
 }

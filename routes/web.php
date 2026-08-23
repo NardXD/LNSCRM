@@ -551,6 +551,12 @@ Route::middleware(['auth', 'company.active'])->group(function () {
             ->middleware('permission:send_broadcast_sms|send_broadcast_email')
             ->name('api.broadcast.campaigns.store');
         Route::get('/campaigns/{campaign}', [BroadcastMessagingController::class, 'show'])->name('api.broadcast.campaigns.show');
+        Route::post('/campaigns/{campaign}/recipients', [BroadcastMessagingController::class, 'addRecipients'])
+            ->middleware('permission:send_broadcast_sms|send_broadcast_email')
+            ->name('api.broadcast.campaigns.recipients.store');
+        Route::post('/campaigns/{campaign}/retry', [BroadcastMessagingController::class, 'retryFailed'])
+            ->middleware('permission:send_broadcast_sms|send_broadcast_email')
+            ->name('api.broadcast.campaigns.retry');
         Route::get('/recipients', [BroadcastMessagingController::class, 'recipients'])->name('api.broadcast.recipients');
     });
 
