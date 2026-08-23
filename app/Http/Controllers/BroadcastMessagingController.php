@@ -141,7 +141,13 @@ class BroadcastMessagingController extends Controller
             'from_number' => ['nullable', 'string', 'max:32'],
             'shared_inbox_id' => ['nullable', 'integer'],
             'subject' => ['nullable', 'string', 'max:500'],
-            'body' => ['required', 'string', 'max:50000'],
+            'body' => ['required', 'string', 'max:500000'],
+            'attachments' => ['nullable', 'array', 'max:'.BroadcastMessagingService::MAX_ATTACHMENTS],
+            'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
+            'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
+            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:5000000'],
+            'attachments.*.isInline' => ['nullable', 'boolean'],
+            'attachments.*.contentId' => ['nullable', 'string', 'max:120'],
             'recipients' => ['required', 'array', 'min:1', 'max:'.BroadcastMessagingService::MAX_RECIPIENTS],
             'recipients.*.source' => ['nullable', 'string', 'max:32'],
             'recipients.*.source_id' => ['nullable', 'integer'],
@@ -207,6 +213,7 @@ class BroadcastMessagingController extends Controller
             'shared_inbox_id' => $campaign->shared_inbox_id,
             'subject' => $campaign->subject,
             'body' => $campaign->body,
+            'attachments' => $this->serializeAttachments($campaign->attachments ?? [], $withRecipients),
             'recipient_count' => (int) $campaign->recipient_count,
             'sent_count' => (int) $campaign->sent_count,
             'delivered_count' => (int) $campaign->delivered_count,
@@ -234,5 +241,33 @@ class BroadcastMessagingController extends Controller
         }
 
         return $data;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>|null  $attachments
+     * @return list<array<string, mixed>>
+     */
+    protected function serializeAttachments(?array $attachments, bool $includeBytes = false): array
+    {
+        if (! is_array($attachments)) {
+            return [];
+        }
+
+        return collect($attachments)->map(function (array $attachment) use ($includeBytes) {
+            $bytes = (string) ($attachment['contentBytes'] ?? '');
+            $item = [
+                'name' => (string) ($attachment['name'] ?? 'attachment'),
+                'contentType' => (string) ($attachment['contentType'] ?? 'application/octet-stream'),
+                'isInline' => ! empty($attachment['isInline']),
+                'contentId' => $attachment['contentId'] ?? null,
+                'size' => $bytes !== '' ? (int) (strlen($bytes) * 0.75) : null,
+            ];
+
+            if ($includeBytes && $bytes !== '') {
+                $item['contentBytes'] = $bytes;
+            }
+
+            return $item;
+        })->values()->all();
     }
 }

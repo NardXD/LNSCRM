@@ -156,6 +156,19 @@
                     </div>
                     <div id="emailBodyBlock" hidden>
                         <label class="bc-label">Email body</label>
+                        <div class="bc-email-tools">
+                            <button type="button" class="bc-tool-btn" id="btnEmailAttach" title="Attach files">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                                Attach
+                            </button>
+                            <button type="button" class="bc-tool-btn" id="btnEmailImage" title="Insert image">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+                                Image
+                            </button>
+                            <input type="file" id="emailAttachInput" multiple hidden>
+                            <input type="file" id="emailImageInput" accept="image/*" hidden>
+                        </div>
+                        <div class="bc-attach-chips" id="emailAttachChips"></div>
                         <div class="bc-html-editor" id="emailHtmlEditor" data-html-editor="broadcast">
                             <div class="bc-html-toolbar">
                                 <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
@@ -172,7 +185,7 @@
                             <textarea id="fEmailSource" class="bc-input bc-html-source" rows="10" hidden placeholder="<p>Hi,</p><p>Your message here…</p>"></textarea>
                         </div>
                         <div class="bc-char" id="emailCharCount"></div>
-                        <p class="bc-hint">Emails are sent as HTML. Switch to HTML mode to paste full templates with markup.</p>
+                        <p class="bc-hint">Attach files (up to 5, 3 MB each) or insert images inline. Switch to HTML mode to paste full templates.</p>
                     </div>
                 </section>
 
@@ -214,6 +227,7 @@
                     <div>
                         <h3 class="bc-review-title">Message</h3>
                         <div id="detailMessage" class="bc-message-preview"></div>
+                        <div id="detailAttachments" class="bc-detail-attachments" hidden></div>
                     </div>
                     <div>
                         <h3 class="bc-review-title">Results</h3>
@@ -329,6 +343,29 @@
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8125rem;
         min-height: 180px; max-height: 360px; overflow: auto; resize: vertical;
     }
+    .bc-email-tools { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+    .bc-tool-btn {
+        display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid var(--border);
+        background: #fff; border-radius: 8px; padding: 0.35rem 0.65rem; font-size: 0.8125rem;
+        font-weight: 600; cursor: pointer; color: var(--text-primary); font-family: inherit;
+    }
+    .bc-tool-btn svg { width: 14px; height: 14px; }
+    .bc-tool-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+    .bc-attach-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.5rem; }
+    .bc-attach-chips:empty { display: none; }
+    .bc-attach-chip {
+        display: inline-flex; align-items: center; gap: 0.35rem; max-width: 100%;
+        border: 1px solid var(--border); background: #fff; border-radius: 999px;
+        padding: 0.2rem 0.55rem; font-size: 0.75rem;
+    }
+    .bc-attach-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+    .bc-attach-chip button { border: none; background: transparent; color: #b91c1c; cursor: pointer; font-size: 0.9rem; }
+    .bc-detail-attachments { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.75rem; }
+    .bc-detail-attach {
+        display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid var(--border);
+        background: #fff; border-radius: 8px; padding: 0.35rem 0.55rem; font-size: 0.75rem;
+    }
+    .bc-html-visual img { max-width: 100%; height: auto; }
     .bc-type-card.is-disabled { opacity: 0.5; pointer-events: none; }
     @media (max-width: 900px) {
         .bc-recip-layout, .bc-detail-body, .bc-stats, .bc-type-row { grid-template-columns: 1fr; }
@@ -345,6 +382,8 @@
     const CSRF = root.dataset.csrf;
     const canSms = root.dataset.canSms === '1';
     const canEmail = root.dataset.canEmail === '1';
+    const MAX_ATTACH_BYTES = 3 * 1024 * 1024;
+    const MAX_ATTACH_COUNT = 5;
 
     const state = {
         view: 'list',
@@ -355,6 +394,7 @@
         current: null,
         poll: null,
         type: canSms ? 'sms' : 'email',
+        emailAttachments: [],
     };
 
     const el = (id) => document.getElementById(id);
@@ -447,6 +487,140 @@
         el('fBody').value = '';
         setEmailBody('');
         setEmailEditorMode('visual');
+        state.emailAttachments = [];
+        renderAttachChips();
+    }
+
+    function insertHtmlAtCaret(editor, html) {
+        if (!editor) return;
+        editor.focus();
+        const clean = sanitizeHtml(html);
+        try {
+            document.execCommand('insertHTML', false, clean);
+            return;
+        } catch (_) {}
+        editor.innerHTML = sanitizeHtml((editor.innerHTML || '') + clean);
+    }
+
+    function readFileAsAttachment(file) {
+        return new Promise((resolve, reject) => {
+            if (file.size > MAX_ATTACH_BYTES) {
+                reject(new Error(`${file.name} is larger than 3 MB.`));
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => {
+                const result = String(reader.result || '');
+                const base64 = result.includes(',') ? result.split(',')[1] : result;
+                resolve({
+                    name: file.name,
+                    contentType: file.type || 'application/octet-stream',
+                    contentBytes: base64,
+                    size: file.size,
+                });
+            };
+            reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function renderAttachChips() {
+        const chips = el('emailAttachChips');
+        if (!chips) return;
+        chips.innerHTML = state.emailAttachments.map((file, idx) => `
+            <span class="bc-attach-chip">
+                <span title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</span>
+                <button type="button" data-remove-attach="${idx}" aria-label="Remove">×</button>
+            </span>
+        `).join('');
+        chips.querySelectorAll('button[data-remove-attach]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                state.emailAttachments.splice(Number(btn.dataset.removeAttach), 1);
+                renderAttachChips();
+            });
+        });
+    }
+
+    async function addEmailAttachments(fileList) {
+        const incoming = [...(fileList || [])];
+        if (!incoming.length) return;
+        if (state.emailAttachments.length + incoming.length > MAX_ATTACH_COUNT) {
+            alert(`You can attach up to ${MAX_ATTACH_COUNT} files.`);
+            return;
+        }
+        try {
+            const files = await Promise.all(incoming.map(readFileAsAttachment));
+            state.emailAttachments.push(...files);
+            renderAttachChips();
+        } catch (err) {
+            alert(err.message || 'Could not attach file.');
+        }
+    }
+
+    async function insertEmailImage(file) {
+        if (!file) return;
+        if (file.size > MAX_ATTACH_BYTES) {
+            alert(`${file.name} is larger than 3 MB.`);
+            return;
+        }
+        const ed = getEmailEditor();
+        if (ed.source && !ed.source.hidden) {
+            alert('Switch to Visual mode to insert images at the cursor, or paste an <img> tag in HTML mode.');
+            return;
+        }
+        try {
+            const attachment = await readFileAsAttachment(file);
+            const imgHtml = `<img src="data:${attachment.contentType};base64,${attachment.contentBytes}" alt="${escapeHtml(file.name)}" style="max-width:100%;height:auto;">`;
+            insertHtmlAtCaret(ed.visual, imgHtml);
+            if (ed.source) ed.source.value = sanitizeHtml(ed.visual?.innerHTML || '');
+            updateCompose();
+        } catch (err) {
+            alert(err.message || 'Could not insert image.');
+        }
+    }
+
+    function prepareEmailSendPayload(body) {
+        const attachments = state.emailAttachments.map((file) => ({
+            name: file.name,
+            contentType: file.contentType,
+            contentBytes: file.contentBytes,
+        }));
+        let inlineCount = 0;
+        const preparedBody = body.replace(
+            /<img\b[^>]*\ssrc=(["'])data:image\/([^;]+);base64,([^"']+)\1[^>]*>/gi,
+            (match, quote, ext, bytes) => {
+                inlineCount += 1;
+                const contentId = `bc-img-${inlineCount}-${Math.random().toString(36).slice(2, 8)}`;
+                attachments.push({
+                    name: `image-${inlineCount}.${ext}`,
+                    contentType: `image/${ext}`,
+                    contentBytes: bytes,
+                    isInline: true,
+                    contentId,
+                });
+                return match.replace(/src=(["'])data:image\/[^"']+\1/i, `src=${quote}cid:${contentId}${quote}`);
+            }
+        );
+        return { body: preparedBody, attachments };
+    }
+
+    function embedInlineImages(html, attachments) {
+        let result = html;
+        (attachments || []).forEach((file) => {
+            if (!file.isInline || !file.contentId || !file.contentBytes) return;
+            const dataUri = `data:${file.contentType || 'image/png'};base64,${file.contentBytes}`;
+            result = result.split(`cid:${file.contentId}`).join(dataUri);
+        });
+        return result;
+    }
+
+    function formatAttachmentSummary(attachments) {
+        const files = (attachments || []).filter((a) => !a.isInline);
+        const inline = (attachments || []).filter((a) => a.isInline);
+        const parts = [];
+        if (files.length) parts.push(`${files.length} file${files.length === 1 ? '' : 's'}`);
+        if (inline.length) parts.push(`${inline.length} inline image${inline.length === 1 ? '' : 's'}`);
+        return parts.join(', ') || '—';
     }
 
     function formatDate(value) {
@@ -609,7 +783,13 @@
             ['Type', type.toUpperCase()],
             ['Sender', sender],
             ['Recipients', String(recipients.length)],
-            ...(type === 'email' ? [['Subject', el('fSubject').value.trim()]] : []),
+            ...(type === 'email' ? [
+                ['Subject', el('fSubject').value.trim()],
+                ['Attachments', formatAttachmentSummary([
+                    ...state.emailAttachments.map((f) => ({ name: f.name, isInline: false })),
+                    ...(getEmailBody().match(/data:image\/[^;]+;base64,/g) || []).map((_, idx) => ({ isInline: true, name: `image-${idx + 1}` })),
+                ])],
+            ] : []),
         ].map(([label, value]) => `<div class="bc-review-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value || '—')}</strong></div>`).join('');
         el('reviewRecipients').innerHTML = recipients.length
             ? recipients.map((row) => `<tr><td>${escapeHtml(row.name || '—')}</td><td>${escapeHtml(row.address)}</td><td>${escapeHtml(row.meta || row.source)}</td></tr>`).join('')
@@ -644,13 +824,17 @@
         el('btnNext').disabled = true;
         el('btnNext').textContent = 'Sending…';
         try {
+            const type = selectedType();
+            const rawBody = getComposeBody();
+            const emailPayload = type === 'email' ? prepareEmailSendPayload(rawBody) : { body: rawBody, attachments: [] };
             const payload = {
                 name: el('fName').value.trim(),
-                type: selectedType(),
+                type,
                 from_number: el('fFromNumber').value || null,
                 shared_inbox_id: el('fInbox').value ? Number(el('fInbox').value) : null,
                 subject: el('fSubject').value.trim(),
-                body: getComposeBody(),
+                body: emailPayload.body,
+                attachments: emailPayload.attachments,
                 recipients: [...state.selected.values()].map((row) => ({
                     source: row.source,
                     source_id: row.source_id,
@@ -659,6 +843,8 @@
                 })),
             };
             const data = await api('/campaigns', { method: 'POST', body: JSON.stringify(payload) });
+            state.emailAttachments = [];
+            renderAttachChips();
             await openDetail(data.data.id);
         } catch (err) {
             alert(err.message);
@@ -714,14 +900,28 @@
         const preview = el('detailMessage');
         if (campaign.type === 'email') {
             const subjectLine = campaign.subject ? `<p><strong>Subject:</strong> ${escapeHtml(campaign.subject)}</p>` : '';
-            const bodyHtml = String(campaign.body || '').includes('<')
+            let bodyHtml = String(campaign.body || '').includes('<')
                 ? sanitizeHtml(campaign.body)
                 : escapeHtml(campaign.body || '').replace(/\r?\n/g, '<br>');
+            bodyHtml = embedInlineImages(bodyHtml, campaign.attachments || []);
             preview.classList.add('is-html');
             preview.innerHTML = subjectLine + bodyHtml;
+            const fileAttachments = (campaign.attachments || []).filter((a) => !a.isInline);
+            const attachRow = el('detailAttachments');
+            if (attachRow) {
+                attachRow.innerHTML = fileAttachments.length
+                    ? fileAttachments.map((file) => `<span class="bc-detail-attach">${escapeHtml(file.name)}${file.size ? ` · ${Math.max(1, Math.round(file.size / 1024))} KB` : ''}</span>`).join('')
+                    : '';
+                attachRow.hidden = fileAttachments.length === 0;
+            }
         } else {
             preview.classList.remove('is-html');
             preview.textContent = campaign.body || '';
+            const attachRow = el('detailAttachments');
+            if (attachRow) {
+                attachRow.innerHTML = '';
+                attachRow.hidden = true;
+            }
         }
         const recipients = campaign.recipients || [];
         el('detailRecipients').innerHTML = recipients.length
@@ -838,6 +1038,17 @@
         updateCompose();
     });
     el('fEmailSource')?.addEventListener('input', updateCompose);
+    el('btnEmailAttach')?.addEventListener('click', () => el('emailAttachInput')?.click());
+    el('btnEmailImage')?.addEventListener('click', () => el('emailImageInput')?.click());
+    el('emailAttachInput')?.addEventListener('change', (e) => {
+        addEmailAttachments(e.target.files);
+        e.target.value = '';
+    });
+    el('emailImageInput')?.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        await insertEmailImage(file);
+    });
     el('recipSearch').addEventListener('input', () => { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(searchRecipients, 250); });
     el('recipSource').addEventListener('change', searchRecipients);
     el('btnPaste').addEventListener('click', addPasted);

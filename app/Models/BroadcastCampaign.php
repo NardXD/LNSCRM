@@ -33,6 +33,7 @@ class BroadcastCampaign extends Model
         'shared_inbox_id',
         'subject',
         'body',
+        'attachments',
         'recipient_count',
         'sent_count',
         'delivered_count',
@@ -44,6 +45,7 @@ class BroadcastCampaign extends Model
     {
         return [
             'sent_at' => 'datetime',
+            'attachments' => 'array',
         ];
     }
 

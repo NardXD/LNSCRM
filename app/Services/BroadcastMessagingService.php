@@ -24,6 +24,10 @@ class BroadcastMessagingService
 
     public const BATCH_SIZE = 12;
 
+    public const MAX_ATTACHMENTS = 15;
+
+    public const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+
     public function __construct(
         protected TwilioCompanyService $twilioCompany,
         protected OutlookMailService $mailService,
@@ -185,7 +189,24 @@ class BroadcastMessagingService
             throw new \InvalidArgumentException('A broadcast can include at most '.self::MAX_RECIPIENTS.' recipients.');
         }
 
-        $campaign = DB::transaction(function () use ($user, $payload, $type, $sender, $recipients) {
+        $body = (string) $payload['body'];
+        $attachments = [];
+
+        if ($type === BroadcastCampaign::TYPE_EMAIL) {
+            $attachments = $this->normalizeAttachments($payload['attachments'] ?? []);
+            if ($attachments === false) {
+                throw new \InvalidArgumentException('One or more attachments exceed the 3 MB limit.');
+            }
+            if (count($attachments) > self::MAX_ATTACHMENTS) {
+                throw new \InvalidArgumentException('A broadcast can include at most '.self::MAX_ATTACHMENTS.' attachments.');
+            }
+
+            $prepared = $this->prepareEmailContent($body, $attachments);
+            $body = $prepared['body'];
+            $attachments = $prepared['attachments'];
+        }
+
+        $campaign = DB::transaction(function () use ($user, $payload, $type, $sender, $recipients, $body, $attachments) {
             $campaign = BroadcastCampaign::create([
                 'company_id' => $user->company_id,
                 'created_by' => $user->id,
@@ -198,7 +219,8 @@ class BroadcastMessagingService
                 'subject' => $type === BroadcastCampaign::TYPE_EMAIL
                     ? trim((string) ($payload['subject'] ?? ''))
                     : null,
-                'body' => (string) $payload['body'],
+                'body' => $body,
+                'attachments' => $attachments !== [] ? $attachments : null,
                 'recipient_count' => count($recipients),
                 'sent_at' => now(),
             ]);
@@ -510,6 +532,7 @@ class BroadcastMessagingService
                 'to' => $recipient->address,
                 'subject' => (string) $campaign->subject,
                 'body' => $body,
+                'attachments' => $this->mailAttachments($campaign),
             ]);
 
             if (! $result) {
@@ -698,5 +721,114 @@ class BroadcastMessagingService
         return trim((string) $lead->name) !== ''
             ? (string) $lead->name
             : (string) ($lead->company_name ?: 'Lead #'.$lead->id);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $attachments
+     * @return array{body: string, attachments: array<int, array<string, mixed>>}
+     */
+    protected function prepareEmailContent(string $body, array $attachments): array
+    {
+        $inlineCount = 0;
+
+        $body = preg_replace_callback(
+            '/<img\b([^>]*)\ssrc=(["\'])data:image\/([^;]+);base64,([^"\']+)\2([^>]*)>/i',
+            function (array $matches) use (&$attachments, &$inlineCount) {
+                if (count($attachments) >= self::MAX_ATTACHMENTS) {
+                    return $matches[0];
+                }
+
+                $ext = strtolower($matches[3]);
+                $bytes = $matches[4];
+                $approxBytes = (int) (strlen($bytes) * 0.75);
+                if ($approxBytes > self::MAX_ATTACHMENT_BYTES) {
+                    return $matches[0];
+                }
+
+                $inlineCount++;
+                $contentId = 'bc-img-'.$inlineCount.'-'.bin2hex(random_bytes(4));
+                $attachments[] = [
+                    'name' => 'image-'.$inlineCount.'.'.$ext,
+                    'contentType' => 'image/'.$ext,
+                    'contentBytes' => $bytes,
+                    'isInline' => true,
+                    'contentId' => $contentId,
+                ];
+
+                $before = trim($matches[1]);
+                $after = trim($matches[5]);
+
+                return '<img'.($before ? ' '.$before : '').' src="cid:'.$contentId.'"'.($after ? ' '.$after : '').'>';
+            },
+            $body
+        ) ?? $body;
+
+        return [
+            'body' => $body,
+            'attachments' => $attachments,
+        ];
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $attachments
+     * @return array<int, array<string, mixed>>|false
+     */
+    protected function normalizeAttachments(array $attachments): array|false
+    {
+        $normalized = [];
+
+        foreach ($attachments as $attachment) {
+            $name = trim((string) ($attachment['name'] ?? ''));
+            $bytes = (string) ($attachment['contentBytes'] ?? '');
+            if ($name === '' || $bytes === '') {
+                continue;
+            }
+
+            $approxBytes = (int) (strlen($bytes) * 0.75);
+            if ($approxBytes > self::MAX_ATTACHMENT_BYTES) {
+                return false;
+            }
+
+            $item = [
+                'name' => $name,
+                'contentType' => (string) ($attachment['contentType'] ?? 'application/octet-stream'),
+                'contentBytes' => $bytes,
+            ];
+
+            if (! empty($attachment['isInline']) && ! empty($attachment['contentId'])) {
+                $item['isInline'] = true;
+                $item['contentId'] = (string) $attachment['contentId'];
+            }
+
+            $normalized[] = $item;
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    protected function mailAttachments(BroadcastCampaign $campaign): array
+    {
+        $attachments = $campaign->attachments ?? [];
+        if (! is_array($attachments)) {
+            return [];
+        }
+
+        return array_values(array_map(function (array $attachment) {
+            $item = [
+                'name' => (string) ($attachment['name'] ?? 'attachment'),
+                'contentType' => (string) ($attachment['contentType'] ?? 'application/octet-stream'),
+                'contentBytes' => (string) ($attachment['contentBytes'] ?? ''),
+            ];
+
+            if (! empty($attachment['isInline']) && ! empty($attachment['contentId'])) {
+                $item['isInline'] = true;
+                $item['contentId'] = (string) $attachment['contentId'];
+            }
+
+            return $item;
+        }, $attachments));
     }
 }

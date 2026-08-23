@@ -923,12 +923,17 @@ class OutlookMailService
                 if ($name === '' || $bytes === '') {
                     continue;
                 }
-                $message['attachments'][] = [
+                $item = [
                     '@odata.type' => '#microsoft.graph.fileAttachment',
                     'name' => $name,
                     'contentType' => (string) ($attachment['contentType'] ?? 'application/octet-stream'),
                     'contentBytes' => $bytes,
                 ];
+                if (! empty($attachment['isInline']) && ! empty($attachment['contentId'])) {
+                    $item['isInline'] = true;
+                    $item['contentId'] = (string) $attachment['contentId'];
+                }
+                $message['attachments'][] = $item;
             }
         }
 
