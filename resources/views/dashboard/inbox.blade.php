@@ -1032,7 +1032,12 @@
 }
 .inbox-html-source {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.8rem;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    tab-size: 2;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
     min-height: 140px;
     max-height: 220px;
     overflow: auto;
@@ -3145,6 +3150,97 @@ select.inbox-reply-header-input {
         };
     }
 
+    const HTML_VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+    const HTML_INLINE_TAGS = new Set(['a', 'abbr', 'b', 'br', 'em', 'i', 'img', 'small', 'span', 'strong', 'sub', 'sup', 'u', 'code']);
+    const HTML_RAW_TAGS = new Set(['pre', 'textarea', 'script', 'style']);
+
+    function formatHtmlAttributes(el, indent) {
+        const attrs = [...el.attributes];
+        if (!attrs.length) return '';
+        const parts = attrs.map((attr) => `${attr.name}="${escapeHtml(attr.value)}"`);
+        const long = parts.some((part) => part.length > 56) || el.tagName.toLowerCase() === 'img';
+        if (!long && parts.join(' ').length <= 72) {
+            return ' ' + parts.join(' ');
+        }
+        return '\n' + parts.map((part) => `${indent}  ${part}`).join('\n') + '\n' + indent;
+    }
+
+    function escapeHtmlText(str) {
+        return String(str ?? '').replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]));
+    }
+
+    function serializeHtmlInline(el) {
+        const tag = el.tagName.toLowerCase();
+        const attrStr = [...el.attributes].map((attr) => ` ${attr.name}="${escapeHtml(attr.value)}"`).join('');
+        if (HTML_VOID_TAGS.has(tag)) return `<${tag}${attrStr}>`;
+        let inner = '';
+        el.childNodes.forEach((child) => {
+            if (child.nodeType === Node.TEXT_NODE) inner += escapeHtmlText(child.textContent);
+            else if (child.nodeType === Node.ELEMENT_NODE) inner += serializeHtmlInline(child);
+        });
+        return `<${tag}${attrStr}>${inner}</${tag}>`;
+    }
+
+    function htmlNodeIsInlineOnly(el) {
+        if (!el.childNodes.length) return true;
+        for (const child of el.childNodes) {
+            if (child.nodeType === Node.COMMENT_NODE) continue;
+            if (child.nodeType === Node.TEXT_NODE) continue;
+            if (child.nodeType !== Node.ELEMENT_NODE) return false;
+            const tag = child.tagName.toLowerCase();
+            if (!HTML_INLINE_TAGS.has(tag) || !htmlNodeIsInlineOnly(child)) return false;
+        }
+        return true;
+    }
+
+    function serializeHtmlPretty(nodes, depth) {
+        const indent = '  '.repeat(depth);
+        let out = '';
+        nodes.forEach((child) => {
+            if (child.nodeType === Node.COMMENT_NODE) {
+                const text = String(child.textContent || '').trim();
+                if (text) out += `${indent}<!-- ${text} -->\n`;
+                return;
+            }
+            if (child.nodeType === Node.TEXT_NODE) {
+                const text = String(child.textContent || '').replace(/\s+/g, ' ').trim();
+                if (text) out += `${indent}${escapeHtmlText(text)}\n`;
+                return;
+            }
+            if (child.nodeType !== Node.ELEMENT_NODE) return;
+            const tag = child.tagName.toLowerCase();
+            const attrs = formatHtmlAttributes(child, indent);
+            if (HTML_VOID_TAGS.has(tag)) {
+                out += `${indent}<${tag}${attrs}>\n`;
+                return;
+            }
+            if (HTML_RAW_TAGS.has(tag)) {
+                out += `${indent}<${tag}${attrs}>${child.innerHTML}</${tag}>\n`;
+                return;
+            }
+            if (htmlNodeIsInlineOnly(child)) {
+                const compact = serializeHtmlInline(child);
+                if (compact.length <= 96) {
+                    out += `${indent}${compact}\n`;
+                    return;
+                }
+            }
+            const inner = serializeHtmlPretty(child.childNodes, depth + 1);
+            if (!inner.trim()) {
+                out += `${indent}<${tag}${attrs}></${tag}>\n`;
+                return;
+            }
+            out += `${indent}<${tag}${attrs}>\n${inner}${indent}</${tag}>\n`;
+        });
+        return out;
+    }
+
+    function beautifyHtml(html) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = String(html || '').trim();
+        return serializeHtmlPretty(wrap.childNodes, 0).replace(/[ \t]+\n/g, '\n').trim();
+    }
+
     function setHtmlEditorContent(kind, html) {
         const ed = getHtmlEditor(kind);
         const clean = sanitizeHtml(html || '');
@@ -3152,7 +3248,7 @@ select.inbox-reply-header-input {
             ed.visual.innerHTML = clean;
             decorateHtmlLinks(ed.visual);
         }
-        if (ed.source) ed.source.value = clean;
+        if (ed.source) ed.source.value = beautifyHtml(clean);
     }
 
     function getHtmlEditorContent(kind) {
@@ -3176,9 +3272,12 @@ select.inbox-reply-header-input {
             if (ed.visual) ed.visual.hidden = false;
             if (ed.source) ed.source.hidden = true;
         } else {
-            if (ed.source && ed.visual) ed.source.value = sanitizeHtml(ed.visual.innerHTML);
+            if (ed.source && ed.visual) ed.source.value = beautifyHtml(sanitizeHtml(ed.visual.innerHTML));
             if (ed.visual) ed.visual.hidden = true;
-            if (ed.source) ed.source.hidden = false;
+            if (ed.source) {
+                ed.source.hidden = false;
+                ed.source.focus();
+            }
         }
         ed.root.querySelectorAll('[data-html-mode]').forEach(btn => {
             btn.classList.toggle('is-active', btn.dataset.htmlMode === (visualMode ? 'visual' : 'source'));
