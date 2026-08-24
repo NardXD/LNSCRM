@@ -147,6 +147,9 @@
                         <div class="inbox-thread-meta" id="threadMeta"></div>
                     </div>
                     <div class="inbox-thread-actions">
+                        <button type="button" class="inbox-icon-action" id="btnToggleProps" title="Show details" aria-expanded="false" aria-controls="propsPane">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+                        </button>
                         <div class="inbox-pop" id="threadMorePop">
                             <button type="button" class="inbox-icon-action" id="btnThreadMore" title="More actions" aria-haspopup="menu">
                                 <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
@@ -288,7 +291,13 @@
         </section>
 
         {{-- Right properties panel --}}
-        <aside class="inbox-props" id="propsPane" style="display:none;">
+        <aside class="inbox-props" id="propsPane" style="display:none;" hidden>
+            <div class="inbox-props-head">
+                <div class="inbox-props-title">Details</div>
+                <button type="button" class="inbox-icon-btn" id="btnHideProps" title="Hide details">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
+            </div>
             <div class="inbox-props-block">
                 <div class="inbox-props-label">Assignee</div>
                 <select id="assignSelect" class="inbox-select">
@@ -645,6 +654,7 @@
     height: 100%;
     width: 100%;
     min-height: 0;
+    position: relative;
 }
 .inbox-shell.with-props {
     grid-template-columns: 280px minmax(280px, 340px) minmax(0, 1fr) 260px;
@@ -656,6 +666,21 @@
     overflow: auto;
 }
 .inbox-props { border-right: none; border-left: 1px solid var(--inbox-border); padding: 1rem; }
+.inbox-props-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin: -0.25rem 0 1rem;
+}
+.inbox-props-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--inbox-muted);
+}
+.inbox-props-head .inbox-icon-btn svg { width: 16px; height: 16px; }
 .inbox-nav { display: flex; flex-direction: column; padding: 0.75rem; gap: 0.25rem; overflow: auto; }
 .inbox-nav-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
 .inbox-brand { display: flex; gap: 0.65rem; align-items: center; }
@@ -1350,6 +1375,11 @@
     display: inline-flex; align-items: center; justify-content: center;
 }
 .inbox-icon-action:hover, .inbox-icon-action.is-open { background: var(--inbox-bg); color: var(--inbox-text); }
+.inbox-icon-action.is-active {
+    background: #eef4ff;
+    border-color: #c7d7fb;
+    color: var(--inbox-accent, #2f6fed);
+}
 .inbox-icon-action svg { width: 16px; height: 16px; }
 .inbox-assign-btn {
     padding: 0.38rem 0.7rem;
@@ -2242,7 +2272,17 @@ select.inbox-reply-header-input {
 @media (max-width: 1100px) {
     .inbox-shell,
     .inbox-shell.with-props { grid-template-columns: 260px 300px minmax(0, 1fr); }
-    .inbox-props { display: none !important; }
+    .inbox-props {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: min(280px, 86vw);
+        z-index: 20;
+        box-shadow: -12px 0 28px rgba(15, 23, 42, 0.12);
+        background: var(--inbox-panel);
+    }
+    .inbox-shell:not(.with-props) .inbox-props { display: none !important; }
 }
 @media (max-width: 860px) {
     .inbox-page-wrapper,
@@ -2311,6 +2351,7 @@ select.inbox-reply-header-input {
         composerMode: 'comment',
         composerCanReply: true,
         composerExpanded: false,
+        propsOpen: false,
         expandedMessageIds: {},
         replyAll: false,
         replyCcEmails: [],
@@ -4550,20 +4591,39 @@ select.inbox-reply-header-input {
             </div>`;
     }
 
+    function applyPropsPaneVisibility() {
+        const pane = el('propsPane');
+        const shell = document.querySelector('.inbox-shell');
+        const toggle = el('btnToggleProps');
+        const open = !!(state.conversation && state.propsOpen);
+        if (pane) {
+            pane.style.display = open ? 'block' : 'none';
+            pane.hidden = !open;
+        }
+        shell?.classList.toggle('with-props', open);
+        if (toggle) {
+            toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+            toggle.classList.toggle('is-active', open);
+            toggle.title = open ? 'Hide details' : 'Show details';
+        }
+    }
+
+    function setPropsOpen(open) {
+        state.propsOpen = !!open;
+        applyPropsPaneVisibility();
+    }
+
     function renderThread() {
         const c = state.conversation;
-        const shell = document.querySelector('.inbox-shell');
         if (!c) {
             el('threadPlaceholder').style.display = 'flex';
             el('threadView').style.display = 'none';
-            el('propsPane').style.display = 'none';
-            shell?.classList.remove('with-props');
+            applyPropsPaneVisibility();
             return;
         }
         el('threadPlaceholder').style.display = 'none';
         el('threadView').style.display = 'flex';
-        el('propsPane').style.display = 'block';
-        shell?.classList.add('with-props');
+        applyPropsPaneVisibility();
         el('threadSubject').textContent = c.subject || '(No subject)';
 
         const snoozedUntil = c.reopen_at && new Date(c.reopen_at) > new Date() ? c.reopen_at : null;
@@ -6258,6 +6318,11 @@ select.inbox-reply-header-input {
         state.inboxToolsOpen = !state.inboxToolsOpen;
         renderNav();
     });
+    el('btnToggleProps')?.addEventListener('click', () => {
+        if (!state.conversation) return;
+        setPropsOpen(!state.propsOpen);
+    });
+    el('btnHideProps')?.addEventListener('click', () => setPropsOpen(false));
 
     el('inboxToolsSubmenu').addEventListener('click', (e) => {
         const toggle = e.target.closest('[data-tool-toggle]');
