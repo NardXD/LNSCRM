@@ -1362,6 +1362,77 @@
     display: inline-flex; align-items: center; justify-content: center;
 }
 .inbox-chip-add:hover { border-color: var(--inbox-accent); color: var(--inbox-accent); }
+.inbox-participants-chip {
+    cursor: pointer;
+    border-style: solid;
+}
+.inbox-participants-chip.is-open,
+.inbox-participants-chip:hover {
+    background: #eef2ff;
+    border-color: #c7d2fe;
+    color: #3730a3;
+}
+.inbox-participants-menu {
+    min-width: 280px;
+    max-width: min(340px, 90vw);
+    padding: 0.55rem 0.45rem 0.45rem;
+}
+.inbox-participants-head {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    color: var(--inbox-muted);
+    padding: 0.15rem 0.55rem 0.55rem;
+}
+.inbox-participants-list {
+    display: grid;
+    gap: 0.1rem;
+    max-height: 280px;
+    overflow: auto;
+}
+.inbox-participant-row {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.45rem 0.55rem;
+    border-radius: 8px;
+}
+.inbox-participant-row:hover { background: var(--inbox-bg); }
+.inbox-participant-avatar {
+    width: 28px; height: 28px; border-radius: 999px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 0.7rem; font-weight: 700; flex-shrink: 0;
+}
+.inbox-participant-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--inbox-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.inbox-participant-status {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    color: var(--inbox-muted);
+    font-weight: 500;
+}
+.inbox-participant-status.is-read { color: #64748b; }
+.inbox-participant-status.is-unread { color: #94a3b8; }
+.inbox-participants-foot {
+    margin-top: 0.45rem;
+    padding: 0.55rem 0.55rem 0.2rem;
+    border-top: 1px solid var(--inbox-border);
+    font-size: 0.75rem;
+    color: var(--inbox-muted);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.inbox-participants-foot strong { color: var(--inbox-text); font-weight: 600; }
 .inbox-thread-actions {
     display: flex;
     gap: 0.4rem;
@@ -4292,13 +4363,64 @@ select.inbox-reply-header-input {
         return [...map.values()];
     }
 
+    function formatReadReceipt(member) {
+        if (!member?.is_read || !member?.last_read_at) return 'Unread';
+        const d = new Date(member.last_read_at);
+        if (Number.isNaN(d.getTime())) return 'Read';
+        const secs = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+        const days = Math.floor(secs / 86400);
+        const hours = Math.floor(secs / 3600);
+        const mins = Math.floor(secs / 60);
+        if (days >= 1) return days === 1 ? 'Read 1d ago' : `Read ${days}d ago`;
+        if (hours >= 1) return hours === 1 ? 'Read 1h ago' : `Read ${hours}h ago`;
+        if (mins >= 1) return mins === 1 ? 'Read 1m ago' : `Read ${mins}m ago`;
+        return 'Read just now';
+    }
+
+    function participantsMenuHtml(c) {
+        const members = Array.isArray(c?.member_reads) ? c.member_reads : [];
+        if (!members.length) return '';
+        const inbox = c.inbox || state.inboxes.find(i => Number(i.id) === Number(c.inbox_id));
+        const inboxName = inbox?.name || 'this inbox';
+        const readCount = members.filter(m => m.is_read).length;
+        const preview = members.slice(0, 3).map(m => `
+            <span class="inbox-chip-avatar" style="background:${avatarHue(m.email || m.name)}">${escapeHtml(initials(m.name))}</span>
+        `).join('');
+        const rows = members.map(m => {
+            const status = formatReadReceipt(m);
+            const statusClass = m.is_read ? 'is-read' : 'is-unread';
+            return `
+                <div class="inbox-participant-row" title="${escapeHtml(m.email || '')}">
+                    <span class="inbox-participant-avatar" style="background:${avatarHue(m.email || m.name)}">${escapeHtml(initials(m.name))}</span>
+                    <span class="inbox-participant-name">${escapeHtml(m.name || m.email || 'Member')}</span>
+                    <span class="inbox-participant-status ${statusClass}">${escapeHtml(status)}</span>
+                </div>`;
+        }).join('');
+        return `
+            <div class="inbox-pop" id="participantsPop">
+                <button type="button" class="inbox-chip inbox-participants-chip" id="btnParticipants" title="Who has read" aria-haspopup="menu" aria-expanded="false">
+                    ${preview}
+                    <span>${readCount}/${members.length} read</span>
+                </button>
+                <div class="inbox-pop-menu inbox-participants-menu" id="participantsMenu" hidden>
+                    <div class="inbox-participants-head">Participants</div>
+                    <div class="inbox-participants-list">${rows}</div>
+                    <div class="inbox-participants-foot">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                        <span>Members of <strong>${escapeHtml(inboxName)}</strong> can view</span>
+                    </div>
+                </div>
+            </div>`;
+    }
+
     function closeThreadPops() {
-        ['threadMoreMenu', 'snoozeMenu', 'assignMenu', 'commentEmojiMenu', 'sendReplyMenu', 'composeSendMenu'].forEach(id => {
+        ['threadMoreMenu', 'snoozeMenu', 'assignMenu', 'commentEmojiMenu', 'sendReplyMenu', 'composeSendMenu', 'participantsMenu'].forEach(id => {
             const node = el(id);
             if (node) node.hidden = true;
         });
-        document.querySelectorAll('.inbox-icon-action.is-open, .inbox-assign-btn.is-open, .inbox-send-caret.is-open').forEach(btn => {
+        document.querySelectorAll('.inbox-icon-action.is-open, .inbox-assign-btn.is-open, .inbox-send-caret.is-open, .inbox-participants-chip.is-open').forEach(btn => {
             btn.classList.remove('is-open');
+            if (btn.id === 'btnParticipants') btn.setAttribute('aria-expanded', 'false');
         });
         const laterFields = el('sendLaterFields');
         if (laterFields) laterFields.hidden = true;
@@ -4313,6 +4435,9 @@ select.inbox-reply-header-input {
         closeThreadPops();
         menu.hidden = !willOpen;
         btn?.classList.toggle('is-open', willOpen);
+        if (btn?.id === 'btnParticipants') {
+            btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+        }
     }
 
     function renderAssignMenu() {
@@ -4634,12 +4759,15 @@ select.inbox-reply-header-input {
         el('threadMeta').textContent = metaBits.join(' · ');
 
         const people = collectParticipants(c);
+        const inbox = c.inbox || state.inboxes.find(i => Number(i.id) === Number(c.inbox_id));
+        const isShared = inbox?.type === 'shared';
         el('threadParticipants').innerHTML = people.slice(0, 6).map(p => `
             <span class="inbox-chip" title="${escapeHtml(p.email)}">
                 <span class="inbox-chip-avatar" style="background:${avatarHue(p.email)}">${escapeHtml(initials(p.name))}</span>
                 <span>${escapeHtml(p.name || p.email)}</span>
             </span>
         `).join('') + (people.length > 6 ? `<span class="inbox-chip">+${people.length - 6}</span>` : '') +
+            (isShared ? participantsMenuHtml(c) : '') +
             '<button type="button" class="inbox-chip-add" id="btnAddParticipant" title="Assign teammate">+</button>';
 
         const folder = c.folder || 'inbox';
@@ -4656,7 +4784,6 @@ select.inbox-reply-header-input {
         const unmergeBtn = el('btnUnmergeMenu');
         if (unmergeBtn) unmergeBtn.hidden = mergedCount < 1;
         el('assignBtnLabel').textContent = c.assignee?.name || 'Assign';
-        const inbox = c.inbox || state.inboxes.find(i => Number(i.id) === Number(c.inbox_id));
         el('archiveBtnLabel').textContent = inbox?.type === 'personal' ? 'Archive in my inbox' : 'Archive';
         renderAssignMenu();
 
@@ -5891,6 +6018,15 @@ select.inbox-reply-header-input {
         await api('/conversations/' + state.selectedId + '/read', { method: 'PATCH', body: { is_read: false } });
         const row = state.conversations.find(c => Number(c.id) === Number(state.selectedId));
         if (row) row.is_read = false;
+        if (state.conversation && Number(state.conversation.id) === Number(state.selectedId)) {
+            state.conversation.is_read = false;
+            if (Array.isArray(state.conversation.member_reads)) {
+                state.conversation.member_reads = state.conversation.member_reads.map(m =>
+                    Number(m.id) === USER_ID ? { ...m, is_read: false, last_read_at: null } : m
+                );
+            }
+            renderThread();
+        }
         el('conversationList')?.querySelector(`[data-conv-id="${state.selectedId}"]`)?.classList.add('unread');
         await loadConversations();
     });
@@ -5928,6 +6064,12 @@ select.inbox-reply-header-input {
         }
     });
     el('threadParticipants')?.addEventListener('click', (e) => {
+        const participantsBtn = e.target.closest('#btnParticipants');
+        if (participantsBtn) {
+            e.stopPropagation();
+            togglePop('participantsMenu', participantsBtn);
+            return;
+        }
         if (!e.target.closest('#btnAddParticipant')) return;
         e.stopPropagation();
         renderAssignMenu();

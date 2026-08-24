@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\InboxConversation;
 use App\Models\InboxConversationActivity;
+use App\Models\InboxConversationUserRead;
 
 class InboxReopenService
 {
@@ -28,6 +29,11 @@ class InboxReopenService
                 $conversation->is_read = false;
                 $conversation->reopen_at = null;
                 $conversation->save();
+
+                InboxConversationUserRead::query()
+                    ->where('inbox_conversation_id', $conversation->id)
+                    ->where('is_read', true)
+                    ->update(['is_read' => false]);
 
                 InboxConversationActivity::create([
                     'inbox_conversation_id' => $conversation->id,

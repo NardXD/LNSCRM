@@ -114,4 +114,9 @@ class InboxConversation extends Model
         return $this->belongsToMany(InboxTag::class, 'inbox_conversation_tag')
             ->withTimestamps();
     }
+
+    public function userReads(): HasMany
+    {
+        return $this->hasMany(InboxConversationUserRead::class, 'inbox_conversation_id');
+    }
 }

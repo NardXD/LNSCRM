@@ -763,9 +763,11 @@ class InboxController extends Controller
             // A constrained select like inbox:id,name,... omits the FK and silently
             // skips hydration — leaving only Graph bodyPreview (~255 chars).
             'inbox.account',
+            'inbox.members:id,name,email',
             'lead.identities',
             'lead.assignedUser:id,name',
             'lead.labels',
+            'userReads',
         ]);
 
         if ($conversation->inbox) {
@@ -783,6 +785,7 @@ class InboxController extends Controller
                 ['is_read' => true, 'last_read_at' => now()]
             );
             $conversation->setAttribute('is_read', true);
+            $conversation->load('userReads');
         } else {
             if (! $conversation->is_read) {
                 $conversation->update(['is_read' => true]);
@@ -2566,7 +2569,67 @@ class InboxController extends Controller
                 ->values();
         }
 
+        if ($withMessages) {
+            $data['member_reads'] = $this->formatMemberReads($c);
+        }
+
         return $data;
+    }
+
+    /**
+     * Shared-inbox teammates and when each of them last read this conversation.
+     *
+     * @return list<array{id: int, name: string, email: ?string, is_read: bool, last_read_at: ?string}>
+     */
+    private function formatMemberReads(InboxConversation $c): array
+    {
+        $inbox = $c->relationLoaded('inbox') ? $c->inbox : null;
+        if (! $inbox || $inbox->type !== SharedInbox::TYPE_SHARED) {
+            return [];
+        }
+
+        $members = $inbox->relationLoaded('members')
+            ? $inbox->members
+            : $inbox->members()->orderBy('name')->get(['users.id', 'users.name', 'users.email']);
+
+        if ($members->isEmpty()) {
+            return [];
+        }
+
+        $reads = $c->relationLoaded('userReads')
+            ? $c->userReads->keyBy('user_id')
+            : InboxConversationUserRead::query()
+                ->where('inbox_conversation_id', $c->id)
+                ->whereIn('user_id', $members->pluck('id'))
+                ->get()
+                ->keyBy('user_id');
+
+        return $members
+            ->map(function ($member) use ($reads) {
+                $row = $reads->get($member->id);
+                $isRead = (bool) ($row?->is_read);
+                $lastReadAt = $row?->last_read_at;
+
+                return [
+                    'id' => (int) $member->id,
+                    'name' => $member->name,
+                    'email' => $member->email,
+                    'is_read' => $isRead,
+                    'last_read_at' => $isRead && $lastReadAt ? $lastReadAt->toIso8601String() : null,
+                ];
+            })
+            ->sort(function (array $a, array $b) {
+                if ($a['is_read'] !== $b['is_read']) {
+                    return $a['is_read'] ? -1 : 1;
+                }
+                if ($a['is_read'] && $b['is_read']) {
+                    return strcmp((string) ($b['last_read_at'] ?? ''), (string) ($a['last_read_at'] ?? ''));
+                }
+
+                return strcasecmp((string) $a['name'], (string) $b['name']);
+            })
+            ->values()
+            ->all();
     }
 
     private function formatScheduledReply(ScheduledInboxReply $reply): array

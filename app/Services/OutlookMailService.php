@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\InboxConversation;
+use App\Models\InboxConversationUserRead;
 use App\Models\InboxMessage;
 use App\Models\OutlookMailAccount;
 use App\Models\SharedInbox;
@@ -517,6 +518,13 @@ class OutlookMailService
             $conversation->save();
 
             $messageDirection = ($msg['isDraft'] ?? false) ? 'outbound' : $direction;
+            if ($folder === 'inbox' && $messageDirection === 'inbound' && $inbox->type === SharedInbox::TYPE_SHARED) {
+                // New inbound mail makes the thread unread again for every shared member.
+                InboxConversationUserRead::query()
+                    ->where('inbox_conversation_id', $conversation->id)
+                    ->where('is_read', true)
+                    ->update(['is_read' => false]);
+            }
             if ($folder === 'inbox' && $messageDirection === 'inbound') {
                 $fresh = $conversation->fresh(['inbox']);
                 if ($fresh) {
