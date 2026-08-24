@@ -257,6 +257,7 @@
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                                     </button>
                                     <div class="inbox-template-picker-menu" hidden>
+                                        <div class="inbox-template-picker-head">Insert template</div>
                                         <input type="search" class="inbox-tool-search" data-template-picker-search placeholder="Search templates…" autocomplete="off">
                                         <div class="inbox-template-picker-list" data-template-picker-list></div>
                                     </div>
@@ -368,6 +369,7 @@
             <div class="inbox-template-picker" data-template-picker="compose">
                 <button type="button" class="inbox-composer-tool" data-template-picker-toggle title="Insert template">Template…</button>
                 <div class="inbox-template-picker-menu" hidden>
+                    <div class="inbox-template-picker-head">Insert template</div>
                     <input type="search" class="inbox-tool-search" data-template-picker-search placeholder="Search templates…" autocomplete="off">
                     <div class="inbox-template-picker-list" data-template-picker-list></div>
                 </div>
@@ -2030,30 +2032,42 @@ select.inbox-reply-header-input {
 .inbox-template-picker.is-open { z-index: 40; }
 .inbox-template-picker-menu {
     display: none;
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    width: min(280px, 72vw);
+    position: fixed;
+    width: min(320px, calc(100vw - 16px));
+    max-height: min(360px, calc(100vh - 24px));
     background: #fff;
     border: 1px solid var(--inbox-border);
-    border-radius: 10px;
-    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
-    padding: 0.45rem;
-    gap: 0.35rem;
-    z-index: 50;
+    border-radius: 12px;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+    padding: 0.55rem;
+    gap: 0.4rem;
+    z-index: 90;
+    box-sizing: border-box;
+    overflow: hidden;
+    grid-template-rows: auto auto minmax(0, 1fr);
 }
 .inbox-template-picker.is-open .inbox-template-picker-menu {
     display: grid;
 }
-.inbox-composer .inbox-template-picker-menu {
-    top: auto;
-    bottom: calc(100% + 4px);
+.inbox-template-picker-head {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--inbox-muted);
+    padding: 0.05rem 0.2rem 0.1rem;
 }
-.inbox-template-picker-menu .inbox-tool-search { margin: 0; }
+.inbox-template-picker-menu .inbox-tool-search {
+    margin: 0;
+    font-size: 0.82rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 8px;
+}
 .inbox-template-picker-list {
     display: grid;
-    gap: 0.1rem;
-    max-height: 200px;
+    align-content: start;
+    gap: 0.12rem;
+    min-height: 0;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
 }
@@ -2062,19 +2076,36 @@ select.inbox-reply-header-input {
     border: none;
     background: transparent;
     text-align: left;
-    padding: 0.4rem 0.5rem;
-    border-radius: 7px;
+    padding: 0.45rem 0.55rem;
+    border-radius: 8px;
     cursor: pointer;
     font: inherit;
-    font-size: 0.8rem;
     color: var(--inbox-text);
+    display: grid;
+    gap: 0.12rem;
+}
+.inbox-template-picker-item-name {
+    font-size: 0.84rem;
+    font-weight: 600;
+    line-height: 1.3;
+}
+.inbox-template-picker-item-meta {
+    font-size: 0.74rem;
+    color: var(--inbox-muted);
+    line-height: 1.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .inbox-template-picker-item:hover,
 .inbox-template-picker-item.is-active { background: var(--inbox-accent-soft); color: var(--inbox-accent); }
+.inbox-template-picker-item:hover .inbox-template-picker-item-meta,
+.inbox-template-picker-item.is-active .inbox-template-picker-item-meta { color: var(--inbox-accent); }
 .inbox-template-picker-empty {
-    padding: 0.45rem 0.5rem;
-    font-size: 0.78rem;
+    padding: 1.1rem 0.6rem;
+    font-size: 0.8rem;
     color: var(--inbox-muted);
+    text-align: center;
 }
 .inbox-template-manage-btn {
     display: flex;
@@ -3358,6 +3389,13 @@ select.inbox-reply-header-input {
         });
     }
 
+    function templatePickerItemMeta(t) {
+        const subject = String(t.subject || '').trim();
+        if (subject) return subject;
+        const preview = htmlToPlain(t.body_html || t.body || '').replace(/\s+/g, ' ').trim();
+        return preview;
+    }
+
     function renderTemplatePickerList(picker) {
         if (!picker) return;
         const list = picker.querySelector('[data-template-picker-list]');
@@ -3365,18 +3403,69 @@ select.inbox-reply-header-input {
         if (!list) return;
         const items = templatesMatchingQuery(search?.value || '');
         if (!state.templates.length) {
-            list.innerHTML = '<div class="inbox-template-picker-empty">No templates</div>';
+            list.innerHTML = '<div class="inbox-template-picker-empty">No templates yet</div>';
+            positionTemplatePickerMenu(picker);
             return;
         }
         if (!items.length) {
             list.innerHTML = '<div class="inbox-template-picker-empty">No matches</div>';
+            positionTemplatePickerMenu(picker);
             return;
         }
-        list.innerHTML = items.map(t => `
+        list.innerHTML = items.map(t => {
+            const meta = templatePickerItemMeta(t);
+            return `
             <button type="button" class="inbox-template-picker-item" data-insert-template-id="${escapeHtml(t.id)}" title="${escapeHtml(t.subject || t.name)}">
-                ${escapeHtml(t.name)}
+                <span class="inbox-template-picker-item-name">${escapeHtml(t.name || 'Untitled')}</span>
+                ${meta ? `<span class="inbox-template-picker-item-meta">${escapeHtml(meta)}</span>` : ''}
             </button>
-        `).join('');
+        `;
+        }).join('');
+        positionTemplatePickerMenu(picker);
+    }
+
+    function resetTemplatePickerMenuPosition(menu) {
+        if (!menu) return;
+        menu.style.top = '';
+        menu.style.bottom = '';
+        menu.style.left = '';
+        menu.style.right = '';
+        menu.style.width = '';
+        menu.style.maxHeight = '';
+    }
+
+    function positionTemplatePickerMenu(picker) {
+        if (!picker?.classList.contains('is-open')) return;
+        const menu = picker.querySelector('.inbox-template-picker-menu');
+        const toggle = picker.querySelector('[data-template-picker-toggle]');
+        if (!menu || menu.hidden || !toggle) return;
+        const rect = toggle.getBoundingClientRect();
+        const margin = 8;
+        const width = Math.min(320, Math.max(240, window.innerWidth - (margin * 2)));
+        let left = rect.right - width;
+        if (left < margin) left = margin;
+        if (left + width > window.innerWidth - margin) {
+            left = Math.max(margin, window.innerWidth - width - margin);
+        }
+        const spaceAbove = Math.max(0, rect.top - margin);
+        const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - margin);
+        const openAbove = spaceAbove >= 200 || spaceAbove >= spaceBelow;
+        const available = Math.max(160, openAbove ? spaceAbove : spaceBelow);
+        menu.style.width = `${width}px`;
+        menu.style.left = `${left}px`;
+        menu.style.right = 'auto';
+        menu.style.maxHeight = `${Math.min(360, available)}px`;
+        if (openAbove) {
+            menu.style.top = 'auto';
+            menu.style.bottom = `${window.innerHeight - rect.top + 6}px`;
+        } else {
+            menu.style.bottom = 'auto';
+            menu.style.top = `${rect.bottom + 6}px`;
+        }
+    }
+
+    function syncOpenTemplatePickerPosition() {
+        document.querySelectorAll('[data-template-picker].is-open').forEach(positionTemplatePickerMenu);
     }
 
     function closeTemplatePickers(except = null) {
@@ -3384,7 +3473,10 @@ select.inbox-reply-header-input {
             if (except && picker === except) return;
             picker.classList.remove('is-open');
             const menu = picker.querySelector('.inbox-template-picker-menu');
-            if (menu) menu.hidden = true;
+            if (menu) {
+                menu.hidden = true;
+                resetTemplatePickerMenuPosition(menu);
+            }
         });
     }
 
@@ -3394,13 +3486,13 @@ select.inbox-reply-header-input {
         picker.classList.add('is-open');
         const menu = picker.querySelector('.inbox-template-picker-menu');
         if (menu) menu.hidden = false;
-        renderTemplatePickerList(picker);
         const search = picker.querySelector('[data-template-picker-search]');
-        if (search) {
-            search.value = '';
-            renderTemplatePickerList(picker);
-            setTimeout(() => search.focus(), 0);
-        }
+        if (search) search.value = '';
+        renderTemplatePickerList(picker);
+        requestAnimationFrame(() => {
+            positionTemplatePickerMenu(picker);
+            search?.focus();
+        });
     }
 
     function filteredTemplates() {
@@ -7750,6 +7842,8 @@ select.inbox-reply-header-input {
     bindComposerExtras('reply');
     bindComposerExtras('compose');
     setComposerMode('comment');
+    window.addEventListener('resize', syncOpenTemplatePickerPosition);
+    document.addEventListener('scroll', syncOpenTemplatePickerPosition, true);
     document.addEventListener('click', (e) => {
         if (!e.target.closest('[data-template-picker]')) closeTemplatePickers();
     });
