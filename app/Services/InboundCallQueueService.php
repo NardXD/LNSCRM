@@ -502,7 +502,8 @@ class InboundCallQueueService
             'current_user_id' => $userId,
             'attempted_user_ids' => $attempted,
             'client_retries' => max(0, $clientRetries),
-            'ended_by_agent' => false,
+            // Preserve hangup/decline so dialAction does not re-ring after the agent ended the call.
+            'ended_by_agent' => ! empty($existing['ended_by_agent']),
             'from' => $from,
             'to' => $to,
         ], now()->addHours(2));

@@ -86,30 +86,34 @@
             
             if (typeof window.declineIncomingCall === 'undefined') {
                 window.declineIncomingCall = function() {
-                    const call = window.globalActiveCall || window.__twilioActiveCall;
-                    if (!call) {
-                        console.error('No active call to decline');
+                    if (typeof window.endEntireCall === 'function') {
+                        window.endEntireCall();
                         return;
                     }
+                    const call = window.globalActiveCall || window.__twilioActiveCall;
                     try {
-                        // Disconnect/end the call
-                        if (call.disconnect) {
-                            call.disconnect();
-                        } else if (call.reject) {
-                            call.reject();
+                        if (call) {
+                            if (call.reject) {
+                                call.reject();
+                            } else if (call.disconnect) {
+                                call.disconnect();
+                            }
                         }
-                        const notification = document.getElementById('inboundCallNotification');
-                        if (notification) notification.style.display = 'none';
-                        window.globalActiveCall = null;
-                        window.__twilioActiveCall = null;
-                        console.log('Call declined and ended');
                     } catch (error) {
                         console.error('Error declining call:', error);
-                        const notification = document.getElementById('inboundCallNotification');
-                        if (notification) notification.style.display = 'none';
-                        window.globalActiveCall = null;
-                        window.__twilioActiveCall = null;
                     }
+                    if (typeof window.__lnscrmWriteCallBanner === 'function') {
+                        window.__lnscrmWriteCallBanner(null);
+                    }
+                    if (typeof window.__lnscrmApplyCallBanner === 'function') {
+                        window.__lnscrmApplyCallBanner(null);
+                    }
+                    const notification = document.getElementById('inboundCallNotification');
+                    if (notification) notification.style.display = 'none';
+                    window.globalActiveCall = null;
+                    window.__twilioActiveCall = null;
+                    window.isCallAnswered = false;
+                    console.log('Call declined and ended');
                 };
             }
             

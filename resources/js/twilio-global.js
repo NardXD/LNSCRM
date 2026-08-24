@@ -164,27 +164,36 @@ if (typeof window !== 'undefined') {
         }
     };
     
-    // Decline incoming call - define immediately
+    // Decline incoming call - end the whole inbound call for the caller
     window.declineIncomingCall = function() {
-        const activeCall = window.globalActiveCall;
-        if (!activeCall) {
-            console.error('No active call to decline');
+        if (typeof window.endEntireCall === 'function') {
+            window.endEntireCall();
             return;
         }
+        const activeCall = window.globalActiveCall || window.__twilioActiveCall;
         try {
-            activeCall.reject();
-            console.log('Call declined');
-            const notification = document.getElementById('inboundCallNotification');
-            if (notification) notification.style.display = 'none';
-            if (typeof stopGlobalRingSound === 'function') stopGlobalRingSound();
-            window.globalActiveCall = null;
+            if (activeCall) {
+                if (typeof activeCall.reject === 'function') {
+                    activeCall.reject();
+                } else if (typeof activeCall.disconnect === 'function') {
+                    activeCall.disconnect();
+                }
+            }
         } catch (error) {
             console.error('Error declining call:', error);
-            const notification = document.getElementById('inboundCallNotification');
-            if (notification) notification.style.display = 'none';
-            if (typeof stopGlobalRingSound === 'function') stopGlobalRingSound();
-            window.globalActiveCall = null;
         }
+        if (typeof window.__lnscrmWriteCallBanner === 'function') {
+            window.__lnscrmWriteCallBanner(null);
+        }
+        if (typeof window.__lnscrmApplyCallBanner === 'function') {
+            window.__lnscrmApplyCallBanner(null);
+        }
+        const notification = document.getElementById('inboundCallNotification');
+        if (notification) notification.style.display = 'none';
+        if (typeof stopGlobalRingSound === 'function') stopGlobalRingSound();
+        window.globalActiveCall = null;
+        window.__twilioActiveCall = null;
+        window.isCallAnswered = false;
     };
 }
 
@@ -691,16 +700,18 @@ window.handleIncomingCall = function(call) {
     // Set up call event handlers
     call.on('cancel', () => {
         console.log('Incoming call canceled');
+        // Answered reconnect can emit cancel — keep the ongoing UI in that case.
+        if (window.isCallAnswered) {
+            stopGlobalRingSound();
+            return;
+        }
         hideIncomingCallNotification();
-        // Only hide ongoing notification if call was NOT answered
-        // When call is answered, Twilio fires 'cancel' but the call is still active
-        if (!window.isCallAnswered) {
-            hideOngoingCallNotification();
-            stopCallDurationTimer();
-            globalActiveCall = null;
-            if (typeof window !== 'undefined') {
-                window.globalActiveCall = null;
-            }
+        hideOngoingCallNotification();
+        stopCallDurationTimer();
+        globalActiveCall = null;
+        if (typeof window !== 'undefined') {
+            window.globalActiveCall = null;
+            window.__twilioActiveCall = null;
         }
         stopGlobalRingSound();
     });
@@ -715,6 +726,7 @@ window.handleIncomingCall = function(call) {
         globalActiveCall = null;
         if (typeof window !== 'undefined') {
             window.globalActiveCall = null;
+            window.__twilioActiveCall = null;
         }
     });
     
@@ -728,6 +740,7 @@ window.handleIncomingCall = function(call) {
         globalActiveCall = null;
         if (typeof window !== 'undefined') {
             window.globalActiveCall = null;
+            window.__twilioActiveCall = null;
         }
     });
 };
@@ -799,6 +812,18 @@ function hideIncomingCallNotification() {
     const notification = document.getElementById('inboundCallNotification');
     if (notification) {
         notification.style.display = 'none';
+    }
+    // Keep sessionStorage banner in sync so a dismissed/canceled call cannot reappear.
+    if (typeof window !== 'undefined' && typeof window.__lnscrmWriteCallBanner === 'function') {
+        const state = typeof window.__lnscrmReadCallBanner === 'function'
+            ? window.__lnscrmReadCallBanner()
+            : null;
+        if (!state || state.status === 'ringing') {
+            window.__lnscrmWriteCallBanner(null);
+            if (typeof window.__lnscrmApplyCallBanner === 'function') {
+                window.__lnscrmApplyCallBanner(null);
+            }
+        }
     }
 }
 
@@ -1018,46 +1043,36 @@ window.answerIncomingCall = async function() {
     }
 };
 
-// Decline incoming call - update the function to use full implementation
+// Decline incoming call — end the whole inbound call (hang up the caller)
 window.declineIncomingCall = function() {
-    // Check both globalActiveCall and window.globalActiveCall
-    const activeCall = globalActiveCall || (typeof window !== 'undefined' ? window.globalActiveCall : null);
-    
-    if (!activeCall) {
-        console.error('No active call to decline');
+    if (typeof window.endEntireCall === 'function') {
+        window.endEntireCall();
         return;
     }
 
+    const activeCall = globalActiveCall || (typeof window !== 'undefined' ? window.globalActiveCall : null)
+        || (typeof window !== 'undefined' ? window.__twilioActiveCall : null);
+
     try {
-        // Disconnect/end the call - try disconnect first, then reject as fallback
-        if (typeof activeCall.disconnect === 'function') {
-            activeCall.disconnect();
-            console.log('Call declined and disconnected');
-        } else if (typeof activeCall.reject === 'function') {
-            activeCall.reject();
-            console.log('Call declined (rejected)');
-        } else {
-            console.warn('Call object does not have disconnect or reject method');
-        }
-        
-        hideIncomingCallNotification();
-        hideOngoingCallNotification();
-        stopGlobalRingSound();
-        globalActiveCall = null;
-        if (typeof window !== 'undefined') {
-            window.globalActiveCall = null;
-            window.__twilioActiveCall = null;
+        if (activeCall) {
+            if (typeof activeCall.reject === 'function') {
+                activeCall.reject();
+            } else if (typeof activeCall.disconnect === 'function') {
+                activeCall.disconnect();
+            }
         }
     } catch (error) {
         console.error('Error declining call:', error);
-        hideIncomingCallNotification();
-        hideOngoingCallNotification();
-        stopGlobalRingSound();
-        globalActiveCall = null;
-        if (typeof window !== 'undefined') {
-            window.globalActiveCall = null;
-            window.__twilioActiveCall = null;
-        }
+    }
+
+    hideIncomingCallNotification();
+    hideOngoingCallNotification();
+    stopGlobalRingSound();
+    globalActiveCall = null;
+    if (typeof window !== 'undefined') {
+        window.globalActiveCall = null;
+        window.__twilioActiveCall = null;
+        window.isCallAnswered = false;
     }
 };
 
@@ -1163,6 +1178,7 @@ function stopGlobalRingSound() {
         globalRingGainNode = null;
     }
 }
+window.stopGlobalRingSound = stopGlobalRingSound;
 
 // Test function to manually test notification (for debugging)
 window.testIncomingCallNotification = function() {

@@ -198,13 +198,11 @@
                 notifyCallAnswered(call, acceptedSid);
             });
             call.on('cancel', function () {
+                // Spurious cancel can fire during answered reconnect after refresh.
                 if (window.isCallAnswered || (readBanner() && readBanner().status === 'answered')) {
                     return;
                 }
-                if (withinRestoreGrace()) {
-                    applyBanner(readBanner());
-                    return;
-                }
+                // Caller hung up / dial cancelled — never re-show a stored ringing banner.
                 clearBanner();
             });
             call.on('disconnect', function () {
@@ -246,8 +244,12 @@
         markAgentEnded(sid);
         hangupViaApi(sid);
         try {
-            if (liveCall && typeof liveCall.disconnect === 'function') {
-                liveCall.disconnect();
+            if (liveCall) {
+                if (typeof liveCall.reject === 'function' && !window.isCallAnswered) {
+                    liveCall.reject();
+                } else if (typeof liveCall.disconnect === 'function') {
+                    liveCall.disconnect();
+                }
             }
         } catch (e) {}
         try {
@@ -259,21 +261,39 @@
         window.__twilioActiveCall = null;
         window.isCallAnswered = false;
         clearBanner();
+        if (typeof window.stopGlobalRingSound === 'function') {
+            window.stopGlobalRingSound();
+        }
+    }
+
+    // Decline ends the whole inbound call for the caller (same as hangup).
+    function declineIncomingCall() {
+        endEntireCall();
     }
 
     window.hangupOngoingCall = endEntireCall;
     window.endEntireCall = endEntireCall;
+    window.declineIncomingCall = declineIncomingCall;
     window.addEventListener('load', function () {
         window.hangupOngoingCall = endEntireCall;
+        window.declineIncomingCall = declineIncomingCall;
     });
-    setTimeout(function () { window.hangupOngoingCall = endEntireCall; }, 500);
-    setTimeout(function () { window.hangupOngoingCall = endEntireCall; }, 2000);
+    setTimeout(function () {
+        window.hangupOngoingCall = endEntireCall;
+        window.declineIncomingCall = declineIncomingCall;
+    }, 500);
+    setTimeout(function () {
+        window.hangupOngoingCall = endEntireCall;
+        window.declineIncomingCall = declineIncomingCall;
+    }, 2000);
 
     document.addEventListener('click', function (event) {
         var decline = event.target.closest('#declineCallBtn');
         var hangup = event.target.closest('#hangupCallBtn');
         if (decline) {
-            clearBanner();
+            event.preventDefault();
+            event.stopPropagation();
+            declineIncomingCall();
             return;
         }
         if (hangup) {
@@ -463,8 +483,9 @@
             }
             return;
         }
+        // No live Twilio call and agent is free → drop any stale Incoming Call toast.
         if (me.status !== 'busy' || !me.current_call_sid) {
-            if (!window.globalActiveCall && !window.__twilioActiveCall && (!existing || existing.status !== 'answered')) {
+            if (!window.globalActiveCall && !window.__twilioActiveCall) {
                 setTimeout(function () {
                     if (!window.globalActiveCall && !window.__twilioActiveCall) {
                         var latest = readBanner();
@@ -472,14 +493,18 @@
                             clearBanner();
                         }
                     }
-                }, 12000);
+                }, withinRestoreGrace() ? 2000 : 0);
             }
             return;
         }
-        persistRinging(
-            me.current_from_number || (existing && existing.from) || 'Unknown',
-            me.current_call_sid || (existing && existing.callSid) || null
-        );
+        // Busy with a call SID but no answered banner: only restore ringing if we
+        // already had a ringing banner (e.g. mid-refresh). Otherwise wait for Device incoming.
+        if (existing && existing.status === 'ringing') {
+            persistRinging(
+                me.current_from_number || existing.from || 'Unknown',
+                me.current_call_sid || existing.callSid || null
+            );
+        }
     }).catch(function () {});
 
     window.ensureLnscrmTwilioDevice();
