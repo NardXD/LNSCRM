@@ -82,8 +82,8 @@ class InboxReplyService
     }
 
     /**
-     * @param  array<int, array{name: string, contentType: string, contentBytes: string}>  $attachments
-     * @return array<int, array{name: string, contentType: string, path: string}>
+     * @param  array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>  $attachments
+     * @return array<int, array{name: string, contentType: string, path: string, isInline?: bool, contentId?: string}>
      */
     public function storeScheduledAttachments(ScheduledInboxReply $scheduled, array $attachments): array
     {
@@ -98,18 +98,23 @@ class InboxReplyService
             $filename = $index.'_'.$safeName.($ext !== '' ? '.'.$ext : '');
             $path = 'scheduled-inbox-replies/'.$scheduled->id.'/'.$filename;
             Storage::disk('local')->put($path, $binary);
-            $stored[] = [
+            $item = [
                 'name' => $attachment['name'],
                 'contentType' => $attachment['contentType'] ?? 'application/octet-stream',
                 'path' => $path,
             ];
+            if (! empty($attachment['isInline']) && ! empty($attachment['contentId'])) {
+                $item['isInline'] = true;
+                $item['contentId'] = (string) $attachment['contentId'];
+            }
+            $stored[] = $item;
         }
 
         return $stored;
     }
 
     /**
-     * @return array<int, array{name: string, contentType: string, contentBytes: string}>
+     * @return array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>
      */
     public function loadScheduledAttachments(ScheduledInboxReply $scheduled): array
     {
@@ -120,11 +125,16 @@ class InboxReplyService
                 continue;
             }
             $binary = Storage::disk('local')->get($path);
-            $loaded[] = [
+            $item = [
                 'name' => (string) ($attachment['name'] ?? 'attachment'),
                 'contentType' => (string) ($attachment['contentType'] ?? 'application/octet-stream'),
                 'contentBytes' => base64_encode($binary),
             ];
+            if (! empty($attachment['isInline']) && ! empty($attachment['contentId'])) {
+                $item['isInline'] = true;
+                $item['contentId'] = (string) $attachment['contentId'];
+            }
+            $loaded[] = $item;
         }
 
         return $loaded;

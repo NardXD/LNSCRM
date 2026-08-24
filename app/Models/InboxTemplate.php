@@ -14,7 +14,15 @@ class InboxTemplate extends Model
         'subject',
         'body_html',
         'body_text',
+        'attachments',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'attachments' => 'array',
+        ];
+    }
 
     public function company(): BelongsTo
     {

@@ -1354,17 +1354,19 @@ class InboxController extends Controller
     {
         $this->authorizeConversation($request->user(), $conversation);
         $validated = $request->validate([
-            'body' => ['required', 'string', 'max:50000'],
+            'body' => ['required', 'string', 'max:5000000'],
             'to' => ['nullable', 'string', 'max:2000'],
             'cc' => ['nullable', 'string', 'max:2000'],
             'inbox_id' => ['nullable', 'integer'],
             'reply_all' => ['nullable', 'boolean'],
             'archive' => ['nullable', 'boolean'],
             'send_at' => ['nullable', 'date', 'after:now'],
-            'attachments' => ['nullable', 'array', 'max:5'],
+            'attachments' => ['nullable', 'array', 'max:10'],
             'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
             'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:5000000'],
+            'attachments.*.isInline' => ['nullable', 'boolean'],
+            'attachments.*.contentId' => ['nullable', 'string', 'max:120'],
         ]);
 
         $inbox = $conversation->inbox;
@@ -1440,6 +1442,13 @@ class InboxController extends Controller
         if ($attachments === false) {
             return response()->json(['message' => 'Attachments are too large. Keep each file under 3 MB.'], 422);
         }
+
+        $prepared = $this->prepareTemplateContent((string) $validated['body'], $attachments);
+        if (count($prepared['attachments']) > 10) {
+            return response()->json(['message' => 'Too many attachments. Use up to 5 files plus a few inline images.'], 422);
+        }
+        $validated['body'] = $prepared['body'];
+        $attachments = $prepared['attachments'];
 
         $archive = $request->boolean('archive');
 
@@ -1723,12 +1732,14 @@ class InboxController extends Controller
             'to' => ['required', 'string', 'max:2000'],
             'cc' => ['nullable', 'string', 'max:2000'],
             'subject' => ['required', 'string', 'max:500'],
-            'body' => ['required', 'string', 'max:50000'],
+            'body' => ['required', 'string', 'max:5000000'],
             'send_at' => ['nullable', 'date', 'after:now'],
-            'attachments' => ['nullable', 'array', 'max:5'],
+            'attachments' => ['nullable', 'array', 'max:10'],
             'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
             'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:5000000'],
+            'attachments.*.isInline' => ['nullable', 'boolean'],
+            'attachments.*.contentId' => ['nullable', 'string', 'max:120'],
         ]);
 
         $inbox = $this->accessibleInboxes($user)
@@ -1777,6 +1788,13 @@ class InboxController extends Controller
         if ($attachments === false) {
             return response()->json(['message' => 'Attachments are too large. Keep each file under 3 MB.'], 422);
         }
+
+        $prepared = $this->prepareTemplateContent($htmlBody, $attachments);
+        if (count($prepared['attachments']) > 10) {
+            return response()->json(['message' => 'Too many attachments. Use up to 5 files plus a few inline images.'], 422);
+        }
+        $htmlBody = $prepared['body'];
+        $attachments = $prepared['attachments'];
 
         $to = $toEmails->implode(', ');
         $cc = $ccEmails->isNotEmpty() ? $ccEmails->implode(', ') : null;
@@ -2241,9 +2259,15 @@ class InboxController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:160'],
             'subject' => ['nullable', 'string', 'max:500'],
-            'body_html' => ['nullable', 'string', 'max:100000'],
+            'body_html' => ['nullable', 'string', 'max:5000000'],
             'body' => ['nullable', 'string', 'max:100000'],
             'body_text' => ['nullable', 'string', 'max:100000'],
+            'attachments' => ['nullable', 'array', 'max:10'],
+            'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
+            'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
+            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:5000000'],
+            'attachments.*.isInline' => ['nullable', 'boolean'],
+            'attachments.*.contentId' => ['nullable', 'string', 'max:120'],
         ]);
 
         $bodyHtml = $validated['body_html'] ?? null;
@@ -2258,13 +2282,24 @@ class InboxController extends Controller
             return response()->json(['message' => 'Template body is required.'], 422);
         }
 
+        $attachments = $this->normalizeAttachments($validated['attachments'] ?? []);
+        if ($attachments === false) {
+            return response()->json(['message' => 'One or more attachments exceed the 3 MB limit.'], 422);
+        }
+
+        $prepared = $this->prepareTemplateContent((string) $bodyHtml, $attachments);
+        if (count($prepared['attachments']) > 10) {
+            return response()->json(['message' => 'A template can include at most 5 file attachments plus inline images.'], 422);
+        }
+
         $template = InboxTemplate::create([
             'company_id' => $request->user()->company_id,
             'created_by' => $request->user()->id,
             'name' => $validated['name'],
             'subject' => $validated['subject'] ?? null,
-            'body_html' => $bodyHtml,
+            'body_html' => $prepared['body'],
             'body_text' => $bodyText,
+            'attachments' => $prepared['attachments'] !== [] ? $prepared['attachments'] : null,
         ]);
 
         return response()->json(['template' => $this->formatTemplate($template)], 201);
@@ -2283,9 +2318,15 @@ class InboxController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:160'],
             'subject' => ['nullable', 'string', 'max:500'],
-            'body_html' => ['nullable', 'string', 'max:100000'],
+            'body_html' => ['nullable', 'string', 'max:5000000'],
             'body' => ['nullable', 'string', 'max:100000'],
             'body_text' => ['nullable', 'string', 'max:100000'],
+            'attachments' => ['nullable', 'array', 'max:10'],
+            'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
+            'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
+            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:5000000'],
+            'attachments.*.isInline' => ['nullable', 'boolean'],
+            'attachments.*.contentId' => ['nullable', 'string', 'max:120'],
         ]);
 
         $bodyHtml = $validated['body_html'] ?? null;
@@ -2300,11 +2341,22 @@ class InboxController extends Controller
             return response()->json(['message' => 'Template body is required.'], 422);
         }
 
+        $attachments = $this->normalizeAttachments($validated['attachments'] ?? []);
+        if ($attachments === false) {
+            return response()->json(['message' => 'One or more attachments exceed the 3 MB limit.'], 422);
+        }
+
+        $prepared = $this->prepareTemplateContent((string) $bodyHtml, $attachments);
+        if (count($prepared['attachments']) > 10) {
+            return response()->json(['message' => 'A template can include at most 5 file attachments plus inline images.'], 422);
+        }
+
         $template->update([
             'name' => $validated['name'],
             'subject' => $validated['subject'] ?? null,
-            'body_html' => $bodyHtml,
+            'body_html' => $prepared['body'],
             'body_text' => $bodyText,
+            'attachments' => $prepared['attachments'] !== [] ? $prepared['attachments'] : null,
         ]);
 
         return response()->json(['template' => $this->formatTemplate($template->fresh())]);
@@ -2417,8 +2469,8 @@ class InboxController extends Controller
     }
 
     /**
-     * @param  array<int, array{name?: string, contentType?: string, contentBytes?: string}>  $attachments
-     * @return array<int, array{name: string, contentType: string, contentBytes: string}>|false
+     * @param  array<int, array{name?: string, contentType?: string, contentBytes?: string, isInline?: bool, contentId?: string}>  $attachments
+     * @return array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>|false
      */
     private function normalizeAttachments(array $attachments): array|false
     {
@@ -2436,14 +2488,91 @@ class InboxController extends Controller
                 return false;
             }
 
-            $normalized[] = [
+            $item = [
                 'name' => $name,
                 'contentType' => (string) ($attachment['contentType'] ?? 'application/octet-stream'),
                 'contentBytes' => $bytes,
             ];
+
+            if (! empty($attachment['isInline']) && ! empty($attachment['contentId'])) {
+                $item['isInline'] = true;
+                $item['contentId'] = (string) $attachment['contentId'];
+            }
+
+            $normalized[] = $item;
         }
 
         return $normalized;
+    }
+
+    /**
+     * Convert data-URI images in HTML into cid: inline attachments for storage/send.
+     *
+     * @param  array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>  $attachments
+     * @return array{body: string, attachments: array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>}
+     */
+    private function prepareTemplateContent(string $body, array $attachments): array
+    {
+        $inlineCount = 0;
+
+        $body = preg_replace_callback(
+            '/<img\b([^>]*)\ssrc=(["\'])data:image\/([^;]+);base64,([^"\']+)\2([^>]*)>/i',
+            function (array $matches) use (&$attachments, &$inlineCount) {
+                if (count($attachments) >= 10) {
+                    return $matches[0];
+                }
+
+                $ext = strtolower($matches[3]);
+                $bytes = $matches[4];
+                $approxBytes = (int) (strlen($bytes) * 0.75);
+                if ($approxBytes > 3 * 1024 * 1024) {
+                    return $matches[0];
+                }
+
+                $inlineCount++;
+                $contentId = 'tpl-img-'.$inlineCount.'-'.bin2hex(random_bytes(4));
+                $attachments[] = [
+                    'name' => 'image-'.$inlineCount.'.'.$ext,
+                    'contentType' => 'image/'.$ext,
+                    'contentBytes' => $bytes,
+                    'isInline' => true,
+                    'contentId' => $contentId,
+                ];
+
+                $before = trim($matches[1]);
+                $after = trim($matches[5]);
+
+                return '<img'.($before ? ' '.$before : '').' src="cid:'.$contentId.'"'.($after ? ' '.$after : '').'>';
+            },
+            $body
+        ) ?? $body;
+
+        return [
+            'body' => $body,
+            'attachments' => $attachments,
+        ];
+    }
+
+    /**
+     * Embed cid: inline attachments as data URIs for the template editor / insert preview.
+     *
+     * @param  array<int, array<string, mixed>>|null  $attachments
+     */
+    private function embedTemplateInlineImages(string $html, ?array $attachments): string
+    {
+        if (! is_array($attachments) || $attachments === []) {
+            return $html;
+        }
+
+        foreach ($attachments as $file) {
+            if (empty($file['isInline']) || empty($file['contentId']) || empty($file['contentBytes'])) {
+                continue;
+            }
+            $dataUri = 'data:'.($file['contentType'] ?? 'image/png').';base64,'.$file['contentBytes'];
+            $html = str_replace('cid:'.$file['contentId'], $dataUri, $html);
+        }
+
+        return $html;
     }
 
     /**
@@ -2679,13 +2808,17 @@ class InboxController extends Controller
 
     private function formatTemplate(InboxTemplate $template): array
     {
+        $attachments = is_array($template->attachments) ? array_values($template->attachments) : [];
+        $bodyHtml = $this->embedTemplateInlineImages((string) ($template->body_html ?? ''), $attachments);
+
         return [
             'id' => $template->id,
             'name' => $template->name,
             'subject' => $template->subject,
             'body' => $template->body_text,
             'body_text' => $template->body_text,
-            'body_html' => $template->body_html,
+            'body_html' => $bodyHtml,
+            'attachments' => $attachments,
             'format' => 'html',
             'created_by' => $template->created_by,
             'updated_at' => $template->updated_at?->toIso8601String(),

@@ -434,12 +434,25 @@
         </div>
     </div>
 
-    <div class="inbox-modal inbox-modal-wide" id="modalTemplate" style="display:none;">
+    <div class="inbox-modal inbox-modal-xwide" id="modalTemplate" style="display:none;">
         <h3 id="templateModalTitle">New template</h3>
-        <p class="inbox-modal-help">Reusable HTML snippets for compose and replies.</p>
+        <p class="inbox-modal-help">Reusable HTML snippets for compose and replies. Insert images into the body or attach files that send with the template.</p>
         <label>Name<input type="text" id="newTemplateName" class="form-input" placeholder="Follow-up"></label>
         <label>Subject (optional)<input type="text" id="newTemplateSubject" class="form-input" placeholder="Re: your inquiry"></label>
-        <div class="inbox-html-editor" data-html-editor="template">
+        <div class="inbox-composer-tools">
+            <button type="button" class="inbox-composer-tool" id="btnTemplateAttach" title="Attach files">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                Attach
+            </button>
+            <button type="button" class="inbox-composer-tool" id="btnTemplateImage" title="Insert image">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+                Image
+            </button>
+            <input type="file" id="templateAttachInput" multiple hidden>
+            <input type="file" id="templateImageInput" accept="image/*" hidden>
+        </div>
+        <div class="inbox-attach-chips" id="templateAttachChips"></div>
+        <div class="inbox-html-editor inbox-html-editor-tall" data-html-editor="template">
             <div class="inbox-html-toolbar">
                 <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
                 <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
@@ -452,8 +465,9 @@
                 <button type="button" data-html-mode="source">HTML</button>
             </div>
             <div class="inbox-html-visual" id="newTemplateVisual" contenteditable="true" data-placeholder="Write your template…"></div>
-            <textarea class="form-input inbox-html-source" id="newTemplateBody" rows="8" hidden placeholder="<p>Hi,</p><p>Thanks for reaching out…</p>"></textarea>
+            <textarea class="form-input inbox-html-source" id="newTemplateBody" rows="12" hidden placeholder="<p>Hi,</p><p>Thanks for reaching out…</p>"></textarea>
         </div>
+        <p class="inbox-modal-help">Attach files (up to 5, 3 MB each) or insert images inline in Visual mode.</p>
         <div class="inbox-modal-actions inbox-modal-actions-split">
             <button type="button" class="inbox-btn ghost" id="btnDeleteTemplate" style="display:none;">Delete</button>
             <div class="inbox-modal-actions-right">
@@ -463,11 +477,18 @@
         </div>
     </div>
 
-    <div class="inbox-modal inbox-modal-wide" id="modalSignature" style="display:none;">
+    <div class="inbox-modal inbox-modal-xwide" id="modalSignature" style="display:none;">
         <h3>New signature</h3>
         <p class="inbox-modal-help">Saved per browser user. The default signature is added automatically to compose and replies.</p>
         <label>Name<input type="text" id="newSignatureName" class="form-input" placeholder="Default"></label>
-        <div class="inbox-html-editor" data-html-editor="signature">
+        <div class="inbox-composer-tools">
+            <button type="button" class="inbox-composer-tool" id="btnSignatureImage" title="Insert image">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+                Image
+            </button>
+            <input type="file" id="signatureImageInput" accept="image/*" hidden>
+        </div>
+        <div class="inbox-html-editor inbox-html-editor-tall" data-html-editor="signature">
             <div class="inbox-html-toolbar">
                 <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
                 <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
@@ -480,8 +501,9 @@
                 <button type="button" data-html-mode="source">HTML</button>
             </div>
             <div class="inbox-html-visual" id="newSignatureVisual" contenteditable="true" data-placeholder="Best regards,<br>Your Name"></div>
-            <textarea class="form-input inbox-html-source" id="newSignatureBody" rows="8" hidden placeholder="<p>Best regards,<br><strong>Your Name</strong></p>"></textarea>
+            <textarea class="form-input inbox-html-source" id="newSignatureBody" rows="12" hidden placeholder="<p>Best regards,<br><strong>Your Name</strong></p>"></textarea>
         </div>
+        <p class="inbox-modal-help">Insert images inline in Visual mode (e.g. company logo).</p>
         <div class="inbox-modal-actions">
             <button type="button" class="inbox-btn ghost" data-close-modal>Cancel</button>
             <button type="button" class="inbox-btn primary" id="btnSaveSignature">Create</button>
@@ -1146,6 +1168,12 @@
     color: #374151;
 }
 .inbox-modal-wide { width: min(640px, 100%); }
+.inbox-html-editor-tall .inbox-html-visual,
+.inbox-html-editor-tall .inbox-html-source {
+    min-height: 220px;
+    max-height: 420px;
+}
+.inbox-html-visual img { max-width: 100%; height: auto; }
 .inbox-modal-head {
     display: flex;
     align-items: center;
@@ -1916,6 +1944,11 @@ select.inbox-reply-header-input {
     cursor: pointer;
     font-family: inherit;
 }
+.inbox-composer-tool svg {
+    width: 1em;
+    height: 1em;
+    flex-shrink: 0;
+}
 .inbox-composer-editor .inbox-email-signature,
 .inbox-composer-editor[contenteditable] .inbox-email-signature {
     margin-top: 0.75rem;
@@ -2219,6 +2252,12 @@ select.inbox-reply-header-input {
     overflow-y: auto;
     overscroll-behavior: contain;
 }
+.inbox-modal.inbox-modal-xwide,
+.inbox-modal#modalTemplate,
+.inbox-modal#modalSignature {
+    width: min(1200px, 92vw);
+    max-width: 92vw;
+}
 .inbox-modal h3 { margin: 0; }
 .inbox-modal-help { margin: 0; color: var(--inbox-muted); font-size: 0.84rem; }
 .inbox-modal label { display: grid; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; color: #374151; }
@@ -2463,6 +2502,7 @@ select.inbox-reply-header-input {
         replyAttachments: [],
         composeAttachments: [],
         commentAttachments: [],
+        templateAttachments: [],
         composerMode: 'comment',
         composerCanReply: true,
         composerExpanded: false,
@@ -2750,7 +2790,37 @@ select.inbox-reply-header-input {
     function attachmentBucket(kind) {
         if (kind === 'compose') return 'composeAttachments';
         if (kind === 'comment') return 'commentAttachments';
+        if (kind === 'template') return 'templateAttachments';
         return 'replyAttachments';
+    }
+
+    function fileAttachmentsOnly(files) {
+        return (files || []).filter((f) => !f.isInline);
+    }
+
+    function prepareEmailSendPayload(body, files) {
+        const attachments = fileAttachmentsOnly(files).map((file) => ({
+            name: file.name,
+            contentType: file.contentType,
+            contentBytes: file.contentBytes,
+        }));
+        let inlineCount = 0;
+        const preparedBody = String(body || '').replace(
+            /<img\b[^>]*\ssrc=(["'])data:image\/([^;]+);base64,([^"']+)\1[^>]*>/gi,
+            (match, quote, ext, bytes) => {
+                inlineCount += 1;
+                const contentId = `inbox-img-${inlineCount}-${Math.random().toString(36).slice(2, 8)}`;
+                attachments.push({
+                    name: `image-${inlineCount}.${ext}`,
+                    contentType: `image/${ext}`,
+                    contentBytes: bytes,
+                    isInline: true,
+                    contentId,
+                });
+                return match.replace(/src=(["'])data:image\/[^"']+\1/i, `src=${quote}cid:${contentId}${quote}`);
+            }
+        );
+        return { body: preparedBody, attachments };
     }
 
     function setComposerMode(mode) {
@@ -2878,18 +2948,56 @@ select.inbox-reply-header-input {
         sel?.addRange(range);
     }
 
+    let savedHtmlEditorSelection = null;
+
+    function saveHtmlEditorSelection(editorKind) {
+        const ed = getHtmlEditor(editorKind);
+        if (!ed.visual) return;
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount || !ed.visual.contains(sel.anchorNode)) {
+            savedHtmlEditorSelection = { kind: editorKind, atEnd: true };
+            return;
+        }
+        savedHtmlEditorSelection = {
+            kind: editorKind,
+            atEnd: false,
+            range: sel.getRangeAt(0).cloneRange(),
+        };
+    }
+
+    function restoreHtmlEditorSelection(editorKind) {
+        const saved = savedHtmlEditorSelection;
+        savedHtmlEditorSelection = null;
+        if (!saved || saved.kind !== editorKind) return false;
+        const ed = getHtmlEditor(editorKind);
+        if (!ed.visual) return false;
+        ed.visual.focus();
+        if (saved.atEnd || !saved.range) {
+            placeCaretAtEnd(ed.visual);
+            return true;
+        }
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(saved.range);
+        return true;
+    }
+
     function insertHtmlAtCaret(editor, html) {
-        if (!editor) return;
+        if (!editor) return false;
         editor.focus();
         const clean = sanitizeHtml(html);
+        const before = editor.innerHTML;
         if (document.queryCommandSupported?.('insertHTML') || true) {
             try {
                 document.execCommand('insertHTML', false, clean);
-                return;
+                if (editor.innerHTML !== before || editor.querySelector('img')) {
+                    return true;
+                }
             } catch (_) {}
         }
-        editor.innerHTML = sanitizeHtml((editor.innerHTML || '') + clean);
+        editor.innerHTML = sanitizeHtml((before || '') + clean);
         placeCaretAtEnd(editor);
+        return true;
     }
 
     function getTextBeforeCaret(editor) {
@@ -3000,8 +3108,12 @@ select.inbox-reply-header-input {
     }
 
     function renderAttachChips(kind) {
-        const chips = el(kind === 'compose' ? 'composeAttachChips' : (kind === 'comment' ? 'commentAttachChips' : 'replyAttachChips'));
-        const files = state[attachmentBucket(kind)] || [];
+        const chips = el(
+            kind === 'compose' ? 'composeAttachChips'
+                : (kind === 'comment' ? 'commentAttachChips'
+                    : (kind === 'template' ? 'templateAttachChips' : 'replyAttachChips'))
+        );
+        const files = fileAttachmentsOnly(state[attachmentBucket(kind)] || []);
         if (!chips) return;
         chips.innerHTML = files.map((f, idx) => `
             <span class="inbox-attach-chip">
@@ -3037,16 +3149,45 @@ select.inbox-reply-header-input {
         const bucket = attachmentBucket(kind);
         const incoming = [...(fileList || [])];
         if (!incoming.length) return;
-        if (state[bucket].length + incoming.length > MAX_ATTACH_COUNT) {
+        const currentFiles = fileAttachmentsOnly(state[bucket] || []);
+        if (currentFiles.length + incoming.length > MAX_ATTACH_COUNT) {
             alert(`You can attach up to ${MAX_ATTACH_COUNT} files.`);
             return;
         }
         try {
             const files = await Promise.all(incoming.map(readFileAsAttachment));
-            state[bucket].push(...files);
+            state[bucket] = [...currentFiles, ...files];
             renderAttachChips(kind);
         } catch (err) {
             alert(err.message || 'Could not attach file.');
+        }
+    }
+
+    async function insertHtmlEditorImage(editorKind, file) {
+        if (!file) return;
+        if (file.size > MAX_ATTACH_BYTES) {
+            alert(`${file.name} is larger than 3 MB.`);
+            return;
+        }
+        const ed = getHtmlEditor(editorKind);
+        if (!ed.visual) return;
+        if (ed.source && !ed.source.hidden) {
+            alert('Switch to Visual mode to insert images at the cursor, or paste an <img> tag in HTML mode.');
+            return;
+        }
+        try {
+            const attachment = await readFileAsAttachment(file);
+            const imgHtml = `<img src="data:${attachment.contentType};base64,${attachment.contentBytes}" alt="${escapeHtml(file.name)}" style="max-width:100%;height:auto;">`;
+            restoreHtmlEditorSelection(editorKind) || placeCaretAtEnd(ed.visual);
+            const beforeHtml = ed.visual.innerHTML;
+            insertHtmlAtCaret(ed.visual, imgHtml);
+            if (!ed.visual.querySelector('img') && beforeHtml === ed.visual.innerHTML) {
+                ed.visual.innerHTML = sanitizeHtml((beforeHtml || '') + imgHtml);
+                placeCaretAtEnd(ed.visual);
+            }
+            if (ed.source) ed.source.value = sanitizeHtml(ed.visual?.innerHTML || '');
+        } catch (err) {
+            alert(err.message || 'Could not insert image.');
         }
     }
 
@@ -3140,6 +3281,22 @@ select.inbox-reply-header-input {
             el('composeSubject').value = item.subject;
         }
         insertHtmlBeforeSignature(kind, html);
+        const bucket = attachmentBucket(kind);
+        const existing = fileAttachmentsOnly(state[bucket] || []);
+        const fromTemplate = fileAttachmentsOnly(item.attachments || []).map((a) => ({
+            name: a.name,
+            contentType: a.contentType || 'application/octet-stream',
+            contentBytes: a.contentBytes,
+            size: a.size || Math.round(String(a.contentBytes || '').length * 0.75),
+        }));
+        const room = Math.max(0, MAX_ATTACH_COUNT - existing.length);
+        if (fromTemplate.length && room < fromTemplate.length) {
+            alert(`Template has ${fromTemplate.length} attachment(s), but only ${room} more can be added (max ${MAX_ATTACH_COUNT}).`);
+        }
+        if (room > 0 && fromTemplate.length) {
+            state[bucket] = [...existing, ...fromTemplate.slice(0, room)];
+            renderAttachChips(kind);
+        }
         const editor = getComposerEl(kind);
         if (!editor) return;
         editor.focus();
@@ -3176,7 +3333,9 @@ select.inbox-reply-header-input {
             if (!btn) return;
             const [bucketKind, idx] = btn.dataset.removeAttach.split(':');
             const bucket = attachmentBucket(bucketKind);
-            state[bucket].splice(Number(idx), 1);
+            const files = fileAttachmentsOnly(state[bucket] || []);
+            files.splice(Number(idx), 1);
+            state[bucket] = files;
             renderAttachChips(bucketKind);
         });
 
@@ -3413,6 +3572,8 @@ select.inbox-reply-header-input {
         state.advancedOpen = false;
         updateAdvancedToggleState();
         state.editingTemplateId = null;
+        state.templateAttachments = [];
+        renderAttachChips('template');
         closeTemplatePickers();
     }
 
@@ -3546,6 +3707,13 @@ select.inbox-reply-header-input {
         el('newTemplateSubject').value = item?.subject || '';
         setHtmlEditorContent('template', item?.body_html || plainToHtml(item?.body || '') || '');
         setHtmlEditorMode('template', 'visual');
+        state.templateAttachments = fileAttachmentsOnly(item?.attachments || []).map((a) => ({
+            name: a.name,
+            contentType: a.contentType || 'application/octet-stream',
+            contentBytes: a.contentBytes,
+            size: a.size || Math.round(String(a.contentBytes || '').length * 0.75),
+        }));
+        renderAttachChips('template');
         openModal('modalTemplate');
         setTimeout(() => el('newTemplateName')?.focus(), 50);
     }
@@ -6387,6 +6555,9 @@ select.inbox-reply-header-input {
             if (inboxId) payload.inbox_id = inboxId;
             if (archive) payload.archive = true;
             if (sendAt) payload.send_at = sendAt;
+            const prepared = prepareEmailSendPayload(payload.body, state.replyAttachments);
+            payload.body = prepared.body;
+            payload.attachments = prepared.attachments;
             const data = await api('/conversations/' + state.selectedId + '/reply', { method: 'POST', body: payload });
             applyComposerSignature('reply');
             state.replyAttachments = [];
@@ -6596,6 +6767,37 @@ select.inbox-reply-header-input {
         });
     });
 
+    el('btnTemplateAttach')?.addEventListener('click', () => el('templateAttachInput')?.click());
+    el('templateAttachInput')?.addEventListener('change', async (e) => {
+        await addAttachments('template', e.target.files);
+        e.target.value = '';
+    });
+    el('templateAttachChips')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-remove-attach]');
+        if (!btn) return;
+        const [bucketKind, idx] = btn.dataset.removeAttach.split(':');
+        const bucket = attachmentBucket(bucketKind);
+        const files = fileAttachmentsOnly(state[bucket] || []);
+        files.splice(Number(idx), 1);
+        state[bucket] = files;
+        renderAttachChips(bucketKind);
+    });
+    el('btnTemplateImage')?.addEventListener('mousedown', () => saveHtmlEditorSelection('template'));
+    el('btnTemplateImage')?.addEventListener('click', () => el('templateImageInput')?.click());
+    el('templateImageInput')?.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        await insertHtmlEditorImage('template', file);
+    });
+
+    el('btnSignatureImage')?.addEventListener('mousedown', () => saveHtmlEditorSelection('signature'));
+    el('btnSignatureImage')?.addEventListener('click', () => el('signatureImageInput')?.click());
+    el('signatureImageInput')?.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        await insertHtmlEditorImage('signature', file);
+    });
+
     el('btnSaveTemplate').addEventListener('click', async () => {
         if (!state.permissions.create_templates) {
             return alert('You do not have permission to manage templates.');
@@ -6612,6 +6814,11 @@ select.inbox-reply-header-input {
             body: htmlToPlain(bodyHtml),
             body_html: bodyHtml,
             body_text: htmlToPlain(bodyHtml),
+            attachments: fileAttachmentsOnly(state.templateAttachments).map((a) => ({
+                name: a.name,
+                contentType: a.contentType,
+                contentBytes: a.contentBytes,
+            })),
         };
         const editingId = state.editingTemplateId;
         const btn = el('btnSaveTemplate');
@@ -6747,6 +6954,9 @@ select.inbox-reply-header-input {
                 })),
             };
             if (sendAt) payload.send_at = sendAt;
+            const prepared = prepareEmailSendPayload(payload.body, state.composeAttachments);
+            payload.body = prepared.body;
+            payload.attachments = prepared.attachments;
             const data = await api('/compose', { method: 'POST', body: payload });
             state.composeAttachments = [];
             renderAttachChips('compose');
