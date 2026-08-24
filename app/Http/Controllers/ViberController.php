@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Company;
+use App\Models\MessageTemplate;
 use App\Models\ViberConversation;
 use App\Models\ViberIntegration;
 use App\Models\ViberMessage;
@@ -69,6 +70,10 @@ class ViberController extends Controller
                 'twilio_connected' => $twilioReady,
                 'integrations_url' => route('integrations'),
             ] : null,
+            'templates' => MessageTemplate::listForCompany($user->company_id, MessageTemplate::CHANNEL_VIBER),
+            'permissions' => [
+                'create_templates' => $user->hasPermission('create_message_templates'),
+            ],
         ]);
     }
 

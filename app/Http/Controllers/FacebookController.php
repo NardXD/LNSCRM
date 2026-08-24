@@ -6,6 +6,7 @@ use App\Models\Company;
 use App\Models\FacebookConversation;
 use App\Models\FacebookIntegration;
 use App\Models\FacebookMessage;
+use App\Models\MessageTemplate;
 use App\Models\User;
 use App\Notifications\FacebookMessageNotification;
 use App\Services\FacebookGraphHistoryService;
@@ -86,6 +87,10 @@ class FacebookController extends Controller
                 'instagram_graph' => $integration->hasInstagramGraph(),
                 'integrations_url' => route('integrations'),
             ] : null,
+            'templates' => MessageTemplate::listForCompany($user->company_id, MessageTemplate::CHANNEL_FACEBOOK),
+            'permissions' => [
+                'create_templates' => $user->hasPermission('create_message_templates'),
+            ],
         ]);
     }
 

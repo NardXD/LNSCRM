@@ -72,28 +72,27 @@
                 </button>
                 <div class="inbox-submenu" id="inboxToolsSubmenu">
                     <div class="inbox-tool-group is-expanded" data-tool-group="templates">
-                        <div class="inbox-tool-group-head">
-                            <button type="button" class="inbox-tool-group-toggle" data-tool-toggle="templates">
-                                <svg class="inbox-tool-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-                                <span>Templates</span>
-                            </button>
-                            <button type="button" class="inbox-mini-btn" id="btnNewTemplate" title="New template">+</button>
-                        </div>
-                        <div class="inbox-tool-group-body">
-                            <input type="search" id="templateSearch" class="inbox-tool-search" placeholder="Search templates…" autocomplete="off">
-                            <div id="templateList"></div>
-                        </div>
+                        <button type="button" class="inbox-template-manage-btn" id="btnOpenTemplateList" title="Manage templates">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                                <line x1="16" y1="13" x2="8" y2="13"/>
+                                <line x1="16" y1="17" x2="8" y2="17"/>
+                            </svg>
+                            <span>Templates</span>
+                            <span class="inbox-template-count" id="templateCount"></span>
+                        </button>
                     </div>
 
-                    <div class="inbox-tool-group" data-tool-group="signatures">
-                        <div class="inbox-tool-group-head">
-                            <button type="button" class="inbox-tool-group-toggle" data-tool-toggle="signatures">
-                                <svg class="inbox-tool-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-                                <span>Signatures</span>
-                            </button>
-                            <button type="button" class="inbox-mini-btn" id="btnNewSignature" title="New signature">+</button>
-                        </div>
-                        <div class="inbox-tool-group-body" id="signatureList"></div>
+                    <div class="inbox-tool-group is-expanded" data-tool-group="signatures">
+                        <button type="button" class="inbox-template-manage-btn" id="btnOpenSignatureList" title="Manage signatures">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <path d="M12 20h9"/>
+                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                            </svg>
+                            <span>Signatures</span>
+                            <span class="inbox-template-count" id="signatureCount"></span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -434,6 +433,36 @@
         </div>
     </div>
 
+    <div class="inbox-modal inbox-modal-list" id="modalTemplateList" style="display:none;">
+        <div class="inbox-tpl-list-head">
+            <div class="inbox-tpl-list-head-text">
+                <h3>Templates</h3>
+                <p class="inbox-modal-help">Reusable HTML snippets for compose and replies. Insert images into the body or attach files that send with the template.</p>
+            </div>
+            <button type="button" class="inbox-tpl-close-btn" id="btnCloseTemplateList" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+        <div class="inbox-tpl-list-toolbar">
+            <div class="inbox-tpl-search-wrap">
+                <svg class="inbox-tpl-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="search" id="templateListSearch" class="inbox-tpl-search" placeholder="Search templates…" autocomplete="off">
+            </div>
+            <button type="button" class="inbox-btn primary" id="btnNewTemplate" style="display:none;">New template</button>
+        </div>
+        <div class="inbox-tpl-list-shell">
+            <div class="inbox-tpl-list" id="templateList"></div>
+        </div>
+        <div class="inbox-tpl-pagination" id="templateListPagination" hidden>
+            <span class="inbox-tpl-pagination-info" id="templateListPaginationInfo"></span>
+            <div class="inbox-tpl-pagination-controls">
+                <button type="button" class="inbox-tpl-page-btn" id="templateListPrevPage" disabled>Previous</button>
+                <span class="inbox-tpl-page-status" id="templateListPageStatus"></span>
+                <button type="button" class="inbox-tpl-page-btn" id="templateListNextPage">Next</button>
+            </div>
+        </div>
+    </div>
+
     <div class="inbox-modal inbox-modal-xwide" id="modalTemplate" style="display:none;">
         <h3 id="templateModalTitle">New template</h3>
         <p class="inbox-modal-help">Reusable HTML snippets for compose and replies. Insert images into the body or attach files that send with the template.</p>
@@ -477,9 +506,46 @@
         </div>
     </div>
 
+    <div class="inbox-modal inbox-modal-list" id="modalSignatureList" style="display:none;">
+        <div class="inbox-tpl-list-head">
+            <div class="inbox-tpl-list-head-text">
+                <h3>Signatures</h3>
+                <p class="inbox-modal-help">Saved per browser user. The default signature is added automatically to compose and replies.</p>
+            </div>
+            <button type="button" class="inbox-tpl-close-btn" id="btnCloseSignatureList" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+        <div class="inbox-tpl-list-toolbar">
+            <div class="inbox-tpl-search-wrap">
+                <svg class="inbox-tpl-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="search" id="signatureListSearch" class="inbox-tpl-search" placeholder="Search signatures…" autocomplete="off">
+            </div>
+            <button type="button" class="inbox-btn primary" id="btnNewSignature">New signature</button>
+        </div>
+        <div class="inbox-tpl-list-shell">
+            <div class="inbox-tpl-list" id="signatureList"></div>
+        </div>
+        <div class="inbox-tpl-pagination" id="signatureListPagination" hidden>
+            <span class="inbox-tpl-pagination-info" id="signatureListPaginationInfo"></span>
+            <div class="inbox-tpl-pagination-controls">
+                <button type="button" class="inbox-tpl-page-btn" id="signatureListPrevPage" disabled>Previous</button>
+                <span class="inbox-tpl-page-status" id="signatureListPageStatus"></span>
+                <button type="button" class="inbox-tpl-page-btn" id="signatureListNextPage">Next</button>
+            </div>
+        </div>
+    </div>
+
     <div class="inbox-modal inbox-modal-xwide" id="modalSignature" style="display:none;">
-        <h3>New signature</h3>
-        <p class="inbox-modal-help">Saved per browser user. The default signature is added automatically to compose and replies.</p>
+        <div class="inbox-tpl-list-head">
+            <div class="inbox-tpl-list-head-text">
+                <h3 id="signatureModalTitle">New signature</h3>
+                <p class="inbox-modal-help">Saved per browser user. The default signature is added automatically to compose and replies.</p>
+            </div>
+            <button type="button" class="inbox-tpl-close-btn" id="btnCloseSignatureModal" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
         <label>Name<input type="text" id="newSignatureName" class="form-input" placeholder="Default"></label>
         <div class="inbox-composer-tools">
             <button type="button" class="inbox-composer-tool" id="btnSignatureImage" title="Insert image">
@@ -2010,6 +2076,255 @@ select.inbox-reply-header-input {
     font-size: 0.78rem;
     color: var(--inbox-muted);
 }
+.inbox-template-manage-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    width: 100%;
+    margin: 0;
+    padding: 0.45rem 0.55rem;
+    border: 1px solid var(--inbox-border);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--inbox-text);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+}
+.inbox-template-manage-btn svg {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    color: var(--inbox-muted);
+}
+.inbox-template-manage-btn:hover {
+    border-color: var(--inbox-accent);
+    background: var(--inbox-accent-soft);
+}
+.inbox-template-count {
+    margin-left: auto;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--inbox-muted);
+    background: var(--inbox-bg);
+    border-radius: 999px;
+    padding: 0.1rem 0.45rem;
+    flex-shrink: 0;
+}
+.inbox-template-count:empty { display: none; }
+.inbox-modal.inbox-modal-list {
+    width: min(560px, 92vw);
+    max-width: 92vw;
+}
+.inbox-tpl-list-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+.inbox-tpl-list-head-text { min-width: 0; }
+.inbox-tpl-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--inbox-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    padding: 0;
+}
+.inbox-tpl-close-btn svg { width: 18px; height: 18px; }
+.inbox-tpl-close-btn:hover { background: var(--inbox-bg); color: var(--inbox-text); }
+.inbox-tpl-list-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+}
+.inbox-tpl-search-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+}
+.inbox-tpl-search-icon {
+    position: absolute;
+    left: 0.65rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 15px;
+    height: 15px;
+    color: #9ca3af;
+    pointer-events: none;
+}
+.inbox-tpl-search {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--inbox-border);
+    border-radius: 8px;
+    padding: 0.5rem 0.65rem 0.5rem 2.1rem;
+    font: inherit;
+    font-size: 0.84rem;
+    background: #fff;
+    color: var(--inbox-text);
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+}
+.inbox-tpl-search:focus {
+    border-color: var(--inbox-accent);
+    box-shadow: 0 0 0 3px rgba(47, 111, 237, 0.12);
+}
+.inbox-tpl-search::-webkit-search-cancel-button { -webkit-appearance: none; }
+.inbox-tpl-list-shell {
+    border: 1px solid var(--inbox-border);
+    border-radius: 10px;
+    background: var(--inbox-bg);
+    overflow: hidden;
+    min-height: 200px;
+    max-height: min(52vh, 420px);
+    display: flex;
+    flex-direction: column;
+}
+.inbox-tpl-list {
+    flex: 1;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+}
+.inbox-tpl-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.7rem 0.85rem;
+    background: #fff;
+    border-bottom: 1px solid var(--inbox-border);
+}
+.inbox-tpl-row:last-child { border-bottom: 0; }
+.inbox-tpl-row:hover { background: #f9fafb; }
+.inbox-tpl-row-main { flex: 1; min-width: 0; }
+.inbox-tpl-row-name {
+    font-size: 0.86rem;
+    font-weight: 700;
+    color: var(--inbox-text);
+    margin-bottom: 0.1rem;
+}
+.inbox-tpl-row-subject {
+    font-size: 0.76rem;
+    color: var(--inbox-muted);
+    margin-bottom: 0.12rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.inbox-tpl-row-preview {
+    font-size: 0.78rem;
+    line-height: 1.4;
+    color: var(--inbox-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.inbox-tpl-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.1rem;
+    flex-shrink: 0;
+}
+.inbox-tpl-link-btn {
+    border: 0;
+    background: transparent;
+    padding: 0.35rem 0.55rem;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--inbox-accent);
+    cursor: pointer;
+}
+.inbox-tpl-link-btn:hover { background: var(--inbox-accent-soft); }
+.inbox-tpl-link-btn.muted { color: var(--inbox-muted); }
+.inbox-tpl-link-btn.muted:hover { background: var(--inbox-bg); color: var(--inbox-text); }
+.inbox-tpl-empty {
+    font-size: 0.84rem;
+    color: var(--inbox-muted);
+    padding: 2.5rem 1rem;
+    text-align: center;
+    background: #fff;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.inbox-tpl-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.inbox-tpl-pagination[hidden] { display: none !important; }
+.inbox-tpl-pagination-info {
+    font-size: 0.78rem;
+    color: var(--inbox-muted);
+}
+.inbox-tpl-pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-left: auto;
+}
+.inbox-tpl-page-status {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--inbox-muted);
+    min-width: 5.5rem;
+    text-align: center;
+}
+.inbox-tpl-page-btn {
+    border: 1px solid var(--inbox-border);
+    background: #fff;
+    border-radius: 8px;
+    padding: 0.35rem 0.65rem;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--inbox-text);
+    cursor: pointer;
+}
+.inbox-tpl-page-btn:hover:not(:disabled) {
+    border-color: var(--inbox-accent);
+    color: var(--inbox-accent);
+}
+.inbox-tpl-page-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.inbox-tpl-row.is-default-signature {
+    background: var(--inbox-accent-soft);
+}
+.inbox-tpl-row.is-default-signature:hover {
+    background: var(--inbox-accent-soft);
+}
+.inbox-tpl-default-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--inbox-accent);
+    background: rgba(47, 111, 237, 0.1);
+    border-radius: 999px;
+    padding: 0.12rem 0.45rem;
+    margin-left: 0.35rem;
+    vertical-align: middle;
+}
 .inbox-attach-chips {
     display: flex;
     flex-wrap: wrap;
@@ -2512,6 +2827,12 @@ select.inbox-reply-header-input {
         replyCcEmails: [],
         editingTemplateId: null,
         templateSearch: '',
+        templateListPage: 1,
+        returnToTemplateList: false,
+        signatureSearch: '',
+        signatureListPage: 1,
+        returnToSignatureList: false,
+        editingSignatureId: null,
         filters: {
             from: '',
             to: '',
@@ -2924,7 +3245,10 @@ select.inbox-reply-header-input {
         if (!item) return;
         state.defaultSignatureId = item.id;
         saveLocalTools();
-        renderNav();
+        updateSignatureCount();
+        if (el('modalSignatureList')?.style.display === 'grid') {
+            renderSignatureList();
+        }
         // Refresh open composers so the active default is used.
         if (el('modalCompose')?.style.display === 'grid') {
             applyComposerSignature('compose', stripSignatureHtml(getComposerHtml('compose')));
@@ -3011,6 +3335,8 @@ select.inbox-reply-header-input {
 
     const MAX_ATTACH_BYTES = 3 * 1024 * 1024;
     const MAX_ATTACH_COUNT = 5;
+    const TEMPLATE_PAGE_SIZE = 5;
+    const SIGNATURE_PAGE_SIZE = 5;
 
     function refreshTemplateSelects() {
         document.querySelectorAll('[data-template-picker]').forEach(picker => {
@@ -3081,30 +3407,253 @@ select.inbox-reply-header-input {
         return templatesMatchingQuery(state.templateSearch || '');
     }
 
+    function paginatedTemplateListItems() {
+        const items = filteredTemplates();
+        const total = items.length;
+        const totalPages = Math.max(1, Math.ceil(total / TEMPLATE_PAGE_SIZE));
+        const page = Math.min(Math.max(1, state.templateListPage), totalPages);
+        state.templateListPage = page;
+        const start = (page - 1) * TEMPLATE_PAGE_SIZE;
+        const end = Math.min(start + TEMPLATE_PAGE_SIZE, total);
+        return {
+            items: items.slice(start, end),
+            total,
+            totalPages,
+            page,
+            from: total ? start + 1 : 0,
+            to: end,
+        };
+    }
+
+    function renderTemplateListPagination(meta) {
+        const bar = el('templateListPagination');
+        if (!bar) return;
+        if (!meta.total || meta.total <= TEMPLATE_PAGE_SIZE) {
+            bar.hidden = true;
+            return;
+        }
+        bar.hidden = false;
+        const info = el('templateListPaginationInfo');
+        const status = el('templateListPageStatus');
+        const prev = el('templateListPrevPage');
+        const next = el('templateListNextPage');
+        if (info) info.textContent = `Showing ${meta.from}–${meta.to} of ${meta.total}`;
+        if (status) status.textContent = `Page ${meta.page} of ${meta.totalPages}`;
+        if (prev) prev.disabled = meta.page <= 1;
+        if (next) next.disabled = meta.page >= meta.totalPages;
+    }
+
+    function updateTemplateCount() {
+        const countEl = el('templateCount');
+        if (!countEl) return;
+        countEl.textContent = state.templates.length ? String(state.templates.length) : '';
+    }
+
     function renderTemplateList() {
         const list = el('templateList');
-        const search = el('templateSearch');
+        const search = el('templateListSearch');
         if (search && document.activeElement !== search) {
             search.value = state.templateSearch || '';
         }
         if (!list) return;
-        const items = filteredTemplates();
+        const meta = paginatedTemplateListItems();
+        renderTemplateListPagination(meta);
+
         if (!state.templates.length) {
-            list.innerHTML = '<div class="inbox-tool-empty">No templates</div>';
+            list.innerHTML = `<div class="inbox-tpl-empty">No templates yet.${state.permissions.create_templates ? ' Click <strong>New template</strong> to add one.' : ''}</div>`;
             return;
         }
-        if (!items.length) {
-            list.innerHTML = '<div class="inbox-tool-empty">No matches</div>';
+        if (!meta.total) {
+            list.innerHTML = '<div class="inbox-tpl-empty">No matches</div>';
             return;
         }
-        list.innerHTML = items.map(t => `
-            <div class="inbox-tool-row" title="${state.permissions.create_templates ? 'Edit ' : ''}${escapeHtml(t.name)}">
-                ${state.permissions.create_templates
-                    ? `<button type="button" class="inbox-tool-row-title" data-edit-template="${t.id}">${escapeHtml(t.name)}</button>
-                       <button type="button" class="inbox-mini-btn" data-delete-template="${t.id}" title="Delete">×</button>`
-                    : `<span class="inbox-tool-row-title">${escapeHtml(t.name)}</span>`}
+        list.innerHTML = meta.items.map(t => {
+            const preview = htmlToPlain(t.body_html || t.body || '');
+            const subject = t.subject
+                ? `<div class="inbox-tpl-row-subject">${escapeHtml(t.subject)}</div>`
+                : '';
+            return `
+            <div class="inbox-tpl-row" data-template-id="${t.id}">
+                <div class="inbox-tpl-row-main">
+                    <div class="inbox-tpl-row-name">${escapeHtml(t.name)}</div>
+                    ${subject}
+                    <div class="inbox-tpl-row-preview">${escapeHtml(preview)}</div>
+                </div>
+                <div class="inbox-tpl-row-actions">
+                    <button type="button" class="inbox-tpl-link-btn" data-use-template="${t.id}">Use</button>
+                    ${state.permissions.create_templates ? `
+                        <button type="button" class="inbox-tpl-link-btn muted" data-edit-template="${t.id}">Edit</button>
+                        <button type="button" class="inbox-tpl-link-btn muted" data-delete-template="${t.id}">Delete</button>
+                    ` : ''}
+                </div>
             </div>
-        `).join('');
+        `;
+        }).join('');
+    }
+
+    function openTemplateListModal() {
+        state.templateListPage = 1;
+        state.templateSearch = '';
+        if (el('templateListSearch')) el('templateListSearch').value = '';
+        if (el('btnNewTemplate')) el('btnNewTemplate').style.display = state.permissions.create_templates ? '' : 'none';
+        renderTemplateList();
+        openModal('modalTemplateList');
+        setTimeout(() => el('templateListSearch')?.focus(), 30);
+    }
+
+    function useTemplateFromList(templateId) {
+        if (el('modalCompose')?.style.display === 'grid') {
+            insertTemplateInto('compose', templateId);
+            closeModal();
+            return;
+        }
+        if (state.selectedId && state.composerCanReply && el('replyBody')) {
+            insertTemplateInto('reply', templateId);
+            closeModal();
+            return;
+        }
+        openComposeModal();
+        insertTemplateInto('compose', templateId);
+    }
+
+    function signaturesMatchingQuery(query) {
+        const q = String(query || '').trim().toLowerCase();
+        if (!q) return state.signatures;
+        return state.signatures.filter(s => {
+            const haystack = [s.name || '', s.body || '', htmlToPlain(s.body_html || '')].join(' ').toLowerCase();
+            return haystack.includes(q);
+        });
+    }
+
+    function filteredSignatures() {
+        return signaturesMatchingQuery(state.signatureSearch || '');
+    }
+
+    function paginatedSignatureListItems() {
+        const items = filteredSignatures();
+        const total = items.length;
+        const totalPages = Math.max(1, Math.ceil(total / SIGNATURE_PAGE_SIZE));
+        const page = Math.min(Math.max(1, state.signatureListPage), totalPages);
+        state.signatureListPage = page;
+        const start = (page - 1) * SIGNATURE_PAGE_SIZE;
+        const end = Math.min(start + SIGNATURE_PAGE_SIZE, total);
+        return {
+            items: items.slice(start, end),
+            total,
+            totalPages,
+            page,
+            from: total ? start + 1 : 0,
+            to: end,
+        };
+    }
+
+    function renderSignatureListPagination(meta) {
+        const bar = el('signatureListPagination');
+        if (!bar) return;
+        if (!meta.total || meta.total <= SIGNATURE_PAGE_SIZE) {
+            bar.hidden = true;
+            return;
+        }
+        bar.hidden = false;
+        const info = el('signatureListPaginationInfo');
+        const status = el('signatureListPageStatus');
+        const prev = el('signatureListPrevPage');
+        const next = el('signatureListNextPage');
+        if (info) info.textContent = `Showing ${meta.from}–${meta.to} of ${meta.total}`;
+        if (status) status.textContent = `Page ${meta.page} of ${meta.totalPages}`;
+        if (prev) prev.disabled = meta.page <= 1;
+        if (next) next.disabled = meta.page >= meta.totalPages;
+    }
+
+    function updateSignatureCount() {
+        const countEl = el('signatureCount');
+        if (!countEl) return;
+        countEl.textContent = state.signatures.length ? String(state.signatures.length) : '';
+    }
+
+    function renderSignatureList() {
+        const list = el('signatureList');
+        const search = el('signatureListSearch');
+        if (search && document.activeElement !== search) {
+            search.value = state.signatureSearch || '';
+        }
+        if (!list) return;
+        const meta = paginatedSignatureListItems();
+        renderSignatureListPagination(meta);
+
+        if (!state.signatures.length) {
+            list.innerHTML = '<div class="inbox-tpl-empty">No signatures yet. Click <strong>New signature</strong> to add one.</div>';
+            return;
+        }
+        if (!meta.total) {
+            list.innerHTML = '<div class="inbox-tpl-empty">No matches</div>';
+            return;
+        }
+        list.innerHTML = meta.items.map(s => {
+            const isDefault = String(state.defaultSignatureId || state.signatures[0]?.id) === String(s.id);
+            const preview = htmlToPlain(s.body_html || s.body || '');
+            return `
+            <div class="inbox-tpl-row ${isDefault ? 'is-default-signature' : ''}" data-signature-id="${s.id}">
+                <div class="inbox-tpl-row-main">
+                    <div class="inbox-tpl-row-name">
+                        ${escapeHtml(s.name)}
+                        ${isDefault ? '<span class="inbox-tpl-default-badge">Default</span>' : ''}
+                    </div>
+                    <div class="inbox-tpl-row-preview">${escapeHtml(preview)}</div>
+                </div>
+                <div class="inbox-tpl-row-actions">
+                    ${!isDefault ? `<button type="button" class="inbox-tpl-link-btn" data-default-signature="${s.id}">Set default</button>` : ''}
+                    <button type="button" class="inbox-tpl-link-btn muted" data-edit-signature="${s.id}">Edit</button>
+                    <button type="button" class="inbox-tpl-link-btn muted" data-delete-signature="${s.id}">Delete</button>
+                </div>
+            </div>
+        `;
+        }).join('');
+    }
+
+    function openSignatureListModal() {
+        state.signatureListPage = 1;
+        state.signatureSearch = '';
+        if (el('signatureListSearch')) el('signatureListSearch').value = '';
+        renderSignatureList();
+        openModal('modalSignatureList');
+        setTimeout(() => el('signatureListSearch')?.focus(), 30);
+    }
+
+    function openSignatureModal(signatureId = null) {
+        state.returnToSignatureList = el('modalSignatureList')?.style.display === 'grid';
+        const item = signatureId
+            ? state.signatures.find(s => String(s.id) === String(signatureId))
+            : null;
+        state.editingSignatureId = item ? item.id : null;
+        el('signatureModalTitle').textContent = item ? 'Edit signature' : 'New signature';
+        el('btnSaveSignature').textContent = item ? 'Save' : 'Create';
+        el('newSignatureName').value = item?.name || '';
+        setHtmlEditorContent('signature', item?.body_html || plainToHtml(item?.body || '') || '');
+        setHtmlEditorMode('signature', 'visual');
+        openModal('modalSignature');
+        setTimeout(() => el('newSignatureName')?.focus(), 50);
+    }
+
+    function deleteSignatureById(signatureId) {
+        const item = state.signatures.find(s => String(s.id) === String(signatureId));
+        if (!item) return;
+        if (!confirm(`Delete signature "${item.name}"?`)) return;
+        state.signatures = state.signatures.filter(s => String(s.id) !== String(signatureId));
+        if (String(state.defaultSignatureId) === String(signatureId)) {
+            state.defaultSignatureId = state.signatures[0]?.id ?? null;
+        }
+        saveLocalTools();
+        updateSignatureCount();
+        if (el('modalSignatureList')?.style.display === 'grid') {
+            renderSignatureList();
+        }
+        if (el('modalCompose')?.style.display === 'grid') {
+            applyComposerSignature('compose', stripSignatureHtml(getComposerHtml('compose')));
+        }
+        if (state.selectedId) {
+            applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
+        }
     }
 
     function renderAttachChips(kind) {
@@ -3560,7 +4109,7 @@ select.inbox-reply-header-input {
 
     function openModal(id) {
         el('modalBackdrop').style.display = 'flex';
-        ['modalCompose','modalInbox','modalTemplate','modalSignature','modalRule','modalMembers','modalMerge','modalAdvancedSearch'].forEach(m => {
+        ['modalCompose','modalInbox','modalTemplateList','modalTemplate','modalSignatureList','modalSignature','modalRule','modalMembers','modalMerge','modalAdvancedSearch'].forEach(m => {
             const node = el(m);
             if (node) node.style.display = m === id ? 'grid' : 'none';
         });
@@ -3568,10 +4117,29 @@ select.inbox-reply-header-input {
         updateAdvancedToggleState();
     }
     function closeModal() {
+        const returningFromTemplateEdit = el('modalTemplate')?.style.display === 'grid' && state.returnToTemplateList;
+        if (returningFromTemplateEdit) {
+            state.returnToTemplateList = false;
+            state.editingTemplateId = null;
+            state.templateAttachments = [];
+            renderAttachChips('template');
+            openTemplateListModal();
+            return;
+        }
+        const returningFromSignatureEdit = el('modalSignature')?.style.display === 'grid' && state.returnToSignatureList;
+        if (returningFromSignatureEdit) {
+            state.returnToSignatureList = false;
+            state.editingSignatureId = null;
+            openSignatureListModal();
+            return;
+        }
         el('modalBackdrop').style.display = 'none';
         state.advancedOpen = false;
         updateAdvancedToggleState();
         state.editingTemplateId = null;
+        state.editingSignatureId = null;
+        state.returnToTemplateList = false;
+        state.returnToSignatureList = false;
         state.templateAttachments = [];
         renderAttachChips('template');
         closeTemplatePickers();
@@ -3695,6 +4263,7 @@ select.inbox-reply-header-input {
             alert('You do not have permission to manage templates.');
             return;
         }
+        state.returnToTemplateList = el('modalTemplateList')?.style.display === 'grid';
         const item = templateId
             ? state.templates.find(t => String(t.id) === String(templateId))
             : null;
@@ -3732,8 +4301,11 @@ select.inbox-reply-header-input {
         return api('/templates/' + templateId, { method: 'DELETE' })
             .then(() => {
                 state.templates = state.templates.filter(t => String(t.id) !== String(templateId));
-                renderNav();
+                updateTemplateCount();
                 refreshTemplateSelects();
+                if (el('modalTemplateList')?.style.display === 'grid') {
+                    renderTemplateList();
+                }
                 return true;
             })
             .catch(err => {
@@ -3808,18 +4380,8 @@ select.inbox-reply-header-input {
             `;
         }).join('') || '<div style="padding:0.4rem 0.55rem;font-size:0.8rem;color:var(--inbox-muted);">No inboxes yet</div>';
 
-        renderTemplateList();
-
-        el('signatureList').innerHTML = state.signatures.map(s => {
-            const isDefault = String(state.defaultSignatureId || state.signatures[0]?.id) === String(s.id);
-            return `
-            <div class="inbox-tool-row ${isDefault ? 'is-default-signature' : ''}" title="${escapeHtml(s.name)}">
-                <button type="button" class="inbox-tool-row-title" data-insert-signature="${s.id}">${escapeHtml(s.name)}</button>
-                <button type="button" class="inbox-mini-btn ${isDefault ? 'is-pinned' : ''}" data-default-signature="${s.id}" title="${isDefault ? 'Default signature' : 'Use as default'}" aria-pressed="${isDefault ? 'true' : 'false'}">★</button>
-                <button type="button" class="inbox-mini-btn" data-delete-signature="${s.id}" title="Delete">×</button>
-            </div>
-        `;
-        }).join('') || '<div class="inbox-tool-empty">No signatures</div>';
+        updateTemplateCount();
+        updateSignatureCount();
 
         // Keep tool-group expand state in sync with render
         document.querySelectorAll('[data-tool-group]').forEach(group => {
@@ -6598,23 +7160,85 @@ select.inbox-reply-header-input {
         btn.addEventListener('click', () => setComposerMode(btn.dataset.composerMode));
     });
 
-    el('btnNewInbox').addEventListener('click', () => openModal('modalInbox'));
-    el('btnNewTemplate').addEventListener('click', () => {
+    el('btnOpenTemplateList')?.addEventListener('click', openTemplateListModal);
+    el('btnCloseTemplateList')?.addEventListener('click', closeModal);
+    el('btnNewTemplate')?.addEventListener('click', () => {
         if (!state.permissions.create_templates) return;
         openTemplateModal();
     });
-    el('templateSearch')?.addEventListener('input', () => {
-        state.templateSearch = el('templateSearch').value || '';
-        state.expandedToolGroups.templates = true;
+    el('templateListSearch')?.addEventListener('input', () => {
+        state.templateSearch = el('templateListSearch').value || '';
+        state.templateListPage = 1;
         renderTemplateList();
     });
-    el('btnNewSignature').addEventListener('click', () => {
-        el('newSignatureName').value = '';
-        setHtmlEditorContent('signature', '');
-        setHtmlEditorMode('signature', 'visual');
-        openModal('modalSignature');
-        setTimeout(() => el('newSignatureName')?.focus(), 50);
+    el('templateList')?.addEventListener('click', (e) => {
+        const useBtn = e.target.closest('[data-use-template]');
+        if (useBtn) {
+            useTemplateFromList(useBtn.dataset.useTemplate);
+            return;
+        }
+        const editTemplate = e.target.closest('[data-edit-template]');
+        if (editTemplate) {
+            openTemplateModal(editTemplate.dataset.editTemplate);
+            return;
+        }
+        const delTemplate = e.target.closest('[data-delete-template]');
+        if (delTemplate) {
+            deleteTemplateById(delTemplate.dataset.deleteTemplate);
+        }
     });
+    el('templateListPrevPage')?.addEventListener('click', () => {
+        if (state.templateListPage > 1) {
+            state.templateListPage -= 1;
+            renderTemplateList();
+        }
+    });
+    el('templateListNextPage')?.addEventListener('click', () => {
+        const meta = paginatedTemplateListItems();
+        if (state.templateListPage < meta.totalPages) {
+            state.templateListPage += 1;
+            renderTemplateList();
+        }
+    });
+    el('btnOpenSignatureList')?.addEventListener('click', openSignatureListModal);
+    el('btnCloseSignatureList')?.addEventListener('click', closeModal);
+    el('btnCloseSignatureModal')?.addEventListener('click', closeModal);
+    el('btnNewSignature')?.addEventListener('click', () => openSignatureModal());
+    el('signatureListSearch')?.addEventListener('input', () => {
+        state.signatureSearch = el('signatureListSearch').value || '';
+        state.signatureListPage = 1;
+        renderSignatureList();
+    });
+    el('signatureList')?.addEventListener('click', (e) => {
+        const defaultBtn = e.target.closest('[data-default-signature]');
+        if (defaultBtn) {
+            setDefaultSignature(defaultBtn.dataset.defaultSignature);
+            return;
+        }
+        const editBtn = e.target.closest('[data-edit-signature]');
+        if (editBtn) {
+            openSignatureModal(editBtn.dataset.editSignature);
+            return;
+        }
+        const delBtn = e.target.closest('[data-delete-signature]');
+        if (delBtn) {
+            deleteSignatureById(delBtn.dataset.deleteSignature);
+        }
+    });
+    el('signatureListPrevPage')?.addEventListener('click', () => {
+        if (state.signatureListPage > 1) {
+            state.signatureListPage -= 1;
+            renderSignatureList();
+        }
+    });
+    el('signatureListNextPage')?.addEventListener('click', () => {
+        const meta = paginatedSignatureListItems();
+        if (state.signatureListPage < meta.totalPages) {
+            state.signatureListPage += 1;
+            renderSignatureList();
+        }
+    });
+    el('btnNewInbox').addEventListener('click', () => openModal('modalInbox'));
     el('btnNewRule')?.addEventListener('click', () => {
         if (!state.permissions.create_rules) return;
         openRuleModal();
@@ -6688,46 +7312,6 @@ select.inbox-reply-header-input {
             state.expandedToolGroups[key] = !state.expandedToolGroups[key];
             renderNav();
             return;
-        }
-
-        const editTemplate = e.target.closest('[data-edit-template]');
-        if (editTemplate) {
-            openTemplateModal(editTemplate.dataset.editTemplate);
-            return;
-        }
-
-        const insertSignature = e.target.closest('[data-insert-signature]');
-        if (insertSignature) {
-            setDefaultSignature(insertSignature.dataset.insertSignature);
-            return;
-        }
-
-        const defaultSignature = e.target.closest('[data-default-signature]');
-        if (defaultSignature) {
-            setDefaultSignature(defaultSignature.dataset.defaultSignature);
-            return;
-        }
-
-        const delTemplate = e.target.closest('[data-delete-template]');
-        if (delTemplate) {
-            deleteTemplateById(delTemplate.dataset.deleteTemplate);
-            return;
-        }
-        const delSignature = e.target.closest('[data-delete-signature]');
-        if (delSignature) {
-            const deletedId = delSignature.dataset.deleteSignature;
-            state.signatures = state.signatures.filter(s => String(s.id) !== String(deletedId));
-            if (String(state.defaultSignatureId) === String(deletedId)) {
-                state.defaultSignatureId = state.signatures[0]?.id ?? null;
-            }
-            saveLocalTools();
-            renderNav();
-            if (el('modalCompose')?.style.display === 'grid') {
-                applyComposerSignature('compose', stripSignatureHtml(getComposerHtml('compose')));
-            }
-            if (state.selectedId) {
-                applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
-            }
         }
     });
 
@@ -6837,10 +7421,12 @@ select.inbox-reply-header-input {
                 state.templates.unshift({ ...saved, format: 'html' });
             }
             state.templates.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
-            state.expandedToolGroups.templates = true;
+            const returnToList = state.returnToTemplateList;
+            state.returnToTemplateList = false;
             closeModal();
-            renderNav();
+            updateTemplateCount();
             refreshTemplateSelects();
+            if (returnToList) openTemplateListModal();
         } catch (err) {
             alert(err.message || 'Failed to save template');
         } finally {
@@ -6850,8 +7436,11 @@ select.inbox-reply-header-input {
 
     el('btnDeleteTemplate').addEventListener('click', async () => {
         if (!state.editingTemplateId) return;
+        const returnToList = state.returnToTemplateList;
         if (await deleteTemplateById(state.editingTemplateId)) {
+            state.returnToTemplateList = false;
             closeModal();
+            if (returnToList) openTemplateListModal();
         }
     });
 
@@ -6862,26 +7451,45 @@ select.inbox-reply-header-input {
             alert('Name and signature are required.');
             return;
         }
-        const item = {
-            id: 'sig_' + Date.now(),
-            name,
-            body: htmlToPlain(bodyHtml),
-            body_html: bodyHtml,
-            format: 'html',
-        };
-        state.signatures.unshift(item);
-        if (!state.defaultSignatureId) {
-            state.defaultSignatureId = item.id;
+        const body = htmlToPlain(bodyHtml);
+        if (state.editingSignatureId) {
+            const idx = state.signatures.findIndex(s => String(s.id) === String(state.editingSignatureId));
+            if (idx >= 0) {
+                state.signatures[idx] = {
+                    ...state.signatures[idx],
+                    name,
+                    body,
+                    body_html: bodyHtml,
+                    format: 'html',
+                };
+            }
+        } else {
+            const item = {
+                id: 'sig_' + Date.now(),
+                name,
+                body,
+                body_html: bodyHtml,
+                format: 'html',
+            };
+            state.signatures.unshift(item);
+            if (!state.defaultSignatureId) {
+                state.defaultSignatureId = item.id;
+            }
         }
+        const returnToList = state.returnToSignatureList;
+        state.returnToSignatureList = false;
+        state.editingSignatureId = null;
         saveLocalTools();
-        state.expandedToolGroups.signatures = true;
         closeModal();
-        renderNav();
+        updateSignatureCount();
         if (el('modalCompose')?.style.display === 'grid') {
             applyComposerSignature('compose', stripSignatureHtml(getComposerHtml('compose')));
         }
         if (state.selectedId) {
             applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
+        }
+        if (returnToList) {
+            openSignatureListModal();
         }
     });
 
@@ -7149,6 +7757,9 @@ select.inbox-reply-header-input {
         if (e.key === 'Escape') {
             closeTemplatePickers();
             if (state.checkedIds.length) clearCheckedConversations();
+            if (el('modalBackdrop')?.style.display === 'flex') {
+                closeModal();
+            }
         }
     });
     loadLocalTools();

@@ -22,6 +22,10 @@
             <div class="wa-search">
                 <input type="search" id="waSearch" placeholder="Search conversations...">
             </div>
+            @include('partials.channel-reply-templates', [
+                'prefix' => 'wa',
+                'label' => 'WhatsApp Templates',
+            ])
             <div class="wa-thread-list" id="waThreadList"></div>
         </aside>
 
@@ -72,6 +76,12 @@
                         </button>
                         <input type="file" id="waFileInput" hidden>
                     </div>
+                    <div class="ch-tpl-picker-wrap" id="waTemplatePickerWrap">
+                        <button type="button" class="wa-icon-btn" id="waTemplateBtn" title="Insert template">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                        </button>
+                        @include('partials.channel-reply-templates-picker', ['prefix' => 'wa'])
+                    </div>
                     <textarea id="waTextInput" rows="1" placeholder="Type a message..."></textarea>
                     <button type="button" class="wa-send-btn" id="waSendBtn">Send</button>
                 </footer>
@@ -79,6 +89,18 @@
         </main>
         @include('partials.contact-history-panel', ['panelId' => 'waContactHistory'])
     </div>
+
+    @include('partials.channel-reply-templates-list-modal', [
+        'prefix' => 'wa',
+        'label' => 'WhatsApp Templates',
+        'help' => 'Plain-text snippets for WhatsApp replies only. Each channel has its own separate templates.',
+    ])
+    @include('partials.channel-reply-templates-modal', [
+        'prefix' => 'wa',
+        'bodyMax' => 4096,
+        'label' => 'WhatsApp Templates',
+        'help' => 'Plain-text snippets for WhatsApp replies only. Each channel has its own separate templates.',
+    ])
 </div>
 
 <style>
@@ -138,9 +160,19 @@
     .wa-main.hidden-mobile { display: none; }
     .wa-back { display: inline-flex; }
 }
+@include('partials.channel-reply-templates-styles')
+.wa-page .ch-tpl-sidebar-btn:hover { border-color: #25d366; }
+.wa-page .ch-tpl-btn.primary { background: #25d366; border-color: #25d366; }
+.wa-page .ch-tpl-link-btn { color: #128c7e; }
+.wa-page .ch-tpl-link-btn:hover { background: rgba(37, 211, 102, 0.1); }
+.wa-page .ch-tpl-search:focus,
+.wa-page .ch-tpl-input:focus,
+.wa-page .ch-tpl-textarea:focus { border-color: #25d366; box-shadow: 0 0 0 3px rgba(37, 211, 102, 0.12); }
+.wa-page .ch-tpl-page-btn:hover:not(:disabled) { border-color: #25d366; color: #128c7e; }
 </style>
 
 <script>
+@include('partials.channel-reply-templates-script')
 (function () {
     const root = document.getElementById('waApp');
     if (!root) return;
@@ -316,6 +348,7 @@
         try {
             const data = await api('/bootstrap');
             connected = !!data.connected;
+            window.waTemplates?.applyBootstrap(data);
             if (data.account?.business_name) {
                 els.accountLabel.textContent = data.account.business_name;
             } else if (data.account?.display_phone_number) {
@@ -593,6 +626,15 @@
 
     els.messages.addEventListener('scroll', () => {
         if (els.messages.scrollTop < 48) loadOlderMessages();
+    });
+
+    window.waTemplates = window.initChannelReplyTemplates({
+        prefix: 'wa',
+        bodyMax: 4096,
+        label: 'WhatsApp Templates',
+        api,
+        getComposer: () => els.text,
+        escapeHtml,
     });
 
     (async function init() {

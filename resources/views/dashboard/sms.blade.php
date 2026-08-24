@@ -33,6 +33,10 @@
             <div class="sms-search">
                 <input type="search" id="smsSearch" placeholder="Search conversations…" autocomplete="off">
             </div>
+            @include('partials.channel-reply-templates', [
+                'prefix' => 'sms',
+                'label' => 'SMS Templates',
+            ])
             <div class="sms-thread-list" id="smsThreadList"></div>
         </aside>
 
@@ -68,6 +72,12 @@
                 </div>
 
                 <footer class="sms-composer" @if(empty($canSendSms) || !$canSendSms) style="display:none;" @endif>
+                    <div class="ch-tpl-picker-wrap" id="smsTemplatePickerWrap">
+                        <button type="button" class="sms-icon-btn" id="smsTemplateBtn" title="Insert template">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                        </button>
+                        @include('partials.channel-reply-templates-picker', ['prefix' => 'sms'])
+                    </div>
                     <textarea id="smsTextInput" rows="1" placeholder="Text Message" maxlength="1600"></textarea>
                     <button type="button" class="sms-send-btn" id="smsSendBtn" title="Send" aria-label="Send">
                         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4l-1.4 1.4 5.6 5.6H4v2h12.2l-5.6 5.6L12 20l8-8z"/></svg>
@@ -92,6 +102,18 @@
             </div>
         </div>
     </div>
+
+    @include('partials.channel-reply-templates-list-modal', [
+        'prefix' => 'sms',
+        'label' => 'SMS Templates',
+        'help' => 'Plain-text snippets for SMS replies only. Facebook has its own separate templates.',
+    ])
+    @include('partials.channel-reply-templates-modal', [
+        'prefix' => 'sms',
+        'bodyMax' => 1600,
+        'label' => 'SMS Templates',
+        'help' => 'Plain-text snippets for SMS replies only. Facebook has its own separate templates.',
+    ])
 </div>
 </div>
 
@@ -365,6 +387,7 @@
 .sms-icon-btn:hover { background: var(--sms-bg); color: var(--text-primary); }
 .sms-icon-btn svg { width: 16px; height: 16px; }
 .sms-back { display: none; }
+@include('partials.channel-reply-templates-styles')
 
 .sms-modal {
     position: absolute; inset: 0; background: rgba(15, 23, 42, 0.45);
@@ -398,6 +421,7 @@
 </style>
 
 <script>
+@include('partials.channel-reply-templates-script')
 (function () {
     const root = document.getElementById('smsApp');
     if (!root) return;
@@ -679,6 +703,7 @@
         try {
             const data = await api('/bootstrap');
             connected = !!data.connected;
+            window.smsTemplates?.applyBootstrap(data);
             if (data.account?.twilio_number) {
                 els.accountLabel.textContent = data.account.twilio_number;
             }
@@ -932,6 +957,15 @@
 
     els.messages.addEventListener('scroll', () => {
         if (els.messages.scrollTop < 48) loadOlderMessages();
+    });
+
+    window.smsTemplates = window.initChannelReplyTemplates({
+        prefix: 'sms',
+        bodyMax: 1600,
+        label: 'SMS Templates',
+        api,
+        getComposer: () => els.text,
+        escapeHtml,
     });
 
     (async function init() {

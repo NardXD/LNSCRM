@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\MessageTemplate;
 use App\Models\SmsConversation;
 use App\Models\SmsMessage;
 use App\Notifications\SmsMessageNotification;
@@ -59,6 +60,10 @@ class SmsController extends Controller
                 'is_active' => (bool) ($active && $active->is_active),
                 'integrations_url' => route('integrations'),
                 'phone_system_url' => route('twilio.call'),
+            ],
+            'templates' => MessageTemplate::listForCompany($user->company_id, MessageTemplate::CHANNEL_SMS),
+            'permissions' => [
+                'create_templates' => $user->hasPermission('create_message_templates'),
             ],
         ]);
     }

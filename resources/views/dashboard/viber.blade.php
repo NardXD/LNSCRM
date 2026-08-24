@@ -24,6 +24,10 @@
             <div class="viber-search">
                 <input type="search" id="viberSearch" placeholder="Search conversations...">
             </div>
+            @include('partials.channel-reply-templates', [
+                'prefix' => 'vb',
+                'label' => 'Viber Templates',
+            ])
             <div class="viber-thread-list" id="viberThreadList"></div>
         </aside>
 
@@ -74,6 +78,12 @@
                         </button>
                         <input type="file" id="viberFileInput" hidden>
                     </div>
+                    <div class="ch-tpl-picker-wrap" id="vbTemplatePickerWrap">
+                        <button type="button" class="viber-icon-btn" id="vbTemplateBtn" title="Insert template">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                        </button>
+                        @include('partials.channel-reply-templates-picker', ['prefix' => 'vb'])
+                    </div>
                     <textarea id="viberTextInput" rows="1" placeholder="Type a message..."></textarea>
                     <button type="button" class="viber-send-btn" id="viberSendBtn">Send</button>
                 </footer>
@@ -81,6 +91,18 @@
         </main>
         @include('partials.contact-history-panel', ['panelId' => 'viberContactHistory'])
     </div>
+
+    @include('partials.channel-reply-templates-list-modal', [
+        'prefix' => 'vb',
+        'label' => 'Viber Templates',
+        'help' => 'Plain-text snippets for Viber replies only. Each channel has its own separate templates.',
+    ])
+    @include('partials.channel-reply-templates-modal', [
+        'prefix' => 'vb',
+        'bodyMax' => 7000,
+        'label' => 'Viber Templates',
+        'help' => 'Plain-text snippets for Viber replies only. Each channel has its own separate templates.',
+    ])
 </div>
 
 <style>
@@ -140,9 +162,19 @@
     .viber-main.hidden-mobile { display: none; }
     .viber-back { display: inline-flex; }
 }
+@include('partials.channel-reply-templates-styles')
+.viber-page .ch-tpl-sidebar-btn:hover { border-color: #7360f2; }
+.viber-page .ch-tpl-btn.primary { background: #7360f2; border-color: #7360f2; }
+.viber-page .ch-tpl-link-btn { color: #7360f2; }
+.viber-page .ch-tpl-link-btn:hover { background: rgba(115, 96, 242, 0.1); }
+.viber-page .ch-tpl-search:focus,
+.viber-page .ch-tpl-input:focus,
+.viber-page .ch-tpl-textarea:focus { border-color: #7360f2; box-shadow: 0 0 0 3px rgba(115, 96, 242, 0.12); }
+.viber-page .ch-tpl-page-btn:hover:not(:disabled) { border-color: #7360f2; color: #7360f2; }
 </style>
 
 <script>
+@include('partials.channel-reply-templates-script')
 (function () {
     const root = document.getElementById('viberApp');
     if (!root) return;
@@ -323,6 +355,7 @@
         try {
             const data = await api('/bootstrap');
             connected = !!data.connected;
+            window.vbTemplates?.applyBootstrap(data);
             if (data.bot?.name) els.botLabel.textContent = data.bot.name;
             if (!connected) {
                 els.emptyTitle.textContent = 'Connect Viber';
@@ -610,6 +643,15 @@
 
     els.messages.addEventListener('scroll', () => {
         if (els.messages.scrollTop < 48) loadOlderMessages();
+    });
+
+    window.vbTemplates = window.initChannelReplyTemplates({
+        prefix: 'vb',
+        bodyMax: 7000,
+        label: 'Viber Templates',
+        api,
+        getComposer: () => els.text,
+        escapeHtml,
     });
 
     (async function init() {

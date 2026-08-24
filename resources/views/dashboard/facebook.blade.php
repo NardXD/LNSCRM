@@ -45,6 +45,10 @@
             <div class="fb-search">
                 <input type="search" id="fbSearch" placeholder="Search conversations…" autocomplete="off">
             </div>
+            @include('partials.channel-reply-templates', [
+                'prefix' => 'fb',
+                'label' => 'Facebook Templates',
+            ])
             <div class="fb-thread-list" id="fbThreadList"></div>
         </aside>
 
@@ -87,6 +91,12 @@
                         </button>
                         <input type="file" id="fbFileInput" hidden>
                     </div>
+                    <div class="ch-tpl-picker-wrap" id="fbTemplatePickerWrap">
+                        <button type="button" class="fb-icon-btn" id="fbTemplateBtn" title="Insert template">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                        </button>
+                        @include('partials.channel-reply-templates-picker', ['prefix' => 'fb'])
+                    </div>
                     <textarea id="fbTextInput" rows="1" placeholder="Type a message…"></textarea>
                     <button type="button" class="fb-send-btn" id="fbSendBtn" title="Send" aria-label="Send">
                         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4l-1.4 1.4 5.6 5.6H4v2h12.2l-5.6 5.6L12 20l8-8z"/></svg>
@@ -96,6 +106,18 @@
         </main>
         @include('partials.contact-history-panel', ['panelId' => 'fbContactHistory'])
     </div>
+
+    @include('partials.channel-reply-templates-list-modal', [
+        'prefix' => 'fb',
+        'label' => 'Facebook Templates',
+        'help' => 'Plain-text snippets for Messenger & Instagram replies only. SMS has its own separate templates.',
+    ])
+    @include('partials.channel-reply-templates-modal', [
+        'prefix' => 'fb',
+        'bodyMax' => 2000,
+        'label' => 'Facebook Templates',
+        'help' => 'Plain-text snippets for Messenger & Instagram replies only. SMS has its own separate templates.',
+    ])
 </div>
 </div>
 
@@ -400,6 +422,7 @@
 }
 .fb-sync-note.is-visible { display: block; }
 .fb-back { display: none; }
+@include('partials.channel-reply-templates-styles')
 
 @media (max-width: 900px) {
     .fb-page-wrapper { padding: 8px; }
@@ -415,6 +438,7 @@
 </style>
 
 <script>
+@include('partials.channel-reply-templates-script')
 (function () {
     const root = document.getElementById('fbApp');
     if (!root) return;
@@ -742,6 +766,7 @@
         try {
             const data = await api('/bootstrap');
             connected = !!data.connected;
+            window.fbTemplates?.applyBootstrap(data);
             hasPageToken = !!data.account?.has_page_access_token;
             if (data.account?.token_expired) {
                 showSyncNote('Your Facebook Page Access Token expired. Update it under Integrations, then click Sync.');
@@ -1173,6 +1198,15 @@
 
     els.messages.addEventListener('scroll', () => {
         if (els.messages.scrollTop < 48) loadOlderMessages();
+    });
+
+    window.fbTemplates = window.initChannelReplyTemplates({
+        prefix: 'fb',
+        bodyMax: 2000,
+        label: 'Facebook Templates',
+        api,
+        getComposer: () => els.text,
+        escapeHtml,
     });
 
     (async function init() {

@@ -28,6 +28,7 @@ use App\Http\Controllers\ContactHistoryController;
 use App\Http\Controllers\ContractController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EmployeeMonitoringController;
+use App\Http\Controllers\MessageTemplateController;
 use App\Http\Controllers\FacebookController;
 use App\Http\Controllers\HiringAssistantController;
 use App\Http\Controllers\HiringQueueController;
@@ -492,6 +493,16 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/conversations/{conversation}/messages', [ViberController::class, 'sendMessage'])->name('api.viber.messages.store');
         Route::get('/conversations/{conversation}/call-link', [ViberController::class, 'callLink'])->name('api.viber.call-link');
         Route::post('/media', [ViberController::class, 'uploadMedia'])->name('api.viber.media.store');
+        Route::get('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->index($request, 'viber'))->name('api.viber.templates.index');
+        Route::post('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->store($request, 'viber'))
+            ->middleware('permission:create_message_templates')
+            ->name('api.viber.templates.store');
+        Route::put('/templates/{template}', fn (\Illuminate\Http\Request $request, \App\Models\MessageTemplate $template) => app(MessageTemplateController::class)->update($request, 'viber', $template))
+            ->middleware('permission:create_message_templates')
+            ->name('api.viber.templates.update');
+        Route::delete('/templates/{template}', fn (\Illuminate\Http\Request $request, \App\Models\MessageTemplate $template) => app(MessageTemplateController::class)->destroy($request, 'viber', $template))
+            ->middleware('permission:create_message_templates')
+            ->name('api.viber.templates.destroy');
     });
 
     Route::get('/whatsapp', [WhatsAppController::class, 'index'])
@@ -504,6 +515,16 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/conversations/{conversation}/messages', [WhatsAppController::class, 'sendMessage'])->name('api.whatsapp.messages.store');
         Route::get('/conversations/{conversation}/call-link', [WhatsAppController::class, 'callLink'])->name('api.whatsapp.call-link');
         Route::post('/media', [WhatsAppController::class, 'uploadMedia'])->name('api.whatsapp.media.store');
+        Route::get('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->index($request, 'whatsapp'))->name('api.whatsapp.templates.index');
+        Route::post('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->store($request, 'whatsapp'))
+            ->middleware('permission:create_message_templates')
+            ->name('api.whatsapp.templates.store');
+        Route::put('/templates/{template}', fn (\Illuminate\Http\Request $request, \App\Models\MessageTemplate $template) => app(MessageTemplateController::class)->update($request, 'whatsapp', $template))
+            ->middleware('permission:create_message_templates')
+            ->name('api.whatsapp.templates.update');
+        Route::delete('/templates/{template}', fn (\Illuminate\Http\Request $request, \App\Models\MessageTemplate $template) => app(MessageTemplateController::class)->destroy($request, 'whatsapp', $template))
+            ->middleware('permission:create_message_templates')
+            ->name('api.whatsapp.templates.destroy');
     });
 
     Route::get('/facebook', [FacebookController::class, 'index'])
@@ -516,6 +537,16 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/conversations/{conversation}/messages', [FacebookController::class, 'sendMessage'])->name('api.facebook.messages.store');
         Route::post('/media', [FacebookController::class, 'uploadMedia'])->name('api.facebook.media.store');
         Route::post('/sync', [FacebookController::class, 'syncHistory'])->name('api.facebook.sync');
+        Route::get('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->index($request, 'facebook'))->name('api.facebook.templates.index');
+        Route::post('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->store($request, 'facebook'))
+            ->middleware('permission:create_message_templates')
+            ->name('api.facebook.templates.store');
+        Route::put('/templates/{template}', fn (\Illuminate\Http\Request $request, \App\Models\MessageTemplate $template) => app(MessageTemplateController::class)->update($request, 'facebook', $template))
+            ->middleware('permission:create_message_templates')
+            ->name('api.facebook.templates.update');
+        Route::delete('/templates/{template}', fn (\Illuminate\Http\Request $request, \App\Models\MessageTemplate $template) => app(MessageTemplateController::class)->destroy($request, 'facebook', $template))
+            ->middleware('permission:create_message_templates')
+            ->name('api.facebook.templates.destroy');
     });
 
     Route::get('/sms', [SmsController::class, 'index'])
@@ -539,6 +570,16 @@ Route::middleware(['auth', 'company.active'])->group(function () {
             ->middleware('permission:send_sms')
             ->name('api.sms.messages.store');
         Route::get('/conversations/{conversation}/call-link', [SmsController::class, 'callLink'])->name('api.sms.call-link');
+        Route::get('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->index($request, 'sms'))->name('api.sms.templates.index');
+        Route::post('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->store($request, 'sms'))
+            ->middleware('permission:create_message_templates')
+            ->name('api.sms.templates.store');
+        Route::put('/templates/{template}', fn (\Illuminate\Http\Request $request, \App\Models\MessageTemplate $template) => app(MessageTemplateController::class)->update($request, 'sms', $template))
+            ->middleware('permission:create_message_templates')
+            ->name('api.sms.templates.update');
+        Route::delete('/templates/{template}', fn (\Illuminate\Http\Request $request, \App\Models\MessageTemplate $template) => app(MessageTemplateController::class)->destroy($request, 'sms', $template))
+            ->middleware('permission:create_message_templates')
+            ->name('api.sms.templates.destroy');
     });
 
     Route::get('/broadcast-messaging', [BroadcastMessagingController::class, 'index'])

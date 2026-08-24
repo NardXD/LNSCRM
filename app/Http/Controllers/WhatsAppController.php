@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Company;
+use App\Models\MessageTemplate;
 use App\Models\User;
 use App\Models\WhatsAppConversation;
 use App\Models\WhatsAppIntegration;
@@ -66,6 +67,10 @@ class WhatsAppController extends Controller
                 'twilio_connected' => $twilioReady,
                 'integrations_url' => route('integrations'),
             ] : null,
+            'templates' => MessageTemplate::listForCompany($user->company_id, MessageTemplate::CHANNEL_WHATSAPP),
+            'permissions' => [
+                'create_templates' => $user->hasPermission('create_message_templates'),
+            ],
         ]);
     }
 
