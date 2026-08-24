@@ -1452,7 +1452,7 @@
 }
 .inbox-participant-status {
     flex: 0 0 auto;
-    max-width: 7.5rem;
+    max-width: 9.5rem;
     font-size: 0.75rem;
     color: var(--inbox-muted);
     font-weight: 500;
@@ -4415,9 +4415,9 @@ select.inbox-reply-header-input {
         const days = Math.floor(secs / 86400);
         const hours = Math.floor(secs / 3600);
         const mins = Math.floor(secs / 60);
-        if (days >= 1) return days === 1 ? 'Read 1d ago' : `Read ${days}d ago`;
-        if (hours >= 1) return hours === 1 ? 'Read 1h ago' : `Read ${hours}h ago`;
-        if (mins >= 1) return mins === 1 ? 'Read 1m ago' : `Read ${mins}m ago`;
+        if (days >= 1) return days === 1 ? 'Read 1 day ago' : `Read ${days} days ago`;
+        if (hours >= 1) return hours === 1 ? 'Read 1 hour ago' : `Read ${hours} hours ago`;
+        if (mins >= 1) return mins === 1 ? 'Read 1 min ago' : `Read ${mins} mins ago`;
         return 'Read just now';
     }
 

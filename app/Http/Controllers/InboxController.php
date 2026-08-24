@@ -779,11 +779,19 @@ class InboxController extends Controller
         }
 
         // Per-user read tracking for shared inboxes.
+        // Only bump last_read_at when the member first reads (or re-reads after unread),
+        // so the Participants list can show ages like "Read 22 mins ago".
         if ($conversation->inbox && $conversation->inbox->type === SharedInbox::TYPE_SHARED) {
-            InboxConversationUserRead::updateOrCreate(
-                ['inbox_conversation_id' => $conversation->id, 'user_id' => $request->user()->id],
-                ['is_read' => true, 'last_read_at' => now()]
-            );
+            $readRow = InboxConversationUserRead::firstOrNew([
+                'inbox_conversation_id' => $conversation->id,
+                'user_id' => $request->user()->id,
+            ]);
+            $wasUnread = ! $readRow->exists || ! $readRow->is_read || ! $readRow->last_read_at;
+            $readRow->is_read = true;
+            if ($wasUnread) {
+                $readRow->last_read_at = now();
+            }
+            $readRow->save();
             $conversation->setAttribute('is_read', true);
             $conversation->load('userReads');
         } else {
