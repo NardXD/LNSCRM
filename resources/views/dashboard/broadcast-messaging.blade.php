@@ -124,9 +124,14 @@
                                     <option value="contacts">Contacts</option>
                                 </select>
                             </div>
+                            <div class="bc-recip-actions">
+                                <button type="button" class="btn btn-secondary" id="btnSelectAllRecipients">Select all</button>
+                                <button type="button" class="btn btn-secondary" id="btnDeselectAllRecipients">Deselect all</button>
+                            </div>
                             <div class="bc-recip-results" id="recipResults">
                                 <div class="bc-empty">Search to find people with a phone number or email address.</div>
                             </div>
+                            <div class="bc-pager" id="recipPager"></div>
                             <label class="bc-label">Or paste addresses (one per line)</label>
                             <textarea id="recipPaste" class="bc-input" rows="4" placeholder="+15551234567 or name@example.com"></textarea>
                             <button type="button" class="btn btn-secondary" id="btnPaste">Add pasted addresses</button>
@@ -200,6 +205,7 @@
                             <tbody id="reviewRecipients"></tbody>
                         </table>
                     </div>
+                    <div class="bc-pager" id="reviewPager"></div>
                 </section>
 
                 <div class="bc-wizard-actions">
@@ -237,28 +243,6 @@
                                 <button type="button" class="btn btn-primary" id="btnToggleAddRecipients">Add recipients</button>
                             </div>
                         </div>
-                        <div class="bc-add-recipients" id="detailAddPanel" hidden>
-                            <div class="bc-recip-tools">
-                                <input type="search" id="detailRecipSearch" class="bc-input" placeholder="Search leads, clients, and contacts…">
-                                <select id="detailRecipSource" class="bc-select">
-                                    <option value="all">All sources</option>
-                                    <option value="leads">Leads</option>
-                                    <option value="clients">Clients</option>
-                                    <option value="contacts">Contacts</option>
-                                </select>
-                            </div>
-                            <div class="bc-recip-results bc-recip-results-compact" id="detailRecipResults">
-                                <div class="bc-empty">Search to find people with a phone number or email address.</div>
-                            </div>
-                            <label class="bc-label">Or paste addresses (one per line)</label>
-                            <textarea id="detailRecipPaste" class="bc-input" rows="3" placeholder="+15551234567 or name@example.com"></textarea>
-                            <div class="bc-detail-add-bar">
-                                <button type="button" class="btn btn-secondary" id="btnDetailPaste">Add pasted addresses</button>
-                                <span class="bc-hint" id="detailSelectedCount">0 selected</span>
-                                <button type="button" class="btn btn-primary" id="btnSendDetailRecipients">Send to selected</button>
-                            </div>
-                            <div id="detailSelectedList" class="bc-selected-list bc-selected-list-compact"></div>
-                        </div>
                         <div class="table-container">
                             <table class="data-table">
                                 <thead>
@@ -273,7 +257,58 @@
                                 <tbody id="detailRecipients"></tbody>
                             </table>
                         </div>
+                        <div class="bc-pager" id="resultsPager"></div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bc-modal-overlay" id="addRecipientsModal" hidden>
+            <div class="bc-modal" role="dialog" aria-modal="true" aria-labelledby="addRecipientsTitle">
+                <div class="bc-modal-header">
+                    <h3 class="bc-modal-title" id="addRecipientsTitle">Add recipients</h3>
+                    <button type="button" class="bc-modal-close" id="btnCloseAddRecipients" aria-label="Close">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+                <div class="bc-modal-body">
+                    <div class="bc-recip-layout">
+                        <div>
+                            <div class="bc-recip-tools">
+                                <input type="search" id="detailRecipSearch" class="bc-input" placeholder="Search leads, clients, and contacts…">
+                                <select id="detailRecipSource" class="bc-select">
+                                    <option value="all">All sources</option>
+                                    <option value="leads">Leads</option>
+                                    <option value="clients">Clients</option>
+                                    <option value="contacts">Contacts</option>
+                                </select>
+                            </div>
+                            <div class="bc-recip-actions">
+                                <button type="button" class="btn btn-secondary" id="btnSelectAllDetailRecipients">Select all</button>
+                                <button type="button" class="btn btn-secondary" id="btnDeselectAllDetailRecipients">Deselect all</button>
+                            </div>
+                            <div class="bc-recip-results" id="detailRecipResults">
+                                <div class="bc-empty">Search to find people with a phone number or email address.</div>
+                            </div>
+                            <div class="bc-pager" id="detailRecipPager"></div>
+                            <label class="bc-label">Or paste addresses (one per line)</label>
+                            <textarea id="detailRecipPaste" class="bc-input" rows="3" placeholder="+15551234567 or name@example.com"></textarea>
+                            <button type="button" class="btn btn-secondary" id="btnDetailPaste">Add pasted addresses</button>
+                        </div>
+                        <div class="bc-selected">
+                            <div class="bc-selected-head">
+                                <strong>Selected</strong>
+                                <span id="detailSelectedCount">0</span>
+                            </div>
+                            <div id="detailSelectedList" class="bc-selected-list">
+                                <div class="bc-empty">No recipients yet.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bc-modal-footer">
+                    <button type="button" class="btn btn-secondary" id="btnCancelAddRecipients">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="btnSendDetailRecipients">Send to selected</button>
                 </div>
             </div>
         </div>
@@ -309,7 +344,19 @@
     .bc-badge.partial { background: #fef3c7; color: #b45309; }
     .bc-badge.failed, .bc-badge.undelivered { background: #fef2f2; color: #b91c1c; }
     .bc-badge.pending { background: #f3f4f6; color: #4b5563; }
-    .bc-pager { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0.75rem 1rem; }
+    .bc-pager { padding: 0.75rem 1rem; }
+    .bc-pager:empty { display: none; }
+    .bc-pager-inner { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+    .bc-pager-info { font-size: 0.8125rem; color: var(--text-secondary); }
+    .bc-pager-controls { display: flex; gap: 0.35rem; flex-wrap: wrap; align-items: center; }
+    .bc-page-btn {
+        min-width: 2rem; border: 1px solid var(--border); background: #fff; border-radius: 8px;
+        padding: 0.35rem 0.6rem; font-size: 0.8125rem; cursor: pointer; font-family: inherit; color: var(--text-primary);
+    }
+    .bc-page-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .bc-page-btn.is-active { background: var(--accent-light); border-color: transparent; color: var(--accent); font-weight: 600; }
+    .bc-page-btn:disabled { opacity: 0.5; cursor: default; }
+    .bc-recip-actions { display: flex; gap: 0.5rem; margin-bottom: 0.65rem; flex-wrap: wrap; }
     .bc-steps { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
     .bc-step { border: 1px solid var(--border); background: #fff; border-radius: 999px; padding: 0.45rem 0.9rem; font-size: 0.8125rem; color: var(--text-secondary); cursor: pointer; }
     .bc-step.active { background: var(--accent-light); color: var(--accent); border-color: transparent; font-weight: 600; }
@@ -397,20 +444,36 @@
     .bc-detail-results-head { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
     .bc-detail-results-head .bc-review-title { margin: 0; }
     .bc-detail-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-    .bc-add-recipients {
-        border: 1px solid var(--border); border-radius: 10px; padding: 0.85rem; margin-bottom: 0.85rem;
-        background: var(--bg-primary);
+    .bc-modal-overlay {
+        position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); z-index: 1200;
+        display: flex; align-items: center; justify-content: center; padding: 1rem;
     }
-    .bc-recip-results-compact { max-height: 200px; }
-    .bc-selected-list-compact { max-height: 140px; margin-top: 0.65rem; }
-    .bc-detail-add-bar { display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; margin-top: 0.65rem; }
-    .bc-detail-add-bar .bc-hint { margin: 0; flex: 1; }
+    .bc-modal-overlay[hidden] { display: none; }
+    .bc-modal {
+        width: min(960px, 100%); max-height: calc(100vh - 2rem); overflow: auto;
+        background: #fff; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18);
+    }
+    .bc-modal-header, .bc-modal-footer {
+        display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
+        padding: 1rem 1.25rem;
+    }
+    .bc-modal-header { border-bottom: 1px solid var(--border); }
+    .bc-modal-footer { border-top: 1px solid var(--border); justify-content: flex-end; }
+    .bc-modal-title { margin: 0; font-size: 1.05rem; }
+    .bc-modal-close {
+        border: 0; background: none; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; color: var(--text-secondary);
+        display: inline-flex; align-items: center; justify-content: center;
+    }
+    .bc-modal-close svg { width: 18px; height: 18px; }
+    .bc-modal-close:hover { background: var(--bg-primary); color: var(--text-primary); }
+    .bc-modal-body { padding: 1.15rem 1.25rem; }
     .bc-row-action { border: none; background: none; color: var(--accent); cursor: pointer; font-size: 0.8125rem; font-weight: 600; padding: 0; font-family: inherit; }
     .bc-row-action:hover { text-decoration: underline; }
     .bc-html-visual img { max-width: 100%; height: auto; }
     .bc-type-card.is-disabled { opacity: 0.5; pointer-events: none; }
     @media (max-width: 900px) {
         .bc-recip-layout, .bc-detail-body, .bc-stats, .bc-type-row { grid-template-columns: 1fr; }
+        .bc-pager-inner { justify-content: center; }
         .bc-header { flex-direction: column; }
     }
 </style>
@@ -431,6 +494,10 @@
         view: 'list',
         step: 1,
         page: 1,
+        recipPage: 1,
+        resultsPage: 1,
+        detailRecipPage: 1,
+        reviewPage: 1,
         bootstrap: null,
         selected: new Map(),
         current: null,
@@ -438,6 +505,9 @@
         type: canSms ? 'sms' : 'email',
         emailAttachments: [],
         detailSelected: new Map(),
+        lastRecipRows: [],
+        lastDetailRecipRows: [],
+        existingAddresses: new Set(),
     };
 
     const el = (id) => document.getElementById(id);
@@ -680,15 +750,57 @@
         renderDetailSelected();
     }
 
+    function renderPager(container, pagination, onPage) {
+        if (!container) return;
+        const pg = pagination || { current_page: 1, last_page: 1, per_page: 20, total: 0 };
+        const total = Number(pg.total || 0);
+        if (total <= 0) {
+            container.innerHTML = '';
+            return;
+        }
+        const current = Number(pg.current_page || 1);
+        const last = Math.max(1, Number(pg.last_page || 1));
+        const perPage = Number(pg.per_page || 20);
+        const from = (current - 1) * perPage + 1;
+        const to = Math.min(total, current * perPage);
+        const start = Math.max(1, current - 2);
+        const end = Math.min(last, start + 4);
+        const pages = [];
+        for (let i = start; i <= end; i += 1) pages.push(i);
+        container.innerHTML = `<div class="bc-pager-inner">
+            <span class="bc-pager-info">Showing ${from}–${to} of ${total}</span>
+            <div class="bc-pager-controls">
+                <button type="button" class="bc-page-btn" data-page="${current - 1}" ${current <= 1 ? 'disabled' : ''}>Previous</button>
+                ${pages.map((page) => `<button type="button" class="bc-page-btn ${page === current ? 'is-active' : ''}" data-page="${page}">${page}</button>`).join('')}
+                <button type="button" class="bc-page-btn" data-page="${current + 1}" ${current >= last ? 'disabled' : ''}>Next</button>
+            </div>
+        </div>`;
+        container.querySelectorAll('button[data-page]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const next = Number(btn.dataset.page);
+                if (!next || next === current) return;
+                onPage(next);
+            });
+        });
+    }
+
+    function toggleRows(map, rows, selected) {
+        (rows || []).forEach((row) => {
+            const key = recipientKey(row);
+            if (selected) map.set(key, row);
+            else map.delete(key);
+        });
+    }
+
     function renderDetailSelected() {
         const items = [...state.detailSelected.values()];
         const countEl = el('detailSelectedCount');
-        if (countEl) countEl.textContent = `${items.length} selected`;
+        if (countEl) countEl.textContent = String(items.length);
         const list = el('detailSelectedList');
         if (!list) return;
         list.innerHTML = items.length
             ? items.map((row) => `<div class="bc-chip"><div><strong>${escapeHtml(row.name || row.address)}</strong><small style="display:block;color:var(--text-secondary)">${escapeHtml(row.address)}</small></div><button type="button" data-detail-key="${escapeHtml(recipientKey(row))}">Remove</button></div>`).join('')
-            : '';
+            : '<div class="bc-empty">No recipients yet.</div>';
         list.querySelectorAll('button[data-detail-key]').forEach((btn) => {
             btn.addEventListener('click', () => {
                 state.detailSelected.delete(btn.dataset.detailKey);
@@ -708,13 +820,18 @@
                 channel: campaign.type,
                 q: el('detailRecipSearch').value.trim(),
                 source: el('detailRecipSource').value,
+                page: String(state.detailRecipPage),
             });
             const data = await api('/recipients?' + params.toString());
             const rows = data.data || [];
-            const existing = new Set((campaign.recipients || []).map((r) => String(r.address || '').toLowerCase()));
-            const available = rows.filter((row) => !existing.has(String(row.address || '').toLowerCase()));
+            const available = rows.filter((row) => !state.existingAddresses.has(String(row.address || '').toLowerCase()));
+            state.lastDetailRecipRows = available;
             if (!available.length) {
                 box.innerHTML = '<div class="bc-empty">No new matching people found.</div>';
+                renderPager(el('detailRecipPager'), data.pagination, (page) => {
+                    state.detailRecipPage = page;
+                    searchDetailRecipients();
+                });
                 return;
             }
             box.innerHTML = available.map((row) => {
@@ -737,15 +854,20 @@
                     renderDetailSelected();
                 });
             });
+            renderPager(el('detailRecipPager'), data.pagination, (page) => {
+                state.detailRecipPage = page;
+                searchDetailRecipients();
+            });
         } catch (err) {
             box.innerHTML = `<div class="bc-empty">${escapeHtml(err.message)}</div>`;
+            renderPager(el('detailRecipPager'), null, () => {});
         }
     }
 
     function addDetailPasted() {
         const campaign = state.current;
         if (!campaign) return;
-        const existing = new Set((campaign.recipients || []).map((r) => String(r.address || '').toLowerCase()));
+        const existing = state.existingAddresses;
         const lines = el('detailRecipPaste').value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
         lines.forEach((address) => {
             if (existing.has(address.toLowerCase())) return;
@@ -768,7 +890,7 @@
         btn.disabled = true;
         btn.textContent = 'Sending…';
         try {
-            const data = await api(`/campaigns/${campaign.id}/recipients`, {
+            await api(`/campaigns/${campaign.id}/recipients`, {
                 method: 'POST',
                 body: JSON.stringify({
                     recipients: recipients.map((row) => ({
@@ -779,10 +901,8 @@
                     })),
                 }),
             });
-            state.current = data.data;
-            clearDetailSelected();
-            el('detailAddPanel').hidden = true;
-            renderDetail(state.current);
+            closeAddRecipientsModal();
+            await refreshDetail(campaign.id);
             startDetailPoll(campaign.id);
             loadList();
         } catch (err) {
@@ -808,12 +928,11 @@
         }
         try {
             const payload = recipientIds?.length ? { recipient_ids: recipientIds } : {};
-            const data = await api(`/campaigns/${campaign.id}/retry`, {
+            await api(`/campaigns/${campaign.id}/retry`, {
                 method: 'POST',
                 body: JSON.stringify(payload),
             });
-            state.current = data.data;
-            renderDetail(state.current);
+            await refreshDetail(campaign.id);
             startDetailPoll(campaign.id);
             loadList();
         } catch (err) {
@@ -834,9 +953,7 @@
         if (state.current?.status !== 'sending') return;
         state.poll = setInterval(async () => {
             try {
-                const fresh = await api('/campaigns/' + id);
-                state.current = fresh.data;
-                renderDetail(state.current);
+                await refreshDetail(id, { silent: true });
                 if (state.current.status !== 'sending') {
                     clearInterval(state.poll);
                     state.poll = null;
@@ -917,6 +1034,7 @@
             : (state.bootstrap?.outlook_configured ? '' : 'Add Microsoft OAuth credentials in Integrations before connecting a mailbox.');
         updateCompose();
         state.selected.clear();
+        state.recipPage = 1;
         renderSelected();
         searchRecipients();
     }
@@ -953,11 +1071,17 @@
                 channel: selectedType(),
                 q: el('recipSearch').value.trim(),
                 source: el('recipSource').value,
+                page: String(state.recipPage),
             });
             const data = await api('/recipients?' + params.toString());
             const rows = data.data || [];
+            state.lastRecipRows = rows;
             if (!rows.length) {
                 box.innerHTML = '<div class="bc-empty">No matching people with a valid address.</div>';
+                renderPager(el('recipPager'), data.pagination, (page) => {
+                    state.recipPage = page;
+                    searchRecipients();
+                });
                 return;
             }
             box.innerHTML = rows.map((row) => {
@@ -980,8 +1104,13 @@
                     renderSelected();
                 });
             });
+            renderPager(el('recipPager'), data.pagination, (page) => {
+                state.recipPage = page;
+                searchRecipients();
+            });
         } catch (err) {
             box.innerHTML = `<div class="bc-empty">${escapeHtml(err.message)}</div>`;
+            renderPager(el('recipPager'), null, () => {});
         }
     }
 
@@ -1001,6 +1130,10 @@
             ? (el('fFromNumber').selectedOptions[0]?.textContent || el('fFromNumber').value)
             : (el('fInbox').selectedOptions[0]?.textContent || 'Microsoft 365 mailbox');
         const recipients = [...state.selected.values()];
+        const perPage = 20;
+        const lastPage = Math.max(1, Math.ceil(recipients.length / perPage) || 1);
+        if (state.reviewPage > lastPage) state.reviewPage = lastPage;
+        const pageRows = recipients.slice((state.reviewPage - 1) * perPage, state.reviewPage * perPage);
         el('reviewSummary').innerHTML = [
             ['Name', el('fName').value.trim()],
             ['Type', type.toUpperCase()],
@@ -1014,9 +1147,18 @@
                 ])],
             ] : []),
         ].map(([label, value]) => `<div class="bc-review-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value || '—')}</strong></div>`).join('');
-        el('reviewRecipients').innerHTML = recipients.length
-            ? recipients.map((row) => `<tr><td>${escapeHtml(row.name || '—')}</td><td>${escapeHtml(row.address)}</td><td>${escapeHtml(row.meta || row.source)}</td></tr>`).join('')
+        el('reviewRecipients').innerHTML = pageRows.length
+            ? pageRows.map((row) => `<tr><td>${escapeHtml(row.name || '—')}</td><td>${escapeHtml(row.address)}</td><td>${escapeHtml(row.meta || row.source)}</td></tr>`).join('')
             : '<tr><td colspan="3" class="bc-empty">No recipients selected.</td></tr>';
+        renderPager(el('reviewPager'), {
+            current_page: state.reviewPage,
+            last_page: lastPage,
+            per_page: perPage,
+            total: recipients.length,
+        }, (page) => {
+            state.reviewPage = page;
+            renderReview();
+        });
     }
 
     function validateStep(step) {
@@ -1100,13 +1242,10 @@
         el('listBody').querySelectorAll('tr[data-id]').forEach((row) => {
             row.addEventListener('click', () => openDetail(Number(row.dataset.id)));
         });
-        const pg = data.pagination || { current_page: 1, last_page: 1 };
-        el('listPager').innerHTML = pg.last_page > 1
-            ? `<button type="button" class="btn btn-secondary" ${pg.current_page <= 1 ? 'disabled' : ''} data-page="${pg.current_page - 1}">Previous</button>
-               <button type="button" class="btn btn-secondary" ${pg.current_page >= pg.last_page ? 'disabled' : ''} data-page="${pg.current_page + 1}">Next</button>`
-            : '';
-        el('listPager').querySelectorAll('button[data-page]').forEach((btn) => {
-            btn.addEventListener('click', () => { state.page = Number(btn.dataset.page); loadList(); });
+        const pg = data.pagination || { current_page: 1, last_page: 1, per_page: 20, total: rows.length };
+        renderPager(el('listPager'), pg, (page) => {
+            state.page = page;
+            loadList();
         });
     }
 
@@ -1147,11 +1286,11 @@
             }
         }
         const recipients = campaign.recipients || [];
+        state.existingAddresses = new Set(campaign.recipient_addresses || recipients.map((r) => String(r.address || '').toLowerCase()));
         const manageable = canManageCampaign(campaign);
         const actions = el('detailActions');
         const retryBtn = el('btnRetryFailed');
         const addBtn = el('btnToggleAddRecipients');
-        const addPanel = el('detailAddPanel');
         if (actions) actions.hidden = !manageable;
         if (retryBtn) {
             const retryCount = campaign.retryable_count || recipients.filter((r) => isRetryableStatus(r.status)).length;
@@ -1159,8 +1298,7 @@
             retryBtn.textContent = `Retry failed (${retryCount})`;
             retryBtn.disabled = false;
         }
-        if (addBtn) addBtn.textContent = addPanel?.hidden === false ? 'Hide add recipients' : 'Add recipients';
-        if (addPanel && !manageable) addPanel.hidden = true;
+        if (addBtn) addBtn.hidden = !manageable;
         if (el('detailRecipPaste')) {
             el('detailRecipPaste').placeholder = campaign.type === 'sms'
                 ? '+15551234567'
@@ -1183,14 +1321,60 @@
         el('detailRecipients').querySelectorAll('[data-retry-id]').forEach((btn) => {
             btn.addEventListener('click', () => retryFailedRecipients([Number(btn.dataset.retryId)]));
         });
+        renderPager(el('resultsPager'), campaign.recipients_pagination, (page) => {
+            state.resultsPage = page;
+            refreshDetail(campaign.id);
+        });
+    }
+
+    async function refreshDetail(id, options = {}) {
+        const params = new URLSearchParams({
+            page: String(state.resultsPage || 1),
+            per_page: '20',
+        });
+        const data = await api('/campaigns/' + id + '?' + params.toString());
+        state.current = data.data;
+        const pg = state.current?.recipients_pagination;
+        if (pg && Number(pg.last_page) >= 1 && state.resultsPage > Number(pg.last_page)) {
+            state.resultsPage = Number(pg.last_page);
+            return refreshDetail(id, options);
+        }
+        if (!options.silent || state.view === 'detail') {
+            renderDetail(state.current);
+        }
+        return state.current;
+    }
+
+    function closeAddRecipientsModal() {
+        const modal = el('addRecipientsModal');
+        if (modal) modal.hidden = true;
+        clearDetailSelected();
+        state.lastDetailRecipRows = [];
+        state.detailRecipPage = 1;
+        if (el('detailRecipSearch')) el('detailRecipSearch').value = '';
+        if (el('detailRecipPaste')) el('detailRecipPaste').value = '';
+        document.body.style.overflow = '';
+        if (el('detailRecipSource')) el('detailRecipSource').value = 'all';
+        const results = el('detailRecipResults');
+        if (results) results.innerHTML = '<div class="bc-empty">Search to find people with a phone number or email address.</div>';
+        renderPager(el('detailRecipPager'), null, () => {});
+    }
+
+    function openAddRecipientsModal() {
+        if (!state.current || !canManageCampaign(state.current)) return;
+        const modal = el('addRecipientsModal');
+        if (!modal) return;
+        clearDetailSelected();
+        state.detailRecipPage = 1;
+        modal.hidden = false;
+        document.body.style.overflow = 'hidden';
+        searchDetailRecipients();
     }
 
     async function openDetail(id) {
-        const data = await api('/campaigns/' + id);
-        state.current = data.data;
-        clearDetailSelected();
-        if (el('detailAddPanel')) el('detailAddPanel').hidden = true;
-        renderDetail(state.current);
+        state.resultsPage = 1;
+        await refreshDetail(id);
+        closeAddRecipientsModal();
         showView('detail');
         startDetailPoll(id);
     }
@@ -1289,27 +1473,57 @@
         e.target.value = '';
         await insertEmailImage(file);
     });
-    el('recipSearch').addEventListener('input', () => { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(searchRecipients, 250); });
-    el('recipSource').addEventListener('change', searchRecipients);
+    el('recipSearch').addEventListener('input', () => {
+        state.recipPage = 1;
+        clearTimeout(state.searchTimer);
+        state.searchTimer = setTimeout(searchRecipients, 250);
+    });
+    el('recipSource').addEventListener('change', () => { state.recipPage = 1; searchRecipients(); });
     el('btnPaste').addEventListener('click', addPasted);
     el('btnClearSelected').addEventListener('click', () => { state.selected.clear(); renderSelected(); searchRecipients(); });
+    el('btnSelectAllRecipients')?.addEventListener('click', () => {
+        toggleRows(state.selected, state.lastRecipRows, true);
+        renderSelected();
+        searchRecipients();
+    });
+    el('btnDeselectAllRecipients')?.addEventListener('click', () => {
+        toggleRows(state.selected, state.lastRecipRows, false);
+        renderSelected();
+        searchRecipients();
+    });
     el('btnRetryFailed')?.addEventListener('click', () => retryFailedRecipients());
-    el('btnToggleAddRecipients')?.addEventListener('click', () => {
-        const panel = el('detailAddPanel');
-        if (!panel) return;
-        panel.hidden = !panel.hidden;
-        if (!panel.hidden) {
-            searchDetailRecipients();
+    el('btnToggleAddRecipients')?.addEventListener('click', openAddRecipientsModal);
+    el('btnCloseAddRecipients')?.addEventListener('click', closeAddRecipientsModal);
+    el('btnCancelAddRecipients')?.addEventListener('click', closeAddRecipientsModal);
+    el('addRecipientsModal')?.addEventListener('click', (e) => {
+        if (e.target === el('addRecipientsModal')) closeAddRecipientsModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && el('addRecipientsModal') && !el('addRecipientsModal').hidden) {
+            closeAddRecipientsModal();
         }
-        if (state.current) renderDetail(state.current);
+    });
+    el('btnSelectAllDetailRecipients')?.addEventListener('click', () => {
+        toggleRows(state.detailSelected, state.lastDetailRecipRows, true);
+        renderDetailSelected();
+        searchDetailRecipients();
+    });
+    el('btnDeselectAllDetailRecipients')?.addEventListener('click', () => {
+        toggleRows(state.detailSelected, state.lastDetailRecipRows, false);
+        renderDetailSelected();
+        searchDetailRecipients();
     });
     el('btnDetailPaste')?.addEventListener('click', addDetailPasted);
     el('btnSendDetailRecipients')?.addEventListener('click', sendDetailRecipients);
     el('detailRecipSearch')?.addEventListener('input', () => {
+        state.detailRecipPage = 1;
         clearTimeout(state.detailSearchTimer);
         state.detailSearchTimer = setTimeout(searchDetailRecipients, 250);
     });
-    el('detailRecipSource')?.addEventListener('change', searchDetailRecipients);
+    el('detailRecipSource')?.addEventListener('change', () => {
+        state.detailRecipPage = 1;
+        searchDetailRecipients();
+    });
     ['listSearch', 'listType', 'listStatus'].forEach((id) => {
         el(id).addEventListener('change', () => { state.page = 1; loadList(); });
         el(id).addEventListener('input', () => { state.page = 1; clearTimeout(state.listTimer); state.listTimer = setTimeout(loadList, 250); });

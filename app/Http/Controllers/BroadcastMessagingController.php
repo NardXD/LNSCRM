@@ -97,13 +97,33 @@ class BroadcastMessagingController extends Controller
         ]);
     }
 
-    public function show(BroadcastCampaign $campaign): JsonResponse
+    public function show(Request $request, BroadcastCampaign $campaign): JsonResponse
     {
-        $campaign->load(['creator:id,name', 'recipients']);
+        $campaign->load(['creator:id,name']);
+
+        $perPage = min(50, max(10, (int) $request->query('per_page', 20)));
+        $recipients = $campaign->recipients()->orderBy('id')->paginate($perPage);
+
+        $data = $this->serializeCampaign($campaign, true);
+        $data['recipient_addresses'] = $campaign->recipients()
+            ->pluck('address')
+            ->map(fn ($address) => strtolower((string) $address))
+            ->values()
+            ->all();
+        $data['recipients'] = collect($recipients->items())
+            ->map(fn (BroadcastCampaignRecipient $recipient) => $this->serializeRecipient($recipient))
+            ->values()
+            ->all();
+        $data['recipients_pagination'] = [
+            'current_page' => $recipients->currentPage(),
+            'last_page' => $recipients->lastPage(),
+            'per_page' => $recipients->perPage(),
+            'total' => $recipients->total(),
+        ];
 
         return response()->json([
             'success' => true,
-            'data' => $this->serializeCampaign($campaign, true),
+            'data' => $data,
         ]);
     }
 
@@ -182,7 +202,7 @@ class BroadcastMessagingController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Broadcast queued.',
-            'data' => $this->serializeCampaign($campaign, true),
+            'data' => $this->serializeCampaign($campaign),
         ], 201);
     }
 
@@ -208,7 +228,7 @@ class BroadcastMessagingController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Recipients added and sending started.',
-            'data' => $this->serializeCampaign($updated, true),
+            'data' => $this->serializeCampaign($updated),
         ]);
     }
 
@@ -235,7 +255,7 @@ class BroadcastMessagingController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Retry started.',
-            'data' => $this->serializeCampaign($updated, true),
+            'data' => $this->serializeCampaign($updated),
         ]);
     }
 
@@ -254,9 +274,9 @@ class BroadcastMessagingController extends Controller
     /**
      * @return array<string, mixed>
      */
-    protected function serializeCampaign(BroadcastCampaign $campaign, bool $withRecipients = false): array
+    protected function serializeCampaign(BroadcastCampaign $campaign, bool $includeAttachmentBytes = false): array
     {
-        $data = [
+        return [
             'id' => $campaign->id,
             'name' => $campaign->name,
             'type' => $campaign->type,
@@ -266,7 +286,7 @@ class BroadcastMessagingController extends Controller
             'shared_inbox_id' => $campaign->shared_inbox_id,
             'subject' => $campaign->subject,
             'body' => $campaign->body,
-            'attachments' => $this->serializeAttachments($campaign->attachments ?? [], $withRecipients),
+            'attachments' => $this->serializeAttachments($campaign->attachments ?? [], $includeAttachmentBytes),
             'recipient_count' => (int) $campaign->recipient_count,
             'sent_count' => (int) $campaign->sent_count,
             'delivered_count' => (int) $campaign->delivered_count,
@@ -275,39 +295,30 @@ class BroadcastMessagingController extends Controller
             'created_at' => $campaign->created_at?->toIso8601String(),
             'sent_at' => $campaign->sent_at?->toIso8601String(),
             'can_send' => $this->userCanSendCampaign($campaign),
-            'retryable_count' => $withRecipients
-                ? $campaign->recipients
-                    ->whereIn('status', [
-                        BroadcastCampaignRecipient::STATUS_FAILED,
-                        BroadcastCampaignRecipient::STATUS_UNDELIVERED,
-                    ])
-                    ->count()
-                : (int) $campaign->recipients()
-                    ->whereIn('status', [
-                        BroadcastCampaignRecipient::STATUS_FAILED,
-                        BroadcastCampaignRecipient::STATUS_UNDELIVERED,
-                    ])
-                    ->count(),
+            'retryable_count' => (int) $campaign->recipients()
+                ->whereIn('status', [
+                    BroadcastCampaignRecipient::STATUS_FAILED,
+                    BroadcastCampaignRecipient::STATUS_UNDELIVERED,
+                ])
+                ->count(),
         ];
+    }
 
-        if ($withRecipients) {
-            $recipients = $campaign->relationLoaded('recipients')
-                ? $campaign->recipients
-                : $campaign->recipients()->orderBy('id')->get();
-
-            $data['recipients'] = $recipients->map(fn (BroadcastCampaignRecipient $recipient) => [
-                'id' => $recipient->id,
-                'name' => $recipient->name,
-                'address' => $recipient->address,
-                'source' => $recipient->source,
-                'status' => $recipient->status,
-                'error_message' => $recipient->error_message,
-                'sent_at' => $recipient->sent_at?->toIso8601String(),
-                'delivered_at' => $recipient->delivered_at?->toIso8601String(),
-            ])->values()->all();
-        }
-
-        return $data;
+    /**
+     * @return array<string, mixed>
+     */
+    protected function serializeRecipient(BroadcastCampaignRecipient $recipient): array
+    {
+        return [
+            'id' => $recipient->id,
+            'name' => $recipient->name,
+            'address' => $recipient->address,
+            'source' => $recipient->source,
+            'status' => $recipient->status,
+            'error_message' => $recipient->error_message,
+            'sent_at' => $recipient->sent_at?->toIso8601String(),
+            'delivered_at' => $recipient->delivered_at?->toIso8601String(),
+        ];
     }
 
     /**
