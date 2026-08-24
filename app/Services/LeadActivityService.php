@@ -62,6 +62,7 @@ class LeadActivityService
             'identities' => $lead->identities->map(fn (LeadIdentity $identity) => [
                 'type' => $identity->type,
                 'value' => $identity->value,
+                'label' => $identity->label,
                 'key' => $identity->type.':'.$identity->normalized_value,
             ])->values()->all(),
         ];
@@ -140,7 +141,7 @@ class LeadActivityService
             $this->record(
                 $lead,
                 LeadActivity::IDENTITY_ADDED,
-                $actor.' added '.$this->identityLabel((string) $identity['type']).' '.$identity['value'],
+                $actor.' added '.$this->identityChangeLabel($identity).' '.$identity['value'],
                 $identity,
                 $userId
             );
@@ -153,7 +154,7 @@ class LeadActivityService
             $this->record(
                 $lead,
                 LeadActivity::IDENTITY_REMOVED,
-                $actor.' removed '.$this->identityLabel((string) $identity['type']).' '.$identity['value'],
+                $actor.' removed '.$this->identityChangeLabel($identity).' '.$identity['value'],
                 $identity,
                 $userId
             );
@@ -346,6 +347,20 @@ class LeadActivityService
         $status = trim($status);
 
         return $status !== '' ? ucfirst($status) : 'none';
+    }
+
+    /**
+     * @param  array<string, mixed>  $identity
+     */
+    protected function identityChangeLabel(array $identity): string
+    {
+        $type = $this->identityLabel((string) ($identity['type'] ?? ''));
+        $role = strtolower(trim((string) ($identity['label'] ?? '')));
+        if ($role === 'primary' || $role === 'alternate') {
+            return $role.' '.$type;
+        }
+
+        return $type;
     }
 
     protected function identityLabel(string $type): string

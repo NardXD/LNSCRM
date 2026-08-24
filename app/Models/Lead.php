@@ -238,6 +238,26 @@ class Lead extends Model
         $query->delete();
     }
 
+    public function removeIdentity(LeadIdentity $identity): void
+    {
+        if ((int) $identity->lead_id !== (int) $this->id) {
+            return;
+        }
+
+        $type = $identity->type;
+        $wasPrimary = (bool) $identity->is_primary;
+        $identity->delete();
+
+        if (! $wasPrimary) {
+            return;
+        }
+
+        $next = $this->identities()->where('type', $type)->orderBy('id')->first();
+        if ($next && ! $next->is_primary) {
+            $next->update(['is_primary' => true]);
+        }
+    }
+
     public function addIdentity(string $type, string $value, ?string $label = null): ?LeadIdentity
     {
         $value = trim($value);

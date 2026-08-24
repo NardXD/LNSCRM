@@ -192,6 +192,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
             Route::patch('/{lead}/assign', [LeadsController::class, 'assign'])->name('api.leads.assign');
             Route::post('/{lead}/notes', [LeadsController::class, 'storeNote'])->name('api.leads.notes.store');
             Route::delete('/{lead}/notes/{note}', [LeadsController::class, 'destroyNote'])->name('api.leads.notes.destroy');
+            Route::delete('/{lead}/identities/{leadIdentity}', [LeadsController::class, 'destroyIdentity'])->name('api.leads.identities.destroy');
             Route::post('/{lead}/labels', [LeadsController::class, 'attachLabel'])->name('api.leads.labels.attach');
             Route::delete('/{lead}/labels/{leadLabel}', [LeadsController::class, 'detachLabel'])->name('api.leads.labels.detach');
             Route::get('/{lead}', [LeadsController::class, 'show'])->name('api.leads.show');

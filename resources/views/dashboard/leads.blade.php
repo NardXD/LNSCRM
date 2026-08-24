@@ -590,6 +590,7 @@
 .identity-row input { width: 100%; padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.85rem; }
 .form-hint { margin: 0.35rem 0 0; font-size: 0.75rem; color: var(--text-muted); }
 .icon-btn { border: 1px solid var(--border); background: #fff; border-radius: 8px; width: 34px; cursor: pointer; color: #991b1b; }
+.icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .modal-actions { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.5rem; }
 .form-error { color: #b91c1c; font-size: 0.82rem; margin: 0 0 0.75rem; }
 .lh-item, .lh-event { padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
@@ -996,6 +997,12 @@
         document.getElementById('leadLabelsModal')?.classList.remove('open');
     }
 
+    function contactKindLabel(type) {
+        return type === 'email' ? 'email address' : 'phone number';
+    }
+    function contactRoleLabel(listId) {
+        return String(listId || '').startsWith('alt') ? 'alternate' : 'primary';
+    }
     function addContactRow(listId, value, placeholder, opts = {}) {
         const list = document.getElementById(listId);
         if (!list) return;
@@ -1004,34 +1011,83 @@
         const type = opts.type || 'text';
         const required = opts.required ? 'required' : '';
         const max = opts.max || (type === 'email' ? '255' : '50');
+        const identityId = opts.identityId ? String(opts.identityId) : '';
+        if (identityId) row.dataset.identityId = identityId;
         row.innerHTML = `
             <input type="${esc(type)}" class="id-value" value="${esc(value || '')}" placeholder="${esc(placeholder)}" maxlength="${esc(max)}" ${required}>
-            <button type="button" class="icon-btn" title="Remove">&times;</button>
+            <button type="button" class="icon-btn" title="Remove" aria-label="Remove ${esc(contactKindLabel(type))}">&times;</button>
         `;
-        row.querySelector('.icon-btn').addEventListener('click', () => {
-            const keep = opts.keepOne && list.querySelectorAll('.identity-row').length <= 1;
-            if (keep) {
-                row.querySelector('.id-value').value = '';
+        row.querySelector('.icon-btn').addEventListener('click', () => removeContactRow(listId, row, opts));
+        list.appendChild(row);
+    }
+    async function removeContactRow(listId, row, opts = {}) {
+        const list = document.getElementById(listId);
+        if (!list || !row) return;
+        const btn = row.querySelector('.icon-btn');
+        const input = row.querySelector('.id-value');
+        const identityId = row.dataset.identityId || '';
+        const value = (input?.value || '').trim();
+        const kind = contactKindLabel(opts.type);
+        const role = contactRoleLabel(listId);
+        const keepLast = () => opts.keepOne && list.querySelectorAll('.identity-row').length <= 1;
+        const clearOrRemove = () => {
+            if (keepLast()) {
+                if (input) input.value = '';
+                delete row.dataset.identityId;
                 return;
             }
             row.remove();
-        });
-        list.appendChild(row);
+        };
+
+        if (state.editingId && identityId) {
+            if (!confirm(`Remove this ${role} ${kind} from the lead? This takes effect immediately.`)) return;
+            if (btn) btn.disabled = true;
+            try {
+                const res = await fetch(api + '/' + state.editingId + '/identities/' + identityId, {
+                    method: 'DELETE',
+                    credentials: 'same-origin',
+                    headers: headers(true),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.message || 'Could not remove this ' + kind + '.');
+                clearOrRemove();
+                if (data.data) {
+                    renderActivities(data.data);
+                    if (activityModal.classList.contains('open')) {
+                        loadActivityPage(1).catch(() => {});
+                    }
+                }
+                loadLeads();
+            } catch (err) {
+                alert(err.message);
+                if (btn) btn.disabled = false;
+            }
+            return;
+        }
+
+        if (value && !confirm(`Remove this ${role} ${kind}?`)) return;
+        clearOrRemove();
     }
     function fillContactList(listId, items, placeholder, opts = {}) {
         const list = document.getElementById(listId);
         if (!list) return;
         list.innerHTML = '';
         const rows = (Array.isArray(items) ? items : [])
-            .map(item => typeof item === 'string' ? item : (item?.value || ''))
-            .map(value => String(value || '').trim())
-            .filter(Boolean);
+            .map(item => {
+                if (typeof item === 'string') return { value: item.trim(), id: null };
+                return { value: String(item?.value || '').trim(), id: item?.id || null };
+            })
+            .filter(item => item.value);
         if (!rows.length) {
             addContactRow(listId, '', placeholder, { ...opts, required: !!opts.required });
             return;
         }
-        rows.forEach((value, index) => {
-            addContactRow(listId, value, placeholder, { ...opts, required: !!opts.required && index === 0 });
+        rows.forEach((item, index) => {
+            addContactRow(listId, item.value, placeholder, {
+                ...opts,
+                required: !!opts.required && index === 0,
+                identityId: item.id,
+            });
         });
     }
     function readContactRows(listId) {

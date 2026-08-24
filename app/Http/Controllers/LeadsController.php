@@ -240,6 +240,30 @@ class LeadsController extends Controller
         ]);
     }
 
+    public function destroyIdentity(Lead $lead, LeadIdentity $leadIdentity): JsonResponse
+    {
+        $lead = $this->leadForUser($lead);
+        if ((int) $leadIdentity->lead_id !== (int) $lead->id) {
+            abort(404);
+        }
+        if (! in_array($leadIdentity->type, [LeadIdentity::TYPE_PHONE, LeadIdentity::TYPE_EMAIL], true)) {
+            abort(404);
+        }
+
+        $before = $this->leadActivity->snapshot($lead);
+        $lead->removeIdentity($leadIdentity);
+        $this->leadActivity->recordDiff($lead, $before);
+        $lead->touch();
+        $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
+        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Contact removed.',
+            'data' => $this->serializeWithInbox($lead),
+        ]);
+    }
+
     public function listRules(): JsonResponse
     {
         $companyId = (int) Auth::user()->company_id;
