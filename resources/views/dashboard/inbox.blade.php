@@ -1366,16 +1366,33 @@
     cursor: pointer;
     border-style: solid;
 }
+.inbox-participants-chip .inbox-chip-avatar {
+    margin-left: -4px;
+}
+.inbox-participants-chip .inbox-chip-avatar:first-child {
+    margin-left: 0;
+}
 .inbox-participants-chip.is-open,
 .inbox-participants-chip:hover {
     background: #eef2ff;
     border-color: #c7d2fe;
     color: #3730a3;
 }
-.inbox-participants-menu {
-    min-width: 280px;
-    max-width: min(340px, 90vw);
-    padding: 0.55rem 0.45rem 0.45rem;
+.inbox-pop.inbox-participants-pop {
+    position: relative;
+}
+.inbox-participants-menu.inbox-pop-menu {
+    left: 0;
+    right: auto;
+    width: 320px;
+    min-width: 320px;
+    max-width: min(320px, calc(100vw - 24px));
+    padding: 0.55rem 0 0.45rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    overflow: hidden;
+    box-sizing: border-box;
 }
 .inbox-participants-head {
     font-size: 0.78rem;
@@ -1383,13 +1400,29 @@
     letter-spacing: .03em;
     text-transform: uppercase;
     color: var(--inbox-muted);
-    padding: 0.15rem 0.55rem 0.55rem;
+    padding: 0.1rem 0.9rem 0.5rem;
+    flex-shrink: 0;
 }
 .inbox-participants-list {
-    display: grid;
-    gap: 0.1rem;
-    max-height: 280px;
-    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.05rem;
+    max-height: min(420px, 55vh);
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 0 0.35rem;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+}
+.inbox-participants-list::-webkit-scrollbar {
+    width: 6px;
+}
+.inbox-participants-list::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 999px;
+}
+.inbox-participants-list::-webkit-scrollbar-track {
+    background: transparent;
 }
 .inbox-participant-row {
     display: flex;
@@ -1397,15 +1430,18 @@
     gap: 0.55rem;
     padding: 0.45rem 0.55rem;
     border-radius: 8px;
+    min-width: 0;
+    box-sizing: border-box;
+    width: 100%;
 }
 .inbox-participant-row:hover { background: var(--inbox-bg); }
 .inbox-participant-avatar {
     width: 28px; height: 28px; border-radius: 999px;
     display: inline-flex; align-items: center; justify-content: center;
-    color: #fff; font-size: 0.7rem; font-weight: 700; flex-shrink: 0;
+    color: #fff; font-size: 0.7rem; font-weight: 700; flex: 0 0 28px;
 }
 .inbox-participant-name {
-    flex: 1;
+    flex: 1 1 auto;
     min-width: 0;
     font-size: 0.86rem;
     font-weight: 600;
@@ -1415,23 +1451,31 @@
     white-space: nowrap;
 }
 .inbox-participant-status {
-    flex-shrink: 0;
+    flex: 0 0 auto;
+    max-width: 7.5rem;
     font-size: 0.75rem;
     color: var(--inbox-muted);
     font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .inbox-participant-status.is-read { color: #64748b; }
 .inbox-participant-status.is-unread { color: #94a3b8; }
 .inbox-participants-foot {
-    margin-top: 0.45rem;
-    padding: 0.55rem 0.55rem 0.2rem;
+    margin-top: 0.35rem;
+    padding: 0.55rem 0.9rem 0.25rem;
     border-top: 1px solid var(--inbox-border);
     font-size: 0.75rem;
     color: var(--inbox-muted);
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.4rem;
+    flex-shrink: 0;
+    line-height: 1.35;
 }
+.inbox-participants-foot svg { flex: 0 0 14px; margin-top: 1px; }
+.inbox-participants-foot span { min-width: 0; overflow-wrap: anywhere; }
 .inbox-participants-foot strong { color: var(--inbox-text); font-weight: 600; }
 .inbox-thread-actions {
     display: flex;
@@ -4397,7 +4441,7 @@ select.inbox-reply-header-input {
                 </div>`;
         }).join('');
         return `
-            <div class="inbox-pop" id="participantsPop">
+            <div class="inbox-pop inbox-participants-pop" id="participantsPop">
                 <button type="button" class="inbox-chip inbox-participants-chip" id="btnParticipants" title="Who has read" aria-haspopup="menu" aria-expanded="false">
                     ${preview}
                     <span>${readCount}/${members.length} read</span>
