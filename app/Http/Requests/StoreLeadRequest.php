@@ -117,7 +117,7 @@ class StoreLeadRequest extends FormRequest
             'alt_emails.*.value' => ['required', 'email', 'max:255'],
             'status' => ['nullable', 'string', Rule::in(Lead::STATUSES)],
             'source' => ['nullable', 'string', 'max:255'],
-            'customer_type' => [$full ? 'required' : 'nullable', 'string', Rule::in(array_keys(Lead::CUSTOMER_TYPES))],
+            'customer_type' => ['nullable', 'string', Rule::in(array_keys(Lead::CUSTOMER_TYPES))],
             'residential_type' => ['nullable', 'string', Rule::in(Lead::RESIDENTIAL_TYPES)],
             'business_industry' => ['nullable', 'string', Rule::in(Lead::BUSINESS_INDUSTRIES)],
             'business_industry_other' => ['nullable', 'string', 'max:255'],
@@ -160,22 +160,6 @@ class StoreLeadRequest extends FormRequest
                 $primaryEmails = $this->normalizeContactList($this->input('primary_emails', []));
                 if ($primaryEmails === [] && trim((string) $this->input('email', '')) === '') {
                     $validator->errors()->add('primary_emails', 'Add at least one email address.');
-                }
-                $customerType = (string) $this->input('customer_type', '');
-                if ($customerType === Lead::CUSTOMER_TYPE_RESIDENTIAL && trim((string) $this->input('residential_type', '')) === '') {
-                    $validator->errors()->add('residential_type', 'Select a residential type.');
-                }
-                if ($customerType === Lead::CUSTOMER_TYPE_BUSINESS) {
-                    $industry = trim((string) $this->input('business_industry', ''));
-                    if ($industry === '') {
-                        $validator->errors()->add('business_industry', 'Select a business industry.');
-                    }
-                    if ($industry === 'Other' && trim((string) $this->input('business_industry_other', '')) === '') {
-                        $validator->errors()->add('business_industry_other', 'Enter the business industry.');
-                    }
-                }
-                if ((string) $this->input('storage_reason') === 'Other' && trim((string) $this->input('storage_reason_other', '')) === '') {
-                    $validator->errors()->add('storage_reason_other', 'Enter the reason for storing.');
                 }
             } elseif ($phones === [] && $emails === [] && $facebook === '' && $instagram === '') {
                 $validator->errors()->add('phones', 'Add at least one phone number, email, or social name so channels can match this lead.');

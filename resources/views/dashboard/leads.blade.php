@@ -236,17 +236,17 @@
                                 </select>
                             </div>
                         </div>
-                        <h4>Customer type *</h4>
+                        <h4>Customer type</h4>
                         <div class="lead-radio-row">
                             @foreach ($leadFormOptions['customer_types'] as $value => $label)
                                 <label class="lead-radio">
-                                    <input type="radio" name="leadCustomerType" value="{{ $value }}" required>
+                                    <input type="radio" name="leadCustomerType" value="{{ $value }}">
                                     <span>{{ $label }}</span>
                                 </label>
                             @endforeach
                         </div>
                         <div class="form-group lead-conditional" id="leadResidentialWrap" hidden>
-                            <label for="leadResidentialType">Residential type *</label>
+                            <label for="leadResidentialType">Residential type</label>
                             <select id="leadResidentialType">
                                 <option value="">Select type</option>
                                 @foreach ($leadFormOptions['residential_types'] as $type)
@@ -256,7 +256,7 @@
                         </div>
                         <div class="lead-conditional" id="leadBusinessWrap" hidden>
                             <div class="form-group">
-                                <label for="leadBusinessIndustry">Business industry *</label>
+                                <label for="leadBusinessIndustry">Business industry</label>
                                 <select id="leadBusinessIndustry">
                                     <option value="">Select industry</option>
                                     @foreach ($leadFormOptions['business_industries'] as $industry)
@@ -265,7 +265,7 @@
                                 </select>
                             </div>
                             <div class="form-group" id="leadBusinessIndustryOtherWrap" hidden>
-                                <label for="leadBusinessIndustryOther">Other industry *</label>
+                                <label for="leadBusinessIndustryOther">Other industry</label>
                                 <input type="text" id="leadBusinessIndustryOther" maxlength="255" placeholder="Enter industry">
                             </div>
                         </div>
@@ -280,7 +280,7 @@
                             </select>
                         </div>
                         <div class="form-group" id="leadStorageReasonOtherWrap" hidden>
-                            <label for="leadStorageReasonOther">Other reason *</label>
+                            <label for="leadStorageReasonOther">Other reason</label>
                             <input type="text" id="leadStorageReasonOther" maxlength="255" placeholder="Enter reason">
                         </div>
                     </section>
@@ -1180,18 +1180,10 @@
         const reason = val('leadStorageReason');
         if (resWrap) resWrap.hidden = type !== 'residential';
         if (bizWrap) bizWrap.hidden = type !== 'business';
-        const resSelect = document.getElementById('leadResidentialType');
-        const bizSelect = document.getElementById('leadBusinessIndustry');
         const bizOtherWrap = document.getElementById('leadBusinessIndustryOtherWrap');
-        const bizOther = document.getElementById('leadBusinessIndustryOther');
         const reasonOtherWrap = document.getElementById('leadStorageReasonOtherWrap');
-        const reasonOther = document.getElementById('leadStorageReasonOther');
-        if (resSelect) resSelect.required = type === 'residential';
-        if (bizSelect) bizSelect.required = type === 'business';
         if (bizOtherWrap) bizOtherWrap.hidden = type !== 'business' || industry !== 'Other';
-        if (bizOther) bizOther.required = type === 'business' && industry === 'Other';
         if (reasonOtherWrap) reasonOtherWrap.hidden = reason !== 'Other';
-        if (reasonOther) reasonOther.required = reason === 'Other';
     }
 
     function showLeadTab(name) {
