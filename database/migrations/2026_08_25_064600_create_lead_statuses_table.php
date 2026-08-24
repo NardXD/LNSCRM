@@ -25,12 +25,12 @@ return new class extends Migration
 
         $now = now();
         $defaults = [
-            ['slug' => 'new', 'name' => 'New', 'is_locked' => false],
+            ['slug' => 'new', 'name' => 'New', 'is_locked' => true],
             ['slug' => 'contacted', 'name' => 'Contacted', 'is_locked' => false],
             ['slug' => 'qualified', 'name' => 'Qualified', 'is_locked' => false],
             ['slug' => 'converted', 'name' => 'Converted', 'is_locked' => false],
             ['slug' => 'lost', 'name' => 'Lost', 'is_locked' => false],
-            ['slug' => Lead::STATUS_SNOOZED, 'name' => 'Snoozed', 'is_locked' => true],
+            ['slug' => Lead::STATUS_SNOOZED, 'name' => 'Snoozed', 'is_locked' => false],
             ['slug' => Lead::STATUS_ARCHIVED, 'name' => 'Archived', 'is_locked' => false],
         ];
 
