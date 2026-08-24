@@ -5436,19 +5436,21 @@ select.inbox-reply-header-input {
         const mine = mailboxEmail(conversationInbox());
         const source = replySourceMessage(message);
         const fromList = parseEmailList(source?.from_email || state.conversation?.from_email);
+        const replyToList = parseEmailList(source?.reply_to || source?.reply_to_emails);
         const toList = parseEmailList(source?.to || source?.to_emails);
         const ccList = parseEmailList(source?.cc || source?.cc_emails);
         const notMe = email => email && email !== mine;
         const isFromMe = fromList.some(email => email === mine);
+        const replyTarget = (replyToList.filter(notMe).length ? replyToList : fromList).filter(notMe);
 
         if (replyAll) {
-            const unique = [...new Set([...fromList, ...toList, ...ccList].filter(notMe))];
+            const unique = [...new Set([...replyTarget, ...toList, ...ccList].filter(notMe))];
             return { to: unique.slice(0, 1), cc: unique.slice(1) };
         }
 
         let to = isFromMe
             ? toList.filter(notMe)
-            : fromList.filter(notMe);
+            : replyTarget;
         if (!to.length) {
             to = parseEmailList(state.conversation?.from_email).filter(notMe);
         }
@@ -5483,6 +5485,7 @@ select.inbox-reply-header-input {
         const preview = messagePreviewText(m);
         const toList = parseEmailList(m.to || m.to_emails);
         const ccList = parseEmailList(m.cc || m.cc_emails);
+        const replyToList = parseEmailList(m.reply_to || m.reply_to_emails);
         const attachments = (m.attachments || []).map(a => `
             <a class="inbox-msg-attach" href="${escapeHtml(a.download_url)}" target="_blank" rel="noopener">
                 ${escapeHtml(a.name || 'Attachment')}
@@ -5491,6 +5494,7 @@ select.inbox-reply-header-input {
         const recipients = [
             toList.length ? `<div><strong>To</strong> ${escapeHtml(toList.join(', '))}</div>` : '',
             ccList.length ? `<div><strong>Cc</strong> ${escapeHtml(ccList.join(', '))}</div>` : '',
+            replyToList.length ? `<div><strong>Reply-To</strong> ${escapeHtml(replyToList.join(', '))}</div>` : '',
         ].join('');
         return `
             <div class="inbox-msg ${m.direction} ${expanded ? 'is-expanded' : ''}" data-msg-id="${escapeHtml(String(m.id))}">

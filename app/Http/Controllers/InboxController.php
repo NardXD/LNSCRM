@@ -1390,6 +1390,13 @@ class InboxController extends Controller
         $requestedTo = $this->normalizeRecipientEmails($validated['to'] ?? null);
         $requestedCc = $this->normalizeRecipientEmails($validated['cc'] ?? null);
         $honorRecipients = $request->exists('to') || $request->exists('cc');
+        $sourceReplyTo = $this->normalizeRecipientEmails($source?->reply_to_emails);
+        $sourceFrom = $this->normalizeRecipientEmails($source?->from_email);
+        $defaultTo = $sourceReplyTo->isNotEmpty()
+            ? $sourceReplyTo
+            : ($sourceFrom->isNotEmpty()
+                ? $sourceFrom
+                : $this->normalizeRecipientEmails($conversation->from_email));
 
         if ($honorRecipients) {
             $toEmails = $requestedTo;
@@ -1397,12 +1404,13 @@ class InboxController extends Controller
         } else {
             $toEmails = $requestedTo->isNotEmpty()
                 ? $requestedTo
-                : $this->normalizeRecipientEmails($conversation->from_email);
+                : $defaultTo;
             $ccEmails = $requestedCc;
 
             if ($request->boolean('reply_all') && $source) {
                 $others = collect()
-                    ->merge($this->normalizeRecipientEmails($source->from_email))
+                    ->merge($sourceReplyTo)
+                    ->merge($sourceFrom)
                     ->merge($this->normalizeRecipientEmails($source->to_emails))
                     ->merge($this->normalizeRecipientEmails($source->cc_emails))
                     ->filter()
@@ -2859,8 +2867,10 @@ class InboxController extends Controller
             'from_email' => $m->from_email,
             'to_emails' => $m->to_emails,
             'cc_emails' => $m->cc_emails,
+            'reply_to_emails' => $m->reply_to_emails,
             'to' => $this->parseEmailList($m->to_emails),
             'cc' => $this->parseEmailList($m->cc_emails),
+            'reply_to' => $this->parseEmailList($m->reply_to_emails),
             'subject' => $m->subject,
             'body_html' => $this->rewriteCidImagesForClient((string) ($m->body_html ?? ''), $m, $allAttachments),
             'body_text' => $m->body_text,

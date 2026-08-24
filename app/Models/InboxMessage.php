@@ -16,6 +16,7 @@ class InboxMessage extends Model
         'from_email',
         'to_emails',
         'cc_emails',
+        'reply_to_emails',
         'subject',
         'body_html',
         'body_text',

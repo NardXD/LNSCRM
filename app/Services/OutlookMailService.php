@@ -296,7 +296,7 @@ class OutlookMailService
         // (Oldest-first + early-stop on count delta left new messages stuck behind
         // tens of thousands of already-synced pages.)
         $orderField = $folder === 'drafts' ? 'lastModifiedDateTime' : 'receivedDateTime';
-        $select = 'id,conversationId,subject,bodyPreview,from,toRecipients,ccRecipients,receivedDateTime,sentDateTime,lastModifiedDateTime,isRead,isDraft';
+        $select = 'id,conversationId,subject,bodyPreview,from,toRecipients,ccRecipients,replyTo,receivedDateTime,sentDateTime,lastModifiedDateTime,isRead,isDraft';
 
         $account = $this->refreshTokenIfNeeded($account);
 
@@ -468,20 +468,22 @@ class OutlookMailService
                 // Correct timezone drift from earlier syncs (Graph UTC stored as local wall-clock).
                 if (! $existing->sent_at || ! $existing->sent_at->equalTo($receivedAt)) {
                     $existing->sent_at = $receivedAt;
+                }
+                if ($existing->reply_to_emails === null && array_key_exists('replyTo', $msg)) {
+                    $existing->reply_to_emails = $this->graphRecipientAddresses($msg['replyTo'] ?? []) ?: '';
+                }
+                if ($existing->isDirty()) {
                     $existing->save();
                 }
 
                 return false;
             }
 
-            $toEmails = collect($msg['toRecipients'] ?? [])
-                ->map(fn ($r) => $r['emailAddress']['address'] ?? null)
-                ->filter()
-                ->implode(', ');
-            $ccEmails = collect($msg['ccRecipients'] ?? [])
-                ->map(fn ($r) => $r['emailAddress']['address'] ?? null)
-                ->filter()
-                ->implode(', ');
+            $toEmails = $this->graphRecipientAddresses($msg['toRecipients'] ?? []);
+            $ccEmails = $this->graphRecipientAddresses($msg['ccRecipients'] ?? []);
+            $replyToEmails = array_key_exists('replyTo', $msg)
+                ? ($this->graphRecipientAddresses($msg['replyTo'] ?? []) ?: '')
+                : null;
 
             $body = $msg['body'] ?? [];
             $contentType = strtolower($body['contentType'] ?? 'text');
@@ -507,6 +509,7 @@ class OutlookMailService
                 'from_email' => $fromEmail,
                 'to_emails' => $toEmails ?: null,
                 'cc_emails' => $ccEmails ?: null,
+                'reply_to_emails' => $replyToEmails,
                 'subject' => $subject === '(No subject)' ? null : $subject,
                 'body_html' => $safeHtml,
                 'body_text' => $bodyText,
@@ -638,11 +641,17 @@ class OutlookMailService
             ->where('external_message_id', 'not like', 'local-%')
             ->where(function ($q) {
                 $q->whereNull('body_html')
-                    ->orWhere('body_html', '');
+                    ->orWhere('body_html', '')
+                    ->orWhere(function ($inner) {
+                        $inner->whereNull('reply_to_emails')
+                            ->where('direction', 'inbound');
+                    });
             })
             ->get();
 
         foreach ($messages as $message) {
+            $needsBody = blank($message->body_html);
+            $needsReplyTo = $message->reply_to_emails === null;
             $messageId = rawurlencode((string) $message->external_message_id);
             $response = Http::withToken($account->access_token)
                 ->timeout(60)
@@ -650,7 +659,7 @@ class OutlookMailService
                     'Prefer' => 'outlook.body-content-type="html"',
                 ])
                 ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/{$messageId}", [
-                    '$select' => 'id,body,bodyPreview',
+                    '$select' => $needsBody ? 'id,body,bodyPreview,replyTo' : 'id,replyTo',
                 ]);
 
             if (! $response->successful()) {
@@ -663,21 +672,28 @@ class OutlookMailService
             }
 
             $payload = $response->json() ?: [];
-            $body = $payload['body'] ?? [];
-            $contentType = strtolower($body['contentType'] ?? 'text');
-            $content = $body['content'] ?? ($payload['bodyPreview'] ?? '');
-            if ($content === '') {
-                continue;
+            if ($needsReplyTo) {
+                $message->reply_to_emails = $this->graphRecipientAddresses($payload['replyTo'] ?? []) ?: '';
             }
 
-            if ($contentType === 'html') {
-                $message->body_html = preg_replace('#<script\b[^>]*>(.*?)</script>#is', '', $content);
-                $message->body_text = strip_tags($content);
-            } else {
-                $message->body_html = null;
-                $message->body_text = $content;
+            if ($needsBody) {
+                $body = $payload['body'] ?? [];
+                $contentType = strtolower($body['contentType'] ?? 'text');
+                $content = $body['content'] ?? ($payload['bodyPreview'] ?? '');
+                if ($content !== '') {
+                    if ($contentType === 'html') {
+                        $message->body_html = preg_replace('#<script\b[^>]*>(.*?)</script>#is', '', $content);
+                        $message->body_text = strip_tags($content);
+                    } else {
+                        $message->body_html = null;
+                        $message->body_text = $content;
+                    }
+                }
             }
-            $message->save();
+
+            if ($message->isDirty()) {
+                $message->save();
+            }
         }
 
         $this->hydrateConversationAttachments($inbox, $conversation, $account, $mailboxPath);
@@ -977,6 +993,17 @@ class OutlookMailService
         }
 
         return ['sent' => true];
+    }
+
+    /**
+     * @param  array<int, mixed>  $recipients
+     */
+    private function graphRecipientAddresses(array $recipients): string
+    {
+        return collect($recipients)
+            ->map(fn ($r) => $r['emailAddress']['address'] ?? null)
+            ->filter()
+            ->implode(', ');
     }
 
     private function truncate(?string $value, int $max): ?string
