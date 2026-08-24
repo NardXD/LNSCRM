@@ -97,8 +97,8 @@
                     <section class="lead-form-panel active" data-lead-panel="primary" role="tabpanel" aria-labelledby="leadTabPrimary">
                         <div class="form-row form-row-3">
                             <div class="form-group">
-                                <label for="leadTitle">Mr/Ms. *</label>
-                                <select id="leadTitle" required>
+                                <label for="leadTitle">Mr/Ms.</label>
+                                <select id="leadTitle">
                                     <option value="">Select</option>
                                     @foreach ($leadFormOptions['titles'] as $title)
                                         <option value="{{ $title }}">{{ $title }}</option>
@@ -115,13 +115,13 @@
                             </div>
                         </div>
                         <div class="form-group">
-                            <label for="leadAddress">Address *</label>
-                            <input type="text" id="leadAddress" required maxlength="500" placeholder="Street address">
+                            <label for="leadAddress">Address</label>
+                            <input type="text" id="leadAddress" maxlength="500" placeholder="Street address">
                         </div>
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="leadCity">City *</label>
-                                <input type="text" id="leadCity" required maxlength="255" placeholder="City">
+                                <label for="leadCity">City</label>
+                                <input type="text" id="leadCity" maxlength="255" placeholder="City">
                             </div>
                             <div class="form-group">
                                 <label for="leadPostal">Postal/Zip</label>

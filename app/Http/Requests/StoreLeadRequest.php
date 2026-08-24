@@ -89,11 +89,11 @@ class StoreLeadRequest extends FormRequest
 
         return [
             'name' => ['required', 'string', 'max:255'],
-            'title' => [$full ? 'required' : 'nullable', 'string', Rule::in(Lead::TITLES)],
+            'title' => ['nullable', 'string', Rule::in(Lead::TITLES)],
             'first_name' => [$full ? 'required' : 'nullable', 'string', 'max:255'],
             'last_name' => [$full ? 'required' : 'nullable', 'string', 'max:255'],
-            'address' => [$full ? 'required' : 'nullable', 'string', 'max:500'],
-            'city' => [$full ? 'required' : 'nullable', 'string', 'max:255'],
+            'address' => ['nullable', 'string', 'max:500'],
+            'city' => ['nullable', 'string', 'max:255'],
             'postal_code' => ['nullable', 'string', 'max:20'],
             'company_name' => ['nullable', 'string', 'max:255'],
             'date_of_birth' => ['nullable', 'date', 'before:today'],
