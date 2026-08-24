@@ -445,7 +445,7 @@ class FacebookController extends Controller
 
         if (! empty($validated['recent'])) {
             try {
-                $imported = $this->facebookSync->ingestRecent(
+                $result = $this->facebookSync->ingestRecent(
                     $integration,
                     $twilio,
                     (int) ($validated['minutes'] ?? 90),
@@ -459,6 +459,8 @@ class FacebookController extends Controller
                 ], 422);
             }
 
+            $imported = (int) ($result['imported'] ?? 0);
+
             return response()->json([
                 'data' => [
                     'scanned' => $imported,
@@ -466,7 +468,7 @@ class FacebookController extends Controller
                     'skipped' => 0,
                     'conversations' => 0,
                     'days' => 0,
-                    'hint' => null,
+                    'hint' => $result['hint'] ?? null,
                     'mode' => 'recent',
                 ],
             ]);

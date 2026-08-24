@@ -257,6 +257,8 @@ class FacebookMessageSyncService
      * Import recent Messenger / Instagram messages (Twilio + optional Page Inbox via Graph).
      * Used while /facebook is open and by background auto-sync so new chats and
      * replies sent from Messenger appear without a full history sync.
+     *
+     * @return array{imported: int, hint: ?string}
      */
     public function ingestRecent(
         FacebookIntegration $integration,
@@ -264,7 +266,7 @@ class FacebookMessageSyncService
         int $minutes = 45,
         int $limit = 80,
         bool $includeGraph = true
-    ): int {
+    ): array {
         $after = Carbon::now()->subMinutes(max(5, $minutes));
         $imported = 0;
         $touched = [];
@@ -302,9 +304,12 @@ class FacebookMessageSyncService
             $this->refreshPreview($conversation);
         }
 
+        $hint = null;
         if ($includeGraph) {
             $token = $integration->getDecryptedPageAccessToken();
-            if ($token) {
+            if (! $token) {
+                $hint = 'Twilio does not receive replies you send from the Messenger app. Save a Page Access Token under Integrations so the CRM can import Page Inbox messages.';
+            } else {
                 try {
                     $graph = app(FacebookGraphHistoryService::class);
                     $platforms = ['messenger'];
@@ -321,13 +326,17 @@ class FacebookMessageSyncService
                         $platforms
                     );
                     $imported += $this->importGraphRows($integration, $rows);
+                    if ($imported === 0 && $graph->lastError()) {
+                        $hint = $this->graphHint($graph->lastError());
+                    }
                 } catch (\Throwable $e) {
                     Log::warning('Facebook recent Graph pull failed', ['error' => $e->getMessage()]);
+                    $hint = $this->graphHint($e->getMessage());
                 }
             }
         }
 
-        return $imported;
+        return ['imported' => $imported, 'hint' => $hint];
     }
 
     /**

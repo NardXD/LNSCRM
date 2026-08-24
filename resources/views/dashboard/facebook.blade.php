@@ -1092,10 +1092,13 @@
                 body: JSON.stringify({ recent: true, minutes: 90 }),
             });
             const imported = Number(data.data?.imported || 0);
+            const hint = data.data?.hint || '';
             if (imported > 0) {
                 showSyncNote(`Auto-synced ${imported} new message${imported === 1 ? '' : 's'}.`);
                 await loadConversations({ merge: true });
                 if (activeId) await pollActiveMessages();
+            } else if (hint) {
+                showSyncNote(hint);
             }
         } catch (e) {
             console.warn('Facebook auto-sync failed', e);

@@ -1471,7 +1471,7 @@
                     <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">Replies sent from Messenger</strong>
                     <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
                         <li>Save a <strong>Page Access Token that does not expire</strong>. Graph API Explorer tokens die in 1–2 hours. Use a long-lived User token, then switch the dropdown to the Page.</li>
-                        <li>In Meta for Developers → <strong>Messenger → Facebook settings</strong>, set the same Callback URL and Verify Token. Subscribe to <code>messages</code> and <code>message_echoes</code>.</li>
+                        <li>In Meta for Developers open your app → <strong>Webhooks</strong> → <strong>Page</strong> (not Graph API Explorer). Add the CRM Callback URL and Verify Token, then subscribe to <code>messages</code>. Optionally also subscribe to <code>message_echoes</code> there — that is a webhook field, not a Graph <code>?fields=</code> value. Sync still imports Page Inbox replies through Graph conversations.</li>
                         <li>On <a href="${TWILIO_SETUP.facebookChatUrl}">Facebook &amp; Instagram</a>, click the download Sync button to import Page Inbox history, including messages you sent from Messenger to customers.</li>
                     </ol>
                 </div>

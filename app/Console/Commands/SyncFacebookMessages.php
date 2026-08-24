@@ -56,16 +56,21 @@ class SyncFacebookMessages extends Command
                 if ($full) {
                     $result = $facebookSync->sync($integration, $twilio, $days, 1500);
                     $imported = (int) ($result['imported'] ?? 0);
+                    $hint = $result['hint'] ?? null;
                 } else {
-                    $imported = $facebookSync->ingestRecent($integration, $twilio, $minutes, 120);
+                    $result = $facebookSync->ingestRecent($integration, $twilio, $minutes, 120);
+                    $imported = (int) ($result['imported'] ?? 0);
+                    $hint = $result['hint'] ?? null;
                 }
 
                 $totalImported += $imported;
                 $synced++;
 
+                $label = $integration->page_name ?: $integration->page_id;
                 if ($imported > 0) {
-                    $label = $integration->page_name ?: $integration->page_id;
                     $this->line("[facebook] {$label}: +{$imported}");
+                } elseif (is_string($hint) && $hint !== '') {
+                    $this->warn('[facebook] '.$label.': '.$hint);
                 }
             } catch (Throwable $e) {
                 $failed++;

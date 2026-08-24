@@ -256,10 +256,17 @@ class FacebookGraphHistoryService
             return $thread;
         }
 
+        $messageFields = 'id,created_time,from,to,message,sticker,attachments{mime_type,name,image_data,file_url,video_data}';
         $node = $this->graphGetNode($this->baseUrl.'/'.$conversationId, [
-            'fields' => 'participants,messages.limit(20)',
+            'fields' => 'participants,messages.limit(25){'.$messageFields.'}',
             'access_token' => $accessToken,
         ]);
+        if (! $node['ok']) {
+            $node = $this->graphGetNode($this->baseUrl.'/'.$conversationId, [
+                'fields' => 'participants,messages.limit(25)',
+                'access_token' => $accessToken,
+            ]);
+        }
         if (! $node['ok']) {
             $this->lastError = $this->lastError ?: $node['error'];
 
@@ -272,6 +279,21 @@ class FacebookGraphHistoryService
 
         $stubs = $node['node']['messages']['data'] ?? [];
         if (! is_array($stubs) || $stubs === []) {
+            $edge = $this->graphGet($this->baseUrl.'/'.$conversationId.'/messages', [
+                'fields' => $messageFields,
+                'limit' => 25,
+                'access_token' => $accessToken,
+            ]);
+            if ($edge['ok'] && $edge['data'] !== []) {
+                $thread['messages'] = ['data' => $edge['data']];
+            }
+
+            return $thread;
+        }
+
+        if ($this->messagesHaveBodies($stubs)) {
+            $thread['messages'] = ['data' => $stubs];
+
             return $thread;
         }
 
@@ -289,9 +311,36 @@ class FacebookGraphHistoryService
         }
 
         $details = $this->messageDetails($ids, $accessToken);
+        if ($details === []) {
+            $edge = $this->graphGet($this->baseUrl.'/'.$conversationId.'/messages', [
+                'fields' => $messageFields,
+                'limit' => 25,
+                'access_token' => $accessToken,
+            ]);
+            if ($edge['ok'] && $edge['data'] !== []) {
+                $details = $edge['data'];
+            }
+        }
         $thread['messages'] = ['data' => $details !== [] ? $details : $stubs];
 
         return $thread;
+    }
+
+    /**
+     * @param  array<int, mixed>  $messages
+     */
+    protected function messagesHaveBodies(array $messages): bool
+    {
+        foreach ($messages as $message) {
+            if (! is_array($message)) {
+                continue;
+            }
+            if (! empty($message['from']) || (isset($message['message']) && $message['message'] !== '') || ! empty($message['created_time'])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
