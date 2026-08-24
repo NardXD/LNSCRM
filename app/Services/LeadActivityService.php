@@ -6,6 +6,7 @@ use App\Models\InboxConversation;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\LeadIdentity;
+use App\Models\LeadStatus;
 use App\Models\User;
 use App\Notifications\LeadAssignedNotification;
 use Illuminate\Support\Facades\Auth;
@@ -90,8 +91,8 @@ class LeadActivityService
         }
 
         if (($before['status'] ?? '') !== ($after['status'] ?? '')) {
-            $from = $this->statusLabel((string) ($before['status'] ?? ''));
-            $to = $this->statusLabel((string) ($after['status'] ?? ''));
+            $from = $this->statusLabel((string) ($before['status'] ?? ''), (int) $lead->company_id);
+            $to = $this->statusLabel((string) ($after['status'] ?? ''), (int) $lead->company_id);
             $this->record(
                 $lead,
                 LeadActivity::STATUS_CHANGED,
@@ -342,11 +343,17 @@ class LeadActivityService
         return $name ? (string) $name : null;
     }
 
-    protected function statusLabel(string $status): string
+    protected function statusLabel(string $status, ?int $companyId = null): string
     {
         $status = trim($status);
+        if ($status === '') {
+            return 'none';
+        }
+        if ($companyId) {
+            return LeadStatus::nameFor($companyId, $status);
+        }
 
-        return $status !== '' ? ucfirst($status) : 'none';
+        return ucfirst($status);
     }
 
     /**

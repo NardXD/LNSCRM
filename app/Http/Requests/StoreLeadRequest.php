@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Models\FacebookConversation;
 use App\Models\Lead;
+use App\Models\LeadStatus;
 use App\Services\MessageContactExtractor;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -115,7 +116,7 @@ class StoreLeadRequest extends FormRequest
             'alt_phones.*.value' => ['required', 'string', 'max:50'],
             'alt_emails' => ['nullable', 'array', 'max:20'],
             'alt_emails.*.value' => ['required', 'email', 'max:255'],
-            'status' => ['nullable', 'string', Rule::in(Lead::STATUSES)],
+            'status' => ['nullable', 'string', 'max:50', Rule::in(LeadStatus::slugsForCompany((int) ($this->user()?->company_id ?? 0)))],
             'source' => ['nullable', 'string', 'max:255'],
             'customer_type' => ['nullable', 'string', Rule::in(array_keys(Lead::CUSTOMER_TYPES))],
             'residential_type' => ['nullable', 'string', Rule::in(Lead::RESIDENTIAL_TYPES)],

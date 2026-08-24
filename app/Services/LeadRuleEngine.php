@@ -7,6 +7,7 @@ use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\LeadLabel;
 use App\Models\LeadRule;
+use App\Models\LeadStatus;
 use App\Models\User;
 use App\Notifications\LeadRuleNotification;
 use Illuminate\Support\Facades\Log;
@@ -557,7 +558,8 @@ class LeadRuleEngine
     private function setStatus(Lead $lead, mixed $status): void
     {
         $status = strtolower(trim((string) $status));
-        if ($status === Lead::STATUS_SNOOZED || ! in_array($status, Lead::STATUSES, true) || $lead->status === $status) {
+        $slugs = LeadStatus::slugsForCompany((int) $lead->company_id);
+        if ($status === Lead::STATUS_SNOOZED || ! in_array($status, $slugs, true) || $lead->status === $status) {
             return;
         }
 
@@ -580,7 +582,7 @@ class LeadRuleEngine
         }
 
         if ($lead->status !== Lead::STATUS_SNOOZED) {
-            $lead->reopen_status = $lead->status ?: 'new';
+            $lead->reopen_status = LeadStatus::fallbackSlug((int) $lead->company_id, $lead->status);
         }
 
         $lead->status = Lead::STATUS_SNOOZED;

@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Lead;
 use App\Models\LeadActivity;
+use App\Models\LeadStatus;
 use App\Notifications\LeadRuleNotification;
 use App\Services\LeadActivityService;
 use App\Services\LeadRuleEngine;
@@ -25,10 +26,7 @@ class ProcessLeadReopens extends Command
             ->orderBy('id')
             ->chunkById(100, function ($leads) use (&$count, $leadActivity) {
                 foreach ($leads as $lead) {
-                    $restore = (string) ($lead->reopen_status ?: 'new');
-                    if (! in_array($restore, Lead::STATUSES, true) || $restore === Lead::STATUS_SNOOZED) {
-                        $restore = 'new';
-                    }
+                    $restore = LeadStatus::fallbackSlug((int) $lead->company_id, $lead->reopen_status);
 
                     $lead->status = $restore;
                     $lead->reopen_at = null;

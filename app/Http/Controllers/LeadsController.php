@@ -15,6 +15,7 @@ use App\Models\LeadIdentity;
 use App\Models\LeadLabel;
 use App\Models\LeadNote;
 use App\Models\LeadRule;
+use App\Models\LeadStatus;
 use App\Models\SharedInbox;
 use App\Models\User;
 use App\Services\ContactConversationHistoryService;
@@ -155,7 +156,7 @@ class LeadsController extends Controller
         $lead = Lead::create(array_merge($this->profilePayload($request), [
             'company_id' => $companyId,
             'assigned_to' => $this->assignedToForCompany($companyId, $request->input('assigned_to')),
-            'status' => $request->input('status') ?: 'new',
+            'status' => $request->input('status') ?: LeadStatus::fallbackSlug($companyId),
         ]));
 
         $legacyNote = trim((string) $request->input('notes', ''));
@@ -281,7 +282,10 @@ class LeadsController extends Controller
                 'can_manage' => Auth::user()->hasPermission('create_lead_rules'),
                 'triggers' => LeadRuleEngine::triggerLabels(),
                 'channels' => LeadRuleEngine::CHANNELS,
-                'statuses' => Lead::STATUSES,
+                'statuses' => LeadStatus::forCompany($companyId)
+                    ->map(fn (LeadStatus $status) => $this->serializeStatus($status))
+                    ->values()
+                    ->all(),
                 'inboxes' => SharedInbox::query()
                     ->where('company_id', $companyId)
                     ->where('type', SharedInbox::TYPE_SHARED)
@@ -531,6 +535,130 @@ class LeadsController extends Controller
     {
         $this->labelForUser($leadLabel);
         $leadLabel->delete();
+
+        return response()->json(['success' => true]);
+    }
+
+    public function statuses(): JsonResponse
+    {
+        $companyId = (int) Auth::user()->company_id;
+        $statuses = LeadStatus::forCompany($companyId)
+            ->map(fn (LeadStatus $status) => $this->serializeStatus($status))
+            ->values()
+            ->all();
+
+        return response()->json([
+            'success' => true,
+            'data' => $statuses,
+            'meta' => [
+                'default' => LeadStatus::fallbackSlug($companyId),
+            ],
+        ]);
+    }
+
+    public function storeStatus(Request $request): JsonResponse
+    {
+        $companyId = (int) Auth::user()->company_id;
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:50'],
+        ]);
+        $name = trim($validated['name']);
+        if ($name === '') {
+            return response()->json(['message' => 'Enter a status name.'], 422);
+        }
+
+        $existing = LeadStatus::query()
+            ->where('company_id', $companyId)
+            ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+            ->first();
+        if ($existing) {
+            return response()->json([
+                'success' => true,
+                'message' => 'That status already exists.',
+                'data' => $this->serializeStatus($existing),
+            ]);
+        }
+
+        $maxOrder = (int) LeadStatus::query()->where('company_id', $companyId)->max('sort_order');
+        $status = LeadStatus::create([
+            'company_id' => $companyId,
+            'name' => $name,
+            'slug' => LeadStatus::uniqueSlug($companyId, $name),
+            'sort_order' => $maxOrder + 1,
+            'is_locked' => false,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Status created.',
+            'data' => $this->serializeStatus($status),
+        ], 201);
+    }
+
+    public function updateStatus(Request $request, LeadStatus $leadStatus): JsonResponse
+    {
+        $this->statusForUser($leadStatus);
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:50'],
+        ]);
+        $name = trim($validated['name']);
+        if ($name === '') {
+            return response()->json(['message' => 'Enter a status name.'], 422);
+        }
+
+        $duplicate = LeadStatus::query()
+            ->where('company_id', $leadStatus->company_id)
+            ->whereKeyNot($leadStatus->id)
+            ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+            ->exists();
+        if ($duplicate) {
+            return response()->json(['message' => 'Another status already uses that name.'], 422);
+        }
+
+        $leadStatus->update(['name' => $name]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->serializeStatus($leadStatus->fresh()),
+        ]);
+    }
+
+    public function destroyStatus(LeadStatus $leadStatus): JsonResponse
+    {
+        $this->statusForUser($leadStatus);
+        if ($leadStatus->is_locked || $leadStatus->slug === Lead::STATUS_SNOOZED) {
+            return response()->json(['message' => 'Snoozed cannot be deleted because reopen rules use it.'], 422);
+        }
+
+        $remainingAssignable = LeadStatus::query()
+            ->where('company_id', $leadStatus->company_id)
+            ->whereKeyNot($leadStatus->id)
+            ->where('slug', '!=', Lead::STATUS_SNOOZED)
+            ->count();
+        if ($remainingAssignable < 1) {
+            return response()->json(['message' => 'Keep at least one status besides Snoozed.'], 422);
+        }
+
+        $fallback = LeadStatus::fallbackSlug((int) $leadStatus->company_id);
+        if ($fallback === $leadStatus->slug) {
+            $fallback = LeadStatus::query()
+                ->where('company_id', $leadStatus->company_id)
+                ->whereKeyNot($leadStatus->id)
+                ->where('slug', '!=', Lead::STATUS_SNOOZED)
+                ->orderBy('sort_order')
+                ->value('slug') ?: $fallback;
+        }
+
+        Lead::query()
+            ->where('company_id', $leadStatus->company_id)
+            ->where('status', $leadStatus->slug)
+            ->update(['status' => $fallback]);
+        Lead::query()
+            ->where('company_id', $leadStatus->company_id)
+            ->where('reopen_status', $leadStatus->slug)
+            ->update(['reopen_status' => $fallback]);
+
+        $leadStatus->delete();
 
         return response()->json(['success' => true]);
     }
@@ -966,6 +1094,19 @@ class LeadsController extends Controller
     }
 
     /**
+     * @return array{id: int, slug: string, name: string, is_locked: bool}
+     */
+    protected function serializeStatus(LeadStatus $status): array
+    {
+        return [
+            'id' => $status->id,
+            'slug' => $status->slug,
+            'name' => $status->name,
+            'is_locked' => (bool) $status->is_locked,
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     protected function serializeNote(LeadNote $note): array
@@ -1056,6 +1197,15 @@ class LeadsController extends Controller
         return $label;
     }
 
+    protected function statusForUser(LeadStatus $status): LeadStatus
+    {
+        if ((int) $status->company_id !== (int) Auth::user()->company_id) {
+            abort(404);
+        }
+
+        return $status;
+    }
+
     protected function leadRuleForUser(LeadRule $rule): LeadRule
     {
         if ((int) $rule->company_id !== (int) Auth::user()->company_id) {
@@ -1133,10 +1283,11 @@ class LeadsController extends Controller
             if (trim((string) ($condition['value'] ?? '')) === '') {
                 abort(response()->json(['message' => 'Each condition needs a value.'], 422));
             }
-            if ($field === 'lead_status' && ! in_array((string) $condition['value'], Lead::STATUSES, true)) {
+            $statusSlugs = LeadStatus::slugsForCompany((int) Auth::user()->company_id);
+            if ($field === 'lead_status' && ! in_array((string) $condition['value'], $statusSlugs, true)) {
                 abort(response()->json(['message' => 'Choose a valid lead status.'], 422));
             }
-            if ($field === 'status_changed' && ! in_array((string) $condition['value'], Lead::STATUSES, true)) {
+            if ($field === 'status_changed' && ! in_array((string) $condition['value'], $statusSlugs, true)) {
                 abort(response()->json(['message' => 'Choose a valid lead status.'], 422));
             }
         }
@@ -1179,7 +1330,8 @@ class LeadsController extends Controller
             }
             if ($type === 'set_status') {
                 $status = (string) $action['value'];
-                if ($status === Lead::STATUS_SNOOZED || ! in_array($status, Lead::STATUSES, true)) {
+                $statusSlugs = LeadStatus::slugsForCompany((int) Auth::user()->company_id);
+                if ($status === Lead::STATUS_SNOOZED || ! in_array($status, $statusSlugs, true)) {
                     abort(response()->json(['message' => 'Choose a valid lead status.'], 422));
                 }
             }

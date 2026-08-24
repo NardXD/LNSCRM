@@ -52,15 +52,8 @@
         </select>
         <input type="date" id="reportDateFrom" class="leads-assignee-filter" aria-label="Created from">
         <input type="date" id="reportDateTo" class="leads-assignee-filter" aria-label="Created to">
-        <div class="leads-tabs" role="tablist">
+        <div class="leads-tabs" role="tablist" id="reportStatusTabs">
             <button type="button" class="leads-tab active" data-status="all">All</button>
-            <button type="button" class="leads-tab" data-status="new">New</button>
-            <button type="button" class="leads-tab" data-status="contacted">Contacted</button>
-            <button type="button" class="leads-tab" data-status="qualified">Qualified</button>
-            <button type="button" class="leads-tab" data-status="converted">Converted</button>
-            <button type="button" class="leads-tab" data-status="lost">Lost</button>
-            <button type="button" class="leads-tab" data-status="snoozed">Snoozed</button>
-            <button type="button" class="leads-tab" data-status="archived">Archived</button>
         </div>
         <div class="lead-reports-actions">
             <button type="button" class="btn btn-primary btn-sm" id="reportApplyBtn">Apply</button>
@@ -207,6 +200,7 @@
             name: l.name,
             color: l.color || '#4338ca',
         })) : [],
+        statuses: [],
         assignees: Array.isArray(BOOTSTRAP_ASSIGNEES) ? BOOTSTRAP_ASSIGNEES : [],
         charts: { status: null, source: null, label: null, assignee: null },
     };
@@ -235,6 +229,34 @@
         if (c.length !== 6) return '#fff';
         const r = parseInt(c.slice(0, 2), 16), g = parseInt(c.slice(2, 4), 16), b = parseInt(c.slice(4, 6), 16);
         return (r * 299 + g * 587 + b * 114) / 1000 > 160 ? '#111' : '#fff';
+    }
+
+    function statusName(slug) {
+        const key = String(slug || '');
+        if (!key) return '—';
+        const row = (state.statuses || []).find(s => s.slug === key);
+        return row?.name || key;
+    }
+
+    async function loadStatuses() {
+        try {
+            const res = await fetch(api + '/statuses', { credentials: 'same-origin', headers: headers() });
+            const data = await res.json();
+            state.statuses = data.data || [];
+        } catch {
+            state.statuses = [];
+        }
+        renderStatusTabs();
+    }
+
+    function renderStatusTabs() {
+        const wrap = document.getElementById('reportStatusTabs');
+        if (!wrap) return;
+        const current = state.status || 'all';
+        const tabs = [{ slug: 'all', name: 'All' }, ...(state.statuses || [])];
+        wrap.innerHTML = tabs.map(status =>
+            `<button type="button" class="leads-tab${current === status.slug ? ' active' : ''}" data-status="${esc(status.slug)}">${esc(status.name)}</button>`
+        ).join('');
     }
 
     function buildParams() {
@@ -410,7 +432,7 @@
                     ${lead.company_name ? `<div class="lead-company">${esc(lead.company_name)}</div>` : ''}
                     <div class="lead-meta">${esc(lead.email || lead.phone || '')}</div>
                 </td>
-                <td><span class="lead-badge ${esc(lead.status || '')}">${esc(lead.status || '—')}</span></td>
+                <td><span class="lead-badge ${esc(lead.status || '')}">${esc(statusName(lead.status))}</span></td>
                 <td>${esc(lead.source || '—')}</td>
                 <td>${labelChips(lead.labels)}</td>
                 <td>${esc(lead.assigned_user?.name || 'Unassigned')}</td>
@@ -472,7 +494,7 @@
         document.getElementById('reportCustomerTypeFilter').value = '';
         document.getElementById('reportDateFrom').value = '';
         document.getElementById('reportDateTo').value = '';
-        document.querySelectorAll('.leads-tab').forEach(tab => {
+        document.querySelectorAll('#reportStatusTabs .leads-tab').forEach(tab => {
             tab.classList.toggle('active', tab.dataset.status === 'all');
         });
         renderLabelFilter();
@@ -481,12 +503,12 @@
         loadReport();
     }
 
-    document.querySelectorAll('.leads-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            state.status = tab.dataset.status || 'all';
-            document.querySelectorAll('.leads-tab').forEach(t => t.classList.toggle('active', t === tab));
-            loadReport();
-        });
+    document.getElementById('reportStatusTabs')?.addEventListener('click', (e) => {
+        const tab = e.target.closest('.leads-tab');
+        if (!tab) return;
+        state.status = tab.dataset.status || 'all';
+        document.querySelectorAll('#reportStatusTabs .leads-tab').forEach(t => t.classList.toggle('active', t === tab));
+        loadReport();
     });
 
     document.getElementById('reportLabelFilterSelect').addEventListener('change', (e) => {
@@ -535,7 +557,7 @@
     renderLabelFilter();
     renderAssigneeFilter();
     renderSourceFilter([]);
-    loadReport();
+    loadStatuses().then(() => loadReport());
 })();
 </script>
 @endpush

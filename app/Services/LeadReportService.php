@@ -8,6 +8,7 @@ use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\LeadIdentity;
 use App\Models\LeadLabel;
+use App\Models\LeadStatus;
 use App\Models\SmsMessage;
 use App\Models\User;
 use App\Models\ViberMessage;
@@ -130,6 +131,7 @@ class LeadReportService
         $lost = (clone $base)->where('leads.status', 'lost')->count();
         $conversionRate = $total > 0 ? round(($converted / $total) * 100, 1) : 0.0;
 
+        $statusNames = LeadStatus::forCompany($companyId)->pluck('name', 'slug');
         $byStatus = (clone $base)
             ->select([
                 'leads.status',
@@ -139,7 +141,7 @@ class LeadReportService
             ->orderByDesc('aggregate')
             ->get()
             ->map(fn ($row) => [
-                'label' => (string) $row->status,
+                'label' => (string) ($statusNames[$row->status] ?? $row->status),
                 'count' => (int) $row->aggregate,
             ])
             ->values()
@@ -349,7 +351,7 @@ class LeadReportService
         $statuses = array_values(array_unique(array_filter(array_map(
             fn ($s) => trim((string) $s),
             $statuses
-        ), fn ($s) => $s !== '' && in_array($s, Lead::STATUSES, true))));
+        ), fn ($s) => $s !== '')));
 
         return [
             'search' => $filters['search'] ?? '',
@@ -510,7 +512,7 @@ class LeadReportService
             }
 
             if ($action === LeadActivity::STATUS_CHANGED) {
-                $toStatus = $this->humanStatus((string) ($meta['to'] ?? ''));
+                $toStatus = $this->humanStatus((string) ($meta['to'] ?? ''), (int) $lead->company_id);
                 if ($toStatus !== '') {
                     $this->appendUnique($statusHistory, $toStatus);
                 }
@@ -707,11 +709,17 @@ class LeadReportService
         return (string) ($this->labelNameById[$labelId] ?? '');
     }
 
-    protected function humanStatus(string $status): string
+    protected function humanStatus(string $status, ?int $companyId = null): string
     {
-        $status = trim(strtolower($status));
+        $status = trim($status);
+        if ($status === '') {
+            return '';
+        }
+        if ($companyId) {
+            return LeadStatus::nameFor($companyId, $status);
+        }
 
-        return $status !== '' ? ucfirst($status) : '';
+        return ucfirst($status);
     }
 
     /**

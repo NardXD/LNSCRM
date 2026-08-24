@@ -13,6 +13,7 @@
         </div>
         <div class="leads-header-actions">
             <button type="button" class="btn btn-secondary" id="leadLabelsBtn">Labels</button>
+            <button type="button" class="btn btn-secondary" id="leadStatusesBtn">Statuses</button>
             <button type="button" class="btn btn-secondary" id="leadRulesBtn">Rules</button>
             <button type="button" class="btn btn-primary" id="newLeadBtn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -36,15 +37,8 @@
             <option value="">All assignees</option>
             <option value="__none__">Unassigned</option>
         </select>
-        <div class="leads-tabs" role="tablist">
+        <div class="leads-tabs" role="tablist" id="leadStatusTabs">
             <button type="button" class="leads-tab active" data-status="all">All</button>
-            <button type="button" class="leads-tab" data-status="new">New</button>
-            <button type="button" class="leads-tab" data-status="contacted">Contacted</button>
-            <button type="button" class="leads-tab" data-status="qualified">Qualified</button>
-            <button type="button" class="leads-tab" data-status="converted">Converted</button>
-            <button type="button" class="leads-tab" data-status="lost">Lost</button>
-            <button type="button" class="leads-tab" data-status="snoozed">Snoozed</button>
-            <button type="button" class="leads-tab" data-status="archived">Archived</button>
         </div>
     </div>
 
@@ -219,15 +213,7 @@
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="leadStatus">Status</label>
-                                <select id="leadStatus">
-                                    <option value="new">New</option>
-                                    <option value="contacted">Contacted</option>
-                                    <option value="qualified">Qualified</option>
-                                    <option value="converted">Converted</option>
-                                    <option value="lost">Lost</option>
-                                    <option value="snoozed">Snoozed</option>
-                                    <option value="archived">Archived</option>
-                                </select>
+                                <select id="leadStatus"></select>
                             </div>
                             <div class="form-group">
                                 <label for="leadAssignedTo">Assigned</label>
@@ -362,6 +348,26 @@
                     <button type="button" class="btn btn-secondary btn-sm" id="leadActivityPrev" disabled>Previous</button>
                     <button type="button" class="btn btn-secondary btn-sm" id="leadActivityNext" disabled>Next</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="leadStatusesModal">
+        <div class="modal-content leads-rules-modal">
+            <div class="modal-header">
+                <h3>Lead statuses</h3>
+                <button type="button" class="modal-close-btn" id="closeLeadStatusesModal">&times;</button>
+            </div>
+            <div class="leads-rules-body">
+                <p class="leads-rules-help">Add, rename, or delete statuses. Leads using a deleted status move to the default status. Snoozed cannot be deleted because reopen rules use it.</p>
+                <div id="leadCompanyStatusList" class="leads-rule-list"></div>
+                <form id="leadCompanyStatusForm" class="leads-label-create">
+                    <input type="text" id="leadCompanyStatusName" maxlength="50" placeholder="New status name" required>
+                    <button type="submit" class="btn btn-primary" id="saveLeadCompanyStatusBtn">Add status</button>
+                </form>
+            </div>
+            <div class="modal-actions leads-rules-actions">
+                <button type="button" class="btn btn-secondary" id="closeLeadStatusesBtn">Close</button>
             </div>
         </div>
     </div>
@@ -639,6 +645,7 @@
 .leads-rule-remove { border: none; background: none; color: #b91c1c; font-size: 1.1rem; cursor: pointer; padding: 0.2rem 0.35rem; }
 .leads-rule-stop { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; margin: 0.75rem 0 0; }
 .leads-rules-actions { padding: 0.85rem 1.25rem 1.1rem; margin: 0; border-top: 1px solid var(--border); }
+.leads-status-name-input { width: 100%; padding: 0.4rem 0.55rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; background: var(--bg-card); color: var(--text-primary); }
 .leads-label-create { display: flex; gap: 0.45rem; align-items: center; margin-top: 0.85rem; }
 .leads-label-create input[type="text"] { flex: 1; min-width: 0; padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; }
 .leads-label-create input[type="color"] { width: 2.4rem; height: 2.2rem; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); cursor: pointer; }
@@ -661,7 +668,7 @@
     const api = '/api/leads';
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
     const LEAD_OPTIONS = @json($leadFormOptions);
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null };
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -686,11 +693,16 @@
         if (!iso) return '';
         try { return new Date(iso).toLocaleDateString(); } catch { return iso; }
     }
+    function statusName(slug) {
+        const key = String(slug || '');
+        const row = (state.statuses || []).find(s => s.slug === key);
+        return row?.name || key || 'new';
+    }
     function statusBadge(lead) {
-        const status = lead.status || 'new';
+        const status = lead.status || state.defaultStatus || 'new';
         const label = status === 'snoozed' && lead.reopen_at
-            ? 'snoozed until ' + formatDate(lead.reopen_at)
-            : status;
+            ? statusName(status) + ' until ' + formatDate(lead.reopen_at)
+            : statusName(status);
         return `<span class="lead-badge ${esc(status)}">${esc(label)}</span>`;
     }
     function sourceVisual(lead) {
@@ -966,6 +978,75 @@
             renderCompanyLabelList();
         }
     }
+    async function loadCompanyStatuses() {
+        try {
+            const res = await fetch(api + '/statuses', { credentials: 'same-origin', headers: headers() });
+            const data = await res.json();
+            state.statuses = data.data || [];
+            state.defaultStatus = data.meta?.default || state.defaultStatus || 'new';
+        } catch {
+            state.statuses = [];
+        }
+        renderStatusTabs();
+        fillStatusSelect(document.getElementById('leadStatus')?.value || state.defaultStatus);
+        renderCompanyStatusList();
+    }
+    function statusOptions(selected) {
+        const current = selected || state.defaultStatus || 'new';
+        const rows = [...(state.statuses || [])];
+        if (current && !rows.some(s => s.slug === current)) {
+            rows.push({ slug: current, name: current });
+        }
+        return rows.map(s =>
+            `<option value="${esc(s.slug)}" ${s.slug === current ? 'selected' : ''}>${esc(s.name)}</option>`
+        ).join('');
+    }
+    function fillStatusSelect(selected) {
+        const select = document.getElementById('leadStatus');
+        if (!select) return;
+        select.innerHTML = statusOptions(selected || state.defaultStatus || 'new');
+    }
+    function renderStatusTabs() {
+        const wrap = document.getElementById('leadStatusTabs');
+        if (!wrap) return;
+        const current = state.status || 'all';
+        const tabs = [{ slug: 'all', name: 'All' }, ...(state.statuses || [])];
+        wrap.innerHTML = tabs.map(status =>
+            `<button type="button" class="leads-tab${current === status.slug ? ' active' : ''}" data-status="${esc(status.slug)}">${esc(status.name)}</button>`
+        ).join('');
+        if (current !== 'all' && !(state.statuses || []).some(s => s.slug === current)) {
+            state.status = 'all';
+            wrap.querySelector('[data-status="all"]')?.classList.add('active');
+        }
+    }
+    function renderCompanyStatusList() {
+        const list = document.getElementById('leadCompanyStatusList');
+        if (!list) return;
+        if (!state.statuses.length) {
+            list.innerHTML = '<div class="chp-empty">No statuses yet. Add one below.</div>';
+            return;
+        }
+        list.innerHTML = state.statuses.map(status => `
+            <div class="leads-rule-row">
+                <div class="leads-rule-row-main">
+                    <input type="text" class="leads-status-name-input" data-status-name="${status.id}" value="${esc(status.name)}" maxlength="50" aria-label="Status name">
+                </div>
+                <div class="leads-rule-row-actions">
+                    <button type="button" class="btn btn-secondary btn-sm" data-save-company-status="${status.id}">Save</button>
+                    ${status.is_locked ? '<span class="lead-meta">Required</span>' : `<button type="button" class="btn btn-secondary btn-sm" data-delete-company-status="${status.id}">Delete</button>`}
+                </div>
+            </div>
+        `).join('');
+    }
+    function openStatusesModal() {
+        document.getElementById('leadStatusesModal')?.classList.add('open');
+        renderCompanyStatusList();
+        loadCompanyStatuses();
+        document.getElementById('leadCompanyStatusName')?.focus();
+    }
+    function closeStatusesModal() {
+        document.getElementById('leadStatusesModal')?.classList.remove('open');
+    }
     function renderCompanyLabelList() {
         const list = document.getElementById('leadCompanyLabelList');
         if (!list) return;
@@ -1216,6 +1297,7 @@
         fillContactList('altEmailsList', [], 'name@company.com', { type: 'email', max: '255' });
         fillSourceSelect('');
         setCustomerType('');
+        fillStatusSelect(state.defaultStatus);
         syncLeadProfileFields();
         errorEl.hidden = true;
         document.getElementById('leadModalTitle').textContent = 'New Lead';
@@ -1260,7 +1342,7 @@
         setVal('leadAltPostal', lead.alt_postal_code);
         fillContactList('altPhonesList', lead.alt_phones || (lead.alt_phone ? [lead.alt_phone] : []), 'Phone number', { type: 'tel' });
         fillContactList('altEmailsList', lead.alt_emails || (lead.alt_email ? [lead.alt_email] : []), 'name@company.com', { type: 'email', max: '255' });
-        document.getElementById('leadStatus').value = lead.status || 'new';
+        fillStatusSelect(lead.status || state.defaultStatus);
         fillSourceSelect(lead.source || '');
         setCustomerType(lead.customer_type || '');
         setVal('leadResidentialType', lead.residential_type);
@@ -1606,14 +1688,14 @@
         state.page = 1;
         loadLeads();
     });
-    document.querySelectorAll('.leads-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            document.querySelectorAll('.leads-tab').forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            state.status = tab.dataset.status;
-            state.page = 1;
-            loadLeads();
-        });
+    document.getElementById('leadStatusTabs')?.addEventListener('click', (e) => {
+        const tab = e.target.closest('.leads-tab');
+        if (!tab) return;
+        document.querySelectorAll('#leadStatusTabs .leads-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        state.status = tab.dataset.status;
+        state.page = 1;
+        loadLeads();
     });
     body.addEventListener('click', (e) => {
         if (e.target.closest('.lead-assign')) return;
@@ -2055,10 +2137,7 @@
     }
     function conditionValueControl(field, selected = '') {
         if (field === 'lead_status' || field === 'status_changed') {
-            const statuses = ['new', 'contacted', 'qualified', 'converted', 'lost', 'snoozed', 'archived'];
-            return `<select data-rule-cond-value>${statuses.map(s =>
-                `<option value="${s}" ${selected === s ? 'selected' : ''}>${s}</option>`
-            ).join('')}</select>`;
+            return `<select data-rule-cond-value>${statusOptions(selected)}</select>`;
         }
         if (field === 'lead_label' || field === 'label_added') {
             return `<select data-rule-cond-value>${(state.companyLabels || []).map(l =>
@@ -2107,8 +2186,8 @@
         }
         if (type === 'set_status') {
             const selectedStatus = selected || 'contacted';
-            return ['new', 'contacted', 'qualified', 'converted', 'lost', 'archived'].map(s =>
-                `<option value="${s}" ${selectedStatus === s ? 'selected' : ''}>${s}</option>`
+            return (state.statuses || []).filter(s => s.slug !== 'snoozed').map(s =>
+                `<option value="${esc(s.slug)}" ${selectedStatus === s.slug ? 'selected' : ''}>${esc(s.name)}</option>`
             ).join('');
         }
         if (type === 'reopen_after_days') {
@@ -2129,9 +2208,8 @@
         return `<option value="">Select label…</option>` + (opts || '<option value="" disabled>No labels yet</option>');
     }
     function triggerStatusOptions(selected = '') {
-        const statuses = ['new', 'contacted', 'qualified', 'converted', 'lost', 'snoozed', 'archived'];
-        return `<option value="">Select status…</option>` + statuses.map(s =>
-            `<option value="${s}" ${selected === s ? 'selected' : ''}>${s}</option>`
+        return `<option value="">Select status…</option>` + (state.statuses || []).map(s =>
+            `<option value="${esc(s.slug)}" ${selected === s.slug ? 'selected' : ''}>${esc(s.name)}</option>`
         ).join('');
     }
     function triggerExtraKind(type) {
@@ -2407,6 +2485,69 @@
     }
 
     document.getElementById('leadLabelsBtn')?.addEventListener('click', openLabelsModal);
+    document.getElementById('leadStatusesBtn')?.addEventListener('click', openStatusesModal);
+    document.getElementById('closeLeadStatusesModal')?.addEventListener('click', closeStatusesModal);
+    document.getElementById('closeLeadStatusesBtn')?.addEventListener('click', closeStatusesModal);
+    document.getElementById('leadCompanyStatusForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const nameEl = document.getElementById('leadCompanyStatusName');
+        const name = nameEl?.value.trim() || '';
+        if (!name) { nameEl?.focus(); return; }
+        const btn = document.getElementById('saveLeadCompanyStatusBtn');
+        btn.disabled = true;
+        try {
+            const res = await fetch(api + '/statuses', {
+                method: 'POST', credentials: 'same-origin', headers: headers(true),
+                body: JSON.stringify({ name }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.message || 'Could not create status.');
+            if (nameEl) nameEl.value = '';
+            await loadCompanyStatuses();
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            btn.disabled = false;
+        }
+    });
+    document.getElementById('leadCompanyStatusList')?.addEventListener('click', async (e) => {
+        const save = e.target.closest('[data-save-company-status]');
+        if (save) {
+            const id = save.dataset.saveCompanyStatus;
+            const input = document.querySelector(`[data-status-name="${id}"]`);
+            const name = input?.value.trim() || '';
+            if (!name) { input?.focus(); return; }
+            save.disabled = true;
+            try {
+                const res = await fetch(api + '/statuses/' + id, {
+                    method: 'PATCH', credentials: 'same-origin', headers: headers(true),
+                    body: JSON.stringify({ name }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.message || 'Could not update status.');
+                await loadCompanyStatuses();
+                loadLeads();
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                save.disabled = false;
+            }
+            return;
+        }
+        const del = e.target.closest('[data-delete-company-status]');
+        if (!del) return;
+        if (!confirm('Delete this status? Leads using it will move to the default status.')) return;
+        const res = await fetch(api + '/statuses/' + del.dataset.deleteCompanyStatus, {
+            method: 'DELETE', credentials: 'same-origin', headers: headers(),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            alert(data.message || 'Could not delete status.');
+            return;
+        }
+        await loadCompanyStatuses();
+        loadLeads();
+    });
     document.getElementById('closeLeadLabelsModal')?.addEventListener('click', closeLabelsModal);
     document.getElementById('closeLeadLabelsBtn')?.addEventListener('click', closeLabelsModal);
     document.getElementById('leadCompanyLabelForm')?.addEventListener('submit', async (e) => {
@@ -2625,7 +2766,7 @@
     });
 
     resetForm();
-    Promise.all([loadCompanyLabels(), loadAssignees()]).then(() => loadLeads()).then(() => {
+    Promise.all([loadCompanyLabels(), loadCompanyStatuses(), loadAssignees()]).then(() => loadLeads()).then(() => {
         const id = new URLSearchParams(window.location.search).get('lead');
         if (id) openLead(id).catch(() => {});
     });

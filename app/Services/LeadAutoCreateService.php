@@ -6,6 +6,7 @@ use App\Models\FacebookConversation;
 use App\Models\InboxConversation;
 use App\Models\Lead;
 use App\Models\LeadIdentity;
+use App\Models\LeadStatus;
 use App\Models\SharedInbox;
 use App\Models\TwilioPhoneNumber;
 use App\Models\User;
@@ -210,7 +211,7 @@ class LeadAutoCreateService
             $lead = Lead::create([
                 'company_id' => $companyId,
                 'name' => $displayName,
-                'status' => 'new',
+                'status' => LeadStatus::fallbackSlug($companyId),
                 'source' => $source,
             ]);
 
