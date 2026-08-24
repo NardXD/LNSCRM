@@ -770,10 +770,14 @@ class UserManagementController extends Controller
                 'create_inbox_templates',
                 'module_slug' => 'inbox',
             ],
-            'Viber' => ['view_viber', 'create_message_templates', 'module_slug' => 'viber'],
-            'WhatsApp' => ['view_whatsapp', 'create_message_templates', 'module_slug' => 'whatsapp'],
-            'Facebook & Instagram' => ['view_facebook', 'create_message_templates', 'module_slug' => 'facebook'],
-            'SMS' => ['view_sms', 'send_sms', 'create_message_templates', 'module_slug' => 'sms'],
+            'Viber' => ['view_viber', 'module_slug' => 'viber'],
+            'WhatsApp' => ['view_whatsapp', 'module_slug' => 'whatsapp'],
+            'Facebook & Instagram' => ['view_facebook', 'module_slug' => 'facebook'],
+            'SMS' => ['view_sms', 'send_sms', 'module_slug' => 'sms'],
+            'Message Templates' => [
+                'create_message_templates',
+                'module_slugs' => ['sms', 'facebook', 'whatsapp', 'viber'],
+            ],
             'Broadcast Messaging' => [
                 'view_broadcast_messaging',
                 'send_broadcast_sms',
@@ -834,7 +838,8 @@ class UserManagementController extends Controller
 
         foreach ($moduleMapping as $moduleName => $mapping) {
             $moduleSlug = $mapping['module_slug'] ?? null;
-            $slugs = array_filter($mapping, fn ($v, $k) => $k !== 'module_slug' && is_string($v), ARRAY_FILTER_USE_BOTH);
+            $moduleSlugs = $mapping['module_slugs'] ?? array_values(array_filter([$moduleSlug]));
+            $slugs = array_filter($mapping, fn ($v, $k) => ! in_array($k, ['module_slug', 'module_slugs'], true) && is_string($v), ARRAY_FILTER_USE_BOTH);
 
             if ($moduleSlug === 'pnl' && ! $this->companyMayAssignPnlPermissions($user)) {
                 continue;
@@ -842,10 +847,10 @@ class UserManagementController extends Controller
 
             // Skip modules the company doesn't have access to
             if ($companyModuleSlugs !== null) {
-                if ($moduleSlug === null) {
+                if ($moduleSlugs === []) {
                     continue; // Admin Control etc. - no module, hide from company RBAC
                 }
-                if (! in_array($moduleSlug, $companyModuleSlugs)) {
+                if (count(array_intersect($moduleSlugs, $companyModuleSlugs)) === 0) {
                     continue;
                 }
             }

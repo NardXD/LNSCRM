@@ -3589,12 +3589,18 @@
             // Render permissions container
             const container = document.getElementById('permissionsGrid');
             container.innerHTML = '';
+            const renderedPermissionIds = new Set();
             
             // Module icon (generic folder icon)
             const moduleIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
             
             for (const [moduleName, permissions] of Object.entries(data)) {
-                if (permissions && permissions.length > 0) {
+                const uniquePermissions = (permissions || []).filter((perm) => {
+                    if (renderedPermissionIds.has(perm.id)) return false;
+                    renderedPermissionIds.add(perm.id);
+                    return true;
+                });
+                if (uniquePermissions.length > 0) {
                     const moduleDiv = document.createElement('div');
                     moduleDiv.className = 'permission-category';
                     moduleDiv.dataset.module = moduleName;
@@ -3747,7 +3753,7 @@
                         listDiv.className = 'permission-list';
                         listDiv.dataset.module = moduleName;
                         
-                        permissions.forEach(perm => {
+                        uniquePermissions.forEach(perm => {
                             const label = createPermissionItem(perm, moduleName);
                             listDiv.appendChild(label);
                         });
@@ -3772,18 +3778,17 @@
         }
     }
     
+    function setSharedPermissionChecked(permissionId, checked) {
+        document.querySelectorAll(`.permission-checkbox[data-permission-id="${permissionId}"]`).forEach((cb) => {
+            cb.checked = checked;
+            cb.closest('.permission-item')?.classList.toggle('checked', checked);
+        });
+    }
+
     // Helper function to create permission item
     function createPermissionItem(perm, moduleName) {
-        const label = document.createElement('label');
-        label.className = 'permission-item';
-        label.onclick = (e) => {
-            if (e.target.type !== 'checkbox') {
-                e.preventDefault();
-                const checkbox = label.querySelector('input[type="checkbox"]');
-                checkbox.checked = !checkbox.checked;
-                checkbox.dispatchEvent(new Event('change'));
-            }
-        };
+        const item = document.createElement('div');
+        item.className = 'permission-item';
         
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -3793,13 +3798,10 @@
         checkbox.dataset.permissionName = perm.display_name || perm.name;
         checkbox.dataset.module = moduleName;
         checkbox.dataset.category = perm.category || 'other';
+        checkbox.style.pointerEvents = 'none';
+        checkbox.tabIndex = -1;
         checkbox.addEventListener('change', function() {
-            label.classList.toggle('checked', this.checked);
-            document.querySelectorAll(`.permission-checkbox[data-permission-slug="${perm.slug}"]`).forEach((other) => {
-                if (other === this) return;
-                other.checked = this.checked;
-                other.closest('.permission-item')?.classList.toggle('checked', this.checked);
-            });
+            item.classList.toggle('checked', this.checked);
             updateStats();
             
             // Automatically check view_payroll if any payroll sub-module permission is checked
@@ -3818,11 +3820,7 @@
                 // Find and check the view_payroll checkbox
                 const viewPayrollCheckbox = document.querySelector('.permission-checkbox[data-permission-slug="view_payroll"]');
                 if (viewPayrollCheckbox && !viewPayrollCheckbox.checked) {
-                    viewPayrollCheckbox.checked = true;
-                    const viewPayrollLabel = viewPayrollCheckbox.closest('.permission-item');
-                    if (viewPayrollLabel) {
-                        viewPayrollLabel.classList.add('checked');
-                    }
+                    setSharedPermissionChecked(viewPayrollCheckbox.dataset.permissionId, true);
                     updateStats();
                 }
             }
@@ -3840,11 +3838,7 @@
                 // Find and check the view_user_management checkbox
                 const viewUserManagementCheckbox = document.querySelector('.permission-checkbox[data-permission-slug="view_user_management"]');
                 if (viewUserManagementCheckbox && !viewUserManagementCheckbox.checked) {
-                    viewUserManagementCheckbox.checked = true;
-                    const viewUserManagementLabel = viewUserManagementCheckbox.closest('.permission-item');
-                    if (viewUserManagementLabel) {
-                        viewUserManagementLabel.classList.add('checked');
-                    }
+                    setSharedPermissionChecked(viewUserManagementCheckbox.dataset.permissionId, true);
                     updateStats();
                 }
             }
@@ -3854,20 +3848,20 @@
         span.className = 'permission-item-label';
         span.textContent = perm.display_name || perm.name;
         
-        label.appendChild(checkbox);
-        label.appendChild(span);
+        item.appendChild(checkbox);
+        item.appendChild(span);
+        item.addEventListener('click', () => {
+            checkbox.checked = !checkbox.checked;
+            checkbox.dispatchEvent(new Event('change'));
+        });
         
-        return label;
+        return item;
     }
 
     function selectModulePermissions(moduleName, select) {
         const checkboxes = document.querySelectorAll(`.permission-checkbox[data-module="${moduleName}"]`);
         checkboxes.forEach(cb => {
-            cb.checked = select;
-            const label = cb.closest('.permission-item');
-            if (label) {
-                label.classList.toggle('checked', select);
-            }
+            setSharedPermissionChecked(cb.dataset.permissionId, select);
         });
         updateStats();
     }
@@ -3875,35 +3869,7 @@
     function selectCategoryPermissions(category, select) {
         const checkboxes = document.querySelectorAll(`.permission-checkbox[data-category="${category}"]`);
         checkboxes.forEach(cb => {
-            cb.checked = select;
-            const label = cb.closest('.permission-item');
-            if (label) {
-                label.classList.toggle('checked', select);
-            }
-        });
-        updateStats();
-    }
-
-    function selectModulePermissions(moduleName, select) {
-        const checkboxes = document.querySelectorAll(`.permission-checkbox[data-module="${moduleName}"]`);
-        checkboxes.forEach(cb => {
-            cb.checked = select;
-            const label = cb.closest('.permission-item');
-            if (label) {
-                label.classList.toggle('checked', select);
-            }
-        });
-        updateStats();
-    }
-
-    function selectCategoryPermissions(category, select) {
-        const checkboxes = document.querySelectorAll(`.permission-checkbox[data-category="${category}"]`);
-        checkboxes.forEach(cb => {
-            cb.checked = select;
-            const label = cb.closest('.permission-item');
-            if (label) {
-                label.classList.toggle('checked', select);
-            }
+            setSharedPermissionChecked(cb.dataset.permissionId, select);
         });
         updateStats();
     }
@@ -3930,14 +3896,7 @@
             // Check permissions for this role
             if (data.permissions) {
                 data.permissions.forEach(perm => {
-                    const checkbox = document.querySelector(`.permission-checkbox[data-permission-id="${perm.id}"]`);
-                    if (checkbox) {
-                        checkbox.checked = true;
-                        const label = checkbox.closest('.permission-item');
-                        if (label) {
-                            label.classList.add('checked');
-                        }
-                    }
+                    setSharedPermissionChecked(perm.id, true);
                 });
             }
             updateStats();
