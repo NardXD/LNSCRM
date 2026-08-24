@@ -3795,6 +3795,11 @@
         checkbox.dataset.category = perm.category || 'other';
         checkbox.addEventListener('change', function() {
             label.classList.toggle('checked', this.checked);
+            document.querySelectorAll(`.permission-checkbox[data-permission-slug="${perm.slug}"]`).forEach((other) => {
+                if (other === this) return;
+                other.checked = this.checked;
+                other.closest('.permission-item')?.classList.toggle('checked', this.checked);
+            });
             updateStats();
             
             // Automatically check view_payroll if any payroll sub-module permission is checked
@@ -3978,8 +3983,8 @@
             return;
         }
 
-        const permissionIds = Array.from(document.querySelectorAll('.permission-checkbox:checked'))
-            .map(cb => parseInt(cb.dataset.permissionId));
+        const permissionIds = [...new Set(Array.from(document.querySelectorAll('.permission-checkbox:checked'))
+            .map(cb => parseInt(cb.dataset.permissionId)))];
 
         try {
             const response = await fetch(`/api/user-management/roles/${roleId}/permissions`, {

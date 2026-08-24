@@ -679,6 +679,21 @@ class UserManagementController extends Controller
     {
         $user = Auth::user();
 
+        if ($user->company_id) {
+            Permission::firstOrCreate(
+                [
+                    'slug' => 'create_message_templates',
+                    'company_id' => $user->company_id,
+                ],
+                [
+                    'name' => 'create_message_templates',
+                    'display_name' => 'Add Message Templates',
+                    'description' => 'Create, edit, and delete SMS, Facebook, WhatsApp, and Viber reply templates',
+                    'category' => 'main',
+                ]
+            );
+        }
+
         $permissionsQuery = Permission::query();
         if ($user->company_id) {
             $permissionsQuery->where('company_id', $user->company_id);
@@ -755,10 +770,10 @@ class UserManagementController extends Controller
                 'create_inbox_templates',
                 'module_slug' => 'inbox',
             ],
-            'Viber' => ['view_viber', 'module_slug' => 'viber'],
-            'WhatsApp' => ['view_whatsapp', 'module_slug' => 'whatsapp'],
-            'Facebook & Instagram' => ['view_facebook', 'module_slug' => 'facebook'],
-            'SMS' => ['view_sms', 'send_sms', 'module_slug' => 'sms'],
+            'Viber' => ['view_viber', 'create_message_templates', 'module_slug' => 'viber'],
+            'WhatsApp' => ['view_whatsapp', 'create_message_templates', 'module_slug' => 'whatsapp'],
+            'Facebook & Instagram' => ['view_facebook', 'create_message_templates', 'module_slug' => 'facebook'],
+            'SMS' => ['view_sms', 'send_sms', 'create_message_templates', 'module_slug' => 'sms'],
             'Broadcast Messaging' => [
                 'view_broadcast_messaging',
                 'send_broadcast_sms',

@@ -23,7 +23,7 @@ class AddMessageTemplatesPermissionSeeder extends Seeder
             'name' => 'create_message_templates',
             'slug' => 'create_message_templates',
             'display_name' => 'Add Message Templates',
-            'description' => 'Create, edit, and delete SMS and Facebook reply templates',
+            'description' => 'Create, edit, and delete SMS, Facebook, WhatsApp, and Viber reply templates',
             'category' => 'main',
         ];
 
@@ -44,7 +44,7 @@ class AddMessageTemplatesPermissionSeeder extends Seeder
             $roles = Role::where('company_id', $company->id)->get();
             foreach ($roles as $role) {
                 $hasChannelAccess = $role->permissions()
-                    ->whereIn('slug', ['view_sms', 'view_facebook'])
+                    ->whereIn('slug', ['view_sms', 'view_facebook', 'view_whatsapp', 'view_viber'])
                     ->exists();
                 if ($hasChannelAccess) {
                     $role->permissions()->syncWithoutDetaching([$permission->id]);

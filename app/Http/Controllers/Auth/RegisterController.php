@@ -471,6 +471,13 @@ class RegisterController extends Controller
                 'description' => 'Create, edit, and delete shared inbox templates',
                 'category' => 'main',
             ],
+            'create_message_templates' => [
+                'name' => 'create_message_templates',
+                'slug' => 'create_message_templates',
+                'display_name' => 'Add Message Templates',
+                'description' => 'Create, edit, and delete SMS, Facebook, WhatsApp, and Viber reply templates',
+                'category' => 'main',
+            ],
             'create_inbox_rules' => [
                 'name' => 'create_inbox_rules',
                 'slug' => 'create_inbox_rules',
