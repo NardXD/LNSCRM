@@ -9,6 +9,7 @@ use App\Models\InboxMessage;
 use App\Models\InboxTag;
 use App\Models\InboxTemplate;
 use App\Models\InboxUserSetting;
+use App\Models\InboxConversationUserRead;
 use App\Models\Lead;
 use App\Models\LeadLabel;
 use App\Models\OutlookMailAccount;
@@ -97,7 +98,24 @@ class InboxController extends Controller
         $inboxes = $this->accessibleInboxes($user)
             ->withCount([
                 'conversations as open_count' => fn ($q) => $q->notMerged()->where('folder', 'inbox')->where('status', 'open'),
-                'conversations as unread_count' => fn ($q) => $q->notMerged()->where('folder', 'inbox')->where('status', 'open')->where('is_read', false),
+                'conversations as unread_count' => function ($q) use ($user) {
+                    $q->notMerged()
+                        ->where('folder', 'inbox')
+                        ->where('status', 'open')
+                        ->join('shared_inboxes as si', 'si.id', '=', 'inbox_conversations.shared_inbox_id')
+                        ->leftJoin('inbox_conversation_user_reads as ir', function ($join) use ($user) {
+                            $join->on('ir.inbox_conversation_id', '=', 'inbox_conversations.id')
+                                ->where('ir.user_id', '=', $user->id);
+                        })
+                        ->where(function ($w) {
+                            $w->where('si.type', SharedInbox::TYPE_SHARED)
+                                ->whereRaw('COALESCE(ir.is_read, 0) = 0')
+                                ->orWhere(function ($w2) {
+                                    $w2->where('si.type', '!=', SharedInbox::TYPE_SHARED)
+                                        ->where('inbox_conversations.is_read', false);
+                                });
+                        });
+                },
                 'conversations as archived_count' => fn ($q) => $q->notMerged()->where('folder', 'inbox')->where('status', 'archived')
                     ->where(fn ($q) => $q->whereNull('reopen_at')->orWhere('reopen_at', '<=', now())),
                 'conversations as snoozed_count' => fn ($q) => $q->notMerged()->where('folder', 'inbox')->where('status', 'archived')
@@ -117,7 +135,7 @@ class InboxController extends Controller
 
         $tags = InboxTag::where('company_id', $companyId)
             ->withCount([
-                'conversations as unread_count' => function ($q) use ($inboxIds) {
+                'conversations as unread_count' => function ($q) use ($inboxIds, $user) {
                     if ($inboxIds->isEmpty()) {
                         $q->whereRaw('0 = 1');
 
@@ -127,7 +145,19 @@ class InboxController extends Controller
                         ->whereNull('merged_into_id')
                         ->where('folder', 'inbox')
                         ->where('status', 'open')
-                        ->where('is_read', false);
+                        ->join('shared_inboxes as si', 'si.id', '=', 'inbox_conversations.shared_inbox_id')
+                        ->leftJoin('inbox_conversation_user_reads as ir', function ($join) use ($user) {
+                            $join->on('ir.inbox_conversation_id', '=', 'inbox_conversations.id')
+                                ->where('ir.user_id', '=', $user->id);
+                        })
+                        ->where(function ($w) {
+                            $w->where('si.type', SharedInbox::TYPE_SHARED)
+                                ->whereRaw('COALESCE(ir.is_read, 0) = 0')
+                                ->orWhere(function ($w2) {
+                                    $w2->where('si.type', '!=', SharedInbox::TYPE_SHARED)
+                                        ->where('inbox_conversations.is_read', false);
+                                });
+                        });
                 },
             ])
             ->orderBy('name')
@@ -470,6 +500,20 @@ class InboxController extends Controller
             ->notMerged()
             ->whereIn('shared_inbox_id', $inboxIds);
 
+        // Compute per-user read state for shared inboxes.
+        // - shared inbox: use inbox_conversation_user_reads
+        // - personal inbox: fall back to inbox_conversations.is_read
+        $query->join('shared_inboxes as si', 'si.id', '=', 'inbox_conversations.shared_inbox_id')
+            ->leftJoin('inbox_conversation_user_reads as ir', function ($join) use ($user) {
+                $join->on('ir.inbox_conversation_id', '=', 'inbox_conversations.id')
+                    ->where('ir.user_id', '=', $user->id);
+            })
+            ->select('inbox_conversations.*')
+            ->selectRaw(
+                'CASE WHEN si.type = ? THEN COALESCE(ir.is_read, 0) ELSE inbox_conversations.is_read END as user_is_read',
+                [SharedInbox::TYPE_SHARED]
+            );
+
         // Advanced folder=any searches across all folders; otherwise apply sidebar view
         // or an explicit advanced folder filter.
         if ($folderFilter === 'any') {
@@ -516,7 +560,10 @@ class InboxController extends Controller
         if (isset($validated['is_read']) && $validated['is_read'] !== '') {
             $read = filter_var($validated['is_read'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
             if ($read !== null) {
-                $query->where('is_read', $read);
+                $query->whereRaw(
+                    'CASE WHEN si.type = ? THEN COALESCE(ir.is_read, 0) ELSE inbox_conversations.is_read END = ?',
+                    [SharedInbox::TYPE_SHARED, $read ? 1 : 0]
+                );
             }
         }
 
@@ -582,7 +629,10 @@ class InboxController extends Controller
         $paginator = $query->orderByDesc('last_message_at')->paginate(40);
 
         return response()->json([
-            'conversations' => collect($paginator->items())->map(fn ($c) => $this->formatConversation($c)),
+            'conversations' => collect($paginator->items())->map(function ($c) {
+                $c->is_read = (bool) ($c->user_is_read ?? $c->is_read);
+                return $this->formatConversation($c);
+            }),
             'meta' => [
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),
@@ -726,8 +776,17 @@ class InboxController extends Controller
             $conversation->load('messages');
         }
 
-        if (! $conversation->is_read) {
-            $conversation->update(['is_read' => true]);
+        // Per-user read tracking for shared inboxes.
+        if ($conversation->inbox && $conversation->inbox->type === SharedInbox::TYPE_SHARED) {
+            InboxConversationUserRead::updateOrCreate(
+                ['inbox_conversation_id' => $conversation->id, 'user_id' => $request->user()->id],
+                ['is_read' => true, 'last_read_at' => now()]
+            );
+            $conversation->setAttribute('is_read', true);
+        } else {
+            if (! $conversation->is_read) {
+                $conversation->update(['is_read' => true]);
+            }
         }
         $this->unreadNotifier->markConversationRead(
             $request->user(),
@@ -1076,11 +1135,32 @@ class InboxController extends Controller
             'is_read' => ['required', 'boolean'],
         ]);
 
-        $conversation->is_read = $validated['is_read'];
-        $conversation->save();
+        $conversation->loadMissing('inbox');
+        $isSharedInbox = $conversation->inbox && $conversation->inbox->type === SharedInbox::TYPE_SHARED;
+
+        if ($isSharedInbox) {
+            InboxConversationUserRead::updateOrCreate(
+                [
+                    'inbox_conversation_id' => $conversation->id,
+                    'user_id' => $request->user()->id,
+                ],
+                [
+                    'is_read' => (bool) $validated['is_read'],
+                    'last_read_at' => $validated['is_read'] ? now() : null,
+                ]
+            );
+        } else {
+            $conversation->is_read = (bool) $validated['is_read'];
+            $conversation->save();
+        }
+
+        $fresh = $conversation->fresh(['assignee', 'tags', 'inbox']);
+        if ($isSharedInbox) {
+            $fresh->setAttribute('is_read', (bool) $validated['is_read']);
+        }
 
         return response()->json([
-            'conversation' => $this->formatConversation($conversation->fresh(['assignee', 'tags', 'inbox'])),
+            'conversation' => $this->formatConversation($fresh),
         ]);
     }
 
