@@ -28,7 +28,7 @@
                     </p>
                 </div>
                 <div class="fb-header-actions">
-                    <button type="button" class="fb-icon-btn" id="fbSyncBtn" title="Sync replies sent from Messenger">
+                    <button type="button" class="fb-icon-btn" id="fbSyncBtn" title="Sync Messenger inbox (also auto-syncs every 45s)">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     </button>
                     <button type="button" class="fb-icon-btn" id="fbRefreshBtn" title="Refresh">
@@ -462,19 +462,40 @@
         syncNote: document.getElementById('fbSyncNote'),
     };
     let hasPageToken = false;
+    let syncInFlight = false;
+    let autoSyncTimer = null;
 
     async function api(path, options = {}) {
-        const res = await fetch(apiBase + path, {
-            ...options,
-            headers: {
-                'Accept': 'application/json',
-                'X-CSRF-TOKEN': csrf,
-                ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-                ...(options.headers || {}),
-            },
-        });
+        let res;
+        try {
+            res = await fetch(apiBase + path, {
+                ...options,
+                headers: {
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrf,
+                    ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+                    ...(options.headers || {}),
+                },
+            });
+        } catch (e) {
+            if (e?.name === 'AbortError') {
+                throw new Error('Sync timed out. Newer messages keep coming in via auto-sync; try Sync again or use Last 30 days under Integrations.');
+            }
+            throw new Error(e?.message || 'Could not reach the server.');
+        }
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.message || data.error || 'Request failed');
+        if (!res.ok) {
+            const validation = data.errors
+                ? Object.values(data.errors).flat().filter(Boolean).join(' ')
+                : '';
+            const timeout = [408, 502, 504, 524].includes(res.status);
+            throw new Error(
+                data.message || data.error || validation
+                || (timeout
+                    ? 'Sync timed out. Try again — auto-sync will keep importing recent messages.'
+                    : `Request failed (HTTP ${res.status}).`)
+            );
+        }
         return data;
     }
 
@@ -985,7 +1006,7 @@
     }
 
     async function syncMessengerInbox() {
-        if (!els.syncBtn || els.syncBtn.disabled) return;
+        if (!els.syncBtn || syncInFlight) return;
         if (!hasPageToken) {
             const go = confirm('Add a Facebook Page Access Token under Integrations to import replies sent from Messenger / Page Inbox.\n\nSync Twilio history only?');
             if (!go) {
@@ -993,13 +1014,17 @@
                 return;
             }
         }
+        syncInFlight = true;
         els.syncBtn.disabled = true;
         els.syncBtn.classList.add('is-syncing');
         showSyncNote('Importing Messenger inbox, including replies sent from Facebook…');
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 120000);
         try {
             const data = await api('/sync', {
                 method: 'POST',
-                body: JSON.stringify({ days: 90, limit: 2000 }),
+                body: JSON.stringify({ days: 30, limit: 800 }),
+                signal: controller.signal,
             });
             const result = data.data || {};
             const imported = Number(result.imported || 0);
@@ -1015,7 +1040,7 @@
                 ? `Imported ${imported} message${imported === 1 ? '' : 's'} from Messenger.`
                 : (scanned
                     ? `No new messages. Found ${scanned} already in the CRM.`
-                    : 'No Messenger history found for the last 90 days.');
+                    : 'No Messenger history found for the last 30 days.');
             if (skipped && imported) summary += ` ${skipped} already in CRM.`;
             if (hint) summary += ' ' + hint;
             showSyncNote(summary);
@@ -1025,8 +1050,33 @@
             showSyncNote(e.message || 'Could not sync Messenger inbox.');
             alert(e.message || 'Could not sync Messenger inbox.');
         } finally {
+            clearTimeout(timer);
+            syncInFlight = false;
             els.syncBtn.disabled = false;
             els.syncBtn.classList.remove('is-syncing');
+        }
+    }
+
+    async function autoSyncRecent() {
+        if (!connected || syncInFlight) return;
+        syncInFlight = true;
+        els.syncBtn?.classList.add('is-syncing');
+        try {
+            const data = await api('/sync', {
+                method: 'POST',
+                body: JSON.stringify({ recent: true, minutes: 90 }),
+            });
+            const imported = Number(data.data?.imported || 0);
+            if (imported > 0) {
+                showSyncNote(`Auto-synced ${imported} new message${imported === 1 ? '' : 's'}.`);
+                await loadConversations({ merge: true });
+                if (activeId) await pollActiveMessages();
+            }
+        } catch (e) {
+            console.warn('Facebook auto-sync failed', e);
+        } finally {
+            syncInFlight = false;
+            els.syncBtn?.classList.remove('is-syncing');
         }
     }
 
@@ -1134,6 +1184,10 @@
             if (openId) {
                 await openConversation(openId);
             }
+            autoSyncTimer = setInterval(() => {
+                autoSyncRecent().catch(() => {});
+            }, 45000);
+            setTimeout(() => autoSyncRecent().catch(console.warn), 8000);
             pollTimer = setInterval(async () => {
                 try {
                     await loadConversations({ merge: true });
@@ -1142,6 +1196,10 @@
             }, 5000);
         }
     })();
+    window.addEventListener('beforeunload', () => {
+        if (autoSyncTimer) clearInterval(autoSyncTimer);
+        if (pollTimer) clearInterval(pollTimer);
+    });
 })();
 </script>
 @endsection

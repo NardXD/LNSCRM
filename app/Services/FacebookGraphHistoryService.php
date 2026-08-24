@@ -55,7 +55,7 @@ class FacebookGraphHistoryService
                 continue;
             }
 
-            foreach ($this->conversations($pageId, $accessToken, $platform) as $thread) {
+            foreach ($this->conversations($pageId, $accessToken, $platform, $deadline) as $thread) {
                 if (count($rows) >= $maxMessages || microtime(true) >= $deadline) {
                     break 2;
                 }
@@ -66,7 +66,7 @@ class FacebookGraphHistoryService
                     continue;
                 }
 
-                $thread = $this->enrichThread($thread, $accessToken);
+                $thread = $this->enrichThread($thread, $accessToken, $deadline);
                 $mapped = $this->mapThread($thread, $platform, $ownIds, $after);
                 $this->lastStats['skipped_no_peer'] += $mapped['skipped_no_peer'];
                 foreach ($mapped['rows'] as $row) {
@@ -190,8 +190,12 @@ class FacebookGraphHistoryService
     /**
      * @return \Generator<int, array<string, mixed>>
      */
-    protected function conversations(string $pageId, string $accessToken, string $platform): \Generator
-    {
+    protected function conversations(
+        string $pageId,
+        string $accessToken,
+        string $platform,
+        ?float $deadline = null
+    ): \Generator {
         $pages = 0;
         $next = $this->baseUrl.'/'.$pageId.'/conversations';
         $params = [
@@ -204,6 +208,9 @@ class FacebookGraphHistoryService
         $yielded = false;
 
         while ($next && $pages < 40) {
+            if ($deadline !== null && microtime(true) >= $deadline) {
+                break;
+            }
             $pages++;
             $response = $this->graphGet($next, $params);
             if (! $response['ok']) {
@@ -238,10 +245,14 @@ class FacebookGraphHistoryService
      * @param  array<string, mixed>  $thread
      * @return array<string, mixed>
      */
-    protected function enrichThread(array $thread, string $accessToken): array
+    protected function enrichThread(array $thread, string $accessToken, ?float $deadline = null): array
     {
         $conversationId = (string) ($thread['id'] ?? '');
         if ($conversationId === '') {
+            return $thread;
+        }
+
+        if ($deadline !== null && microtime(true) >= $deadline) {
             return $thread;
         }
 
@@ -269,6 +280,12 @@ class FacebookGraphHistoryService
             if (is_array($stub) && ! empty($stub['id'])) {
                 $ids[] = (string) $stub['id'];
             }
+        }
+
+        if ($deadline !== null && microtime(true) >= $deadline) {
+            $thread['messages'] = ['data' => $stubs];
+
+            return $thread;
         }
 
         $details = $this->messageDetails($ids, $accessToken);
@@ -580,8 +597,8 @@ class FacebookGraphHistoryService
     protected function graphGet(string $url, array $query = []): array
     {
         $response = $query === []
-            ? Http::timeout(20)->get($url)
-            : Http::timeout(20)->get($url, $query);
+            ? Http::timeout(10)->connectTimeout(5)->get($url)
+            : Http::timeout(10)->connectTimeout(5)->get($url, $query);
 
         $payload = $response->json() ?: [];
         if (! $response->successful()) {
@@ -613,7 +630,7 @@ class FacebookGraphHistoryService
      */
     protected function graphGetNode(string $url, array $query = []): array
     {
-        $response = Http::timeout(20)->get($url, $query);
+        $response = Http::timeout(10)->connectTimeout(5)->get($url, $query);
         $payload = $response->json() ?: [];
         if (! $response->successful()) {
             return [

@@ -158,7 +158,9 @@ class FacebookController extends Controller
             }
 
             $twilio = $this->optionalTwilioClient($user->company);
-            $this->facebookSync->ingestRecent($integration, $twilio);
+            // Keep the conversation list snappy — Twilio only here. Graph Page Inbox
+            // replies are pulled by auto-sync / Sync button / facebook:sync-messages.
+            $this->facebookSync->ingestRecent($integration, $twilio, 45, 80, false);
             $this->ensurePageSubscribed($integration);
         } catch (\Throwable $e) {
             Log::warning('Facebook recent message pull failed', ['error' => $e->getMessage()]);
@@ -422,6 +424,8 @@ class FacebookController extends Controller
         $validated = $request->validate([
             'days' => ['nullable', 'integer', 'in:30,90,365,0'],
             'limit' => ['nullable', 'integer', 'min:50', 'max:5000'],
+            'recent' => ['nullable', 'boolean'],
+            'minutes' => ['nullable', 'integer', 'min:5', 'max:180'],
         ]);
 
         $integration = $this->requireActiveIntegration();
@@ -432,14 +436,43 @@ class FacebookController extends Controller
             ], 422);
         }
 
-        @set_time_limit(300);
+        @set_time_limit(180);
+
+        if (! empty($validated['recent'])) {
+            try {
+                $imported = $this->facebookSync->ingestRecent(
+                    $integration,
+                    $twilio,
+                    (int) ($validated['minutes'] ?? 90),
+                    150
+                );
+            } catch (\Throwable $e) {
+                Log::error('Facebook recent sync failed', ['error' => $e->getMessage()]);
+
+                return response()->json([
+                    'message' => $e->getMessage() ?: 'Could not sync recent Messenger messages.',
+                ], 422);
+            }
+
+            return response()->json([
+                'data' => [
+                    'scanned' => $imported,
+                    'imported' => $imported,
+                    'skipped' => 0,
+                    'conversations' => 0,
+                    'days' => 0,
+                    'hint' => null,
+                    'mode' => 'recent',
+                ],
+            ]);
+        }
 
         try {
             $result = $this->facebookSync->sync(
                 $integration,
                 $twilio,
-                (int) ($validated['days'] ?? 90),
-                (int) ($validated['limit'] ?? 2000)
+                (int) ($validated['days'] ?? 30),
+                (int) ($validated['limit'] ?? 800)
             );
         } catch (\Throwable $e) {
             Log::error('Facebook history sync failed', ['error' => $e->getMessage()]);

@@ -64,7 +64,7 @@ class FacebookMessageSyncService
                     $token,
                     $after,
                     min(3000, max(200, $limit)),
-                    90,
+                    55,
                     $this->ownIds($integration),
                     $platforms
                 );
@@ -254,12 +254,17 @@ class FacebookMessageSyncService
     }
 
     /**
-     * Import Messenger / Instagram messages that arrived in Twilio recently.
-     * Used while /facebook is open so new chats appear even if the webhook URL
-     * is set on the Messaging Service instead of the Facebook sender.
+     * Import recent Messenger / Instagram messages (Twilio + optional Page Inbox via Graph).
+     * Used while /facebook is open and by background auto-sync so new chats and
+     * replies sent from Messenger appear without a full history sync.
      */
-    public function ingestRecent(FacebookIntegration $integration, ?TwilioService $twilio, int $minutes = 45, int $limit = 80): int
-    {
+    public function ingestRecent(
+        FacebookIntegration $integration,
+        ?TwilioService $twilio,
+        int $minutes = 45,
+        int $limit = 80,
+        bool $includeGraph = true
+    ): int {
         $after = Carbon::now()->subMinutes(max(5, $minutes));
         $imported = 0;
         $touched = [];
@@ -295,6 +300,31 @@ class FacebookMessageSyncService
 
         foreach ($touched as $conversation) {
             $this->refreshPreview($conversation);
+        }
+
+        if ($includeGraph) {
+            $token = $integration->getDecryptedPageAccessToken();
+            if ($token) {
+                try {
+                    $graph = app(FacebookGraphHistoryService::class);
+                    $platforms = ['messenger'];
+                    if ($integration->instagram_business_account_id) {
+                        $platforms[] = 'instagram';
+                    }
+                    $rows = $graph->history(
+                        (string) $integration->page_id,
+                        $token,
+                        $after,
+                        min(400, max(60, $limit * 3)),
+                        25,
+                        $this->ownIds($integration),
+                        $platforms
+                    );
+                    $imported += $this->importGraphRows($integration, $rows);
+                } catch (\Throwable $e) {
+                    Log::warning('Facebook recent Graph pull failed', ['error' => $e->getMessage()]);
+                }
+            }
         }
 
         return $imported;
