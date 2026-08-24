@@ -479,6 +479,10 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
                 Image
             </button>
+            <button type="button" class="inbox-composer-tool" id="btnTemplateLink" title="Insert link">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                Link
+            </button>
             <input type="file" id="templateAttachInput" multiple hidden>
             <input type="file" id="templateImageInput" accept="image/*" hidden>
         </div>
@@ -489,7 +493,7 @@
                 <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
                 <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
                 <button type="button" data-cmd="insertUnorderedList" title="Bullet list">• List</button>
-                <button type="button" data-cmd="createLink" title="Link">Link</button>
+                <button type="button" data-html-link title="Insert or edit a link on selected text or image">Link</button>
                 <button type="button" data-cmd="removeFormat" title="Clear formatting">Clear</button>
                 <span class="inbox-html-toolbar-spacer"></span>
                 <button type="button" class="is-active" data-html-mode="visual">Visual</button>
@@ -498,7 +502,7 @@
             <div class="inbox-html-visual" id="newTemplateVisual" contenteditable="true" data-placeholder="Write your template…"></div>
             <textarea class="form-input inbox-html-source" id="newTemplateBody" rows="12" hidden placeholder="<p>Hi,</p><p>Thanks for reaching out…</p>"></textarea>
         </div>
-        <p class="inbox-modal-help">Attach files (up to 5, 3 MB each) or insert images inline in Visual mode.</p>
+        <p class="inbox-modal-help">Attach files (up to 5, 3 MB each) or insert images inline in Visual mode. Select text or an image, then click Link to make it clickable.</p>
         <div class="inbox-modal-actions inbox-modal-actions-split">
             <button type="button" class="inbox-btn ghost" id="btnDeleteTemplate" style="display:none;">Delete</button>
             <div class="inbox-modal-actions-right">
@@ -562,7 +566,7 @@
                 <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
                 <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
                 <button type="button" data-cmd="insertUnorderedList" title="Bullet list">• List</button>
-                <button type="button" data-cmd="createLink" title="Link">Link</button>
+                <button type="button" data-html-link title="Insert or edit a link on selected text or image">Link</button>
                 <button type="button" data-cmd="removeFormat" title="Clear formatting">Clear</button>
                 <span class="inbox-html-toolbar-spacer"></span>
                 <button type="button" class="is-active" data-html-mode="visual">Visual</button>
@@ -675,6 +679,27 @@
         </div>
     </div>
 </div>
+
+<div class="inbox-link-dialog-backdrop" id="htmlLinkDialog" hidden>
+    <div class="inbox-link-dialog" role="dialog" aria-modal="true" aria-labelledby="htmlLinkDialogTitle">
+        <h4 id="htmlLinkDialogTitle">Insert link</h4>
+        <p class="inbox-modal-help" id="htmlLinkHint">Add a URL for the selected text or image. Recipients can click it in the email.</p>
+        <label>URL
+            <input type="url" id="htmlLinkUrl" class="form-input" placeholder="https://example.com" autocomplete="off">
+        </label>
+        <label id="htmlLinkTextWrap">Link text
+            <input type="text" id="htmlLinkText" class="form-input" placeholder="Click here" autocomplete="off">
+        </label>
+        <div class="inbox-modal-actions inbox-modal-actions-split">
+            <button type="button" class="inbox-btn ghost" id="btnHtmlLinkRemove" hidden>Remove link</button>
+            <div class="inbox-modal-actions-right">
+                <button type="button" class="inbox-btn ghost" id="btnHtmlLinkCancel">Cancel</button>
+                <button type="button" class="inbox-btn primary" id="btnHtmlLinkApply">Apply</button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="inbox-html-link-tip" id="inboxHtmlLinkTip" hidden></div>
 
 {{-- Sync progress overlay --}}
 <div class="inbox-sync-overlay" id="syncOverlay" hidden>
@@ -1242,6 +1267,46 @@
     max-height: 420px;
 }
 .inbox-html-visual img { max-width: 100%; height: auto; }
+.inbox-html-visual a { color: var(--inbox-accent); text-decoration: underline; }
+.inbox-html-visual a img { outline: 2px solid rgba(47, 111, 237, 0.35); outline-offset: 2px; border-radius: 2px; }
+.inbox-link-dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 120;
+    background: rgba(15, 23, 42, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+.inbox-link-dialog-backdrop[hidden] { display: none !important; }
+.inbox-link-dialog {
+    width: min(420px, 100%);
+    background: #fff;
+    border-radius: 14px;
+    padding: 1.15rem 1.2rem 1.2rem;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.2);
+    display: grid;
+    gap: 0.7rem;
+}
+.inbox-link-dialog h4 { margin: 0; font-size: 1.02rem; }
+.inbox-link-dialog label { display: grid; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; color: #374151; }
+.inbox-link-dialog .form-input { width: 100%; }
+.inbox-html-link-tip {
+    position: fixed;
+    z-index: 140;
+    max-width: min(380px, calc(100vw - 16px));
+    padding: 0.4rem 0.6rem;
+    border-radius: 8px;
+    background: #111827;
+    color: #fff;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.28);
+    pointer-events: none;
+    word-break: break-all;
+}
+.inbox-html-link-tip[hidden] { display: none !important; }
 .inbox-modal-head {
     display: flex;
     align-items: center;
@@ -3083,7 +3148,10 @@ select.inbox-reply-header-input {
     function setHtmlEditorContent(kind, html) {
         const ed = getHtmlEditor(kind);
         const clean = sanitizeHtml(html || '');
-        if (ed.visual) ed.visual.innerHTML = clean;
+        if (ed.visual) {
+            ed.visual.innerHTML = clean;
+            decorateHtmlLinks(ed.visual);
+        }
         if (ed.source) ed.source.value = clean;
     }
 
@@ -3101,7 +3169,10 @@ select.inbox-reply-header-input {
         if (!ed.root) return;
         const visualMode = mode !== 'source';
         if (visualMode) {
-            if (ed.visual && ed.source) ed.visual.innerHTML = sanitizeHtml(ed.source.value);
+            if (ed.visual && ed.source) {
+                ed.visual.innerHTML = sanitizeHtml(ed.source.value);
+                decorateHtmlLinks(ed.visual);
+            }
             if (ed.visual) ed.visual.hidden = false;
             if (ed.source) ed.source.hidden = true;
         } else {
@@ -3130,6 +3201,7 @@ select.inbox-reply-header-input {
         }
         placeCaretAtEnd(target);
         target.focus();
+        decorateHtmlLinks(target);
         return true;
     }
 
@@ -3209,6 +3281,7 @@ select.inbox-reply-header-input {
         if (!node) return;
         const clean = sanitizeHtml(html || '');
         node.innerHTML = clean;
+        decorateHtmlLinks(node);
         // Keep :empty placeholder working when cleared.
         if (!htmlToPlain(clean)) node.innerHTML = '';
     }
@@ -3262,6 +3335,7 @@ select.inbox-reply-header-input {
         if (!sig) {
             if (isComposerEmpty(kind)) setComposerHtml(kind, clean);
             else editor.innerHTML = sanitizeHtml((editor.innerHTML || '') + '<br><br>' + clean);
+            decorateHtmlLinks(editor);
             return;
         }
         const spacer = document.createElement('div');
@@ -3269,6 +3343,7 @@ select.inbox-reply-header-input {
         while (spacer.firstChild) {
             sig.parentNode.insertBefore(spacer.firstChild, sig);
         }
+        decorateHtmlLinks(editor);
     }
 
     function setDefaultSignature(signatureId) {
@@ -3335,6 +3410,234 @@ select.inbox-reply-header-input {
         sel?.removeAllRanges();
         sel?.addRange(saved.range);
         return true;
+    }
+
+    let htmlLinkState = null;
+
+    function normalizeLinkUrl(raw) {
+        const url = String(raw || '').trim();
+        if (!url) return '';
+        if (/^(javascript|data|vbscript):/i.test(url)) return '';
+        if (/^(https?:\/\/|mailto:|tel:|#|\/)/i.test(url)) return url;
+        return 'https://' + url;
+    }
+
+    function captureHtmlEditorRange(kind) {
+        const ed = getHtmlEditor(kind);
+        if (!ed.visual) return null;
+        const sel = window.getSelection();
+        if (sel?.rangeCount && ed.visual.contains(sel.anchorNode)) {
+            return sel.getRangeAt(0).cloneRange();
+        }
+        if (savedHtmlEditorSelection?.kind === kind && savedHtmlEditorSelection.range) {
+            return savedHtmlEditorSelection.range.cloneRange();
+        }
+        const range = document.createRange();
+        range.selectNodeContents(ed.visual);
+        range.collapse(false);
+        return range;
+    }
+
+    function imageFromRange(range, editor) {
+        if (!range || !editor) return null;
+        const root = range.commonAncestorContainer;
+        const el = root.nodeType === 1 ? root : root.parentElement;
+        if (!el || !editor.contains(el)) return null;
+        if (el.tagName === 'IMG') return el;
+        const imgs = [...editor.querySelectorAll('img')].filter((img) => {
+            try { return range.intersectsNode(img); } catch (_) { return false; }
+        });
+        return imgs.length === 1 ? imgs[0] : null;
+    }
+
+    function anchorFromRange(range, editor, preferred) {
+        if (preferred && editor.contains(preferred)) return preferred;
+        if (!range || !editor) return null;
+        let node = range.commonAncestorContainer;
+        if (node.nodeType === 3) node = node.parentElement;
+        const fromAncestor = node?.closest?.('a');
+        if (fromAncestor && editor.contains(fromAncestor)) return fromAncestor;
+        const img = imageFromRange(range, editor);
+        const fromImg = img?.closest('a');
+        return fromImg && editor.contains(fromImg) ? fromImg : null;
+    }
+
+    function configureLinkAnchor(anchor, url) {
+        anchor.setAttribute('href', url);
+        anchor.setAttribute('target', '_blank');
+        anchor.setAttribute('rel', 'noopener noreferrer');
+        anchor.setAttribute('title', url);
+    }
+
+    function decorateHtmlLinks(root) {
+        if (!root) return;
+        root.querySelectorAll('a[href]').forEach((anchor) => {
+            const href = anchor.getAttribute('href') || '';
+            if (href && !anchor.getAttribute('title')) {
+                anchor.setAttribute('title', href);
+            }
+        });
+    }
+
+    function hideHtmlLinkTip() {
+        const tip = el('inboxHtmlLinkTip');
+        if (tip) tip.hidden = true;
+    }
+
+    function showHtmlLinkTip(anchor) {
+        const tip = el('inboxHtmlLinkTip');
+        const href = String(anchor?.getAttribute('href') || '').trim();
+        if (!tip || !href || href === '#') return;
+        tip.textContent = href;
+        tip.hidden = false;
+        const rect = anchor.getBoundingClientRect();
+        const margin = 8;
+        const tipWidth = Math.min(380, window.innerWidth - 16);
+        tip.style.maxWidth = `${tipWidth}px`;
+        let left = rect.left;
+        let top = rect.bottom + 6;
+        const size = tip.getBoundingClientRect();
+        if (left + size.width > window.innerWidth - margin) {
+            left = Math.max(margin, window.innerWidth - size.width - margin);
+        }
+        if (left < margin) left = margin;
+        if (top + size.height > window.innerHeight - margin) {
+            top = Math.max(margin, rect.top - size.height - 6);
+        }
+        tip.style.left = `${left}px`;
+        tip.style.top = `${top}px`;
+    }
+
+    function bindHtmlLinkHover(root) {
+        if (!root || root.dataset.linkHoverBound === '1') return;
+        root.dataset.linkHoverBound = '1';
+        root.addEventListener('mouseover', (e) => {
+            const anchor = e.target.closest('a[href]');
+            if (!anchor || !root.contains(anchor)) return;
+            showHtmlLinkTip(anchor);
+        });
+        root.addEventListener('mouseout', (e) => {
+            const anchor = e.target.closest('a[href]');
+            if (!anchor || !root.contains(anchor)) return;
+            if (e.relatedTarget && anchor.contains(e.relatedTarget)) return;
+            hideHtmlLinkTip();
+        });
+        root.addEventListener('scroll', hideHtmlLinkTip, true);
+    }
+
+    function closeHtmlLinkDialog() {
+        hideHtmlLinkTip();
+        const dialog = el('htmlLinkDialog');
+        if (dialog) dialog.hidden = true;
+        htmlLinkState = null;
+    }
+
+    function openHtmlLinkDialog(kind, preferredAnchor = null) {
+        const ed = getHtmlEditor(kind);
+        if (!ed.visual) return;
+        if (ed.source && !ed.source.hidden) {
+            alert('Switch to Visual mode to insert links, or paste an <a href="..."> tag in HTML mode.');
+            return;
+        }
+        const range = captureHtmlEditorRange(kind);
+        const img = imageFromRange(range, ed.visual);
+        const existing = anchorFromRange(range, ed.visual, preferredAnchor);
+        const selectedText = String(range?.toString() || '').trim();
+        htmlLinkState = { kind, range, img, existing };
+        el('htmlLinkDialogTitle').textContent = existing ? 'Edit link' : 'Insert link';
+        el('htmlLinkHint').textContent = img && !selectedText
+            ? 'This image will become a clickable link in the email.'
+            : 'Recipients can click the selected text or image in the email.';
+        el('htmlLinkUrl').value = existing?.getAttribute('href') || 'https://';
+        const textWrap = el('htmlLinkTextWrap');
+        const showText = !existing && !img && !selectedText;
+        if (textWrap) textWrap.hidden = !showText;
+        el('htmlLinkText').value = selectedText;
+        const removeBtn = el('btnHtmlLinkRemove');
+        if (removeBtn) removeBtn.hidden = !existing;
+        const dialog = el('htmlLinkDialog');
+        if (dialog) dialog.hidden = false;
+        setTimeout(() => {
+            el('htmlLinkUrl')?.focus();
+            el('htmlLinkUrl')?.select();
+        }, 0);
+    }
+
+    function unwrapAnchor(anchor) {
+        const parent = anchor.parentNode;
+        if (!parent) return;
+        while (anchor.firstChild) parent.insertBefore(anchor.firstChild, anchor);
+        parent.removeChild(anchor);
+    }
+
+    function applyHtmlLink() {
+        if (!htmlLinkState) return;
+        const { kind, range, img, existing } = htmlLinkState;
+        const ed = getHtmlEditor(kind);
+        if (!ed.visual || !range) return;
+        const url = normalizeLinkUrl(el('htmlLinkUrl')?.value);
+        if (!url) {
+            alert('Enter a valid URL, such as https://example.com');
+            return;
+        }
+        const linkText = String(el('htmlLinkText')?.value || '').trim() || url.replace(/^https?:\/\//i, '');
+        ed.visual.focus();
+        try {
+            const sel = window.getSelection();
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+        } catch (_) {}
+
+        if (existing && ed.visual.contains(existing)) {
+            configureLinkAnchor(existing, url);
+        } else if (img && ed.visual.contains(img)) {
+            const parentLink = img.closest('a');
+            if (parentLink && ed.visual.contains(parentLink)) {
+                configureLinkAnchor(parentLink, url);
+            } else {
+                const a = document.createElement('a');
+                configureLinkAnchor(a, url);
+                img.parentNode.insertBefore(a, img);
+                a.appendChild(img);
+            }
+        } else if (range.collapsed) {
+            const a = document.createElement('a');
+            configureLinkAnchor(a, url);
+            a.textContent = linkText;
+            range.insertNode(a);
+        } else {
+            const a = document.createElement('a');
+            configureLinkAnchor(a, url);
+            try {
+                a.appendChild(range.extractContents());
+                range.insertNode(a);
+            } catch (_) {
+                document.execCommand('createLink', false, url);
+                ed.visual.querySelectorAll('a[href]').forEach((node) => {
+                    if (!node.getAttribute('target')) configureLinkAnchor(node, node.getAttribute('href') || url);
+                });
+            }
+        }
+        if (ed.source) ed.source.value = sanitizeHtml(ed.visual.innerHTML || '');
+        decorateHtmlLinks(ed.visual);
+        closeHtmlLinkDialog();
+    }
+
+    function removeHtmlLink() {
+        if (!htmlLinkState?.existing) {
+            closeHtmlLinkDialog();
+            return;
+        }
+        const ed = getHtmlEditor(htmlLinkState.kind);
+        if (ed.visual?.contains(htmlLinkState.existing)) {
+            unwrapAnchor(htmlLinkState.existing);
+            if (ed.source) ed.source.value = sanitizeHtml(ed.visual.innerHTML || '');
+        }
+        closeHtmlLinkDialog();
+    }
+
+    function templateHasBody(html) {
+        return Boolean(htmlToPlain(html) || /<img\b/i.test(String(html || '')));
     }
 
     function insertHtmlAtCaret(editor, html) {
@@ -4226,6 +4529,7 @@ select.inbox-reply-header-input {
             return;
         }
         el('modalBackdrop').style.display = 'none';
+        closeHtmlLinkDialog();
         state.advancedOpen = false;
         updateAdvancedToggleState();
         state.editingTemplateId = null;
@@ -7413,6 +7717,11 @@ select.inbox-reply-header-input {
 
     document.querySelectorAll('[data-html-editor]').forEach(editor => {
         const kind = editor.dataset.htmlEditor;
+        editor.addEventListener('mousedown', (e) => {
+            if (e.target.closest('[data-html-link], [data-cmd]')) {
+                saveHtmlEditorSelection(kind);
+            }
+        });
         editor.addEventListener('click', (e) => {
             const modeBtn = e.target.closest('[data-html-mode]');
             if (modeBtn) {
@@ -7421,6 +7730,12 @@ select.inbox-reply-header-input {
                 return;
             }
             const cmdBtn = e.target.closest('[data-cmd]');
+            const linkBtn = e.target.closest('[data-html-link]');
+            if (linkBtn) {
+                e.preventDefault();
+                openHtmlLinkDialog(kind);
+                return;
+            }
             if (!cmdBtn) return;
             e.preventDefault();
             const ed = getHtmlEditor(kind);
@@ -7431,8 +7746,7 @@ select.inbox-reply-header-input {
             ed.visual?.focus();
             const cmd = cmdBtn.dataset.cmd;
             if (cmd === 'createLink') {
-                const url = prompt('Link URL', 'https://');
-                if (url) document.execCommand('createLink', false, url);
+                openHtmlLinkDialog(kind);
             } else {
                 document.execCommand(cmd, false, null);
             }
@@ -7445,8 +7759,55 @@ select.inbox-reply-header-input {
                 ed.source.value = sanitizeHtml(ed.visual.innerHTML);
             }
         });
+        edVisualClick(editor, kind);
+        bindHtmlLinkHover(editor.querySelector('.inbox-html-visual'));
     });
 
+    function edVisualClick(editor, kind) {
+        editor.querySelector('.inbox-html-visual')?.addEventListener('click', (e) => {
+            const visual = e.currentTarget;
+            const img = e.target.closest('img');
+            if (img && visual.contains(img)) {
+                const range = document.createRange();
+                range.selectNode(img);
+                const sel = window.getSelection();
+                sel?.removeAllRanges();
+                sel?.addRange(range);
+                saveHtmlEditorSelection(kind);
+            }
+            const link = e.target.closest('a');
+            if (link && visual.contains(link)) {
+                e.preventDefault();
+            }
+        });
+    }
+
+    el('btnHtmlLinkApply')?.addEventListener('click', applyHtmlLink);
+    el('btnHtmlLinkCancel')?.addEventListener('click', closeHtmlLinkDialog);
+    el('btnHtmlLinkRemove')?.addEventListener('click', removeHtmlLink);
+    el('htmlLinkDialog')?.addEventListener('click', (e) => {
+        if (e.target === el('htmlLinkDialog')) closeHtmlLinkDialog();
+    });
+    el('htmlLinkUrl')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            applyHtmlLink();
+        }
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeHtmlLinkDialog();
+        }
+    });
+    el('htmlLinkText')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            applyHtmlLink();
+        }
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeHtmlLinkDialog();
+        }
+    });
     el('btnTemplateAttach')?.addEventListener('click', () => el('templateAttachInput')?.click());
     el('templateAttachInput')?.addEventListener('change', async (e) => {
         await addAttachments('template', e.target.files);
@@ -7464,6 +7825,8 @@ select.inbox-reply-header-input {
     });
     el('btnTemplateImage')?.addEventListener('mousedown', () => saveHtmlEditorSelection('template'));
     el('btnTemplateImage')?.addEventListener('click', () => el('templateImageInput')?.click());
+    el('btnTemplateLink')?.addEventListener('mousedown', () => saveHtmlEditorSelection('template'));
+    el('btnTemplateLink')?.addEventListener('click', () => openHtmlLinkDialog('template'));
     el('templateImageInput')?.addEventListener('change', async (e) => {
         const file = e.target.files?.[0];
         e.target.value = '';
@@ -7484,7 +7847,7 @@ select.inbox-reply-header-input {
         }
         const name = el('newTemplateName').value.trim();
         const bodyHtml = getHtmlEditorContent('template');
-        if (!name || !htmlToPlain(bodyHtml)) {
+        if (!name || !templateHasBody(bodyHtml)) {
             alert('Name and body are required.');
             return;
         }
@@ -7845,6 +8208,9 @@ select.inbox-reply-header-input {
     bindComposerExtras('comment');
     bindComposerExtras('reply');
     bindComposerExtras('compose');
+    bindHtmlLinkHover(el('commentBody'));
+    bindHtmlLinkHover(el('replyBody'));
+    bindHtmlLinkHover(el('composeBody'));
     setComposerMode('comment');
     window.addEventListener('resize', syncOpenTemplatePickerPosition);
     document.addEventListener('scroll', syncOpenTemplatePickerPosition, true);
@@ -7853,6 +8219,11 @@ select.inbox-reply-header-input {
     });
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
+            if (el('htmlLinkDialog') && !el('htmlLinkDialog').hidden) {
+                e.preventDefault();
+                closeHtmlLinkDialog();
+                return;
+            }
             closeTemplatePickers();
             if (state.checkedIds.length) clearCheckedConversations();
             if (el('modalBackdrop')?.style.display === 'flex') {

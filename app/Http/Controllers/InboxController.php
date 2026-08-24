@@ -2283,9 +2283,7 @@ class InboxController extends Controller
         if (! $bodyHtml && $bodyText) {
             $bodyHtml = nl2br(e($bodyText));
         }
-        if (! $bodyText && $bodyHtml) {
-            $bodyText = trim(strip_tags($bodyHtml));
-        }
+        $bodyText = $this->templatePlainText($bodyText, $bodyHtml);
         if (! $bodyText) {
             return response()->json(['message' => 'Template body is required.'], 422);
         }
@@ -2342,9 +2340,7 @@ class InboxController extends Controller
         if (! $bodyHtml && $bodyText) {
             $bodyHtml = nl2br(e($bodyText));
         }
-        if (! $bodyText && $bodyHtml) {
-            $bodyText = trim(strip_tags($bodyHtml));
-        }
+        $bodyText = $this->templatePlainText($bodyText, $bodyHtml);
         if (! $bodyText) {
             return response()->json(['message' => 'Template body is required.'], 422);
         }
@@ -2419,9 +2415,7 @@ class InboxController extends Controller
             if (! $bodyHtml && $bodyText) {
                 $bodyHtml = nl2br(e($bodyText));
             }
-            if (! $bodyText && $bodyHtml) {
-                $bodyText = trim(strip_tags($bodyHtml));
-            }
+            $bodyText = $this->templatePlainText($bodyText, $bodyHtml);
             if (! $bodyText) {
                 continue;
             }
@@ -2511,6 +2505,25 @@ class InboxController extends Controller
         }
 
         return $normalized;
+    }
+
+    private function templatePlainText(?string $bodyText, ?string $bodyHtml): ?string
+    {
+        $text = trim((string) $bodyText);
+        if ($text !== '') {
+            return $text;
+        }
+        if ($bodyHtml) {
+            $text = trim(strip_tags($bodyHtml));
+            if ($text !== '') {
+                return $text;
+            }
+            if (preg_match('/<img\b/i', $bodyHtml)) {
+                return '(image)';
+            }
+        }
+
+        return null;
     }
 
     /**
