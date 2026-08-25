@@ -6036,7 +6036,10 @@ select.inbox-reply-header-input {
         if (!to.length) {
             to = parseEmailList(state.conversation?.from_email).filter(notMe);
         }
-        return { to: [...new Set(to)], cc: [] };
+        to = [...new Set(to)];
+        const toSet = new Set(to);
+        const cc = [...new Set(ccList.filter(notMe).filter(email => !toSet.has(email)))];
+        return { to, cc };
     }
 
     function populateReplyHeaders(message = null, { replyAll = false, force = false } = {}) {
