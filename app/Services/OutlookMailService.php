@@ -461,9 +461,16 @@ class OutlookMailService
 
         $externalMessageId = $this->truncate($msg['id'] ?? null, 512);
         if ($externalMessageId) {
-            $existing = InboxMessage::where('inbox_conversation_id', $conversation->id)
+            $messageHome = $this->messageHomeConversation($inbox, $conversation, $folder, $conversationId);
+            $existing = InboxMessage::where('inbox_conversation_id', $messageHome->id)
                 ->where('external_message_id', $externalMessageId)
                 ->first();
+
+            if (! $existing && (int) $messageHome->id !== (int) $conversation->id) {
+                $existing = InboxMessage::where('inbox_conversation_id', $conversation->id)
+                    ->where('external_message_id', $externalMessageId)
+                    ->first();
+            }
 
             if ($existing) {
                 // Correct timezone drift from earlier syncs (Graph UTC stored as local wall-clock).
@@ -501,8 +508,32 @@ class OutlookMailService
                 $fromName = $fromName ?: $fromEmail;
             }
 
+            $localOutbound = $this->matchingLocalOutbound($messageHome->id, $receivedAt);
+            if ($localOutbound) {
+                $localOutbound->external_message_id = $externalMessageId;
+                if ($toEmails) {
+                    $localOutbound->to_emails = $toEmails;
+                }
+                if ($ccEmails) {
+                    $localOutbound->cc_emails = $ccEmails;
+                }
+                if ($replyToEmails !== null) {
+                    $localOutbound->reply_to_emails = $replyToEmails;
+                }
+                if (blank($localOutbound->body_html) && $safeHtml) {
+                    $localOutbound->body_html = $safeHtml;
+                    $localOutbound->body_text = $bodyText;
+                }
+                if (! $localOutbound->sent_at || ! $localOutbound->sent_at->equalTo($receivedAt)) {
+                    $localOutbound->sent_at = $receivedAt;
+                }
+                $localOutbound->save();
+
+                return false;
+            }
+
             InboxMessage::create([
-                'inbox_conversation_id' => $conversation->id,
+                'inbox_conversation_id' => $messageHome->id,
                 'source_conversation_id' => $sourceConversationId,
                 'external_message_id' => $externalMessageId,
                 'direction' => ($msg['isDraft'] ?? false) ? 'outbound' : $direction,
@@ -520,6 +551,14 @@ class OutlookMailService
 
             $conversation->message_count = $conversation->messages()->count();
             $conversation->save();
+            if ((int) $messageHome->id !== (int) $conversation->id) {
+                if (! $messageHome->last_message_at || $receivedAt->gt($messageHome->last_message_at)) {
+                    $messageHome->last_message_at = $receivedAt;
+                    $messageHome->snippet = EmailQuotedHistory::snippet($safeHtml, $bodyText ?: ($msg['bodyPreview'] ?? ''));
+                }
+                $messageHome->message_count = $messageHome->messages()->count();
+                $messageHome->save();
+            }
 
             $messageDirection = ($msg['isDraft'] ?? false) ? 'outbound' : $direction;
             if ($folder === 'inbox' && $messageDirection === 'inbound' && $inbox->type === SharedInbox::TYPE_SHARED) {
@@ -566,6 +605,40 @@ class OutlookMailService
         }
 
         return $isNew;
+    }
+
+    private function messageHomeConversation(
+        SharedInbox $inbox,
+        InboxConversation $folderConversation,
+        string $folder,
+        string $graphConversationId
+    ): InboxConversation {
+        if (! in_array($folder, ['sent', 'drafts'], true) || $graphConversationId === '') {
+            return $folderConversation;
+        }
+
+        $inboxThread = InboxConversation::query()
+            ->where('shared_inbox_id', $inbox->id)
+            ->where('folder', 'inbox')
+            ->where('external_conversation_id', $graphConversationId)
+            ->whereNull('merged_into_id')
+            ->first();
+
+        return $inboxThread ?: $folderConversation;
+    }
+
+    private function matchingLocalOutbound(int $conversationId, Carbon $receivedAt): ?InboxMessage
+    {
+        return InboxMessage::query()
+            ->where('inbox_conversation_id', $conversationId)
+            ->where('direction', 'outbound')
+            ->where('external_message_id', 'like', 'local-%')
+            ->whereBetween('sent_at', [
+                $receivedAt->copy()->subMinutes(15),
+                $receivedAt->copy()->addMinutes(15),
+            ])
+            ->orderByDesc('id')
+            ->first();
     }
 
     /**

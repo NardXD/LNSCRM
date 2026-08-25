@@ -94,6 +94,27 @@ class InboxConversation extends Model
         return $this->hasMany(InboxMessage::class)->orderBy('sent_at');
     }
 
+    /**
+     * Same Outlook conversation across folders (inbox + sent, etc.).
+     *
+     * @return \Illuminate\Support\Collection<int, static>
+     */
+    public function relatedFolderConversations()
+    {
+        if (! $this->external_conversation_id) {
+            return self::query()->whereKey($this->id)->get();
+        }
+
+        return self::query()
+            ->where('shared_inbox_id', $this->shared_inbox_id)
+            ->where('external_conversation_id', $this->external_conversation_id)
+            ->where(function ($q) {
+                $q->whereNull('merged_into_id')->orWhere('id', $this->id);
+            })
+            ->orderBy('id')
+            ->get();
+    }
+
     public function comments(): HasMany
     {
         return $this->hasMany(InboxConversationComment::class)->orderBy('created_at');

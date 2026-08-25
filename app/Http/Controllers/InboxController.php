@@ -771,13 +771,20 @@ class InboxController extends Controller
             'userReads',
         ]);
 
+        $relatedConversations = $conversation->relatedFolderConversations();
         if ($conversation->inbox) {
-            $this->mailService->hydrateConversationBodies(
-                $conversation->inbox,
-                $conversation
-            );
-            $conversation->load('messages');
+            foreach ($relatedConversations as $related) {
+                $this->mailService->hydrateConversationBodies(
+                    $conversation->inbox,
+                    $related
+                );
+            }
         }
+        $relatedConversations->load('messages');
+        $conversation->setRelation(
+            'messages',
+            $this->dedupeThreadMessages($relatedConversations->flatMap->messages)
+        );
 
         // Per-user read tracking for shared inboxes.
         // Only bump last_read_at when the member first reads (or re-reads after unread),
@@ -2751,6 +2758,54 @@ class InboxController extends Controller
         }
 
         return EmailQuotedHistory::snippet($html, $text);
+    }
+
+    /**
+     * @param  Collection<int, InboxMessage>  $messages
+     * @return Collection<int, InboxMessage>
+     */
+    private function dedupeThreadMessages(Collection $messages): Collection
+    {
+        $sorted = $messages->sortBy([
+            ['sent_at', 'asc'],
+            ['id', 'asc'],
+        ])->values();
+
+        $seenExternal = [];
+        $unique = $sorted->filter(function (InboxMessage $message) use (&$seenExternal) {
+            $externalId = (string) ($message->external_message_id ?? '');
+            if ($externalId === '' || str_starts_with($externalId, 'local-')) {
+                return true;
+            }
+            if (isset($seenExternal[$externalId])) {
+                return false;
+            }
+            $seenExternal[$externalId] = true;
+
+            return true;
+        })->values();
+
+        return $unique->filter(function (InboxMessage $message) use ($unique) {
+            $externalId = (string) ($message->external_message_id ?? '');
+            if ($message->direction !== 'outbound' || ! str_starts_with($externalId, 'local-')) {
+                return true;
+            }
+
+            return ! $unique->contains(function (InboxMessage $other) use ($message) {
+                if ((int) $other->id === (int) $message->id || $other->direction !== 'outbound') {
+                    return false;
+                }
+                $otherId = (string) ($other->external_message_id ?? '');
+                if ($otherId === '' || str_starts_with($otherId, 'local-')) {
+                    return false;
+                }
+                if (! $message->sent_at || ! $other->sent_at) {
+                    return false;
+                }
+
+                return abs($message->sent_at->diffInSeconds($other->sent_at)) <= 900;
+            });
+        })->values();
     }
 
     /**
