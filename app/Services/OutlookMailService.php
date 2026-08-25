@@ -8,6 +8,7 @@ use App\Models\InboxMessage;
 use App\Models\OutlookMailAccount;
 use App\Models\SharedInbox;
 use App\Notifications\InboxMessageNotification;
+use App\Support\EmailQuotedHistory;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -442,11 +443,11 @@ class OutlookMailService
 
             $conversation->folder = $folder;
             $conversation->subject = $subject;
-            $conversation->snippet = mb_substr($msg['bodyPreview'] ?? '', 0, 500);
+            $conversation->snippet = EmailQuotedHistory::snippet(null, $msg['bodyPreview'] ?? '');
             $conversation->from_name = $fromName;
             $conversation->from_email = $fromEmail;
         } else {
-            $conversation->snippet = mb_substr($msg['bodyPreview'] ?? '', 0, 500) ?: $conversation->snippet;
+            $conversation->snippet = EmailQuotedHistory::snippet(null, $msg['bodyPreview'] ?? '') ?: $conversation->snippet;
         }
 
         if (! $conversation->last_message_at || $receivedAt->gt($conversation->last_message_at)) {
@@ -693,6 +694,15 @@ class OutlookMailService
 
             if ($message->isDirty()) {
                 $message->save();
+            }
+        }
+
+        $latest = $conversation->messages()->orderByDesc('sent_at')->orderByDesc('id')->first();
+        if ($latest) {
+            $snippet = EmailQuotedHistory::snippet($latest->body_html, $latest->body_text ?: $conversation->snippet);
+            if ($snippet !== (string) $conversation->snippet) {
+                $conversation->snippet = $snippet;
+                $conversation->save();
             }
         }
 

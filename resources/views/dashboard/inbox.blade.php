@@ -3063,12 +3063,174 @@ select.inbox-reply-header-input {
         }
     }
 
+    const EMAIL_QUOTE_SELECTORS = [
+        '.gmail_quote',
+        '.gmail_quote_container',
+        '.gmail_extra',
+        '.gmail_attr',
+        '#divRplyFwdMsg',
+        '#x_divRplyFwdMsg',
+        '[id$="divRplyFwdMsg"]',
+        '#appendonsend',
+        '[id$="appendonsend"]',
+        '#OLK_SRC_BODY_SECTION',
+        '.OutlookMessageHeader',
+        'blockquote.gmail_quote',
+        'blockquote[type="cite"]',
+        '.moz-cite-prefix',
+        '#yahoo_quoted',
+        '.yahoo_quoted',
+        '.protonmail_quote',
+    ].join(',');
+
+    function emailNodeMeaningfulText(node) {
+        if (!node) return '';
+        if (node.nodeType === Node.TEXT_NODE) return String(node.textContent || '').replace(/\s+/g, ' ').trim();
+        if (node.nodeType !== Node.ELEMENT_NODE) return '';
+        const clone = node.cloneNode(true);
+        clone.querySelectorAll('style,script').forEach(n => n.remove());
+        return String(clone.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function looksLikeQuotedReplyHeader(text) {
+        const t = String(text || '').replace(/\s+/g, ' ').trim();
+        if (!t) return false;
+        if (/^-----Original Message-----/i.test(t)) return true;
+        if (/^-----Forwarded message-----/i.test(t)) return true;
+        if (/^_{8,}/.test(t)) return true;
+        if (/^On .{8,160} wrote:\s*$/i.test(t)) return true;
+        if (/^(From|Van|De|Von|Da)\s*:/i.test(t) && /(Sent|Date|Verzonden|To|À|An|Subject|Onderwerp)\s*:/i.test(t)) return true;
+        return false;
+    }
+
+    function isEmailQuoteStartNode(node) {
+        if (!node) return false;
+        if (node.nodeType === Node.TEXT_NODE) {
+            return looksLikeQuotedReplyHeader(node.textContent);
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) return false;
+        if (node.matches?.(EMAIL_QUOTE_SELECTORS)) return true;
+        const tag = node.tagName.toLowerCase();
+        if (tag === 'hr') {
+            let next = node.nextSibling;
+            while (next && ((next.nodeType === Node.TEXT_NODE && !String(next.textContent || '').trim()) || next.nodeType === Node.COMMENT_NODE)) {
+                next = next.nextSibling;
+            }
+            if (next && looksLikeQuotedReplyHeader(emailNodeMeaningfulText(next).slice(0, 500))) return true;
+        }
+        const own = emailNodeMeaningfulText(node);
+        if (own && own.length < 800 && looksLikeQuotedReplyHeader(own)) return true;
+        return false;
+    }
+
+    function isEmptyQuoteBoundary(node) {
+        if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+        if (!node.matches?.('#appendonsend, [id$="appendonsend"]')) return false;
+        return !emailNodeMeaningfulText(node) && !node.querySelector?.('img');
+    }
+
+    function findEmailQuoteStart(root) {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+        let sawReplyText = false;
+        let node = walker.nextNode();
+        while (node) {
+            if (isEmptyQuoteBoundary(node)) {
+                if (sawReplyText) return node;
+                node = walker.nextNode();
+                continue;
+            }
+            if (isEmailQuoteStartNode(node)) {
+                return sawReplyText ? node : null;
+            }
+            const text = node.nodeType === Node.TEXT_NODE
+                ? String(node.textContent || '').replace(/\s+/g, ' ').trim()
+                : '';
+            if (text) sawReplyText = true;
+            node = walker.nextNode();
+        }
+        return null;
+    }
+
+    function removeNodeAndFollowingSiblings(node) {
+        let current = node;
+        while (current) {
+            const next = current.nextSibling;
+            current.remove();
+            current = next;
+        }
+    }
+
+    function trimTrailingEmailChrome(root) {
+        while (root.lastChild) {
+            const last = root.lastChild;
+            if (last.nodeType === Node.COMMENT_NODE) {
+                last.remove();
+                continue;
+            }
+            if (last.nodeType === Node.TEXT_NODE && !String(last.textContent || '').trim()) {
+                last.remove();
+                continue;
+            }
+            if (last.nodeType === Node.ELEMENT_NODE) {
+                const tag = last.tagName.toLowerCase();
+                if (tag === 'br' || tag === 'hr') {
+                    last.remove();
+                    continue;
+                }
+                const empty = !emailNodeMeaningfulText(last) && !last.querySelector?.('img');
+                if (empty) {
+                    last.remove();
+                    continue;
+                }
+            }
+            break;
+        }
+    }
+
+    function stripQuotedEmailHistoryHtml(html) {
+        const source = String(html || '').trim();
+        if (!source) return '';
+        const wrap = document.createElement('div');
+        wrap.innerHTML = source;
+        const quoteStart = findEmailQuoteStart(wrap);
+        if (quoteStart) {
+            let parent = quoteStart.parentNode;
+            removeNodeAndFollowingSiblings(quoteStart);
+            while (parent && parent !== wrap && !emailNodeMeaningfulText(parent) && !parent.querySelector?.('img')) {
+                const nextParent = parent.parentNode;
+                parent.remove();
+                parent = nextParent;
+            }
+        }
+        trimTrailingEmailChrome(wrap);
+        const result = wrap.innerHTML.trim();
+        return emailNodeMeaningfulText(wrap) || wrap.querySelector('img') ? result : source;
+    }
+
+    function stripQuotedEmailHistoryPlain(text) {
+        const source = String(text || '');
+        if (!source.trim()) return source;
+        const cut = source.search(new RegExp(
+            '(?:\\r?\\n)(?:\\s*)(?:'
+            + '-----Original Message-----'
+            + '|-----Forwarded message-----'
+            + '|From:\\s.+\\r?\\nSent:\\s'
+            + '|On .{8,160} wrote:\\s*$'
+            + '|________________________________'
+            + ')',
+            'im'
+        ));
+        if (cut <= 0) return source;
+        const kept = source.slice(0, cut).trim();
+        return kept || source;
+    }
+
     function mountEmailBody(host, message) {
         if (!host) return;
 
         try {
             const rawHtml = String(message?.body_html || '').trim();
-            const plain = String(message?.body_text || '').trim();
+            const plain = stripQuotedEmailHistoryPlain(String(message?.body_text || '').trim());
 
             host.classList.remove('is-framed');
             host.innerHTML = '';
@@ -3079,7 +3241,7 @@ select.inbox-reply-header-input {
             }
 
             const parts = extractEmailDocumentParts(rawHtml);
-            const bodyHtml = parts.body || sanitizeHtml(decodeEscapedHtml(rawHtml));
+            const bodyHtml = stripQuotedEmailHistoryHtml(parts.body || sanitizeHtml(decodeEscapedHtml(rawHtml)));
             if (!bodyHtml) {
                 host.innerHTML = plainToHtml(plain) || '<span style="color:var(--inbox-muted)">No content</span>';
                 return;
@@ -5211,6 +5373,19 @@ select.inbox-reply-header-input {
         return `<a class="chp-link" href="${escapeHtml(lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>`;
     }
 
+    function conversationSnippetText(c) {
+        const selected = state.conversation;
+        const messages = (selected && Number(selected.id) === Number(c?.id) && Array.isArray(selected.messages))
+            ? selected.messages
+            : (c?.messages || []);
+        if (messages.length) {
+            const last = [...messages].sort((a, b) => String(a.sent_at || '').localeCompare(String(b.sent_at || ''))).at(-1);
+            const preview = messagePreviewText(last);
+            if (preview) return preview;
+        }
+        return stripQuotedEmailHistoryPlain(String(c?.snippet || '')).replace(/\s+/g, ' ').trim();
+    }
+
     function conversationRowHtml(c) {
         const at = c.last_message_at || '';
         return `
@@ -5221,7 +5396,7 @@ select.inbox-reply-header-input {
                 </div>
                 <div class="inbox-conv-from">${escapeHtml(c.from_name || c.from_email || 'Unknown')}</div>
                 <div class="inbox-conv-subject">${escapeHtml(c.subject || '(No subject)')}</div>
-                <div class="inbox-conv-snippet">${escapeHtml(c.snippet || '')}</div>
+                <div class="inbox-conv-snippet">${escapeHtml(conversationSnippetText(c))}</div>
                 <div class="inbox-conv-tags">
                     ${conversationTagItems(c).map(t => `<span class="inbox-pill" style="background:${t.color}22;color:${t.color}">${escapeHtml(t.name)}</span>`).join('')}
                     ${conversationAssignee(c)?.name ? `<span class="inbox-pill">${escapeHtml(conversationAssignee(c).name)}</span>` : ''}
@@ -5612,7 +5787,11 @@ select.inbox-reply-header-input {
     }
 
     function messagePreviewText(m) {
-        return String(m?.body_text || htmlToPlain(m?.body_html || '') || '').replace(/\s+/g, ' ').trim();
+        const html = String(m?.body_html || '').trim();
+        const source = html
+            ? htmlToPlain(stripQuotedEmailHistoryHtml(html))
+            : stripQuotedEmailHistoryPlain(String(m?.body_text || ''));
+        return source.replace(/\s+/g, ' ').trim();
     }
 
     function collectParticipants(c) {
@@ -6174,6 +6353,13 @@ select.inbox-reply-header-input {
                 </div>
             `).join('')
             : '<div style="color:var(--inbox-muted);font-size:0.8rem;">No history yet</div>';
+
+        const snippet = conversationSnippetText(c);
+        c.snippet = snippet;
+        const listRow = state.conversations.find(row => Number(row.id) === Number(c.id));
+        if (listRow) listRow.snippet = snippet;
+        const snippetEl = el('conversationList')?.querySelector(`[data-conv-id="${c.id}"] .inbox-conv-snippet`);
+        if (snippetEl) snippetEl.textContent = snippet;
 
         loadInboxContactHistory(c);
     }

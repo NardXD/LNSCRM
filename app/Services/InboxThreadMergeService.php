@@ -6,6 +6,7 @@ use App\Models\InboxConversation;
 use App\Models\InboxConversationActivity;
 use App\Models\InboxConversationComment;
 use App\Models\InboxMessage;
+use App\Support\EmailQuotedHistory;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -247,8 +248,7 @@ class InboxThreadMergeService
         $conversation->message_count = $conversation->messages()->count();
         if ($latest) {
             $conversation->last_message_at = $latest->sent_at;
-            $snippet = trim((string) ($latest->body_text ?: $conversation->snippet));
-            $conversation->snippet = mb_substr($snippet, 0, 500);
+            $conversation->snippet = EmailQuotedHistory::snippet($latest->body_html, $latest->body_text ?: $conversation->snippet);
             $conversation->from_name = $latest->from_name ?: $conversation->from_name;
             $conversation->from_email = $latest->from_email ?: $conversation->from_email;
         }

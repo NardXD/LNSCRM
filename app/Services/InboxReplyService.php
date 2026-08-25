@@ -8,6 +8,7 @@ use App\Models\InboxMessage;
 use App\Models\ScheduledInboxReply;
 use App\Models\SharedInbox;
 use App\Models\User;
+use App\Support\EmailQuotedHistory;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -69,7 +70,7 @@ class InboxReplyService
 
         $conversation->update([
             'last_message_at' => now(),
-            'snippet' => mb_substr(strip_tags($body), 0, 500),
+            'snippet' => EmailQuotedHistory::snippet($body),
             'message_count' => $conversation->messages()->count(),
             'status' => $archive ? 'archived' : 'open',
             'reopen_at' => null,
@@ -192,7 +193,7 @@ class InboxReplyService
 
         $fromEmail = $inbox->email ?? $inbox->account?->email;
         $localId = 'local-compose-'.uniqid();
-        $snippet = mb_substr(strip_tags($body), 0, 500);
+        $snippet = EmailQuotedHistory::snippet($body);
 
         if ($draft) {
             $draft->update([

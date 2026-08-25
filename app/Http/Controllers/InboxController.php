@@ -30,6 +30,7 @@ use App\Services\LeadAutoCreateService;
 use App\Services\LeadInboxAttachService;
 use App\Services\LeadRuleEngine;
 use App\Services\OutlookMailService;
+use App\Support\EmailQuotedHistory;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -1821,7 +1822,7 @@ class InboxController extends Controller
                 'folder' => 'drafts',
                 'external_conversation_id' => $localId,
                 'subject' => $validated['subject'],
-                'snippet' => mb_substr(strip_tags($htmlBody), 0, 500),
+                'snippet' => EmailQuotedHistory::snippet($htmlBody),
                 'from_name' => $user->name,
                 'from_email' => $fromEmail,
                 'status' => 'drafts',
@@ -2682,7 +2683,7 @@ class InboxController extends Controller
                 'color' => $c->inbox->color,
             ] : null,
             'subject' => $c->subject,
-            'snippet' => $c->snippet,
+            'snippet' => $this->conversationSnippet($c, $withMessages),
             'from_name' => $c->from_name,
             'from_email' => $c->from_email,
             'status' => $c->status,
@@ -2732,6 +2733,24 @@ class InboxController extends Controller
         }
 
         return $data;
+    }
+
+    private function conversationSnippet(InboxConversation $c, bool $withMessages = false): string
+    {
+        $html = null;
+        $text = (string) ($c->snippet ?? '');
+        if ($withMessages && $c->relationLoaded('messages') && $c->messages->isNotEmpty()) {
+            $latest = $c->messages->sortBy([
+                ['sent_at', 'asc'],
+                ['id', 'asc'],
+            ])->last();
+            if ($latest) {
+                $html = $latest->body_html;
+                $text = (string) ($latest->body_text ?: $c->snippet);
+            }
+        }
+
+        return EmailQuotedHistory::snippet($html, $text);
     }
 
     /**
@@ -2818,7 +2837,7 @@ class InboxController extends Controller
         return [
             'id' => $c->id,
             'subject' => $c->subject,
-            'snippet' => $c->snippet,
+            'snippet' => EmailQuotedHistory::snippet(null, $c->snippet),
             'from_name' => $c->from_name,
             'from_email' => $c->from_email,
             'folder' => $c->folder ?: 'inbox',
