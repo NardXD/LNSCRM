@@ -349,22 +349,30 @@
                 <h3 id="leadMessageModalTitle">Send follow-up</h3>
                 <button type="button" class="modal-close-btn" id="closeLeadMessageModal">&times;</button>
             </div>
-            <p class="leads-rules-help" id="leadMessageHelp">Pick a channel this lead can use, then a saved template.</p>
-            <p class="form-error" id="leadMessageError" hidden></p>
-            <div class="lead-message-channels" id="leadMessageChannels"></div>
-            <label class="leads-rule-name-label">Template
-                <select id="leadMessageTemplate" class="form-input">
-                    <option value="">Custom message</option>
-                </select>
-            </label>
-            <label class="leads-rule-name-label" id="leadMessageSubjectWrap" hidden>Subject
-                <input type="text" id="leadMessageSubject" class="form-input" maxlength="255">
-            </label>
-            <label class="leads-rule-name-label">Message
-                <textarea id="leadMessageBody" class="form-input" rows="6" placeholder="Hi @{{first_name}}, …"></textarea>
-            </label>
-            <p class="leads-rules-help">Tokens: @{{first_name}}, @{{last_name}}, @{{name}}, @{{follow_up_day}}, @{{company}}</p>
-            <div class="modal-actions">
+            <div class="leads-message-body">
+                <p class="leads-rules-help" id="leadMessageHelp">Pick a channel this lead can use, then a saved template.</p>
+                <p class="form-error" id="leadMessageError" hidden></p>
+                <div class="form-group">
+                    <label>Channel</label>
+                    <div class="lead-message-channels" id="leadMessageChannels"></div>
+                </div>
+                <div class="form-group">
+                    <label for="leadMessageTemplate">Template</label>
+                    <select id="leadMessageTemplate">
+                        <option value="">Custom message</option>
+                    </select>
+                </div>
+                <div class="form-group" id="leadMessageSubjectWrap" hidden>
+                    <label for="leadMessageSubject">Subject</label>
+                    <input type="text" id="leadMessageSubject" maxlength="255">
+                </div>
+                <div class="form-group">
+                    <label for="leadMessageBody">Message</label>
+                    <textarea id="leadMessageBody" rows="6" placeholder="Hi @{{first_name}}, …"></textarea>
+                </div>
+                <p class="leads-rules-help leads-message-tokens">Tokens: @{{first_name}}, @{{last_name}}, @{{name}}, @{{follow_up_day}}, @{{company}}</p>
+            </div>
+            <div class="modal-actions leads-rules-actions">
                 <button type="button" class="btn btn-secondary" id="cancelLeadMessageBtn">Cancel</button>
                 <button type="button" class="btn btn-primary" id="sendLeadMessageBtn">Send</button>
             </div>
@@ -539,12 +547,15 @@
 .leads-followup-chip.active { background: var(--bg-primary); border-color: var(--accent); color: var(--accent); }
 .leads-check-col { width: 2.2rem; }
 .lead-day-badge { display: inline-block; margin-left: 0.4rem; padding: 0.08rem 0.4rem; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: 0.68rem; font-weight: 700; vertical-align: middle; }
-.lead-message-channels { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.75rem 0 1rem; }
-.lead-message-channel { border: 1px solid var(--border); background: var(--bg-card); border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
-.lead-message-channel.active { border-color: var(--accent); color: var(--accent); }
+.lead-message-channels { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.lead-message-channel { border: 1px solid var(--border); background: var(--bg-card); border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; color: var(--text-primary); }
+.lead-message-channel.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-card)); color: var(--accent); }
 .lead-message-channel:disabled { opacity: 0.45; cursor: not-allowed; }
-.leads-message-modal { max-width: 520px; }
-.leads-message-modal .form-input, .leads-message-modal textarea { width: 100%; }
+.leads-message-modal { background: var(--bg-card); border-radius: 12px; width: min(520px, 96vw); max-height: 92vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 18px 48px rgba(0,0,0,.18); }
+.leads-message-body { padding: 1rem 1.25rem; overflow-y: auto; min-height: 0; }
+.leads-message-body .form-group:last-of-type { margin-bottom: 0.5rem; }
+.leads-message-tokens { margin-bottom: 0; }
+.leads-message-modal .leads-rules-actions { justify-content: flex-end; }
 .leads-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
 .leads-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
 .leads-table th { text-align: left; padding: 0.7rem 1rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); border-bottom: 1px solid var(--border); background: var(--bg-primary); }
@@ -822,7 +833,7 @@
         const icon = channelIcon(channel);
         const cls = `lead-source has-thread ${esc(channel)}`;
         if (lead.connected_thread_url) {
-            return `<a class="${cls}" href="${esc(lead.connected_thread_url)}" title="${esc(title)}" onclick="event.stopPropagation()">${icon}<span>${esc(label)}</span></a>`;
+            return `<a class="${cls}" href="${esc(lead.connected_thread_url)}" title="${esc(title)}">${icon}<span>${esc(label)}</span></a>`;
         }
         return `<span class="${cls}" title="${esc(title)}">${icon}<span>${esc(label)}</span></span>`;
     }
@@ -1295,7 +1306,7 @@
         const selected = new Set(state.selectedIds.map(String));
         body.innerHTML = rows.length ? rows.map(lead => `
             <tr data-id="${lead.id}">
-                <td class="leads-check-col" onclick="event.stopPropagation()">
+                <td class="leads-check-col">
                     <input type="checkbox" class="lead-row-check" data-id="${lead.id}" ${selected.has(String(lead.id)) ? 'checked' : ''} aria-label="Select lead">
                 </td>
                 <td>
@@ -1306,16 +1317,15 @@
                 <td class="lead-meta">${esc((lead.phones || []).map(p => p.value).join(', ') || '—')}</td>
                 <td class="lead-meta">${esc((lead.emails || []).map(e => e.value).join(', ') || '—')}</td>
                 <td>${labelChips(lead.labels)}</td>
-                <td onclick="event.stopPropagation()">
+                <td>
                     <select class="lead-assign" data-id="${lead.id}" aria-label="Assign lead">
                         ${assigneeOptions(lead.assigned_to, lead.assigned_user)}
                     </select>
                 </td>
                 <td>${statusBadge(lead)}</td>
                 <td class="lead-meta">${esc(formatAt(lead.updated_at))}</td>
-                <td onclick="event.stopPropagation()">
+                <td>
                     <button type="button" class="btn btn-secondary btn-sm" data-message="${lead.id}">Message</button>
-                    <button type="button" class="btn btn-secondary btn-sm" data-open="${lead.id}">Open</button>
                 </td>
             </tr>
         `).join('') : `<tr><td colspan="9" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
@@ -2068,15 +2078,12 @@
         }
     });
     body.addEventListener('click', (e) => {
-        if (e.target.closest('.lead-assign') || e.target.closest('.lead-row-check')) return;
         const messageBtn = e.target.closest('[data-message]');
         if (messageBtn) {
             openMessageModal([messageBtn.dataset.message]);
             return;
         }
-        const openBtn = e.target.closest('[data-open]');
-        if (openBtn) {
-            openLead(openBtn.dataset.open);
+        if (e.target.closest('a, button, input, select, textarea, .leads-check-col')) {
             return;
         }
         const row = e.target.closest('tr[data-id]');
