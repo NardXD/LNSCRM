@@ -22,12 +22,14 @@ class Company extends Model
         'website',
         'default_wise_payment_url',
         'timezone',
+        'lead_follow_up_days',
         'status',
         'trial_ends_at',
     ];
 
     protected $casts = [
         'trial_ends_at' => 'datetime',
+        'lead_follow_up_days' => 'array',
     ];
 
     /**

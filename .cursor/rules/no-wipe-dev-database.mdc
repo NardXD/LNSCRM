@@ -1,0 +1,25 @@
+---
+description: Do not wipe or migrate the app MySQL database when running tests
+alwaysApply: true
+---
+
+# Protect the development database during tests
+
+PHPUnit must never use the app’s MySQL database from `.env`. Tests that use `RefreshDatabase` migrate and drop tables; that is only safe on an isolated test database.
+
+- Keep `phpunit.xml` with `DB_CONNECTION=sqlite` and `DB_DATABASE=:memory:`
+- Do not point tests at MySQL, `DB_DATABASE` from `.env`, or any shared/dev/prod database
+- Do not run `migrate:fresh`, `migrate:refresh`, `db:wipe`, `db:seed`, or `schema:dump` against the app database as a way to “run tests”
+- When adding Feature tests, keep `RefreshDatabase` (or equivalent) only while PHPUnit still uses SQLite in-memory
+- Do not remove the sqlite overrides from `phpunit.xml` to “match production” or reuse existing rows
+
+```xml
+<!-- ✅ GOOD: phpunit.xml -->
+<env name="DB_CONNECTION" value="sqlite"/>
+<env name="DB_DATABASE" value=":memory:"/>
+```
+
+```xml
+<!-- ❌ BAD: tests hit the same DB as the running app -->
+<env name="DB_CONNECTION" value="mysql"/>
+```

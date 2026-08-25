@@ -34,6 +34,8 @@ class LeadRuleEngine
 
     public const TRIGGER_LEAD_NOTE_ADDED = 'lead_note_added';
 
+    public const TRIGGER_FOLLOW_UP_DAY_REACHED = 'follow_up_day_reached';
+
     public const ASSIGN_AVAILABLE = '__available__';
 
     public const ASSIGN_AVAILABLE_ROUND_ROBIN = '__available_round_robin__';
@@ -74,6 +76,7 @@ class LeadRuleEngine
             self::TRIGGER_LEAD_LABELED => 'Label added',
             self::TRIGGER_LEAD_STATUS_CHANGED => 'Status changed',
             self::TRIGGER_LEAD_NOTE_ADDED => 'Note is added to lead',
+            self::TRIGGER_FOLLOW_UP_DAY_REACHED => 'Follow-up day is reached',
         ];
     }
 
@@ -252,7 +255,8 @@ class LeadRuleEngine
                     fn (LeadLabel $label) => mb_strtolower($label->name) === $wanted
                         || (string) $label->id === (string) $value
                 );
-                if (! $has) {
+                $missing = in_array($operator, ['does_not_have', 'not_equals'], true);
+                if ($missing ? $has : ! $has) {
                     return false;
                 }
                 continue;
@@ -279,6 +283,22 @@ class LeadRuleEngine
                 $wantedLower = mb_strtolower($wanted);
                 $matched = ($addedId !== '' && $addedId === $wanted)
                     || ($addedName !== '' && $addedName === $wantedLower);
+                if (! $matched) {
+                    return false;
+                }
+                continue;
+            }
+
+            if ($field === 'follow_up_day') {
+                $eventDay = (int) ($context['follow_up_day'] ?? 0);
+                if ($eventDay < 1 && $lead) {
+                    $eventDay = app(LeadFollowUpDayService::class)->dayFor($lead);
+                }
+                $wanted = trim((string) $value);
+                $followUp = app(LeadFollowUpDayService::class);
+                $matched = $followUp->isPlusValue($wanted)
+                    ? $eventDay >= $followUp->plusMin((int) ($lead?->company_id ?: ($context['company_id'] ?? 0)))
+                    : $eventDay === (int) $wanted;
                 if (! $matched) {
                     return false;
                 }
@@ -335,6 +355,7 @@ class LeadRuleEngine
                     'set_status' => $this->setStatus($lead, $value),
                     'notify_assignee' => $this->notifyAssignee($lead),
                     'reopen_after_days' => $this->scheduleReopen($lead, $value),
+                    'unsnooze' => $this->unsnooze($lead),
                     default => null,
                 };
             } catch (\Throwable $e) {
@@ -600,6 +621,25 @@ class LeadRuleEngine
                 'reopen_at' => $lead->reopen_at?->toIso8601String(),
                 'reopen_status' => $lead->reopen_status,
             ]
+        );
+    }
+
+    private function unsnooze(Lead $lead): void
+    {
+        if ($lead->status !== Lead::STATUS_SNOOZED) {
+            return;
+        }
+
+        $restore = LeadStatus::fallbackSlug((int) $lead->company_id, $lead->reopen_status);
+        $lead->status = $restore;
+        $lead->reopen_at = null;
+        $lead->reopen_status = null;
+        $lead->save();
+        $this->leadActivity->record(
+            $lead,
+            LeadActivity::REOPENED,
+            'Lead reopened by follow-up rule',
+            ['source' => 'unsnooze', 'status' => $restore]
         );
     }
 

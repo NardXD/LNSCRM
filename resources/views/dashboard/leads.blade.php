@@ -12,6 +12,7 @@
             <p class="page-subtitle">Store a customer’s phones, emails, and social names so Phone, Inbox, Viber, WhatsApp, Facebook, and SMS share one Contact history.</p>
         </div>
         <div class="leads-header-actions">
+            <button type="button" class="btn btn-secondary" id="leadFollowUpDaysBtn">Follow-up labels</button>
             <button type="button" class="btn btn-secondary" id="leadLabelsBtn">Labels</button>
             <button type="button" class="btn btn-secondary" id="leadStatusesBtn">Statuses</button>
             <button type="button" class="btn btn-secondary" id="leadRulesBtn">Rules</button>
@@ -37,9 +38,14 @@
             <option value="">All assignees</option>
             <option value="__none__">Unassigned</option>
         </select>
+        <button type="button" class="btn btn-secondary" id="leadBulkMessageBtn" hidden>Message selected</button>
         <div class="leads-tabs" role="tablist" id="leadStatusTabs">
             <button type="button" class="leads-tab active" data-status="all">All</button>
         </div>
+    </div>
+
+    <div class="leads-followup-row">
+        <div class="leads-followup-chips" id="leadFollowUpChips" role="tablist" aria-label="Follow-up labels"></div>
     </div>
 
     <div class="leads-card">
@@ -47,6 +53,7 @@
             <table class="data-table leads-table">
                 <thead>
                     <tr>
+                        <th class="leads-check-col"><input type="checkbox" id="leadSelectAll" aria-label="Select all leads on this page"></th>
                         <th>Lead</th>
                         <th>Phones</th>
                         <th>Emails</th>
@@ -58,7 +65,7 @@
                     </tr>
                 </thead>
                 <tbody id="leadsTableBody">
-                    <tr><td colspan="8" class="empty-state">Loading leads…</td></tr>
+                    <tr><td colspan="9" class="empty-state">Loading leads…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -286,7 +293,8 @@
                         <h4>Shared inbox emails</h4>
                         <p class="form-hint">Attach a thread from a shared mailbox. It stays on this lead even if the sender address is different.</p>
                         <div id="leadInboxAttachedList" class="lead-inbox-list"></div>
-                        <div class="lead-inbox-search">
+                        <div class="form-group lead-inbox-search">
+                            <label for="leadInboxSearch">Find a thread</label>
                             <input type="search" id="leadInboxSearch" maxlength="200" placeholder="Search subject or sender" autocomplete="off">
                         </div>
                         <div id="leadInboxResults" class="lead-inbox-list"></div>
@@ -335,6 +343,34 @@
         </div>
     </div>
 
+    <div class="modal-overlay" id="leadMessageModal">
+        <div class="modal-content leads-message-modal">
+            <div class="modal-header">
+                <h3 id="leadMessageModalTitle">Send follow-up</h3>
+                <button type="button" class="modal-close-btn" id="closeLeadMessageModal">&times;</button>
+            </div>
+            <p class="leads-rules-help" id="leadMessageHelp">Pick a channel this lead can use, then a saved template.</p>
+            <p class="form-error" id="leadMessageError" hidden></p>
+            <div class="lead-message-channels" id="leadMessageChannels"></div>
+            <label class="leads-rule-name-label">Template
+                <select id="leadMessageTemplate" class="form-input">
+                    <option value="">Custom message</option>
+                </select>
+            </label>
+            <label class="leads-rule-name-label" id="leadMessageSubjectWrap" hidden>Subject
+                <input type="text" id="leadMessageSubject" class="form-input" maxlength="255">
+            </label>
+            <label class="leads-rule-name-label">Message
+                <textarea id="leadMessageBody" class="form-input" rows="6" placeholder="Hi @{{first_name}}, …"></textarea>
+            </label>
+            <p class="leads-rules-help">Tokens: @{{first_name}}, @{{last_name}}, @{{name}}, @{{follow_up_day}}, @{{company}}</p>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="cancelLeadMessageBtn">Cancel</button>
+                <button type="button" class="btn btn-primary" id="sendLeadMessageBtn">Send</button>
+            </div>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="leadActivityModal">
         <div class="modal-content lead-activity-modal">
             <div class="modal-header">
@@ -348,6 +384,29 @@
                     <button type="button" class="btn btn-secondary btn-sm" id="leadActivityPrev" disabled>Previous</button>
                     <button type="button" class="btn btn-secondary btn-sm" id="leadActivityNext" disabled>Next</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="leadFollowUpDaysModal">
+        <div class="modal-content leads-rules-modal">
+            <div class="modal-header">
+                <h3>Follow-up labels</h3>
+                <button type="button" class="modal-close-btn" id="closeLeadFollowUpDaysModal">&times;</button>
+            </div>
+            <div class="leads-rules-body">
+                <p class="leads-rules-help">Each day you add becomes a label (4 → 4th Day FU). Day 1 is the day after the lead was created. Open leads with Inquiry are tagged when they reach that day, unless they already have that label, a later follow-up label, Move in, or Not Interested.</p>
+                <div id="leadFollowUpDaysList" class="leads-rule-list"></div>
+                <form id="leadFollowUpDaysForm" class="leads-label-create">
+                    <label class="leads-followup-day-field">
+                        <span>Day</span>
+                        <input type="number" id="leadFollowUpDayInput" class="leads-followup-day-input" min="1" max="365" step="1" placeholder="7" required>
+                    </label>
+                    <button type="submit" class="btn btn-primary" id="addLeadFollowUpDayBtn">Add label</button>
+                </form>
+            </div>
+            <div class="modal-actions leads-rules-actions">
+                <button type="button" class="btn btn-secondary" id="closeLeadFollowUpDaysBtn">Close</button>
             </div>
         </div>
     </div>
@@ -473,6 +532,19 @@
 .leads-tabs { display: flex; gap: 0.25rem; flex-wrap: wrap; }
 .leads-tab { border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary); border-radius: 999px; padding: 0.35rem 0.75rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
 .leads-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.leads-followup-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: -0.35rem 0 1rem; }
+.leads-followup-chips { display: flex; gap: 0.35rem; flex-wrap: wrap; flex: 1; }
+.leads-followup-chip { border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary); border-radius: 999px; padding: 0.32rem 0.7rem; font-size: 0.78rem; font-weight: 600; cursor: pointer; }
+.leads-followup-chip span { margin-left: 0.2rem; opacity: 0.75; }
+.leads-followup-chip.active { background: var(--bg-primary); border-color: var(--accent); color: var(--accent); }
+.leads-check-col { width: 2.2rem; }
+.lead-day-badge { display: inline-block; margin-left: 0.4rem; padding: 0.08rem 0.4rem; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: 0.68rem; font-weight: 700; vertical-align: middle; }
+.lead-message-channels { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.75rem 0 1rem; }
+.lead-message-channel { border: 1px solid var(--border); background: var(--bg-card); border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
+.lead-message-channel.active { border-color: var(--accent); color: var(--accent); }
+.lead-message-channel:disabled { opacity: 0.45; cursor: not-allowed; }
+.leads-message-modal { max-width: 520px; }
+.leads-message-modal .form-input, .leads-message-modal textarea { width: 100%; }
 .leads-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
 .leads-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
 .leads-table th { text-align: left; padding: 0.7rem 1rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); border-bottom: 1px solid var(--border); background: var(--bg-primary); }
@@ -527,7 +599,27 @@
 .lead-label-chip button { background: none; border: none; color: inherit; cursor: pointer; font-size: 0.9rem; line-height: 1; padding: 0; opacity: 0.8; }
 .lead-label-add { display: flex; gap: 0.4rem; }
 .lead-label-add input { flex: 1; }
-.lead-inbox-search { margin-top: 0.55rem; }
+.lead-inbox-search { margin-top: 0.55rem; margin-bottom: 0; }
+.lead-inbox-search input[type="search"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-family: inherit;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    appearance: none;
+}
+.lead-inbox-search input[type="search"]:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+.lead-inbox-search input[type="search"]::-webkit-search-decoration,
+.lead-inbox-search input[type="search"]::-webkit-search-cancel-button,
+.lead-inbox-search input[type="search"]::-webkit-search-results-button,
+.lead-inbox-search input[type="search"]::-webkit-search-results-decoration { display: none; }
 .lead-inbox-list { display: grid; gap: 0.4rem; margin-top: 0.45rem; }
 .lead-inbox-row {
     display: grid;
@@ -647,8 +739,14 @@
 .leads-rules-actions { padding: 0.85rem 1.25rem 1.1rem; margin: 0; border-top: 1px solid var(--border); }
 .leads-status-name-input { width: 100%; padding: 0.4rem 0.55rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; background: var(--bg-card); color: var(--text-primary); }
 .leads-label-create { display: flex; gap: 0.45rem; align-items: center; margin-top: 0.85rem; }
-.leads-label-create input[type="text"] { flex: 1; min-width: 0; padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; }
+.leads-label-create input[type="text"] { flex: 1; min-width: 0; padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; background: var(--bg-card); color: var(--text-primary); }
 .leads-label-create input[type="color"] { width: 2.4rem; height: 2.2rem; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); cursor: pointer; }
+.leads-followup-day-field { display: flex; align-items: center; gap: 0.45rem; flex: 1; min-width: 0; height: 2.2rem; padding: 0 0.15rem 0 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text-secondary); font-size: 0.875rem; font-weight: 600; box-sizing: border-box; }
+.leads-followup-day-field:focus-within { border-color: var(--accent); }
+.leads-followup-day-input { flex: 1; min-width: 0; width: 100%; height: 100%; border: 0; background: transparent; color: var(--text-primary); font-size: 0.875rem; font-weight: 500; padding: 0 0.7rem 0 0; appearance: textfield; -moz-appearance: textfield; }
+.leads-followup-day-input:focus { outline: none; }
+.leads-followup-day-input::-webkit-outer-spin-button,
+.leads-followup-day-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .leads-label-row-color { width: 2rem; height: 1.85rem; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); cursor: pointer; }
         @media (max-width: 700px) {
             .leads-rule-extra-card, .leads-rule-extra-card.is-action { grid-template-columns: 1fr; }
@@ -668,7 +766,8 @@
     const api = '/api/leads';
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
     const LEAD_OPTIONS = @json($leadFormOptions);
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null };
+    const LEAD_FOLLOW_UP = @json($leadFollowUpConfig ?? []);
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, selectedIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadIds: [], messageChannels: [], messageChannel: '' };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -704,6 +803,10 @@
             ? statusName(status) + ' until ' + formatDate(lead.reopen_at)
             : statusName(status);
         return `<span class="lead-badge ${esc(status)}">${esc(label)}</span>`;
+    }
+    function followUpLabelName(day) {
+        const row = (state.followUpLabels || []).find(item => Number(item.day) === Number(day));
+        return row?.name || `${day}${Number(day) === 1 ? 'st' : Number(day) === 2 ? 'nd' : Number(day) === 3 ? 'rd' : 'th'} Day FU`;
     }
     function sourceVisual(lead) {
         const source = String(lead.source || '').trim();
@@ -1184,12 +1287,17 @@
         if (state.search) q.set('search', state.search);
         if (state.source) q.set('source', state.source);
         if (state.assignedTo) q.set('assigned_to', state.assignedTo);
+        if (state.followUp) q.set('follow_up_day', String(state.followUp));
         state.labelIds.forEach(id => q.append('label_ids[]', id));
         const res = await fetch(api + '?' + q.toString(), { credentials: 'same-origin', headers: headers() });
         const data = await res.json();
         const rows = data.data || [];
+        const selected = new Set(state.selectedIds.map(String));
         body.innerHTML = rows.length ? rows.map(lead => `
             <tr data-id="${lead.id}">
+                <td class="leads-check-col" onclick="event.stopPropagation()">
+                    <input type="checkbox" class="lead-row-check" data-id="${lead.id}" ${selected.has(String(lead.id)) ? 'checked' : ''} aria-label="Select lead">
+                </td>
                 <td>
                     <div class="lead-name">${esc([lead.title, lead.name].filter(Boolean).join(' '))}</div>
                     ${lead.company_name ? `<div class="lead-company">${esc(lead.company_name)}</div>` : ''}
@@ -1205,15 +1313,100 @@
                 </td>
                 <td>${statusBadge(lead)}</td>
                 <td class="lead-meta">${esc(formatAt(lead.updated_at))}</td>
-                <td><button type="button" class="btn btn-secondary btn-sm" data-open="${lead.id}">Open</button></td>
+                <td onclick="event.stopPropagation()">
+                    <button type="button" class="btn btn-secondary btn-sm" data-message="${lead.id}">Message</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-open="${lead.id}">Open</button>
+                </td>
             </tr>
-        `).join('') : `<tr><td colspan="8" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
+        `).join('') : `<tr><td colspan="9" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
 
         const pag = data.pagination || {};
         document.getElementById('leadsPageInfo').textContent = `Showing page ${pag.current_page || 1} of ${pag.last_page || 1} (${pag.total || 0} leads)`;
         document.getElementById('leadsPrev').disabled = (pag.current_page || 1) <= 1;
         document.getElementById('leadsNext').disabled = (pag.current_page || 1) >= (pag.last_page || 1);
         renderSourceFilter(data.sources || []);
+        syncLeadSelection();
+        loadFollowUpCounts();
+    }
+
+    function applyFollowUpConfig(config) {
+        const days = Array.isArray(config?.days) ? config.days.map(Number).filter(d => d >= 1) : [];
+        state.followUpDays = days.length ? days : [4, 10, 30, 90];
+        state.followUpLabels = Array.isArray(config?.labels) ? config.labels : [];
+        state.followUpPlusMin = Number(config?.plus_min || (Math.max(...state.followUpDays) + 1));
+        if (state.followUp && !state.followUpDays.includes(Number(state.followUp))) {
+            state.followUp = '';
+        }
+        renderFollowUpChips();
+        renderFollowUpDaysList();
+    }
+    function renderFollowUpChips() {
+        const wrap = document.getElementById('leadFollowUpChips');
+        if (!wrap) return;
+        const counts = state.followUpCounts || {};
+        const chips = [`<button type="button" class="leads-followup-chip ${state.followUp === '' ? 'active' : ''}" data-follow-up="">All</button>`]
+            .concat(state.followUpDays.map(day => {
+                const key = String(day);
+                const count = counts[key] ?? 0;
+                return `<button type="button" class="leads-followup-chip ${String(state.followUp) === key ? 'active' : ''}" data-follow-up="${esc(key)}">${esc(followUpLabelName(day))} <span data-count="${esc(key)}">${count}</span></button>`;
+            }));
+        wrap.innerHTML = chips.join('');
+    }
+    function renderFollowUpDaysList() {
+        const list = document.getElementById('leadFollowUpDaysList');
+        if (!list) return;
+        if (!state.followUpDays.length) {
+            list.innerHTML = '<p class="chp-empty">Add at least one follow-up day.</p>';
+            return;
+        }
+        list.innerHTML = state.followUpDays.map(day => `
+            <div class="leads-rule-row">
+                <div class="leads-rule-row-main">
+                    <div class="leads-rule-row-name">${esc(followUpLabelName(day))}</div>
+                </div>
+                <div class="leads-rule-row-actions">
+                    <button type="button" class="link-btn" data-remove-follow-up-day="${day}">Remove</button>
+                </div>
+            </div>
+        `).join('');
+    }
+    async function saveFollowUpDays(days) {
+        const res = await fetch(api + '/follow-up-days', {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: headers(true),
+            body: JSON.stringify({ days }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.message || 'Could not save follow-up days.');
+        applyFollowUpConfig(data.data || {});
+        loadCompanyLabels();
+        loadFollowUpCounts();
+        loadLeads();
+    }
+    function openFollowUpDaysModal() {
+        renderFollowUpDaysList();
+        document.getElementById('leadFollowUpDaysModal')?.classList.add('open');
+        document.getElementById('leadFollowUpDayInput')?.focus();
+    }
+    function closeFollowUpDaysModal() {
+        document.getElementById('leadFollowUpDaysModal')?.classList.remove('open');
+    }
+
+    async function loadFollowUpCounts() {
+        const q = new URLSearchParams({ status: state.status });
+        if (state.search) q.set('search', state.search);
+        if (state.source) q.set('source', state.source);
+        if (state.assignedTo) q.set('assigned_to', state.assignedTo);
+        state.labelIds.forEach(id => q.append('label_ids[]', id));
+        try {
+            const res = await fetch(api + '/follow-up-counts?' + q.toString(), { credentials: 'same-origin', headers: headers() });
+            const data = await res.json();
+            const payload = data.data || {};
+            if (payload.days) applyFollowUpConfig(payload);
+            state.followUpCounts = payload.counts || payload;
+            renderFollowUpChips();
+        } catch {}
     }
 
     function val(id) {
@@ -1697,10 +1890,202 @@
         state.page = 1;
         loadLeads();
     });
+    document.getElementById('leadFollowUpChips')?.addEventListener('click', (e) => {
+        const chip = e.target.closest('.leads-followup-chip');
+        if (!chip) return;
+        state.followUp = chip.dataset.followUp || '';
+        state.page = 1;
+        renderFollowUpChips();
+        loadLeads();
+    });
+    document.getElementById('leadFollowUpDaysBtn')?.addEventListener('click', openFollowUpDaysModal);
+    document.getElementById('closeLeadFollowUpDaysModal')?.addEventListener('click', closeFollowUpDaysModal);
+    document.getElementById('closeLeadFollowUpDaysBtn')?.addEventListener('click', closeFollowUpDaysModal);
+    document.getElementById('leadFollowUpDaysForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const input = document.getElementById('leadFollowUpDayInput');
+        const day = Number(input?.value);
+        if (!Number.isInteger(day) || day < 1 || day > 365) {
+            return alert('Enter a day from 1 to 365.');
+        }
+        if (state.followUpDays.includes(day)) {
+            input.value = '';
+            return;
+        }
+        const btn = document.getElementById('addLeadFollowUpDayBtn');
+        btn.disabled = true;
+        try {
+            await saveFollowUpDays([...state.followUpDays, day]);
+            input.value = '';
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            btn.disabled = false;
+        }
+    });
+    document.getElementById('leadFollowUpDaysList')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-remove-follow-up-day]');
+        if (!btn) return;
+        const day = Number(btn.dataset.removeFollowUpDay);
+        const next = state.followUpDays.filter(d => d !== day);
+        if (!next.length) return alert('Keep at least one follow-up day.');
+        try {
+            await saveFollowUpDays(next);
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+    function syncLeadSelection() {
+        const boxes = [...document.querySelectorAll('.lead-row-check')];
+        const checked = boxes.filter(b => b.checked).map(b => b.dataset.id);
+        state.selectedIds = checked;
+        const all = document.getElementById('leadSelectAll');
+        if (all) {
+            all.checked = boxes.length > 0 && boxes.every(b => b.checked);
+            all.indeterminate = checked.length > 0 && checked.length < boxes.length;
+        }
+        const bulk = document.getElementById('leadBulkMessageBtn');
+        if (bulk) bulk.hidden = checked.length < 1;
+    }
+    document.getElementById('leadSelectAll')?.addEventListener('change', (e) => {
+        document.querySelectorAll('.lead-row-check').forEach(box => { box.checked = e.target.checked; });
+        syncLeadSelection();
+    });
+    document.getElementById('leadBulkMessageBtn')?.addEventListener('click', () => {
+        if (!state.selectedIds.length) return;
+        openMessageModal(state.selectedIds);
+    });
+    function closeMessageModal() {
+        document.getElementById('leadMessageModal')?.classList.remove('open');
+        state.messageLeadIds = [];
+        state.messageChannels = [];
+        state.messageChannel = '';
+    }
+    async function openMessageModal(leadIds) {
+        state.messageLeadIds = leadIds.map(String);
+        const title = document.getElementById('leadMessageModalTitle');
+        const err = document.getElementById('leadMessageError');
+        if (err) { err.hidden = true; err.textContent = ''; }
+        if (title) title.textContent = state.messageLeadIds.length > 1 ? `Send follow-up (${state.messageLeadIds.length} leads)` : 'Send follow-up';
+        document.getElementById('leadMessageModal')?.classList.add('open');
+        document.getElementById('leadMessageBody').value = '';
+        document.getElementById('leadMessageSubject').value = '';
+        const firstId = state.messageLeadIds[0];
+        try {
+            const res = await fetch(api + '/' + firstId + '/message-channels', { credentials: 'same-origin', headers: headers() });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Could not load channels.');
+            state.messageChannels = data.data?.channels || [];
+            renderMessageChannels();
+        } catch (e) {
+            if (err) { err.hidden = false; err.textContent = e.message; }
+        }
+    }
+    function renderMessageChannels() {
+        const wrap = document.getElementById('leadMessageChannels');
+        if (!wrap) return;
+        const firstAvailable = state.messageChannels.find(c => c.available);
+        if (!state.messageChannel || !state.messageChannels.some(c => c.id === state.messageChannel && c.available)) {
+            state.messageChannel = firstAvailable?.id || '';
+        }
+        wrap.innerHTML = state.messageChannels.map(ch => `
+            <button type="button" class="lead-message-channel ${ch.id === state.messageChannel ? 'active' : ''}" data-channel="${esc(ch.id)}" ${ch.available ? '' : 'disabled'} title="${esc(ch.reason || ch.label)}">${esc(ch.label)}</button>
+        `).join('') || '<p class="chp-empty">No channels available.</p>';
+        fillMessageTemplates();
+    }
+    function currentMessageChannel() {
+        return state.messageChannels.find(c => c.id === state.messageChannel) || null;
+    }
+    function fillMessageTemplates() {
+        const sel = document.getElementById('leadMessageTemplate');
+        const ch = currentMessageChannel();
+        const templates = ch?.templates || [];
+        sel.innerHTML = `<option value="">Custom message</option>` + templates.map(t =>
+            `<option value="${t.id}">${esc(t.name)}</option>`
+        ).join('');
+        const isMail = ch?.id === 'inbox';
+        document.getElementById('leadMessageSubjectWrap').hidden = !isMail;
+        applyMessageTemplate();
+    }
+    function applyMessageTemplate() {
+        const ch = currentMessageChannel();
+        const id = document.getElementById('leadMessageTemplate').value;
+        const tpl = (ch?.templates || []).find(t => String(t.id) === String(id));
+        if (tpl) {
+            document.getElementById('leadMessageBody').value = tpl.body || '';
+            if (tpl.subject) document.getElementById('leadMessageSubject').value = tpl.subject;
+        }
+    }
+    document.getElementById('leadMessageChannels')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-channel]');
+        if (!btn || btn.disabled) return;
+        state.messageChannel = btn.dataset.channel;
+        renderMessageChannels();
+    });
+    document.getElementById('leadMessageTemplate')?.addEventListener('change', applyMessageTemplate);
+    document.getElementById('closeLeadMessageModal')?.addEventListener('click', closeMessageModal);
+    document.getElementById('cancelLeadMessageBtn')?.addEventListener('click', closeMessageModal);
+    document.getElementById('sendLeadMessageBtn')?.addEventListener('click', async () => {
+        const err = document.getElementById('leadMessageError');
+        const btn = document.getElementById('sendLeadMessageBtn');
+        if (!state.messageChannel) {
+            if (err) { err.hidden = false; err.textContent = 'Choose a channel.'; }
+            return;
+        }
+        const payload = {
+            channel: state.messageChannel,
+            template_id: document.getElementById('leadMessageTemplate').value ? Number(document.getElementById('leadMessageTemplate').value) : null,
+            body: document.getElementById('leadMessageBody').value,
+            subject: document.getElementById('leadMessageSubject').value || null,
+        };
+        btn.disabled = true;
+        try {
+            if (state.messageLeadIds.length === 1) {
+                const res = await fetch(api + '/' + state.messageLeadIds[0] + '/messages', {
+                    method: 'POST', credentials: 'same-origin', headers: headers(true),
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.message || 'Could not send.');
+            } else {
+                const res = await fetch(api + '/messages', {
+                    method: 'POST', credentials: 'same-origin', headers: headers(true),
+                    body: JSON.stringify({ lead_ids: state.messageLeadIds.map(Number), ...payload }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.message || 'Could not send.');
+                const skipped = data.skipped || [];
+                if (skipped.length) {
+                    alert(`Sent ${data.sent || 0}. Skipped ${skipped.length}: ${skipped.map(s => s.name + ' (' + s.reason + ')').join('; ')}`);
+                }
+            }
+            closeMessageModal();
+            loadLeads();
+        } catch (e) {
+            if (err) { err.hidden = false; err.textContent = e.message; }
+        } finally {
+            btn.disabled = false;
+        }
+    });
     body.addEventListener('click', (e) => {
-        if (e.target.closest('.lead-assign')) return;
+        if (e.target.closest('.lead-assign') || e.target.closest('.lead-row-check')) return;
+        const messageBtn = e.target.closest('[data-message]');
+        if (messageBtn) {
+            openMessageModal([messageBtn.dataset.message]);
+            return;
+        }
+        const openBtn = e.target.closest('[data-open]');
+        if (openBtn) {
+            openLead(openBtn.dataset.open);
+            return;
+        }
         const row = e.target.closest('tr[data-id]');
         if (row) openLead(row.dataset.id);
+    });
+    body.addEventListener('change', (e) => {
+        if (e.target.closest('.lead-row-check')) {
+            syncLeadSelection();
+        }
     });
     body.addEventListener('change', async (e) => {
         const select = e.target.closest('.lead-assign');
@@ -1944,6 +2329,7 @@
         { value: 'lead_labeled', label: 'Label added', help: 'When this label is added to the lead.' },
         { value: 'lead_status_changed', label: 'Status changed', help: 'When the lead status changes to this status.' },
         { value: 'lead_note_added', label: 'Note is added to lead', help: 'When a note is saved on the lead.' },
+        { value: 'follow_up_day_reached', label: 'Follow-up day is reached', help: 'Once a day when the lead reaches this follow-up day. Day 1 is the day after it was created. Pair with “Lead has label” / “doesn’t have” like Front (Inquiry, 4th Day FU, Move in).' },
     ];
     const RULE_CHANNELS = [
         ['phone', 'Phone'],
@@ -2123,14 +2509,20 @@
             ['message', 'Message'],
             ['lead_status', 'Lead status'],
             ['status_changed', 'Status changed'],
-            ['lead_label', 'Lead has label'],
+            ['lead_label', 'Lead label'],
             ['label_added', 'Label added'],
         ];
         return fields.map(([value, label]) =>
             `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`
         ).join('');
     }
-    function conditionOperatorOptions(selected = 'contains') {
+    function conditionOperatorOptions(field, selected = '') {
+        if (field === 'lead_label') {
+            const current = selected === 'does_not_have' || selected === 'not_equals' ? 'does_not_have' : 'equals';
+            return [['equals', 'has'], ['does_not_have', "doesn't have"]]
+                .map(([value, label]) => `<option value="${value}" ${current === value ? 'selected' : ''}>${label}</option>`)
+                .join('');
+        }
         return [['contains', 'contains'], ['equals', 'equals'], ['starts_with', 'starts with']]
             .map(([value, label]) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`)
             .join('');
@@ -2147,7 +2539,7 @@
         return `<input type="text" data-rule-cond-value placeholder="Value" value="${esc(selected || '')}">`;
     }
     function actionNeedsValue(type) {
-        return !['create_lead', 'notify_assignee'].includes(type);
+        return !['create_lead', 'notify_assignee', 'unsnooze'].includes(type);
     }
     function actionTypeOptions(selected = 'assign') {
         return [
@@ -2156,6 +2548,7 @@
             ['add_label', 'Add label'],
             ['set_status', 'Set status'],
             ['reopen_after_days', 'Reopen after days'],
+            ['unsnooze', 'Unsnooze lead'],
             ['notify_assignee', 'Notify assignee'],
         ].map(([value, label]) =>
             `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`
@@ -2212,14 +2605,22 @@
             `<option value="${esc(s.slug)}" ${selected === s.slug ? 'selected' : ''}>${esc(s.name)}</option>`
         ).join('');
     }
+    function triggerFollowUpDayOptions(selected = '') {
+        const days = state.followUpDays.length ? state.followUpDays : [4, 10, 30, 90];
+        const current = String(selected || days[0] || '4');
+        const opts = days.map(d => `<option value="${d}" ${current === String(d) ? 'selected' : ''}>${esc(followUpLabelName(d))}</option>`).join('');
+        return opts + (days.includes(Number(current)) ? '' : `<option value="${esc(current)}" selected>${esc(followUpLabelName(current))}</option>`);
+    }
     function triggerExtraKind(type) {
         if (type === 'lead_labeled') return 'label';
         if (type === 'lead_status_changed') return 'status';
+        if (type === 'follow_up_day_reached') return 'day';
         return '';
     }
     function triggerExtraOptions(type, selected = '') {
         if (type === 'lead_labeled') return triggerLabelOptions(selected);
         if (type === 'lead_status_changed') return triggerStatusOptions(selected);
+        if (type === 'follow_up_day_reached') return triggerFollowUpDayOptions(selected);
         return '<option value="">—</option>';
     }
     function syncTriggerLabelSelect(row) {
@@ -2244,7 +2645,7 @@
             <div>
                 <div class="leads-rule-trigger-fields${kind ? ' has-label' : ''}">
                     <select data-rule-trigger>${triggerOptions(value)}</select>
-                    <select data-rule-trigger-label ${kind ? '' : 'hidden disabled'}>${triggerExtraOptions(value, preset.label || preset.status || '')}</select>
+                    <select data-rule-trigger-label ${kind ? '' : 'hidden disabled'}>${triggerExtraOptions(value, preset.label || preset.status || preset.day || '')}</select>
                 </div>
                 <p class="leads-rule-trigger-help">${esc(triggerHelp(value))}</p>
             </div>
@@ -2260,7 +2661,7 @@
         row.className = 'leads-rule-extra-card';
         row.innerHTML = `
             <select data-rule-cond-field>${conditionFieldOptions(field)}</select>
-            <select data-rule-cond-operator>${conditionOperatorOptions(preset.operator || 'contains')}</select>
+            <select data-rule-cond-operator>${conditionOperatorOptions(field, preset.operator || (field === 'lead_label' ? 'equals' : 'contains'))}</select>
             ${conditionValueControl(field, preset.value || '')}
             <button type="button" class="leads-rule-remove" data-remove-rule-row title="Remove">×</button>
         `;
@@ -2399,6 +2800,7 @@
         const inboxCond = conditions.find(c => c.field === 'shared_inbox' || c.field === 'inbox');
         const addedLabel = conditions.find(c => c.field === 'label_added');
         const changedStatus = conditions.find(c => c.field === 'status_changed');
+        const followUpDay = conditions.find(c => c.field === 'follow_up_day');
         renderRuleChannelPicker();
         renderRuleInboxPicker();
         const selected = new Set((Array.isArray(channel?.value) ? channel.value : []).map(String));
@@ -2417,9 +2819,10 @@
             value: trigger,
             label: trigger === 'lead_labeled' ? (addedLabel?.value || '') : '',
             status: trigger === 'lead_status_changed' ? (changedStatus?.value || '') : '',
+            day: trigger === 'follow_up_day_reached' ? (followUpDay?.value || '2') : '',
         }));
         conditions
-            .filter(c => c.field && c.field !== 'channel' && c.field !== 'shared_inbox' && c.field !== 'inbox' && c.field !== 'label_added' && c.field !== 'status_changed')
+            .filter(c => c.field && c.field !== 'channel' && c.field !== 'shared_inbox' && c.field !== 'inbox' && c.field !== 'label_added' && c.field !== 'status_changed' && c.field !== 'follow_up_day')
             .forEach(c => addRuleConditionRow(c));
         const actions = Array.isArray(rule.actions) ? rule.actions : [];
         if (!actions.length) addRuleActionRow();
@@ -2442,6 +2845,9 @@
             }
             if (sel?.value === 'lead_status_changed' && extraVal) {
                 conditions.push({ field: 'status_changed', operator: 'equals', value: extraVal });
+            }
+            if (sel?.value === 'follow_up_day_reached' && extraVal) {
+                conditions.push({ field: 'follow_up_day', operator: 'equals', value: extraVal });
             }
         });
         document.querySelectorAll('#leadRuleConditions .leads-rule-extra-card').forEach(row => {
@@ -2580,9 +2986,11 @@
         const res = await fetch(api + '/labels/' + del.dataset.deleteCompanyLabel, {
             method: 'DELETE', credentials: 'same-origin', headers: headers(),
         });
-        if (!res.ok) return alert('Could not delete label.');
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return alert(data.message || 'Could not delete label.');
         state.labelIds = state.labelIds.filter(id => id !== String(del.dataset.deleteCompanyLabel));
         await loadCompanyLabels();
+        loadFollowUpCounts();
         loadLeads();
     });
     document.getElementById('leadCompanyLabelList')?.addEventListener('change', async (e) => {
@@ -2649,6 +3057,10 @@
         const wrap = document.createElement('div');
         wrap.innerHTML = conditionValueControl(fieldSel.value, '');
         current?.replaceWith(wrap.firstElementChild);
+        const op = row.querySelector('[data-rule-cond-operator]');
+        const opWrap = document.createElement('div');
+        opWrap.innerHTML = `<select data-rule-cond-operator>${conditionOperatorOptions(fieldSel.value, '')}</select>`;
+        op?.replaceWith(opWrap.firstElementChild);
     });
     document.getElementById('leadRuleActions')?.addEventListener('change', (e) => {
         const typeSel = e.target.closest('[data-rule-action-type]');
@@ -2717,6 +3129,12 @@
                 return alert('Choose which status was set.');
             }
         }
+        if (payload.triggers.includes('follow_up_day_reached')) {
+            const day = payload.conditions.find(c => c.field === 'follow_up_day');
+            if (!day || !String(day.value || '').trim()) {
+                return alert('Choose which follow-up day this rule runs on.');
+            }
+        }
         const extra = payload.conditions.filter(c => c.field !== 'channel' && c.field !== 'shared_inbox');
         if (extra.some(c => !String(c.value || '').trim())) return alert('Each condition needs a value.');
         if (!payload.actions.length) return alert('Add at least one action.');
@@ -2766,7 +3184,10 @@
     });
 
     resetForm();
-    Promise.all([loadCompanyLabels(), loadCompanyStatuses(), loadAssignees()]).then(() => loadLeads()).then(() => {
+    Promise.all([loadCompanyLabels(), loadCompanyStatuses(), loadAssignees()]).then(() => {
+        applyFollowUpConfig({ days: state.followUpDays, plus_min: state.followUpPlusMin });
+        return loadLeads();
+    }).then(() => {
         const id = new URLSearchParams(window.location.search).get('lead');
         if (id) openLead(id).catch(() => {});
     });

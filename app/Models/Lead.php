@@ -119,6 +119,7 @@ class Lead extends Model
         'notes',
         'reopen_at',
         'reopen_status',
+        'follow_up_notified_day',
     ];
 
     protected $casts = [

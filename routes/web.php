@@ -184,11 +184,17 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::delete('/statuses/{leadStatus}', [LeadsController::class, 'destroyStatus'])->name('api.leads.statuses.destroy');
         Route::get('/assignees', [LeadsController::class, 'assignees'])->name('api.leads.assignees');
         Route::get('/inbox-conversations', [LeadsController::class, 'searchInboxConversations'])->name('api.leads.inbox-conversations.search');
+        Route::get('/follow-up-counts', [LeadsController::class, 'followUpCounts'])->name('api.leads.follow-up-counts');
+        Route::get('/follow-up-days', [LeadsController::class, 'followUpDays'])->name('api.leads.follow-up-days.index');
+        Route::put('/follow-up-days', [LeadsController::class, 'updateFollowUpDays'])->name('api.leads.follow-up-days.update');
+        Route::post('/messages', [LeadsController::class, 'sendMessagesBulk'])->name('api.leads.messages.bulk');
         Route::get('/rules', [LeadsController::class, 'listRules'])->name('api.leads.rules.index');
         Route::post('/rules', [LeadsController::class, 'storeRule'])->name('api.leads.rules.store');
         Route::patch('/rules/{leadRule}', [LeadsController::class, 'updateRule'])->name('api.leads.rules.update');
         Route::delete('/rules/{leadRule}', [LeadsController::class, 'destroyRule'])->name('api.leads.rules.destroy');
         Route::whereNumber('lead')->group(function () {
+            Route::get('/{lead}/message-channels', [LeadsController::class, 'messageChannels'])->name('api.leads.message-channels');
+            Route::post('/{lead}/messages', [LeadsController::class, 'sendMessage'])->name('api.leads.messages.send');
             Route::get('/{lead}/activity-log', [LeadsController::class, 'listActivities'])->name('api.leads.activities');
             Route::get('/{lead}/history', [LeadsController::class, 'history'])->name('api.leads.history');
             Route::get('/{lead}/inbox-conversations', [LeadsController::class, 'listInboxConversations'])->name('api.leads.inbox-conversations.index');

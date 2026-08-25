@@ -23,6 +23,8 @@ class LeadActivity extends Model
     public const REOPENED = 'reopened';
     public const INBOX_ATTACHED = 'inbox_attached';
     public const INBOX_DETACHED = 'inbox_detached';
+    public const FOLLOW_UP_DAY = 'follow_up_day';
+    public const TEMPLATE_SENT = 'template_sent';
 
     protected $fillable = [
         'lead_id',

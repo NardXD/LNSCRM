@@ -7,6 +7,7 @@ use App\Exports\LeadReportConversationsSheet;
 use App\Exports\LeadReportLeadsSheet;
 use App\Http\Requests\StoreLeadRequest;
 use App\Http\Requests\UpdateLeadRequest;
+use App\Models\Company;
 use App\Models\FacebookConversation;
 use App\Models\InboxConversation;
 use App\Models\Lead;
@@ -21,7 +22,9 @@ use App\Models\User;
 use App\Services\ContactConversationHistoryService;
 use App\Services\FlexCrmLookupService;
 use App\Services\LeadActivityService;
+use App\Services\LeadChannelMessageService;
 use App\Services\LeadConnectedThreadService;
+use App\Services\LeadFollowUpDayService;
 use App\Services\LeadInboxAttachService;
 use App\Services\LeadReportService;
 use App\Services\LeadRuleEngine;
@@ -39,7 +42,9 @@ class LeadsController extends Controller
         protected FlexCrmLookupService $crmLookup,
         protected LeadInboxAttachService $inboxAttach,
         protected LeadConnectedThreadService $connectedThreads,
-        protected LeadReportService $leadReports
+        protected LeadReportService $leadReports,
+        protected LeadFollowUpDayService $followUpDays,
+        protected LeadChannelMessageService $channelMessages
     ) {}
 
     public function index(): View
@@ -47,6 +52,7 @@ class LeadsController extends Controller
         return view('dashboard.leads', [
             'canManageLeadRules' => Auth::user()?->hasPermission('create_lead_rules') ?? false,
             'leadFormOptions' => Lead::formOptions(),
+            'leadFollowUpConfig' => $this->followUpDays->configForCompany((int) Auth::user()->company_id),
         ]);
     }
 
@@ -140,6 +146,144 @@ class LeadsController extends Controller
                 'per_page' => $leads->perPage(),
                 'total' => $leads->total(),
             ],
+        ]);
+    }
+
+    public function followUpCounts(Request $request): JsonResponse
+    {
+        $companyId = (int) Auth::user()->company_id;
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->leadReports->followUpCounts($companyId, $request),
+        ]);
+    }
+
+    public function followUpDays(): JsonResponse
+    {
+        $companyId = (int) Auth::user()->company_id;
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->followUpDays->configForCompany($companyId),
+        ]);
+    }
+
+    public function updateFollowUpDays(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'days' => ['required', 'array', 'min:1', 'max:'.LeadFollowUpDayService::MAX_CONFIGURED_DAYS],
+            'days.*' => ['integer', 'min:1', 'max:365'],
+        ]);
+
+        $company = Company::query()->find((int) Auth::user()->company_id);
+        if (! $company) {
+            return response()->json(['message' => 'Company not found.'], 404);
+        }
+
+        $days = $this->followUpDays->normalizeDays($validated['days']);
+        $company->lead_follow_up_days = $days;
+        $company->save();
+        $this->followUpDays->rememberDays((int) $company->id, $days);
+        $this->followUpDays->ensureForCompany((int) $company->id, true, true);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Follow-up days saved.',
+            'data' => $this->followUpDays->configForCompany((int) $company->id),
+        ]);
+    }
+
+    public function messageChannels(Lead $lead): JsonResponse
+    {
+        $lead = $this->leadForUser($lead);
+        $lead->loadMissing(['identities', 'company']);
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->channelMessages->describe($lead, Auth::user()),
+        ]);
+    }
+
+    public function sendMessage(Request $request, Lead $lead): JsonResponse
+    {
+        $lead = $this->leadForUser($lead);
+        $validated = $request->validate([
+            'channel' => ['required', 'string', 'in:sms,facebook,viber,whatsapp,inbox'],
+            'template_id' => ['nullable', 'integer', 'min:1'],
+            'body' => ['nullable', 'string', 'max:7000'],
+            'subject' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        try {
+            $result = $this->channelMessages->send(
+                $lead,
+                Auth::user(),
+                $validated['channel'],
+                isset($validated['template_id']) ? (int) $validated['template_id'] : null,
+                $validated['body'] ?? null,
+                $validated['subject'] ?? null
+            );
+        } catch (\RuntimeException $e) {
+            $status = str_contains(strtolower($e->getMessage()), 'permission') ? 403 : 422;
+
+            return response()->json(['message' => $e->getMessage()], $status);
+        }
+
+        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Message sent.',
+            'data' => $this->serializeWithInbox($lead),
+            'sent' => $result,
+        ]);
+    }
+
+    public function sendMessagesBulk(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'lead_ids' => ['required', 'array', 'min:1', 'max:50'],
+            'lead_ids.*' => ['integer', 'min:1'],
+            'channel' => ['required', 'string', 'in:sms,facebook,viber,whatsapp,inbox'],
+            'template_id' => ['nullable', 'integer', 'min:1'],
+            'body' => ['nullable', 'string', 'max:7000'],
+            'subject' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $companyId = (int) Auth::user()->company_id;
+        $leads = Lead::query()
+            ->where('company_id', $companyId)
+            ->whereIn('id', $validated['lead_ids'])
+            ->with(['identities', 'company'])
+            ->get();
+
+        $sent = 0;
+        $skipped = [];
+        foreach ($leads as $lead) {
+            try {
+                $this->channelMessages->send(
+                    $lead,
+                    Auth::user(),
+                    $validated['channel'],
+                    isset($validated['template_id']) ? (int) $validated['template_id'] : null,
+                    $validated['body'] ?? null,
+                    $validated['subject'] ?? null
+                );
+                $sent++;
+            } catch (\RuntimeException $e) {
+                $skipped[] = [
+                    'lead_id' => $lead->id,
+                    'name' => $lead->name,
+                    'reason' => $e->getMessage(),
+                ];
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'sent' => $sent,
+            'skipped' => $skipped,
         ]);
     }
 
@@ -534,7 +678,14 @@ class LeadsController extends Controller
     public function destroyLabel(LeadLabel $leadLabel): JsonResponse
     {
         $this->labelForUser($leadLabel);
+        $companyId = (int) $leadLabel->company_id;
+        $followUpDay = $this->followUpDays->dayFromLabelName((string) $leadLabel->name);
+
         $leadLabel->delete();
+
+        if ($followUpDay !== null) {
+            $this->followUpDays->detachFollowUpDay($companyId, $followUpDay);
+        }
 
         return response()->json(['success' => true]);
     }
@@ -847,6 +998,7 @@ class LeadsController extends Controller
             'status' => $lead->status,
             'reopen_at' => $lead->reopen_at?->toIso8601String(),
             'reopen_status' => $lead->reopen_status,
+            'follow_up_day' => $this->followUpDays->dayFor($lead),
             'source' => $lead->source,
             'has_connected_thread' => $connected !== null,
             'connected_thread_url' => $connected['url'] ?? null,
@@ -1242,11 +1394,11 @@ class LeadsController extends Controller
             'triggers' => [$required, 'array', 'min:1'],
             'triggers.*' => ['required', 'string', 'in:'.$triggerKeys],
             'conditions' => [$required, 'array', 'min:1'],
-            'conditions.*.field' => ['required', 'in:channel,shared_inbox,inbox,contact_name,phone,email,subject,message,lead_status,lead_label,label_added,status_changed'],
-            'conditions.*.operator' => ['required', 'in:contains,equals,starts_with,in'],
+            'conditions.*.field' => ['required', 'in:channel,shared_inbox,inbox,contact_name,phone,email,subject,message,lead_status,lead_label,label_added,status_changed,follow_up_day'],
+            'conditions.*.operator' => ['required', 'in:contains,equals,starts_with,in,does_not_have,not_equals'],
             'conditions.*.value' => ['nullable'],
             'actions' => [$required, 'array', 'min:1'],
-            'actions.*.type' => ['required', 'in:create_lead,assign,add_label,set_status,notify_assignee,reopen_after_days'],
+            'actions.*.type' => ['required', 'in:create_lead,assign,add_label,set_status,notify_assignee,reopen_after_days,unsnooze'],
             'actions.*.value' => ['nullable'],
         ]);
 
@@ -1277,6 +1429,14 @@ class LeadsController extends Controller
                     ->count();
                 if ($valid !== $ids->count()) {
                     abort(response()->json(['message' => 'Choose valid shared inboxes.'], 422));
+                }
+                continue;
+            }
+            if ($field === 'follow_up_day') {
+                $dayValue = trim((string) ($condition['value'] ?? ''));
+                $isPlus = $this->followUpDays->isPlusValue($dayValue);
+                if (! $isPlus && ((int) $dayValue < 1 || (int) $dayValue > 365)) {
+                    abort(response()->json(['message' => 'Choose a follow-up day (1–365) or the older-than bucket.'], 422));
                 }
                 continue;
             }
