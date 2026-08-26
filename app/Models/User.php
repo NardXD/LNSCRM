@@ -350,6 +350,7 @@ class User extends Authenticatable
     public function conversations()
     {
         return $this->belongsToMany(Conversation::class, 'conversation_participants')
+            ->using(ConversationParticipant::class)
             ->withPivot('last_read_at')
             ->withTimestamps();
     }

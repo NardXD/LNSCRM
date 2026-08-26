@@ -6,6 +6,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -292,8 +293,8 @@ class MessagingController extends Controller
         if ($beforeId) {
             $messages = $messages->reverse()->values();
         }
-        $messages = $messages->map(fn ($m) => $this->formatMessage($m, $user));
         $receipts = $this->formatReceipts($conversation, $user);
+        $messages = $messages->map(fn ($m) => $this->formatMessage($m, $user, $receipts));
 
         $otherParticipant = $conversation->participants()->where('users.id', '!=', $user->id)->first();
         $displayName = $conversation->type === 'group'
@@ -318,7 +319,7 @@ class MessagingController extends Controller
                 ],
                 'messages' => $messages,
                 'has_more' => $hasMore,
-                'receipts' => $receipts,
+                'receipts' => collect($receipts)->map(fn (array $r) => Arr::except($r, ['last_read_raw']))->values()->all(),
             ],
         ]);
     }
@@ -415,7 +416,11 @@ class MessagingController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatMessage($message->load(['user', 'replyTo.user']), $user),
+            'data' => $this->formatMessage(
+                $message->load(['user', 'replyTo.user']),
+                $user,
+                $this->formatReceipts($conversation, $user)
+            ),
         ]);
     }
 
@@ -735,19 +740,24 @@ class MessagingController extends Controller
             ->where('users.id', '!=', $currentUser->id)
             ->get()
             ->map(function ($p) {
+                $readAt = $p->pivot->getRawOriginal('last_read_at')
+                    ?? $p->pivot->getAttributes()['last_read_at']
+                    ?? $p->pivot->last_read_at;
+
                 return [
                     'id' => $p->id,
                     'name' => $p->name,
                     'initials' => $this->getInitials($p->name),
                     'photo' => $p->photo ? public_media_url($p->photo) : null,
-                    'last_read_at' => $this->isoTimestamp($p->pivot->last_read_at),
+                    'last_read_at' => $this->isoTimestamp($readAt),
+                    'last_read_raw' => $this->wallClock($readAt),
                 ];
             })
             ->values()
             ->all();
     }
 
-    private function formatMessage(Message $m, $currentUser): array
+    private function formatMessage(Message $m, $currentUser, array $receipts = []): array
     {
         $isMe = $m->user_id === $currentUser->id;
 
@@ -765,7 +775,46 @@ class MessagingController extends Controller
             'created_at' => $m->created_at->toIso8601String(),
             'edited_at' => $m->edited_at?->toIso8601String(),
             'reply_to' => $this->formatReplyTo($m, $currentUser),
+            'seen_by' => $isMe ? $this->whoSaw($m, $receipts) : [],
         ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $receipts
+     * @return list<array<string, mixed>>
+     */
+    private function whoSaw(Message $message, array $receipts): array
+    {
+        $createdRaw = $this->wallClock($message->getRawOriginal('created_at') ?? $message->created_at);
+
+        return collect($receipts)
+            ->filter(function (array $receipt) use ($createdRaw) {
+                $readRaw = $receipt['last_read_raw'] ?? null;
+
+                return $createdRaw && $readRaw && $readRaw >= $createdRaw;
+            })
+            ->map(function (array $receipt) {
+                return Arr::except($receipt, ['last_read_raw']);
+            })
+            ->values()
+            ->all();
+    }
+
+    private function wallClock(mixed $value): ?string
+    {
+        if (! $value) {
+            return null;
+        }
+
+        if ($value instanceof \DateTimeInterface) {
+            // Keep the stored wall clock. Shifting UTC↔app TZ made last_read look
+            // hours later than created_at and tagged messages as seen.
+            return Carbon::instance($value)->format('Y-m-d H:i:s');
+        }
+
+        $normalized = substr(str_replace('T', ' ', (string) $value), 0, 19);
+
+        return $normalized !== '' ? $normalized : null;
     }
 
     private function formatReplyTo(Message $m, $currentUser): ?array
@@ -796,7 +845,7 @@ class MessagingController extends Controller
             return Carbon::instance($value)->toIso8601String();
         }
 
-        return Carbon::parse((string) $value, 'UTC')->toIso8601String();
+        return Carbon::parse((string) $value, config('app.timezone'))->toIso8601String();
     }
 
     private function messagePreview(Message $m): string

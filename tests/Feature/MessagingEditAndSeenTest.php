@@ -87,23 +87,46 @@ class MessagingEditAndSeenTest extends TestCase
         $this->actingAs($alice)
             ->getJson('/api/messaging/conversations/'.$conversation->id.'/messages')
             ->assertOk()
-            ->assertJsonPath('data.receipts.0.last_read_at', null);
+            ->assertJsonPath('data.receipts.0.last_read_at', null)
+            ->assertJsonPath('data.messages.0.seen_by', []);
 
         $this->actingAs($bob)
             ->getJson('/api/messaging/conversations/'.$conversation->id.'/messages')
             ->assertOk();
 
-        $receipts = $this->actingAs($alice)
+        $payload = $this->actingAs($alice)
             ->getJson('/api/messaging/conversations/'.$conversation->id.'/messages')
             ->assertOk()
-            ->json('data.receipts');
+            ->json('data');
 
-        $this->assertCount(1, $receipts);
-        $this->assertSame($bob->id, $receipts[0]['id']);
-        $this->assertNotNull($receipts[0]['last_read_at']);
-        $this->assertTrue(
-            \Illuminate\Support\Carbon::parse($receipts[0]['last_read_at'])->gte($message->fresh()->created_at)
-        );
+        $this->assertCount(1, $payload['receipts']);
+        $this->assertSame($bob->id, $payload['receipts'][0]['id']);
+        $this->assertNotNull($payload['receipts'][0]['last_read_at']);
+        $this->assertNotEmpty($payload['messages'][0]['seen_by']);
+        $this->assertSame($bob->id, $payload['messages'][0]['seen_by'][0]['id']);
+    }
+
+    public function test_seen_is_not_reported_when_other_user_has_stale_last_read(): void
+    {
+        [$alice, $bob, $conversation] = $this->directChat();
+
+        $conversation->participants()->updateExistingPivot($bob->id, [
+            'last_read_at' => now()->subHour()->timezone(config('app.timezone'))->format('Y-m-d H:i:s'),
+        ]);
+
+        Message::query()->create([
+            'conversation_id' => $conversation->id,
+            'user_id' => $alice->id,
+            'body' => 'New after they left',
+        ]);
+
+        $message = $this->actingAs($alice)
+            ->getJson('/api/messaging/conversations/'.$conversation->id.'/messages')
+            ->assertOk()
+            ->json('data.messages.0');
+
+        $this->assertSame('New after they left', $message['body']);
+        $this->assertSame([], $message['seen_by']);
     }
 
     public function test_group_member_can_reply_to_another_members_message(): void

@@ -2,11 +2,15 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\Pivot;
 
-class ConversationParticipant extends Model
+class ConversationParticipant extends Pivot
 {
+    protected $table = 'conversation_participants';
+
+    public $incrementing = true;
+
     protected $fillable = [
         'conversation_id',
         'user_id',
@@ -17,17 +21,11 @@ class ConversationParticipant extends Model
         'last_read_at' => 'datetime',
     ];
 
-    /**
-     * Get the conversation.
-     */
     public function conversation(): BelongsTo
     {
         return $this->belongsTo(Conversation::class);
     }
 
-    /**
-     * Get the user.
-     */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

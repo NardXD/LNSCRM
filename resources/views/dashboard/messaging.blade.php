@@ -268,6 +268,11 @@
             </div>
         </div>
     </div>
+
+    <div class="msg-image-lightbox" id="msgImageLightbox" hidden>
+        <button type="button" class="msg-image-lightbox-close" id="msgImageLightboxClose" aria-label="Close preview">✕</button>
+        <img id="msgImageLightboxImg" src="" alt="">
+    </div>
 @endsection
 
 @push('styles')
@@ -659,6 +664,49 @@
         max-height: 180px;
         border-radius: 12px;
         margin: 2px 0;
+        cursor: zoom-in;
+    }
+    .msg-image-lightbox {
+        position: fixed;
+        inset: 0;
+        z-index: 3000;
+        background: rgba(0, 0, 0, 0.82);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2.5rem 1.5rem 1.5rem;
+        cursor: zoom-out;
+    }
+    .msg-image-lightbox[hidden] { display: none !important; }
+    .msg-image-lightbox img {
+        max-width: min(96vw, 1200px);
+        max-height: calc(100vh - 5rem);
+        width: auto;
+        height: auto;
+        object-fit: contain;
+        border-radius: 8px;
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+        cursor: default;
+    }
+    .msg-image-lightbox-close {
+        position: absolute;
+        top: 0.85rem;
+        right: 0.85rem;
+        width: 36px;
+        height: 36px;
+        border: 0;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.14);
+        color: #fff;
+        font-size: 1.1rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+    }
+    .msg-image-lightbox-close:hover {
+        background: rgba(255, 255, 255, 0.28);
     }
     .msg-bubble-text + .msg-inline-image,
     .msg-bubble-text + .msg-attachment { margin-top: 6px; }
@@ -1633,6 +1681,7 @@
         row.dataset.editedAt = m.edited_at || '';
         row.dataset.hasAttachment = m.attachment_path ? '1' : '0';
         row.dataset.preview = m.body || (m.attachment_type === 'image' ? 'Photo' : (m.attachment_name || 'Attachment') || '');
+        row.dataset.seenBy = JSON.stringify(m.seen_by || []);
 
         let quote = '';
         if (m.reply_to && m.reply_to.id) {
@@ -1645,7 +1694,7 @@
         if (m.body) body += '<div class="msg-bubble-text">' + escapeHtml(m.body) + '</div>';
         if (m.attachment_path) {
             if (m.attachment_type === 'image') {
-                body += '<img class="msg-inline-image" src="' + escapeHtml(m.attachment_path) + '" alt="">';
+                body += '<img class="msg-inline-image" src="' + escapeHtml(m.attachment_path) + '" alt="" onclick="window.openMessageImagePreview(this.src, event)">';
             } else {
                 body += '<div class="msg-attachment"><svg class="msg-attachment-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg><a href="' + escapeHtml(m.attachment_path) + '" target="_blank" rel="noopener" download class="msg-attachment-name">' + escapeHtml(m.attachment_name || 'File') + '</a></div>';
             }
@@ -1671,10 +1720,12 @@
         return row;
     }
 
-    function seenForTimestamp(iso) {
-        if (!iso) return [];
-        const t = new Date(iso).getTime();
-        return conversationReceipts.filter(r => r.last_read_at && new Date(r.last_read_at).getTime() >= t);
+    function seenForRow(row) {
+        try {
+            const fromServer = JSON.parse(row.dataset.seenBy || '[]');
+            if (Array.isArray(fromServer)) return fromServer;
+        } catch (_) { /* ignore */ }
+        return [];
     }
 
     function applySeenLabels() {
@@ -1682,7 +1733,7 @@
         const rows = [...document.querySelectorAll('#messageGroup .msg-row.outbound')];
         const last = rows[rows.length - 1];
         if (!last) return;
-        const seen = seenForTimestamp(last.dataset.ts);
+        const seen = seenForRow(last);
         if (!seen.length) return;
         const el = document.createElement('div');
         const isGroup = currentConversationType === 'group';
@@ -2049,6 +2100,36 @@
         row.classList.add('msg-row-flash');
         setTimeout(() => row.classList.remove('msg-row-flash'), 1400);
     };
+
+    window.openMessageImagePreview = function(src, ev) {
+        if (ev) ev.stopPropagation();
+        if (!src) return;
+        const box = document.getElementById('msgImageLightbox');
+        const img = document.getElementById('msgImageLightboxImg');
+        img.src = src;
+        box.hidden = false;
+    };
+
+    window.closeMessageImagePreview = function() {
+        const box = document.getElementById('msgImageLightbox');
+        const img = document.getElementById('msgImageLightboxImg');
+        box.hidden = true;
+        img.src = '';
+    };
+
+    document.getElementById('msgImageLightbox').addEventListener('click', function(e) {
+        if (e.target === this || e.target.id === 'msgImageLightboxClose') {
+            window.closeMessageImagePreview();
+        }
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.key !== 'Escape') return;
+        const box = document.getElementById('msgImageLightbox');
+        if (box && !box.hidden) {
+            e.preventDefault();
+            window.closeMessageImagePreview();
+        }
+    });
 
     window.startEditMessage = function(id, ev) {
         if (ev) ev.stopPropagation();
@@ -2655,6 +2736,7 @@
         (json.data.messages || []).forEach(m => {
             const existing = group.querySelector('.msg-row[data-message-id="' + m.id + '"]');
             if (existing) {
+                existing.dataset.seenBy = JSON.stringify(m.seen_by || []);
                 if (existing.dataset.body !== (m.body || '') || existing.dataset.editedAt !== (m.edited_at || '')) {
                     existing.replaceWith(buildMessageElement(m));
                 }
