@@ -368,6 +368,7 @@ class LeadFollowUpDayTest extends TestCase
         $this->assertNull($mail['conversation_id']);
         $this->assertNotEmpty($mail['mailboxes']);
         $this->assertSame('Personal', $mail['mailboxes'][0]['name']);
+        $this->assertSame(['anna@example.com'], $mail['emails']);
 
         $captured = null;
         $this->mock(InboxReplyService::class, function ($mock) use (&$captured, $lead) {
@@ -406,6 +407,97 @@ class LeadFollowUpDayTest extends TestCase
         $this->assertSame('Checking in', $captured['subject']);
         $this->assertSame('<p>Hi <strong>Anna</strong></p>', $captured['body']);
         $this->assertSame($lead->id, InboxConversation::query()->where('external_conversation_id', 'local-compose-test')->value('lead_id'));
+    }
+
+    public function test_mail_follow_up_defaults_to_all_emails_and_can_send_a_subset(): void
+    {
+        [$user, $company] = $this->userWithPermissions(['view_leads', 'view_inbox']);
+        $lead = $this->makeLead($company, 'Anna Cruz', 'new', now()->subDays(2));
+        $lead->addIdentity(LeadIdentity::TYPE_EMAIL, 'anna@example.com');
+        $lead->addIdentity(LeadIdentity::TYPE_EMAIL, 'anna.work@example.com');
+
+        $account = OutlookMailAccount::query()->create([
+            'company_id' => $company->id,
+            'user_id' => $user->id,
+            'email' => 'inbox@example.com',
+            'access_token' => 'token',
+            'is_active' => true,
+        ]);
+        SharedInbox::query()->create([
+            'company_id' => $company->id,
+            'outlook_mail_account_id' => $account->id,
+            'created_by' => $user->id,
+            'name' => 'Personal',
+            'email' => 'inbox@example.com',
+            'type' => SharedInbox::TYPE_PERSONAL,
+            'is_active' => true,
+        ]);
+
+        $channels = $this->actingAs($user)
+            ->getJson('/api/leads/'.$lead->id.'/message-channels')
+            ->assertOk()
+            ->json('data.channels');
+        $mail = collect($channels)->firstWhere('id', 'inbox');
+        $this->assertEqualsCanonicalizing(
+            ['anna@example.com', 'anna.work@example.com'],
+            $mail['emails']
+        );
+
+        $captured = [];
+        $this->mock(InboxReplyService::class, function ($mock) use (&$captured, $lead) {
+            $mock->shouldReceive('sendCompose')
+                ->once()
+                ->andReturnUsing(function ($inbox, $actor, $payload) use (&$captured, $lead) {
+                    $captured[] = $payload['to'];
+                    $conversation = InboxConversation::query()->create([
+                        'company_id' => $lead->company_id,
+                        'shared_inbox_id' => $inbox->id,
+                        'external_conversation_id' => 'local-to-all',
+                        'subject' => $payload['subject'],
+                        'from_name' => $actor->name,
+                        'from_email' => $inbox->email,
+                        'status' => 'sent',
+                    ]);
+
+                    return [
+                        'message' => new InboxMessage(['body_html' => $payload['body']]),
+                        'conversation' => $conversation,
+                    ];
+                });
+            $mock->shouldReceive('send')
+                ->once()
+                ->andReturnUsing(function ($conversation, $inbox, $actor, $payload) use (&$captured) {
+                    $captured[] = $payload['to'];
+
+                    return [
+                        'message' => new InboxMessage(['body_html' => $payload['body']]),
+                        'conversation' => $conversation,
+                    ];
+                });
+        });
+
+        $this->actingAs($user)
+            ->postJson('/api/leads/'.$lead->id.'/messages', [
+                'channel' => 'inbox',
+                'body' => '<p>Hello</p>',
+                'subject' => 'All inboxes',
+            ])
+            ->assertOk();
+
+        $this->actingAs($user)
+            ->postJson('/api/leads/'.$lead->id.'/messages', [
+                'channel' => 'inbox',
+                'body' => '<p>Hello</p>',
+                'subject' => 'Work only',
+                'to' => ['anna.work@example.com'],
+            ])
+            ->assertOk();
+
+        $this->assertEqualsCanonicalizing(
+            ['anna@example.com', 'anna.work@example.com'],
+            array_map('trim', explode(',', (string) $captured[0]))
+        );
+        $this->assertSame('anna.work@example.com', $captured[1]);
     }
 
     public function test_mail_follow_up_can_send_from_selected_shared_mailbox(): void

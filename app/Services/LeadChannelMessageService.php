@@ -96,6 +96,7 @@ class LeadChannelMessageService
                 'url' => $thread['deep_link'] ?? $thread['url'] ?? null,
                 'templates' => $templates,
                 'mailboxes' => $channel === 'inbox' ? $this->mailboxesFor($user) : [],
+                'emails' => $channel === 'inbox' ? $this->emailsFor($lead) : [],
             ];
         }
 
@@ -115,7 +116,8 @@ class LeadChannelMessageService
         ?int $templateId,
         ?string $body,
         ?string $subject = null,
-        ?int $inboxId = null
+        ?int $inboxId = null,
+        ?array $toEmails = null
     ): array {
         $lead->loadMissing(['identities', 'company']);
         $channel = $channel === 'mail' ? 'inbox' : $channel;
@@ -140,7 +142,14 @@ class LeadChannelMessageService
             'whatsapp' => $this->sendWhatsApp($lead, $user, $text),
             'viber' => $this->sendViber($lead, $user, $text),
             'facebook' => $this->sendFacebook($lead, $user, $text),
-            'inbox' => $this->sendMail($lead, $user, $text, $this->merge((string) $resolved['subject'], $lead), $inboxId),
+            'inbox' => $this->sendMail(
+                $lead,
+                $user,
+                $text,
+                $this->merge((string) $resolved['subject'], $lead),
+                $inboxId,
+                $toEmails
+            ),
             default => throw new \RuntimeException('Unknown channel.'),
         };
 
@@ -296,9 +305,56 @@ class LeadChannelMessageService
 
     protected function primaryEmail(Lead $lead): string
     {
-        $emails = $lead->emailValues();
+        $emails = $this->emailsFor($lead);
 
-        return trim((string) ($emails[0] ?? ''));
+        return $emails[0] ?? '';
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function emailsFor(Lead $lead): array
+    {
+        $known = [];
+        foreach ($lead->emailValues() as $email) {
+            $trim = trim((string) $email);
+            if ($trim !== '') {
+                $known[strtolower($trim)] = $trim;
+            }
+        }
+
+        return array_values($known);
+    }
+
+    /**
+     * @param  list<string>|null  $requested
+     * @return list<string>
+     */
+    protected function recipientEmails(Lead $lead, ?array $requested): array
+    {
+        $known = [];
+        foreach ($this->emailsFor($lead) as $email) {
+            $known[strtolower($email)] = $email;
+        }
+        if ($known === []) {
+            throw new \RuntimeException('No email address yet.');
+        }
+        if ($requested === null || $requested === []) {
+            return array_values($known);
+        }
+
+        $selected = [];
+        foreach ($requested as $email) {
+            $key = strtolower(trim((string) $email));
+            if ($key !== '' && isset($known[$key])) {
+                $selected[$key] = $known[$key];
+            }
+        }
+        if ($selected === []) {
+            return array_values($known);
+        }
+
+        return array_values($selected);
     }
 
     protected function mailboxesFor(User $user): array
@@ -629,9 +685,10 @@ class LeadChannelMessageService
         ]);
     }
 
-    protected function sendMail(Lead $lead, User $user, string $body, ?string $subject, ?int $inboxId = null): void
+    protected function sendMail(Lead $lead, User $user, string $body, ?string $subject, ?int $inboxId = null, ?array $toEmails = null): void
     {
         $html = $this->mailBodyHtml($body);
+        $to = implode(', ', $this->recipientEmails($lead, $toEmails));
         $conversationId = $this->conversationId($lead, 'inbox');
         $conversation = $conversationId
             ? InboxConversation::query()
@@ -655,14 +712,6 @@ class LeadChannelMessageService
                 throw new \RuntimeException('This inbox is not connected to Outlook.');
             }
 
-            $to = trim((string) $conversation->from_email);
-            if ($to === '') {
-                $to = $this->primaryEmail($lead);
-            }
-            if ($to === '') {
-                throw new \RuntimeException('This email thread has no recipient address.');
-            }
-
             try {
                 $this->inboxReplies->send($conversation, $inbox, $user, [
                     'body' => $html,
@@ -673,11 +722,6 @@ class LeadChannelMessageService
             }
 
             return;
-        }
-
-        $to = $this->primaryEmail($lead);
-        if ($to === '') {
-            throw new \RuntimeException('No email address yet.');
         }
 
         $inbox = $selectedInbox ?: $this->mailboxFor($user);

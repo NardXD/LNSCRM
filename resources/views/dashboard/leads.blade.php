@@ -365,6 +365,11 @@
                     <label>Channel</label>
                     <div class="lead-message-channels" id="leadMessageChannels"></div>
                 </div>
+                <div class="form-group" id="leadMessageToWrap" hidden>
+                    <label>To</label>
+                    <div class="lead-message-to" id="leadMessageTo"></div>
+                    <p class="leads-rules-help" id="leadMessageToHelp">All of this lead’s emails are selected. Uncheck any you don’t want to send to.</p>
+                </div>
                 <div class="form-group" id="leadMessageMailboxWrap" hidden>
                     <label for="leadMessageMailbox">Send from</label>
                     <select id="leadMessageMailbox">
@@ -592,6 +597,11 @@
 .lead-message-channel { border: 1px solid var(--border); background: var(--bg-card); border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; color: var(--text-primary); }
 .lead-message-channel.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-card)); color: var(--accent); }
 .lead-message-channel:disabled { opacity: 0.45; cursor: not-allowed; }
+.lead-message-to { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.lead-message-to-item { display: flex; align-items: center; gap: 0.4rem; border: 1px solid var(--border); background: var(--bg-card); border-radius: 8px; padding: 0.35rem 0.65rem; font-size: 0.8rem; font-weight: 600; color: var(--text-primary); cursor: pointer; }
+.lead-message-to-item:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-card)); color: var(--accent); }
+.lead-message-to-item input { width: auto; margin: 0; }
+#leadMessageToHelp { margin: 0.4rem 0 0; }
 .leads-message-modal { background: var(--bg-card); border-radius: 12px; width: min(680px, 96vw); max-height: 92vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 18px 48px rgba(0,0,0,.18); }
 .leads-message-body { padding: 1rem 1.25rem; overflow-y: auto; min-height: 0; }
 .leads-message-body .form-group:last-of-type { margin-bottom: 0.5rem; }
@@ -2230,6 +2240,7 @@
         if (plainWrap) plainWrap.hidden = isMail;
         if (subjectWrap) subjectWrap.hidden = !isMail;
         fillMessageMailboxes(isMail);
+        fillMessageRecipients(isMail);
     }
     function getFollowUpBody() {
         return isMailFollowUp() ? getMailEditorContent() : (document.getElementById('leadMessageBody')?.value || '');
@@ -2247,6 +2258,8 @@
         document.getElementById('leadMessageModal')?.classList.add('open');
         document.getElementById('leadMessageBody').value = '';
         document.getElementById('leadMessageSubject').value = '';
+        const toList = document.getElementById('leadMessageTo');
+        if (toList) toList.innerHTML = '';
         setMailEditorContent('');
         setMailEditorMode('visual');
         const firstId = state.messageLeadIds[0];
@@ -2295,6 +2308,24 @@
         else if (shared) sel.value = String(shared.id);
         else if (boxes[0]) sel.value = String(boxes[0].id);
         wrap.hidden = !isMail;
+    }
+    function fillMessageRecipients(isMail) {
+        const wrap = document.getElementById('leadMessageToWrap');
+        const list = document.getElementById('leadMessageTo');
+        if (!wrap || !list) return;
+        const emails = isMail ? (currentMessageChannel()?.emails || []) : [];
+        const previous = new Set(getSelectedToEmails().map((email) => email.toLowerCase()));
+        const selectAll = previous.size === 0;
+        list.innerHTML = emails.length
+            ? emails.map((email) => {
+                const checked = selectAll || previous.has(String(email).toLowerCase()) ? 'checked' : '';
+                return `<label class="lead-message-to-item"><input type="checkbox" value="${esc(email)}" ${checked}> <span>${esc(email)}</span></label>`;
+            }).join('')
+            : '<p class="chp-empty">No email addresses on this lead.</p>';
+        wrap.hidden = !isMail;
+    }
+    function getSelectedToEmails() {
+        return [...document.querySelectorAll('#leadMessageTo input[type="checkbox"]:checked')].map((el) => el.value);
     }
     function fillMessageTemplates() {
         const sel = document.getElementById('leadMessageTemplate');
@@ -2367,6 +2398,10 @@
             if (err) { err.hidden = false; err.textContent = 'Choose a mailbox to send from.'; }
             return;
         }
+        if (isMailFollowUp() && getSelectedToEmails().length < 1) {
+            if (err) { err.hidden = false; err.textContent = 'Choose at least one recipient.'; }
+            return;
+        }
         const payload = {
             channel: state.messageChannel,
             template_id: document.getElementById('leadMessageTemplate').value ? Number(document.getElementById('leadMessageTemplate').value) : null,
@@ -2375,6 +2410,7 @@
             inbox_id: isMailFollowUp() && document.getElementById('leadMessageMailbox')?.value
                 ? Number(document.getElementById('leadMessageMailbox').value)
                 : null,
+            to: isMailFollowUp() ? getSelectedToEmails() : null,
         };
         btn.disabled = true;
         try {
