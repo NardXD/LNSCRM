@@ -478,7 +478,15 @@
             <div class="leads-rules-body">
                 <p class="leads-rules-help" id="leadRulesHelp">When something happens on Phone, Inbox, Viber, WhatsApp, Facebook, or SMS, run actions on the matching lead.</p>
                 <div id="leadRuleListView">
+                    <input type="search" id="leadRuleSearch" class="leads-search leads-rule-search" placeholder="Search rules by name…">
                     <div id="leadRuleList" class="leads-rule-list"></div>
+                    <div class="leads-pagination leads-rule-pagination">
+                        <span id="leadRulesPageInfo">Showing 0 of 0</span>
+                        <div>
+                            <button type="button" class="btn btn-secondary btn-sm" id="leadRulesPrev" disabled>Previous</button>
+                            <button type="button" class="btn btn-secondary btn-sm" id="leadRulesNext" disabled>Next</button>
+                        </div>
+                    </div>
                 </div>
                 <div id="leadRuleBuilder" hidden>
                     <label class="leads-rule-name-label">Name
@@ -766,6 +774,8 @@
 .leads-rules-modal { background: var(--bg-card); border-radius: 12px; width: min(720px, 96vw); max-height: 92vh; overflow: hidden; display: flex; flex-direction: column; }
 .leads-rules-body { padding: 1rem 1.25rem; overflow-y: auto; max-height: calc(92vh - 130px); }
 .leads-rules-help { margin: 0 0 1rem; font-size: 0.85rem; color: var(--text-secondary); }
+.leads-rule-search { width: 100%; margin-bottom: 0.75rem; }
+.leads-rule-pagination { padding: 0.65rem 0 0; margin-top: 0.5rem; border-top: 1px solid var(--border); }
 .leads-rule-list { display: flex; flex-direction: column; gap: 0.45rem; margin-bottom: 0.25rem; }
 .leads-rule-row { display: flex; align-items: flex-start; gap: 0.45rem; padding: 0.65rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); }
 .leads-rule-row-main { flex: 1; min-width: 0; }
@@ -834,7 +844,7 @@
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
     const LEAD_OPTIONS = @json($leadFormOptions);
     const LEAD_FOLLOW_UP = @json($leadFollowUpConfig ?? []);
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, selectedIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadIds: [], messageChannels: [], messageChannel: '' };
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, selectedIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadIds: [], messageChannels: [], messageChannel: '' };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -2557,9 +2567,21 @@
         if (inboxMenu) inboxMenu.hidden = true;
     }
     async function loadRules() {
-        const res = await fetch(api + '/rules', { credentials: 'same-origin', headers: headers() });
+        const q = new URLSearchParams({ page: String(state.rulesPage || 1), per_page: '10' });
+        if (state.rulesSearch) q.set('search', state.rulesSearch);
+        const res = await fetch(api + '/rules?' + q.toString(), { credentials: 'same-origin', headers: headers() });
         const data = await res.json().catch(() => ({}));
+        const pag = data.pagination || {};
+        const lastPage = Math.max(1, Number(pag.last_page) || 1);
+        const currentPage = Number(pag.current_page) || 1;
+        if (currentPage > lastPage && (Number(pag.total) || 0) > 0) {
+            state.rulesPage = lastPage;
+            return loadRules();
+        }
         state.rules = data.data || [];
+        state.rulesPage = currentPage;
+        state.rulesLastPage = lastPage;
+        state.rulesTotal = Number(pag.total) || 0;
         if (data.meta && typeof data.meta.can_manage === 'boolean') state.canManageRules = data.meta.can_manage;
         state.inboxes = Array.isArray(data.meta?.inboxes) ? data.meta.inboxes : [];
         renderRuleInboxPicker();
@@ -2569,24 +2591,30 @@
         const list = document.getElementById('leadRuleList');
         if (!list) return;
         if (!state.rules.length) {
-            list.innerHTML = '<div class="chp-empty">No rules yet.</div>';
-            return;
-        }
-        list.innerHTML = state.rules.map(rule => `
-            <div class="leads-rule-row" title="${esc(rule.name)}">
-                <div class="leads-rule-row-main">
-                    <div class="leads-rule-row-name">${esc(rule.name)}</div>
-                    <div class="leads-rule-row-meta">${rule.is_active ? 'On' : 'Off'} · Last applied ${rule.last_applied_at ? formatAt(rule.last_applied_at) : 'never'}</div>
-                </div>
-                ${state.canManageRules ? `
-                    <div class="leads-rule-row-actions">
-                        <button type="button" class="btn btn-secondary btn-sm" data-edit-lead-rule="${rule.id}">Edit</button>
-                        <button type="button" class="btn btn-secondary btn-sm" data-toggle-lead-rule="${rule.id}">${rule.is_active ? 'On' : 'Off'}</button>
-                        <button type="button" class="btn btn-secondary btn-sm" data-delete-lead-rule="${rule.id}">Delete</button>
+            list.innerHTML = `<div class="chp-empty">${state.rulesSearch ? 'No rules match this search.' : 'No rules yet.'}</div>`;
+        } else {
+            list.innerHTML = state.rules.map(rule => `
+                <div class="leads-rule-row" title="${esc(rule.name)}">
+                    <div class="leads-rule-row-main">
+                        <div class="leads-rule-row-name">${esc(rule.name)}</div>
+                        <div class="leads-rule-row-meta">${rule.is_active ? 'On' : 'Off'} · Last applied ${rule.last_applied_at ? formatAt(rule.last_applied_at) : 'never'}</div>
                     </div>
-                ` : ''}
-            </div>
-        `).join('');
+                    ${state.canManageRules ? `
+                        <div class="leads-rule-row-actions">
+                            <button type="button" class="btn btn-secondary btn-sm" data-edit-lead-rule="${rule.id}">Edit</button>
+                            <button type="button" class="btn btn-secondary btn-sm" data-toggle-lead-rule="${rule.id}">${rule.is_active ? 'On' : 'Off'}</button>
+                            <button type="button" class="btn btn-secondary btn-sm" data-delete-lead-rule="${rule.id}">Delete</button>
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+        const info = document.getElementById('leadRulesPageInfo');
+        const prev = document.getElementById('leadRulesPrev');
+        const next = document.getElementById('leadRulesNext');
+        if (info) info.textContent = `Showing page ${state.rulesPage || 1} of ${state.rulesLastPage || 1} (${state.rulesTotal || 0} rules)`;
+        if (prev) prev.disabled = (state.rulesPage || 1) <= 1;
+        if (next) next.disabled = (state.rulesPage || 1) >= (state.rulesLastPage || 1);
     }
     function selectedRuleChannels() {
         return [...document.querySelectorAll('#leadRuleChannelMenu input[type="checkbox"]:checked')]
@@ -3163,8 +3191,33 @@
         loadLeads();
     });
     document.getElementById('leadRulesBtn')?.addEventListener('click', () => {
+        state.rulesPage = 1;
+        state.rulesSearch = '';
+        const search = document.getElementById('leadRuleSearch');
+        if (search) search.value = '';
         loadRules().catch(() => {});
         openRulesModal();
+    });
+    document.getElementById('leadRulesPrev')?.addEventListener('click', () => {
+        if (state.rulesPage > 1) {
+            state.rulesPage -= 1;
+            loadRules().catch(() => {});
+        }
+    });
+    document.getElementById('leadRulesNext')?.addEventListener('click', () => {
+        if (state.rulesPage < state.rulesLastPage) {
+            state.rulesPage += 1;
+            loadRules().catch(() => {});
+        }
+    });
+    let ruleSearchTimer;
+    document.getElementById('leadRuleSearch')?.addEventListener('input', (e) => {
+        clearTimeout(ruleSearchTimer);
+        ruleSearchTimer = setTimeout(() => {
+            state.rulesSearch = e.target.value.trim();
+            state.rulesPage = 1;
+            loadRules().catch(() => {});
+        }, 250);
     });
     document.getElementById('closeLeadRulesModal')?.addEventListener('click', closeRulesModal);
     document.getElementById('cancelLeadRuleBtn')?.addEventListener('click', () => {

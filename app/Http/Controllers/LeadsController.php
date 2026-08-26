@@ -411,19 +411,32 @@ class LeadsController extends Controller
         ]);
     }
 
-    public function listRules(): JsonResponse
+    public function listRules(Request $request): JsonResponse
     {
         $companyId = (int) Auth::user()->company_id;
-        $rules = LeadRule::query()
+        $search = trim((string) $request->get('search', ''));
+        $query = LeadRule::query()
             ->where('company_id', $companyId)
             ->orderBy('priority')
-            ->orderBy('id')
-            ->get()
-            ->map(fn (LeadRule $rule) => $this->serializeRule($rule));
+            ->orderBy('id');
+
+        if ($search !== '') {
+            $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search);
+            $query->where('name', 'like', '%'.$escaped.'%');
+        }
+
+        $perPage = min(50, max(5, (int) $request->get('per_page', 10)));
+        $rules = $query->paginate($perPage);
 
         return response()->json([
             'success' => true,
-            'data' => $rules,
+            'data' => collect($rules->items())->map(fn (LeadRule $rule) => $this->serializeRule($rule))->all(),
+            'pagination' => [
+                'current_page' => $rules->currentPage(),
+                'last_page' => $rules->lastPage(),
+                'per_page' => $rules->perPage(),
+                'total' => $rules->total(),
+            ],
             'meta' => [
                 'can_manage' => Auth::user()->hasPermission('create_lead_rules'),
                 'triggers' => LeadRuleEngine::triggerLabels(),
