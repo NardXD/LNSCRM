@@ -131,9 +131,11 @@ class LeadReportService
         $config = $this->followUpDays->configForCompany($companyId);
         $counts = [];
 
-        foreach ($config['labels'] as $label) {
-            $counts[(string) $label['day']] = (clone $base)
-                ->whereHas('labels', fn ($labels) => $labels->where('lead_labels.id', $label['id']))
+        foreach ($config['days'] as $day) {
+            $counts[(string) $day] = (clone $base)
+                ->tap(fn ($query) => $this->followUpDays->applyToQuery($query, $companyId, [
+                    'follow_up_day' => $day,
+                ]))
                 ->count();
         }
 

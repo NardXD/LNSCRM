@@ -42,27 +42,18 @@ class LeadFollowUpDayTest extends TestCase
     {
         [$user, $company] = $this->userWithPermissions(['view_leads']);
 
-        $createdToday = $this->makeLead($company, 'Created Today', 'new', now());
+        $this->makeLead($company, 'Created Today', 'new', now());
         $day4 = $this->makeLead($company, 'Day Four', 'new', now()->subDays(4));
         $day10 = $this->makeLead($company, 'Day Ten', 'new', now()->subDays(10));
         $old = $this->makeLead($company, 'Old Lead', 'new', now()->subDays(100));
         $converted = $this->makeLead($company, 'Converted Four', 'converted', now()->subDays(4));
         $snoozed = $this->makeLead($company, 'Snoozed Four', Lead::STATUS_SNOOZED, now()->subDays(4));
         $moveIn = $this->makeLead($company, 'Move In Four', 'new', now()->subDays(4));
-        $inquiry = LeadLabel::query()->firstOrCreate(
-            ['company_id' => $company->id, 'name' => 'Inquiry'],
-            ['color' => '#9333ea']
-        );
         $moveInLabel = LeadLabel::query()->firstOrCreate(
             ['company_id' => $company->id, 'name' => 'Move in'],
             ['color' => '#16a34a']
         );
-        foreach ([$day4, $day10, $old, $converted, $snoozed, $moveIn] as $lead) {
-            $lead->labels()->syncWithoutDetaching([$inquiry->id]);
-        }
         $moveIn->labels()->syncWithoutDetaching([$moveInLabel->id]);
-
-        Artisan::call('leads:process-follow-up-days');
 
         $this->actingAs($user)
             ->getJson('/api/leads?follow_up_day=4')
@@ -86,9 +77,10 @@ class LeadFollowUpDayTest extends TestCase
         $this->assertSame(1, $counts['counts']['10']);
         $this->assertSame(0, $counts['counts']['30']);
         $this->assertSame(1, $counts['counts']['90']);
+        $this->assertSame($old->id, Lead::query()->where('name', 'Old Lead')->value('id'));
     }
 
-    public function test_lead_labels_can_be_deleted_and_are_not_recreated(): void
+    public function test_follow_up_days_do_not_create_labels(): void
     {
         [$user, $company] = $this->userWithPermissions(['view_leads']);
 
@@ -96,34 +88,30 @@ class LeadFollowUpDayTest extends TestCase
             ->putJson('/api/leads/follow-up-days', ['days' => [4, 10, 30, 90]])
             ->assertOk();
 
+        $this->assertSame(0, LeadLabel::query()->where('company_id', $company->id)->count());
+
         $custom = LeadLabel::query()->create([
             'company_id' => $company->id,
             'name' => 'Custom tag',
             'color' => '#111111',
         ]);
-        $fourth = LeadLabel::query()
-            ->where('company_id', $company->id)
-            ->where('name', '4th Day FU')
-            ->firstOrFail();
-        $inquiry = LeadLabel::query()
-            ->where('company_id', $company->id)
-            ->where('name', 'Inquiry')
-            ->firstOrFail();
+        $leftoverFu = LeadLabel::query()->create([
+            'company_id' => $company->id,
+            'name' => '4th Day FU',
+            'color' => '#7c3aed',
+        ]);
 
         $this->actingAs($user)
             ->deleteJson('/api/leads/labels/'.$custom->id)
             ->assertOk();
         $this->actingAs($user)
-            ->deleteJson('/api/leads/labels/'.$fourth->id)
-            ->assertOk();
-        $this->actingAs($user)
-            ->deleteJson('/api/leads/labels/'.$inquiry->id)
+            ->deleteJson('/api/leads/labels/'.$leftoverFu->id)
             ->assertOk();
 
         $this->actingAs($user)
             ->getJson('/api/leads/follow-up-counts')
             ->assertOk()
-            ->assertJsonPath('data.days', [10, 30, 90]);
+            ->assertJsonPath('data.days', [4, 10, 30, 90]);
 
         $names = $this->actingAs($user)
             ->getJson('/api/leads/labels')
@@ -134,20 +122,13 @@ class LeadFollowUpDayTest extends TestCase
         $this->assertNotContains('Custom tag', $names);
         $this->assertNotContains('4th Day FU', $names);
         $this->assertNotContains('Inquiry', $names);
-        $this->assertContains('10th Day FU', $names);
     }
 
     public function test_follow_up_days_can_be_configured(): void
     {
         [$user, $company] = $this->userWithPermissions(['view_leads']);
-        $dayTwo = $this->makeLead($company, 'Day Two', 'new', now()->subDays(2));
-        $daySeven = $this->makeLead($company, 'Day Seven', 'new', now()->subDays(7));
-        $inquiry = LeadLabel::query()->firstOrCreate(
-            ['company_id' => $company->id, 'name' => 'Inquiry'],
-            ['color' => '#9333ea']
-        );
-        $dayTwo->labels()->syncWithoutDetaching([$inquiry->id]);
-        $daySeven->labels()->syncWithoutDetaching([$inquiry->id]);
+        $this->makeLead($company, 'Day Two', 'new', now()->subDays(2));
+        $this->makeLead($company, 'Day Seven', 'new', now()->subDays(7));
 
         $this->actingAs($user)
             ->putJson('/api/leads/follow-up-days', ['days' => [2, 7]])

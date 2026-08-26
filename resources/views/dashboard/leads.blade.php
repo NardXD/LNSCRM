@@ -12,7 +12,7 @@
             <p class="page-subtitle">Store a customer’s phones, emails, and social names so Phone, Inbox, Viber, WhatsApp, Facebook, and SMS share one Contact history.</p>
         </div>
         <div class="leads-header-actions">
-            <button type="button" class="btn btn-secondary" id="leadFollowUpDaysBtn">Follow-up labels</button>
+            <button type="button" class="btn btn-secondary" id="leadFollowUpDaysBtn">Follow-up days</button>
             <button type="button" class="btn btn-secondary" id="leadLabelsBtn">Labels</button>
             <button type="button" class="btn btn-secondary" id="leadStatusesBtn">Statuses</button>
             <button type="button" class="btn btn-secondary" id="leadRulesBtn">Rules</button>
@@ -45,7 +45,7 @@
     </div>
 
     <div class="leads-followup-row">
-        <div class="leads-followup-chips" id="leadFollowUpChips" role="tablist" aria-label="Follow-up labels"></div>
+        <div class="leads-followup-chips" id="leadFollowUpChips" role="tablist" aria-label="Follow-up days"></div>
     </div>
 
     <div class="leads-card">
@@ -399,18 +399,18 @@
     <div class="modal-overlay" id="leadFollowUpDaysModal">
         <div class="modal-content leads-rules-modal">
             <div class="modal-header">
-                <h3>Follow-up labels</h3>
+                <h3>Follow-up days</h3>
                 <button type="button" class="modal-close-btn" id="closeLeadFollowUpDaysModal">&times;</button>
             </div>
             <div class="leads-rules-body">
-                <p class="leads-rules-help">Each day you add becomes a label (4 → 4th Day FU). Day 1 is the day after the lead was created. Open leads with Inquiry are tagged when they reach that day, unless they already have that label, a later follow-up label, Move in, or Not Interested.</p>
+                <p class="leads-rules-help">Each day is a follow-up bucket (4 → 4th Day FU), separate from Labels. Day 1 is the day after the lead was created. Open leads sit in the latest due bucket. Converted, lost, archived, Move in, and Not Interested leads are left out.</p>
                 <div id="leadFollowUpDaysList" class="leads-rule-list"></div>
                 <form id="leadFollowUpDaysForm" class="leads-label-create">
                     <label class="leads-followup-day-field">
                         <span>Day</span>
                         <input type="number" id="leadFollowUpDayInput" class="leads-followup-day-input" min="1" max="365" step="1" placeholder="7" required>
                     </label>
-                    <button type="submit" class="btn btn-primary" id="addLeadFollowUpDayBtn">Add label</button>
+                    <button type="submit" class="btn btn-primary" id="addLeadFollowUpDayBtn">Add day</button>
                 </form>
             </div>
             <div class="modal-actions leads-rules-actions">
@@ -2336,7 +2336,7 @@
         { value: 'lead_labeled', label: 'Label added', help: 'When this label is added to the lead.' },
         { value: 'lead_status_changed', label: 'Status changed', help: 'When the lead status changes to this status.' },
         { value: 'lead_note_added', label: 'Note is added to lead', help: 'When a note is saved on the lead.' },
-        { value: 'follow_up_day_reached', label: 'Follow-up day is reached', help: 'Once a day when the lead reaches this follow-up day. Day 1 is the day after it was created. Pair with “Lead has label” / “doesn’t have” like Front (Inquiry, 4th Day FU, Move in).' },
+        { value: 'follow_up_day_reached', label: 'Follow-up day is reached', help: 'Once a day when the lead reaches this follow-up day. Day 1 is the day after it was created. Use labels like Inquiry or Move in only when you want a rule to depend on a tag, not on the follow-up bucket itself.' },
     ];
     const RULE_CHANNELS = [
         ['phone', 'Phone'],

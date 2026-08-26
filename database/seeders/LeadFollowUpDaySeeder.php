@@ -32,7 +32,7 @@ class LeadFollowUpDaySeeder extends Seeder
         $company->lead_follow_up_days = LeadFollowUpDayService::DEFAULT_DAYS;
         $company->save();
         $followUp->rememberDays((int) $company->id, LeadFollowUpDayService::DEFAULT_DAYS);
-        $followUp->ensureForCompany((int) $company->id, true, true);
+        $followUp->ensureForCompany((int) $company->id);
 
         $days = $followUp->configuredDays((int) $company->id);
         $timezone = $followUp->timezone($company);
@@ -84,7 +84,7 @@ class LeadFollowUpDaySeeder extends Seeder
         \Illuminate\Support\Facades\Artisan::call('leads:process-follow-up-days');
 
         $this->command?->info("Seeded {$created} follow-up test leads for {$company->name} (id {$company->id}).");
-        $this->command?->info('Chips are 4th / 10th / 30th / 90th Day FU labels. Move in and Not Interested are not tagged.');
+        $this->command?->info('Chips are 4th / 10th / 30th / 90th Day FU buckets (not labels). Move in and Not Interested are excluded.');
         $this->command?->info('Re-run replaces only leads whose notes contain '.self::NOTE_MARKER.'.');
     }
 

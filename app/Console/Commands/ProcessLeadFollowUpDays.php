@@ -14,7 +14,7 @@ class ProcessLeadFollowUpDays extends Command
 {
     protected $signature = 'leads:process-follow-up-days';
 
-    protected $description = 'Apply follow-up labels and fire rules when a lead’s created-date age advances';
+    protected $description = 'Record follow-up days and fire rules when a lead’s created-date age advances';
 
     public function handle(
         LeadFollowUpDayService $followUpDays,
@@ -31,7 +31,7 @@ class ProcessLeadFollowUpDays extends Command
         ) {
             foreach ($companies as $company) {
                 $companyId = (int) $company->id;
-                $followUpDays->ensureForCompany($companyId, true, false);
+                $followUpDays->ensureForCompany($companyId);
                 $today = $followUpDays->today($companyId);
 
                 Lead::query()
@@ -67,13 +67,6 @@ class ProcessLeadFollowUpDays extends Command
                             }
 
                             $lead->follow_up_notified_day = $day;
-                            $dueLabel = $followUpDays->dueLabelToApply($lead, $day);
-                            if ($dueLabel) {
-                                $lead->labels()->syncWithoutDetaching([$dueLabel->id]);
-                                $leadActivity->recordLabel($lead, $dueLabel->name, true, labelId: $dueLabel->id);
-                                $lead->unsetRelation('labels');
-                                $lead->load('labels');
-                            }
                             $leadActivity->record(
                                 $lead,
                                 LeadActivity::FOLLOW_UP_DAY,

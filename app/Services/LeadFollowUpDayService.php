@@ -148,20 +148,15 @@ class LeadFollowUpDayService
         $min = (int) ($filters['follow_up_day_min'] ?? 0);
 
         if ($day >= 1) {
-            $labelId = $this->labelIdForDay($companyId, $day);
-            if ($labelId < 1) {
-                $query->whereRaw('1 = 0');
-
-                return;
-            }
-
-            $query->whereHas('labels', fn ($labels) => $labels->where('lead_labels.id', $labelId));
+            $this->applyAgeBucket($query, $companyId, $day);
+            $this->excludeOutcomeLabeled($query, $companyId);
 
             return;
         }
 
         if ($min >= 1) {
             $query->where('leads.created_at', '<=', $this->utcEndForMinDay($companyId, $min));
+            $this->excludeOutcomeLabeled($query, $companyId);
         }
     }
 
@@ -283,49 +278,6 @@ class LeadFollowUpDayService
         );
     }
 
-    public function dueLabelToApply(Lead $lead, int $currentDay): ?LeadLabel
-    {
-        if (in_array((string) $lead->status, self::CLOSED_STATUSES, true)) {
-            return null;
-        }
-
-        $companyId = (int) $lead->company_id;
-        $dueDay = $this->latestDueDay($companyId, $currentDay);
-        if ($dueDay === null) {
-            return null;
-        }
-
-        $lead->loadMissing('labels');
-        if ($this->hasOutcomeLabel($lead) || ! $this->hasNamedLabel($lead, self::INQUIRY_LABEL)) {
-            return null;
-        }
-
-        $blockingDays = array_values(array_filter(
-            $this->configuredDays($companyId),
-            fn (int $day) => $day >= $dueDay
-        ));
-        $labelIds = [];
-        $dueLabelId = 0;
-        foreach ($this->labelsForCompany($companyId) as $row) {
-            if (in_array((int) $row['day'], $blockingDays, true)) {
-                $labelIds[] = (int) $row['id'];
-            }
-            if ((int) $row['day'] === $dueDay) {
-                $dueLabelId = (int) $row['id'];
-            }
-        }
-
-        if ($dueLabelId < 1) {
-            return null;
-        }
-
-        if ($lead->labels->contains(fn (LeadLabel $label) => in_array((int) $label->id, $labelIds, true))) {
-            return null;
-        }
-
-        return LeadLabel::query()->find($dueLabelId);
-    }
-
     public function dayFromLabelName(string $name): ?int
     {
         if (! preg_match('/^(\d+)(?:st|nd|rd|th) Day FU$/iu', trim($name), $matches)) {
@@ -355,17 +307,13 @@ class LeadFollowUpDayService
         unset($this->labelsByCompany[$companyId]);
     }
 
-    public function ensureForCompany(int $companyId, bool $createDayLabels = false, bool $createSupportingLabels = false): void
+    public function ensureForCompany(int $companyId): void
     {
         if ($companyId < 1) {
             return;
         }
 
-        if (
-            ! $createDayLabels
-            && ! $createSupportingLabels
-            && isset($this->daysByCompany[$companyId], $this->labelsByCompany[$companyId])
-        ) {
+        if (isset($this->daysByCompany[$companyId], $this->labelsByCompany[$companyId])) {
             return;
         }
 
@@ -394,10 +342,7 @@ class LeadFollowUpDayService
         }
 
         $this->daysByCompany[$companyId] = $days;
-        if ($createSupportingLabels) {
-            $this->ensureSupportingLabels($companyId);
-        }
-        $this->labelsByCompany[$companyId] = $this->resolveDayLabels($companyId, $days, $createDayLabels);
+        $this->labelsByCompany[$companyId] = $this->resolveDayLabels($days);
     }
 
     /**
@@ -441,50 +386,64 @@ class LeadFollowUpDayService
      * @param  list<int>  $days
      * @return list<array{day: int, id: int, name: string, color: string|null}>
      */
-    protected function resolveDayLabels(int $companyId, array $days, bool $create): array
+    protected function resolveDayLabels(array $days): array
     {
         $labels = [];
         foreach (array_values($days) as $index => $day) {
-            $name = $this->ordinalDayLabel($day);
             $color = self::FU_LABEL_COLORS[$index % count(self::FU_LABEL_COLORS)];
-            $query = LeadLabel::query()
-                ->where('company_id', $companyId)
-                ->where('name', $name);
-            $label = $create
-                ? LeadLabel::query()->firstOrCreate(
-                    ['company_id' => $companyId, 'name' => $name],
-                    ['color' => $color]
-                )
-                : $query->first();
-            if (! $label) {
-                continue;
-            }
-            if ($create && ! $label->color) {
-                $label->color = $color;
-                $label->save();
-            }
             $labels[] = [
                 'day' => $day,
-                'id' => (int) $label->id,
-                'name' => $label->name,
-                'color' => $label->color ? (string) $label->color : $color,
+                'id' => 0,
+                'name' => $this->ordinalDayLabel($day),
+                'color' => $color,
             ];
         }
 
         return $labels;
     }
 
-    protected function ensureSupportingLabels(int $companyId): void
+    protected function applyAgeBucket(Builder $query, int $companyId, int $day): void
     {
-        foreach ([
-            self::INQUIRY_LABEL => '#9333ea',
-            self::MOVE_IN_LABEL => '#16a34a',
-            self::NOT_INTERESTED_LABEL => '#dc2626',
-        ] as $name => $color) {
-            LeadLabel::query()->firstOrCreate(
-                ['company_id' => $companyId, 'name' => $name],
-                ['color' => $color]
+        $configured = $this->configuredDays($companyId);
+        if (! in_array($day, $configured, true)) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $next = null;
+        foreach ($configured as $value) {
+            if ($value > $day) {
+                $next = $value;
+                break;
+            }
+        }
+
+        $query->where('leads.created_at', '<=', $this->utcEndForMinDay($companyId, $day));
+        if ($next !== null) {
+            $maxAge = $next - 1;
+            $query->where(
+                'leads.created_at',
+                '>=',
+                $this->today($companyId)->subDays($maxAge)->startOfDay()->utc()
             );
         }
+    }
+
+    protected function excludeOutcomeLabeled(Builder $query, int $companyId): void
+    {
+        $ids = LeadLabel::query()
+            ->where('company_id', $companyId)
+            ->whereIn('name', self::OUTCOME_LABELS)
+            ->pluck('id');
+
+        if ($ids->isEmpty()) {
+            return;
+        }
+
+        $query->whereDoesntHave(
+            'labels',
+            fn ($labels) => $labels->whereIn('lead_labels.id', $ids)
+        );
     }
 }

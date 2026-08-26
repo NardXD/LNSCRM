@@ -185,7 +185,7 @@ class LeadsController extends Controller
         $company->lead_follow_up_days = $days;
         $company->save();
         $this->followUpDays->rememberDays((int) $company->id, $days);
-        $this->followUpDays->ensureForCompany((int) $company->id, true, true);
+        $this->followUpDays->ensureForCompany((int) $company->id);
 
         return response()->json([
             'success' => true,
@@ -617,6 +617,9 @@ class LeadsController extends Controller
         if ($name === '') {
             return response()->json(['message' => 'Enter a label name.'], 422);
         }
+        if ($this->followUpDays->dayFromLabelName($name) !== null) {
+            return response()->json(['message' => 'Follow-up days are managed separately from labels.'], 422);
+        }
 
         $existing = LeadLabel::query()
             ->where('company_id', $companyId)
@@ -665,6 +668,9 @@ class LeadsController extends Controller
                 return response()->json(['message' => 'Another label already uses that name.'], 422);
             }
             $validated['name'] = $name;
+            if ($this->followUpDays->dayFromLabelName($name) !== null) {
+                return response()->json(['message' => 'Follow-up days are managed separately from labels.'], 422);
+            }
         }
 
         $leadLabel->update($validated);
@@ -678,14 +684,7 @@ class LeadsController extends Controller
     public function destroyLabel(LeadLabel $leadLabel): JsonResponse
     {
         $this->labelForUser($leadLabel);
-        $companyId = (int) $leadLabel->company_id;
-        $followUpDay = $this->followUpDays->dayFromLabelName((string) $leadLabel->name);
-
         $leadLabel->delete();
-
-        if ($followUpDay !== null) {
-            $this->followUpDays->detachFollowUpDay($companyId, $followUpDay);
-        }
 
         return response()->json(['success' => true]);
     }
@@ -905,6 +904,9 @@ class LeadsController extends Controller
         }
 
         $name = trim((string) ($validated['name'] ?? ''));
+        if ($name !== '' && $this->followUpDays->dayFromLabelName($name) !== null) {
+            return response()->json(['message' => 'Follow-up days are managed separately from labels.'], 422);
+        }
         if (! $label && $name !== '') {
             $label = LeadLabel::query()
                 ->where('company_id', $companyId)
@@ -922,6 +924,9 @@ class LeadsController extends Controller
         if (! $label) {
             return response()->json(['message' => 'Choose or type a label.'], 422);
         }
+        if ($this->followUpDays->dayFromLabelName((string) $label->name) !== null) {
+            return response()->json(['message' => 'Follow-up days are managed separately from labels.'], 422);
+        }
 
         $alreadyAttached = $lead->labels()->where('lead_labels.id', $label->id)->exists();
         $lead->labels()->syncWithoutDetaching([$label->id]);
@@ -936,7 +941,7 @@ class LeadsController extends Controller
             'success' => true,
             'message' => 'Label added.',
             'data' => $this->serializeLabel($label),
-            'labels' => $lead->labels->map(fn (LeadLabel $item) => $this->serializeLabel($item))->values()->all(),
+            'labels' => $this->serializeLeadLabels($lead),
         ]);
     }
 
@@ -956,7 +961,7 @@ class LeadsController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Label removed.',
-            'labels' => $lead->labels->map(fn (LeadLabel $item) => $this->serializeLabel($item))->values()->all(),
+            'labels' => $this->serializeLeadLabels($lead),
         ]);
     }
 
@@ -1027,9 +1032,7 @@ class LeadsController extends Controller
             'emails' => $emails->map($mapContact)->values()->all(),
             'facebook_name' => $lead->identities->firstWhere('type', LeadIdentity::TYPE_FACEBOOK)?->value,
             'instagram_username' => $lead->identities->firstWhere('type', LeadIdentity::TYPE_INSTAGRAM)?->value,
-            'labels' => $lead->relationLoaded('labels')
-                ? $lead->labels->map(fn (LeadLabel $label) => $this->serializeLabel($label))->values()->all()
-                : [],
+            'labels' => $this->serializeLeadLabels($lead),
             'notes' => $lead->relationLoaded('leadNotes')
                 ? $lead->leadNotes->map(fn (LeadNote $note) => $this->serializeNote($note))->values()->all()
                 : [],
@@ -1231,6 +1234,22 @@ class LeadsController extends Controller
             'message' => "That {$kind} is already on lead \"{$conflict->lead?->name}\".",
             'existing_lead_id' => $conflict->lead_id,
         ], 422);
+    }
+
+    /**
+     * @return list<array{id: int, name: string, color: string}>
+     */
+    protected function serializeLeadLabels(Lead $lead): array
+    {
+        if (! $lead->relationLoaded('labels')) {
+            return [];
+        }
+
+        return $lead->labels
+            ->filter(fn (LeadLabel $label) => $this->followUpDays->dayFromLabelName((string) $label->name) === null)
+            ->map(fn (LeadLabel $label) => $this->serializeLabel($label))
+            ->values()
+            ->all();
     }
 
     /**
