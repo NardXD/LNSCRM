@@ -322,6 +322,7 @@ class LeadsController extends Controller
         if ($legacyNote !== '') {
             $this->leadActivity->recordNote($lead, true, note: $legacyNote);
         }
+        $lead->unsetRelation('identities');
         $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
 
         return response()->json([
@@ -365,6 +366,7 @@ class LeadsController extends Controller
 
         $lead->syncIdentities($identities);
         $this->leadActivity->recordDiff($lead, $before);
+        $lead->unsetRelation('identities');
         $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
 
         return response()->json([

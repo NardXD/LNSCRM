@@ -48,7 +48,11 @@
         <div class="leads-followup-chips" id="leadFollowUpChips" role="tablist" aria-label="Follow-up days"></div>
     </div>
 
-    <div class="leads-card">
+    <div class="leads-card" id="leadsCard">
+        <div class="leads-busy-overlay" id="leadsTableBusy" hidden>
+            <span class="leads-spinner" aria-hidden="true"></span>
+            <span>Updating table…</span>
+        </div>
         <div class="table-container">
             <table class="data-table leads-table">
                 <thead>
@@ -80,6 +84,10 @@
 
     <div class="modal-overlay" id="leadModal">
         <div class="modal-content leads-modal">
+            <div class="leads-busy-overlay" id="leadModalBusy" hidden>
+                <span class="leads-spinner" aria-hidden="true"></span>
+                <span id="leadModalBusyText">Saving…</span>
+            </div>
             <div class="modal-header">
                 <h3 id="leadModalTitle">New Lead</h3>
                 <button type="button" class="modal-close-btn" id="closeLeadModal">&times;</button>
@@ -556,7 +564,54 @@
 .leads-message-body .form-group:last-of-type { margin-bottom: 0.5rem; }
 .leads-message-tokens { margin-bottom: 0; }
 .leads-message-modal .leads-rules-actions { justify-content: flex-end; }
-.leads-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.leads-card { position: relative; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.leads-busy-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    background: color-mix(in srgb, var(--bg-card) 78%, transparent);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+.leads-busy-overlay[hidden] { display: none !important; }
+.leads-spinner {
+    width: 1.2rem;
+    height: 1.2rem;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: leads-spin 0.7s linear infinite;
+    display: inline-block;
+    flex-shrink: 0;
+}
+@keyframes leads-spin { to { transform: rotate(360deg); } }
+.btn.is-busy {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    pointer-events: none;
+}
+.btn.is-busy .leads-spinner {
+    width: 0.9rem;
+    height: 0.9rem;
+    border-color: rgba(255,255,255,.35);
+    border-top-color: #fff;
+}
+.btn-secondary.is-busy .leads-spinner {
+    border-color: var(--border);
+    border-top-color: var(--accent);
+}
+.icon-btn.is-busy .leads-spinner {
+    width: 0.85rem;
+    height: 0.85rem;
+}
 .leads-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
 .leads-table th { text-align: left; padding: 0.7rem 1rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); border-bottom: 1px solid var(--border); background: var(--bg-primary); }
 .leads-table td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -654,7 +709,7 @@
 .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 1000; align-items: center; justify-content: center; padding: 1rem; }
 .modal-overlay.open { display: flex; }
 #leadActivityModal { z-index: 1100; }
-.leads-modal { background: var(--bg-card); border-radius: 12px; width: min(1080px, 96vw); max-height: 92vh; overflow: hidden; display: flex; flex-direction: column; }
+.leads-modal { position: relative; background: var(--bg-card); border-radius: 12px; width: min(1080px, 96vw); max-height: 92vh; overflow: hidden; display: flex; flex-direction: column; }
 .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
 .modal-close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted); }
 .leads-modal-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr); min-height: 0; overflow: hidden; }
@@ -856,6 +911,80 @@
         return (labels || []).map(label =>
             `<span class="lead-label-chip" style="background:${esc(label.color || '#4338ca')};color:${chipText(label.color)}">${esc(label.name)}</span>`
         ).join(' ') || '<span class="lead-meta">—</span>';
+    }
+    function spinnerHtml() {
+        return '<span class="leads-spinner" aria-hidden="true"></span>';
+    }
+    function setBusy(btn, busy, label) {
+        if (!btn) return;
+        if (busy) {
+            if (btn.dataset.idleHtml == null) btn.dataset.idleHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.classList.add('is-busy');
+            btn.setAttribute('aria-busy', 'true');
+            btn.innerHTML = spinnerHtml() + '<span>' + esc(label || 'Please wait…') + '</span>';
+            return;
+        }
+        btn.disabled = false;
+        btn.classList.remove('is-busy');
+        btn.removeAttribute('aria-busy');
+        if (btn.dataset.idleHtml != null) btn.innerHTML = btn.dataset.idleHtml;
+    }
+    function setOverlay(id, busy, text) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.hidden = !busy;
+        const label = el.querySelector('#leadModalBusyText, [data-busy-text]');
+        if (label && text) label.textContent = text;
+    }
+    function leadRowHtml(lead) {
+        const selected = new Set(state.selectedIds.map(String));
+        return `
+            <tr data-id="${lead.id}">
+                <td class="leads-check-col">
+                    <input type="checkbox" class="lead-row-check" data-id="${lead.id}" ${selected.has(String(lead.id)) ? 'checked' : ''} aria-label="Select lead">
+                </td>
+                <td>
+                    <div class="lead-name">${esc([lead.title, lead.name].filter(Boolean).join(' '))}</div>
+                    ${lead.company_name ? `<div class="lead-company">${esc(lead.company_name)}</div>` : ''}
+                    ${sourceVisual(lead)}
+                </td>
+                <td class="lead-meta">${esc((lead.phones || []).map(p => p.value).join(', ') || '—')}</td>
+                <td class="lead-meta">${esc((lead.emails || []).map(e => e.value).join(', ') || '—')}</td>
+                <td>${labelChips(lead.labels)}</td>
+                <td>
+                    <select class="lead-assign" data-id="${lead.id}" aria-label="Assign lead">
+                        ${assigneeOptions(lead.assigned_to, lead.assigned_user)}
+                    </select>
+                </td>
+                <td>${statusBadge(lead)}</td>
+                <td class="lead-meta">${esc(formatAt(lead.updated_at))}</td>
+                <td>
+                    <button type="button" class="btn btn-secondary btn-sm" data-message="${lead.id}">Message</button>
+                </td>
+            </tr>
+        `;
+    }
+    function upsertLeadRow(lead) {
+        if (!lead?.id) return;
+        const existing = body.querySelector('tr[data-id="' + lead.id + '"]');
+        if (existing) {
+            existing.outerHTML = leadRowHtml(lead);
+        } else if (body.querySelector('.empty-state')) {
+            body.innerHTML = leadRowHtml(lead);
+        } else {
+            body.insertAdjacentHTML('afterbegin', leadRowHtml(lead));
+        }
+        syncLeadSelection();
+    }
+    function removeLeadRow(id) {
+        const existing = body.querySelector('tr[data-id="' + id + '"]');
+        if (existing) existing.remove();
+        if (!body.querySelector('tr[data-id]')) {
+            body.innerHTML = `<tr><td colspan="9" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
+        }
+        state.selectedIds = state.selectedIds.filter(item => String(item) !== String(id));
+        syncLeadSelection();
     }
     function assigneeOptions(selectedId, extraUser) {
         const users = [...state.assignees];
@@ -1236,7 +1365,11 @@
 
         if (state.editingId && identityId) {
             if (!confirm(`Remove this ${role} ${kind} from the lead? This takes effect immediately.`)) return;
-            if (btn) btn.disabled = true;
+            if (btn) {
+                btn.disabled = true;
+                btn.classList.add('is-busy');
+                btn.innerHTML = '<span class="leads-spinner" aria-hidden="true"></span>';
+            }
             try {
                 const res = await fetch(api + '/' + state.editingId + '/identities/' + identityId, {
                     method: 'DELETE',
@@ -1247,12 +1380,13 @@
                 if (!res.ok) throw new Error(data.message || 'Could not remove this ' + kind + '.');
                 clearOrRemove();
                 if (data.data) {
+                    upsertLeadRow(data.data);
                     renderActivities(data.data);
                     if (activityModal.classList.contains('open')) {
                         loadActivityPage(1).catch(() => {});
                     }
                 }
-                loadLeads();
+                await loadLeads();
             } catch (err) {
                 alert(err.message);
                 if (btn) btn.disabled = false;
@@ -1293,50 +1427,34 @@
         })).filter(item => item.value);
     }
 
-    async function loadLeads() {
+    async function loadLeads(opts = {}) {
+        if (opts.overlay !== false) setOverlay('leadsTableBusy', true);
         const q = new URLSearchParams({ page: String(state.page), per_page: '20', status: state.status });
         if (state.search) q.set('search', state.search);
         if (state.source) q.set('source', state.source);
         if (state.assignedTo) q.set('assigned_to', state.assignedTo);
         if (state.followUp) q.set('follow_up_day', String(state.followUp));
         state.labelIds.forEach(id => q.append('label_ids[]', id));
-        const res = await fetch(api + '?' + q.toString(), { credentials: 'same-origin', headers: headers() });
-        const data = await res.json();
-        const rows = data.data || [];
-        const selected = new Set(state.selectedIds.map(String));
-        body.innerHTML = rows.length ? rows.map(lead => `
-            <tr data-id="${lead.id}">
-                <td class="leads-check-col">
-                    <input type="checkbox" class="lead-row-check" data-id="${lead.id}" ${selected.has(String(lead.id)) ? 'checked' : ''} aria-label="Select lead">
-                </td>
-                <td>
-                    <div class="lead-name">${esc([lead.title, lead.name].filter(Boolean).join(' '))}</div>
-                    ${lead.company_name ? `<div class="lead-company">${esc(lead.company_name)}</div>` : ''}
-                    ${sourceVisual(lead)}
-                </td>
-                <td class="lead-meta">${esc((lead.phones || []).map(p => p.value).join(', ') || '—')}</td>
-                <td class="lead-meta">${esc((lead.emails || []).map(e => e.value).join(', ') || '—')}</td>
-                <td>${labelChips(lead.labels)}</td>
-                <td>
-                    <select class="lead-assign" data-id="${lead.id}" aria-label="Assign lead">
-                        ${assigneeOptions(lead.assigned_to, lead.assigned_user)}
-                    </select>
-                </td>
-                <td>${statusBadge(lead)}</td>
-                <td class="lead-meta">${esc(formatAt(lead.updated_at))}</td>
-                <td>
-                    <button type="button" class="btn btn-secondary btn-sm" data-message="${lead.id}">Message</button>
-                </td>
-            </tr>
-        `).join('') : `<tr><td colspan="9" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
+        try {
+            const res = await fetch(api + '?' + q.toString(), { credentials: 'same-origin', headers: headers() });
+            const data = await res.json();
+            const rows = data.data || [];
+            body.innerHTML = rows.length
+                ? rows.map(lead => leadRowHtml(lead)).join('')
+                : `<tr><td colspan="9" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
 
-        const pag = data.pagination || {};
-        document.getElementById('leadsPageInfo').textContent = `Showing page ${pag.current_page || 1} of ${pag.last_page || 1} (${pag.total || 0} leads)`;
-        document.getElementById('leadsPrev').disabled = (pag.current_page || 1) <= 1;
-        document.getElementById('leadsNext').disabled = (pag.current_page || 1) >= (pag.last_page || 1);
-        renderSourceFilter(data.sources || []);
-        syncLeadSelection();
-        loadFollowUpCounts();
+            const pag = data.pagination || {};
+            document.getElementById('leadsPageInfo').textContent = `Showing page ${pag.current_page || 1} of ${pag.last_page || 1} (${pag.total || 0} leads)`;
+            document.getElementById('leadsPrev').disabled = (pag.current_page || 1) <= 1;
+            document.getElementById('leadsNext').disabled = (pag.current_page || 1) >= (pag.last_page || 1);
+            renderSourceFilter(data.sources || []);
+            syncLeadSelection();
+            loadFollowUpCounts();
+        } catch {
+            body.innerHTML = '<tr><td colspan="9" class="empty-state">Could not load leads. Try again.</td></tr>';
+        } finally {
+            if (opts.overlay !== false) setOverlay('leadsTableBusy', false);
+        }
     }
 
     function applyFollowUpConfig(config) {
@@ -2109,6 +2227,7 @@
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.message || 'Could not assign lead.');
+            if (data.data) upsertLeadRow(data.data);
             if (String(state.editingId) === String(id) && data.data) {
                 fillAssigneeSelect(document.getElementById('leadAssignedTo'), data.data.assigned_to, data.data.assigned_user);
                 renderActivities(data.data);
@@ -2169,7 +2288,10 @@
             inbox_conversation_ids: state.pendingInboxConversations.map(c => c.id),
         };
         const id = document.getElementById('leadId').value;
-        document.getElementById('saveLeadBtn').disabled = true;
+        const saveBtn = document.getElementById('saveLeadBtn');
+        const busyLabel = id ? 'Saving…' : 'Adding…';
+        setBusy(saveBtn, true, busyLabel);
+        setOverlay('leadModalBusy', true, busyLabel);
         try {
             const res = await fetch(id ? api + '/' + id : api, {
                 method: id ? 'PUT' : 'POST',
@@ -2182,6 +2304,7 @@
                 const firstError = data.errors ? Object.values(data.errors)[0]?.[0] : null;
                 throw new Error(firstError || data.message || 'Could not save lead.');
             }
+            upsertLeadRow(data.data);
             await loadLeads();
             fillForm(data.data);
             if (data.data?.id) {
@@ -2193,21 +2316,32 @@
             errorEl.hidden = false;
             errorEl.textContent = err.message;
         } finally {
-            document.getElementById('saveLeadBtn').disabled = false;
+            setOverlay('leadModalBusy', false);
+            setBusy(saveBtn, false);
         }
     });
 
     document.getElementById('deleteLeadBtn').addEventListener('click', async () => {
         const id = document.getElementById('leadId').value;
         if (!id || !confirm('Delete this lead? Channel conversations stay, but this identity will be removed.')) return;
-        const res = await fetch(api + '/' + id, { method: 'DELETE', credentials: 'same-origin', headers: headers() });
-        if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            alert(data.message || 'Could not delete lead.');
-            return;
+        const deleteBtn = document.getElementById('deleteLeadBtn');
+        setBusy(deleteBtn, true, 'Deleting…');
+        setOverlay('leadModalBusy', true, 'Deleting…');
+        try {
+            const res = await fetch(api + '/' + id, { method: 'DELETE', credentials: 'same-origin', headers: headers() });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.message || 'Could not delete lead.');
+            }
+            removeLeadRow(id);
+            closeModal();
+            await loadLeads();
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            setOverlay('leadModalBusy', false);
+            setBusy(deleteBtn, false);
         }
-        closeModal();
-        loadLeads();
     });
 
     async function addLeadNote() {
@@ -2216,7 +2350,8 @@
         const text = input.value.trim();
         if (!id) return;
         if (!text) { input.focus(); return; }
-        document.getElementById('addLeadNoteBtn').disabled = true;
+        const noteBtn = document.getElementById('addLeadNoteBtn');
+        setBusy(noteBtn, true, 'Adding…');
         try {
             const res = await fetch(api + '/' + id + '/notes', {
                 method: 'POST',
@@ -2229,12 +2364,12 @@
             input.value = '';
             renderNotes([data.data, ...state.notes]);
             refreshActivities(id);
-            loadLeads();
+            await loadLeads();
         } catch (err) {
             errorEl.hidden = false;
             errorEl.textContent = err.message;
         } finally {
-            document.getElementById('addLeadNoteBtn').disabled = false;
+            setBusy(noteBtn, false);
         }
     }
 
@@ -2248,7 +2383,8 @@
             input.value = '';
             return;
         }
-        document.getElementById('addLeadLabelBtn').disabled = true;
+        const labelBtn = document.getElementById('addLeadLabelBtn');
+        setBusy(labelBtn, true, 'Adding…');
         try {
             const res = await fetch(api + '/' + id + '/labels', {
                 method: 'POST',
@@ -2265,12 +2401,12 @@
                 state.companyLabels.push(data.data);
                 renderLabelSuggestions();
             }
-            loadLeads();
+            await loadLeads();
         } catch (err) {
             errorEl.hidden = false;
             errorEl.textContent = err.message;
         } finally {
-            document.getElementById('addLeadLabelBtn').disabled = false;
+            setBusy(labelBtn, false);
         }
     }
 
@@ -2292,37 +2428,45 @@
         const btn = e.target.closest('[data-remove-note]');
         if (!btn || !state.editingId) return;
         const noteId = btn.dataset.removeNote;
-        const res = await fetch(api + '/' + state.editingId + '/notes/' + noteId, {
-            method: 'DELETE',
-            credentials: 'same-origin',
-            headers: headers(),
-        });
-        if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            alert(data.message || 'Could not delete note.');
-            return;
+        setBusy(btn, true, 'Deleting…');
+        try {
+            const res = await fetch(api + '/' + state.editingId + '/notes/' + noteId, {
+                method: 'DELETE',
+                credentials: 'same-origin',
+                headers: headers(),
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.message || 'Could not delete note.');
+            }
+            renderNotes(state.notes.filter(note => String(note.id) !== String(noteId)));
+            refreshActivities(state.editingId);
+            await loadLeads();
+        } catch (err) {
+            alert(err.message);
+            setBusy(btn, false);
         }
-        renderNotes(state.notes.filter(note => String(note.id) !== String(noteId)));
-        refreshActivities(state.editingId);
-        loadLeads();
     });
     document.getElementById('leadLabelsList').addEventListener('click', async (e) => {
         const btn = e.target.closest('[data-remove-label]');
         if (!btn || !state.editingId) return;
         const labelId = btn.dataset.removeLabel;
-        const res = await fetch(api + '/' + state.editingId + '/labels/' + labelId, {
-            method: 'DELETE',
-            credentials: 'same-origin',
-            headers: headers(),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-            alert(data.message || 'Could not remove label.');
-            return;
+        setBusy(btn, true, 'Deleting…');
+        try {
+            const res = await fetch(api + '/' + state.editingId + '/labels/' + labelId, {
+                method: 'DELETE',
+                credentials: 'same-origin',
+                headers: headers(),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.message || 'Could not remove label.');
+            renderLabels(data.labels || state.labels.filter(label => String(label.id) !== String(labelId)));
+            refreshActivities(state.editingId);
+            await loadLeads();
+        } catch (err) {
+            alert(err.message);
+            setBusy(btn, false);
         }
-        renderLabels(data.labels || state.labels.filter(label => String(label.id) !== String(labelId)));
-        refreshActivities(state.editingId);
-        loadLeads();
     });
 
     const RULE_TRIGGERS = [
