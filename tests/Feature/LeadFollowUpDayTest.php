@@ -17,6 +17,7 @@ use App\Models\OutlookMailAccount;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SharedInbox;
+use App\Models\SharedInboxMember;
 use App\Models\User;
 use App\Models\WhatsAppConversation;
 use App\Services\InboxReplyService;
@@ -365,6 +366,8 @@ class LeadFollowUpDayTest extends TestCase
         $mail = collect($channels)->firstWhere('id', 'inbox');
         $this->assertTrue($mail['available']);
         $this->assertNull($mail['conversation_id']);
+        $this->assertNotEmpty($mail['mailboxes']);
+        $this->assertSame('Personal', $mail['mailboxes'][0]['name']);
 
         $captured = null;
         $this->mock(InboxReplyService::class, function ($mock) use (&$captured, $lead) {
@@ -403,6 +406,87 @@ class LeadFollowUpDayTest extends TestCase
         $this->assertSame('Checking in', $captured['subject']);
         $this->assertSame('<p>Hi <strong>Anna</strong></p>', $captured['body']);
         $this->assertSame($lead->id, InboxConversation::query()->where('external_conversation_id', 'local-compose-test')->value('lead_id'));
+    }
+
+    public function test_mail_follow_up_can_send_from_selected_shared_mailbox(): void
+    {
+        [$user, $company] = $this->userWithPermissions(['view_leads', 'view_inbox']);
+        $lead = $this->makeLead($company, 'Anna Cruz', 'new', now()->subDays(2));
+        $lead->addIdentity(LeadIdentity::TYPE_EMAIL, 'anna@example.com');
+
+        $account = OutlookMailAccount::query()->create([
+            'company_id' => $company->id,
+            'user_id' => $user->id,
+            'email' => 'personal@example.com',
+            'access_token' => 'token',
+            'is_active' => true,
+        ]);
+        SharedInbox::query()->create([
+            'company_id' => $company->id,
+            'outlook_mail_account_id' => $account->id,
+            'created_by' => $user->id,
+            'name' => 'Personal',
+            'email' => 'personal@example.com',
+            'type' => SharedInbox::TYPE_PERSONAL,
+            'is_active' => true,
+        ]);
+        $shared = SharedInbox::query()->create([
+            'company_id' => $company->id,
+            'outlook_mail_account_id' => $account->id,
+            'created_by' => $user->id,
+            'name' => 'Support',
+            'email' => 'support@example.com',
+            'type' => SharedInbox::TYPE_SHARED,
+            'is_active' => true,
+        ]);
+        SharedInboxMember::query()->create([
+            'shared_inbox_id' => $shared->id,
+            'user_id' => $user->id,
+            'role' => 'member',
+        ]);
+
+        $channels = $this->actingAs($user)
+            ->getJson('/api/leads/'.$lead->id.'/message-channels')
+            ->assertOk()
+            ->json('data.channels');
+        $mail = collect($channels)->firstWhere('id', 'inbox');
+        $this->assertTrue(collect($mail['mailboxes'])->contains(fn ($box) => $box['id'] === $shared->id && $box['type'] === 'shared'));
+
+        $sentFrom = null;
+        $this->mock(InboxReplyService::class, function ($mock) use (&$sentFrom, $lead) {
+            $mock->shouldReceive('send')->never();
+            $mock->shouldReceive('sendCompose')
+                ->once()
+                ->andReturnUsing(function ($inbox, $actor, $payload) use (&$sentFrom, $lead) {
+                    $sentFrom = (int) $inbox->id;
+                    $conversation = InboxConversation::query()->create([
+                        'company_id' => $lead->company_id,
+                        'shared_inbox_id' => $inbox->id,
+                        'external_conversation_id' => 'local-shared-compose',
+                        'subject' => $payload['subject'],
+                        'from_name' => $actor->name,
+                        'from_email' => $inbox->email,
+                        'status' => 'sent',
+                    ]);
+
+                    return [
+                        'message' => new InboxMessage(['body_html' => $payload['body']]),
+                        'conversation' => $conversation,
+                    ];
+                });
+        });
+
+        $this->actingAs($user)
+            ->postJson('/api/leads/'.$lead->id.'/messages', [
+                'channel' => 'inbox',
+                'inbox_id' => $shared->id,
+                'body' => '<p>Hello</p>',
+                'subject' => 'Shared follow-up',
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertSame($shared->id, $sentFrom);
     }
 
     /**

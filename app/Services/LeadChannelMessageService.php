@@ -95,6 +95,7 @@ class LeadChannelMessageService
                 'conversation_id' => $thread['conversation_id'] ?? null,
                 'url' => $thread['deep_link'] ?? $thread['url'] ?? null,
                 'templates' => $templates,
+                'mailboxes' => $channel === 'inbox' ? $this->mailboxesFor($user) : [],
             ];
         }
 
@@ -113,7 +114,8 @@ class LeadChannelMessageService
         string $channel,
         ?int $templateId,
         ?string $body,
-        ?string $subject = null
+        ?string $subject = null,
+        ?int $inboxId = null
     ): array {
         $lead->loadMissing(['identities', 'company']);
         $channel = $channel === 'mail' ? 'inbox' : $channel;
@@ -138,7 +140,7 @@ class LeadChannelMessageService
             'whatsapp' => $this->sendWhatsApp($lead, $user, $text),
             'viber' => $this->sendViber($lead, $user, $text),
             'facebook' => $this->sendFacebook($lead, $user, $text),
-            'inbox' => $this->sendMail($lead, $user, $text, $this->merge((string) $resolved['subject'], $lead)),
+            'inbox' => $this->sendMail($lead, $user, $text, $this->merge((string) $resolved['subject'], $lead), $inboxId),
             default => throw new \RuntimeException('Unknown channel.'),
         };
 
@@ -299,9 +301,25 @@ class LeadChannelMessageService
         return trim((string) ($emails[0] ?? ''));
     }
 
-    protected function mailboxFor(User $user): SharedInbox
+    protected function mailboxesFor(User $user): array
     {
-        $inbox = SharedInbox::query()
+        return $this->accessibleMailboxes($user)
+            ->map(fn (SharedInbox $inbox) => [
+                'id' => (int) $inbox->id,
+                'name' => (string) $inbox->name,
+                'email' => (string) ($inbox->email ?: $inbox->account?->email ?: ''),
+                'type' => (string) $inbox->type,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return \Illuminate\Database\Eloquent\Collection<int, SharedInbox>
+     */
+    protected function accessibleMailboxes(User $user)
+    {
+        return SharedInbox::query()
             ->where('company_id', $user->company_id)
             ->where('is_active', true)
             ->whereHas('account')
@@ -315,10 +333,25 @@ class LeadChannelMessageService
                 });
             })
             ->with('account')
-            ->orderByRaw("CASE WHEN type = ? THEN 0 ELSE 1 END", [SharedInbox::TYPE_PERSONAL])
+            ->orderByRaw('CASE WHEN type = ? THEN 0 ELSE 1 END', [SharedInbox::TYPE_SHARED])
             ->orderBy('name')
-            ->first();
+            ->get();
+    }
 
+    protected function mailboxFor(User $user, ?int $inboxId = null): SharedInbox
+    {
+        $mailboxes = $this->accessibleMailboxes($user);
+        if ($inboxId) {
+            $inbox = $mailboxes->firstWhere('id', $inboxId);
+            if (! $inbox) {
+                throw new \RuntimeException('Choose a mailbox you can send from.');
+            }
+
+            return $inbox;
+        }
+
+        $inbox = $mailboxes->firstWhere('type', SharedInbox::TYPE_PERSONAL)
+            ?: $mailboxes->first();
         if (! $inbox) {
             throw new \RuntimeException('No connected mailbox to send from. Open Inbox or connect Outlook under Integrations.');
         }
@@ -596,7 +629,7 @@ class LeadChannelMessageService
         ]);
     }
 
-    protected function sendMail(Lead $lead, User $user, string $body, ?string $subject): void
+    protected function sendMail(Lead $lead, User $user, string $body, ?string $subject, ?int $inboxId = null): void
     {
         $html = $this->mailBodyHtml($body);
         $conversationId = $this->conversationId($lead, 'inbox');
@@ -608,7 +641,12 @@ class LeadChannelMessageService
                 ->first()
             : null;
 
-        if ($conversation) {
+        $selectedInbox = $inboxId ? $this->mailboxFor($user, $inboxId) : null;
+        $threadInboxId = (int) ($conversation?->shared_inbox_id ?? 0);
+        $useThread = $conversation
+            && ($selectedInbox === null || (int) $selectedInbox->id === $threadInboxId);
+
+        if ($useThread) {
             $inbox = $conversation->inbox;
             if (! $inbox || ! $inbox->userCanAccess($user)) {
                 throw new \RuntimeException('You do not have access to this mailbox.');
@@ -642,7 +680,7 @@ class LeadChannelMessageService
             throw new \RuntimeException('No email address yet.');
         }
 
-        $inbox = $this->mailboxFor($user);
+        $inbox = $selectedInbox ?: $this->mailboxFor($user);
         $composedSubject = trim((string) $subject);
         if ($composedSubject === '') {
             $composedSubject = 'Follow-up';

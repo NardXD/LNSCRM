@@ -213,6 +213,7 @@ class LeadsController extends Controller
             'template_id' => ['nullable', 'integer', 'min:1'],
             'body' => $this->followUpMessageBodyRules($request),
             'subject' => ['nullable', 'string', 'max:255'],
+            'inbox_id' => ['nullable', 'integer', 'min:1'],
         ]);
 
         try {
@@ -222,7 +223,8 @@ class LeadsController extends Controller
                 $validated['channel'],
                 isset($validated['template_id']) ? (int) $validated['template_id'] : null,
                 $validated['body'] ?? null,
-                $validated['subject'] ?? null
+                $validated['subject'] ?? null,
+                isset($validated['inbox_id']) ? (int) $validated['inbox_id'] : null
             );
         } catch (\RuntimeException $e) {
             $status = str_contains(strtolower($e->getMessage()), 'permission') ? 403 : 422;
@@ -249,6 +251,7 @@ class LeadsController extends Controller
             'template_id' => ['nullable', 'integer', 'min:1'],
             'body' => $this->followUpMessageBodyRules($request),
             'subject' => ['nullable', 'string', 'max:255'],
+            'inbox_id' => ['nullable', 'integer', 'min:1'],
         ]);
 
         $companyId = (int) Auth::user()->company_id;
@@ -268,7 +271,8 @@ class LeadsController extends Controller
                     $validated['channel'],
                     isset($validated['template_id']) ? (int) $validated['template_id'] : null,
                     $validated['body'] ?? null,
-                    $validated['subject'] ?? null
+                    $validated['subject'] ?? null,
+                    isset($validated['inbox_id']) ? (int) $validated['inbox_id'] : null
                 );
                 $sent++;
             } catch (\RuntimeException $e) {

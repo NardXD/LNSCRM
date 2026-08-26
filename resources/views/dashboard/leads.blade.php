@@ -365,6 +365,12 @@
                     <label>Channel</label>
                     <div class="lead-message-channels" id="leadMessageChannels"></div>
                 </div>
+                <div class="form-group" id="leadMessageMailboxWrap" hidden>
+                    <label for="leadMessageMailbox">Send from</label>
+                    <select id="leadMessageMailbox">
+                        <option value="">Choose a mailbox…</option>
+                    </select>
+                </div>
                 <div class="form-group">
                     <label for="leadMessageTemplate">Template</label>
                     <select id="leadMessageTemplate">
@@ -2223,6 +2229,7 @@
         if (htmlWrap) htmlWrap.hidden = !isMail;
         if (plainWrap) plainWrap.hidden = isMail;
         if (subjectWrap) subjectWrap.hidden = !isMail;
+        fillMessageMailboxes(isMail);
     }
     function getFollowUpBody() {
         return isMailFollowUp() ? getMailEditorContent() : (document.getElementById('leadMessageBody')?.value || '');
@@ -2267,6 +2274,27 @@
     }
     function currentMessageChannel() {
         return state.messageChannels.find(c => c.id === state.messageChannel) || null;
+    }
+    function mailboxOptionLabel(box) {
+        const name = String(box.name || 'Mailbox');
+        const email = String(box.email || '');
+        const kind = box.type === 'shared' ? 'shared' : 'personal';
+        return email ? `${name} — ${email} (${kind})` : `${name} (${kind})`;
+    }
+    function fillMessageMailboxes(isMail) {
+        const wrap = document.getElementById('leadMessageMailboxWrap');
+        const sel = document.getElementById('leadMessageMailbox');
+        if (!wrap || !sel) return;
+        const boxes = isMail ? (currentMessageChannel()?.mailboxes || []) : [];
+        const previous = sel.value;
+        sel.innerHTML = boxes.length
+            ? boxes.map(box => `<option value="${box.id}">${esc(mailboxOptionLabel(box))}</option>`).join('')
+            : '<option value="">No connected mailbox</option>';
+        const shared = boxes.find(box => box.type === 'shared');
+        if (previous && boxes.some(box => String(box.id) === String(previous))) sel.value = previous;
+        else if (shared) sel.value = String(shared.id);
+        else if (boxes[0]) sel.value = String(boxes[0].id);
+        wrap.hidden = !isMail;
     }
     function fillMessageTemplates() {
         const sel = document.getElementById('leadMessageTemplate');
@@ -2335,11 +2363,18 @@
             if (err) { err.hidden = false; err.textContent = 'Choose a channel.'; }
             return;
         }
+        if (isMailFollowUp() && !document.getElementById('leadMessageMailbox')?.value) {
+            if (err) { err.hidden = false; err.textContent = 'Choose a mailbox to send from.'; }
+            return;
+        }
         const payload = {
             channel: state.messageChannel,
             template_id: document.getElementById('leadMessageTemplate').value ? Number(document.getElementById('leadMessageTemplate').value) : null,
             body: getFollowUpBody(),
             subject: document.getElementById('leadMessageSubject').value || null,
+            inbox_id: isMailFollowUp() && document.getElementById('leadMessageMailbox')?.value
+                ? Number(document.getElementById('leadMessageMailbox').value)
+                : null,
         };
         btn.disabled = true;
         try {
