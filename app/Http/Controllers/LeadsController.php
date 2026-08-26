@@ -211,7 +211,7 @@ class LeadsController extends Controller
         $validated = $request->validate([
             'channel' => ['required', 'string', 'in:sms,facebook,viber,whatsapp,inbox'],
             'template_id' => ['nullable', 'integer', 'min:1'],
-            'body' => ['nullable', 'string', 'max:7000'],
+            'body' => $this->followUpMessageBodyRules($request),
             'subject' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -247,7 +247,7 @@ class LeadsController extends Controller
             'lead_ids.*' => ['integer', 'min:1'],
             'channel' => ['required', 'string', 'in:sms,facebook,viber,whatsapp,inbox'],
             'template_id' => ['nullable', 'integer', 'min:1'],
-            'body' => ['nullable', 'string', 'max:7000'],
+            'body' => $this->followUpMessageBodyRules($request),
             'subject' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -1569,5 +1569,15 @@ class LeadsController extends Controller
             'created_at' => $rule->created_at?->toIso8601String(),
             'updated_at' => $rule->updated_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function followUpMessageBodyRules(Request $request): array
+    {
+        $max = $request->input('channel') === 'inbox' ? 100000 : 7000;
+
+        return ['nullable', 'string', 'max:'.$max];
     }
 }

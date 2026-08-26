@@ -126,7 +126,7 @@ class LeadChannelMessageService
 
         $resolved = $this->resolveBody($lead, $user, $channel, $templateId, $body, $subject);
         $text = $this->merge($resolved['body'], $lead);
-        if (trim($text) === '') {
+        if ($this->isBlankBody($text, $channel)) {
             throw new \RuntimeException('Choose a template or enter a message.');
         }
 
@@ -589,10 +589,7 @@ class LeadChannelMessageService
             throw new \RuntimeException('This email thread has no recipient address.');
         }
 
-        $html = $body;
-        if (! str_contains($html, '<') ) {
-            $html = nl2br(e($body), false);
-        }
+        $html = $this->mailBodyHtml($body);
 
         try {
             $this->inboxReplies->send($conversation, $inbox, $user, [
@@ -602,5 +599,33 @@ class LeadChannelMessageService
         } catch (\Throwable $e) {
             throw new \RuntimeException($e->getMessage());
         }
+    }
+
+    protected function isBlankBody(string $text, string $channel): bool
+    {
+        if ($channel !== 'inbox') {
+            return trim($text) === '';
+        }
+
+        $plain = trim(html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        if ($plain !== '') {
+            return false;
+        }
+
+        return ! preg_match('/<(img|table|hr|video)\b/i', $text);
+    }
+
+    protected function mailBodyHtml(string $body): string
+    {
+        if ($this->looksLikeHtml($body)) {
+            return $body;
+        }
+
+        return nl2br(e($body), false);
+    }
+
+    protected function looksLikeHtml(string $body): bool
+    {
+        return (bool) preg_match('/<\s*[a-zA-Z][^>]*>/', $body);
     }
 }

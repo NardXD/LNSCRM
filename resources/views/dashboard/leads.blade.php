@@ -375,11 +375,29 @@
                     <label for="leadMessageSubject">Subject</label>
                     <input type="text" id="leadMessageSubject" maxlength="255">
                 </div>
-                <div class="form-group">
+                <div class="form-group" id="leadMessagePlainWrap">
                     <label for="leadMessageBody">Message</label>
                     <textarea id="leadMessageBody" rows="6" placeholder="Hi @{{first_name}}, …"></textarea>
                 </div>
-                <p class="leads-rules-help leads-message-tokens">Tokens: @{{first_name}}, @{{last_name}}, @{{name}}, @{{follow_up_day}}, @{{company}}</p>
+                <div class="form-group" id="leadMessageHtmlWrap" hidden>
+                    <label>Message</label>
+                    <div class="leads-html-editor" id="leadMessageHtmlEditor" data-html-editor="follow-up">
+                        <div class="leads-html-toolbar">
+                            <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
+                            <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
+                            <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
+                            <button type="button" data-cmd="insertUnorderedList" title="Bullet list">• List</button>
+                            <button type="button" data-cmd="createLink" title="Link">Link</button>
+                            <button type="button" data-cmd="removeFormat" title="Clear formatting">Clear</button>
+                            <span class="leads-html-toolbar-spacer"></span>
+                            <button type="button" class="is-active" data-html-mode="visual">Visual</button>
+                            <button type="button" data-html-mode="source">HTML</button>
+                        </div>
+                        <div id="leadMessageHtmlVisual" class="leads-html-visual" contenteditable="true" data-placeholder="Write your email… Use Visual for formatting or HTML to paste a template." role="textbox" aria-multiline="true"></div>
+                        <textarea id="leadMessageHtmlSource" class="leads-html-source" rows="8" hidden placeholder="<p>Hi @{{first_name}},</p><p>…</p>"></textarea>
+                    </div>
+                </div>
+                <p class="leads-rules-help leads-message-tokens">Tokens: @{{first_name}}, @{{last_name}}, @{{name}}, @{{follow_up_day}}, @{{company}}. Mail supports HTML.</p>
             </div>
             <div class="modal-actions leads-rules-actions">
                 <button type="button" class="btn btn-secondary" id="cancelLeadMessageBtn">Cancel</button>
@@ -568,11 +586,22 @@
 .lead-message-channel { border: 1px solid var(--border); background: var(--bg-card); border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; color: var(--text-primary); }
 .lead-message-channel.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-card)); color: var(--accent); }
 .lead-message-channel:disabled { opacity: 0.45; cursor: not-allowed; }
-.leads-message-modal { background: var(--bg-card); border-radius: 12px; width: min(520px, 96vw); max-height: 92vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 18px 48px rgba(0,0,0,.18); }
+.leads-message-modal { background: var(--bg-card); border-radius: 12px; width: min(680px, 96vw); max-height: 92vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 18px 48px rgba(0,0,0,.18); }
 .leads-message-body { padding: 1rem 1.25rem; overflow-y: auto; min-height: 0; }
 .leads-message-body .form-group:last-of-type { margin-bottom: 0.5rem; }
 .leads-message-tokens { margin-bottom: 0; }
 .leads-message-modal .leads-rules-actions { justify-content: flex-end; }
+.leads-html-editor { display: grid; gap: 0.45rem; border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem; background: var(--bg-primary, #fafafa); }
+.leads-html-toolbar { display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; }
+.leads-html-toolbar button { border: 1px solid var(--border); background: var(--bg-card); border-radius: 6px; padding: 0.25rem 0.45rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; color: var(--text-primary); }
+.leads-html-toolbar button:hover,
+.leads-html-toolbar button.is-active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-card)); }
+.leads-html-toolbar-spacer { flex: 1; }
+.leads-html-visual { min-height: 160px; max-height: 280px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.75rem; background: var(--bg-card); font-size: 0.9rem; line-height: 1.5; }
+.leads-html-visual:empty:before { content: attr(data-placeholder); color: var(--text-secondary); }
+.leads-html-visual img { max-width: 100%; height: auto; }
+.leads-html-visual a { color: var(--accent); text-decoration: underline; }
+.leads-html-source { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.82rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 160px; max-height: 280px; width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.75rem; background: var(--bg-card); color: var(--text-primary); resize: vertical; }
 .leads-card { position: relative; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
 .leads-busy-overlay {
     position: absolute;
@@ -2110,6 +2139,98 @@
         state.messageChannels = [];
         state.messageChannel = '';
     }
+    function isMailFollowUp() {
+        return currentMessageChannel()?.id === 'inbox';
+    }
+    function getMailHtmlEditor() {
+        return {
+            root: document.getElementById('leadMessageHtmlEditor'),
+            visual: document.getElementById('leadMessageHtmlVisual'),
+            source: document.getElementById('leadMessageHtmlSource'),
+        };
+    }
+    function sanitizeFollowUpHtml(html) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = String(html || '');
+        wrap.querySelectorAll('script,iframe,object,embed,link,meta').forEach((node) => node.remove());
+        wrap.querySelectorAll('*').forEach((node) => {
+            [...node.attributes].forEach((attr) => {
+                const name = attr.name.toLowerCase();
+                const value = String(attr.value || '');
+                if (name.startsWith('on') || (name === 'href' && /^\s*javascript:/i.test(value))) {
+                    node.removeAttribute(attr.name);
+                }
+            });
+        });
+        return wrap.innerHTML;
+    }
+    function htmlToPlainFollowUp(html) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = String(html || '');
+        return (wrap.textContent || '').replace(/\u00a0/g, ' ').trim();
+    }
+    function plainToFollowUpHtml(text) {
+        return esc(String(text || '')).replace(/\r\n|\r|\n/g, '<br>');
+    }
+    function setMailEditorMode(mode) {
+        const ed = getMailHtmlEditor();
+        if (!ed.root) return;
+        const visualMode = mode !== 'source';
+        if (visualMode) {
+            if (ed.visual && ed.source) ed.visual.innerHTML = sanitizeFollowUpHtml(ed.source.value);
+            if (ed.visual) ed.visual.hidden = false;
+            if (ed.source) ed.source.hidden = true;
+        } else {
+            if (ed.source && ed.visual) ed.source.value = sanitizeFollowUpHtml(ed.visual.innerHTML);
+            if (ed.visual) ed.visual.hidden = true;
+            if (ed.source) {
+                ed.source.hidden = false;
+                ed.source.focus();
+            }
+        }
+        ed.root.querySelectorAll('[data-html-mode]').forEach((btn) => {
+            btn.classList.toggle('is-active', btn.dataset.htmlMode === (visualMode ? 'visual' : 'source'));
+        });
+    }
+    function setMailEditorContent(html) {
+        const ed = getMailHtmlEditor();
+        const clean = sanitizeFollowUpHtml(html || '');
+        if (ed.visual) ed.visual.innerHTML = clean;
+        if (ed.source) ed.source.value = clean;
+        setMailEditorMode('visual');
+    }
+    function getMailEditorContent() {
+        const ed = getMailHtmlEditor();
+        if (!ed.source) return '';
+        if (ed.source.hidden === false) return sanitizeFollowUpHtml(ed.source.value.trim());
+        return sanitizeFollowUpHtml((ed.visual?.innerHTML || '').trim());
+    }
+    function syncFollowUpComposer(isMail) {
+        const htmlWrap = document.getElementById('leadMessageHtmlWrap');
+        const plainWrap = document.getElementById('leadMessagePlainWrap');
+        const subjectWrap = document.getElementById('leadMessageSubjectWrap');
+        const wasMail = htmlWrap && !htmlWrap.hidden;
+        if (wasMail && !isMail) {
+            const html = getMailEditorContent();
+            const plain = htmlToPlainFollowUp(html);
+            const textarea = document.getElementById('leadMessageBody');
+            if (textarea && plain) textarea.value = plain;
+        } else if (!wasMail && isMail) {
+            const textarea = document.getElementById('leadMessageBody');
+            const plain = textarea?.value || '';
+            if (plain.trim()) setMailEditorContent(plainToFollowUpHtml(plain));
+        }
+        if (htmlWrap) htmlWrap.hidden = !isMail;
+        if (plainWrap) plainWrap.hidden = isMail;
+        if (subjectWrap) subjectWrap.hidden = !isMail;
+    }
+    function getFollowUpBody() {
+        return isMailFollowUp() ? getMailEditorContent() : (document.getElementById('leadMessageBody')?.value || '');
+    }
+    function setFollowUpBody(value) {
+        if (isMailFollowUp()) setMailEditorContent(value || '');
+        else document.getElementById('leadMessageBody').value = value || '';
+    }
     async function openMessageModal(leadIds) {
         state.messageLeadIds = leadIds.map(String);
         const title = document.getElementById('leadMessageModalTitle');
@@ -2119,6 +2240,8 @@
         document.getElementById('leadMessageModal')?.classList.add('open');
         document.getElementById('leadMessageBody').value = '';
         document.getElementById('leadMessageSubject').value = '';
+        setMailEditorContent('');
+        setMailEditorMode('visual');
         const firstId = state.messageLeadIds[0];
         try {
             const res = await fetch(api + '/' + firstId + '/message-channels', { credentials: 'same-origin', headers: headers() });
@@ -2152,8 +2275,7 @@
         sel.innerHTML = `<option value="">Custom message</option>` + templates.map(t =>
             `<option value="${t.id}">${esc(t.name)}</option>`
         ).join('');
-        const isMail = ch?.id === 'inbox';
-        document.getElementById('leadMessageSubjectWrap').hidden = !isMail;
+        syncFollowUpComposer(ch?.id === 'inbox');
         applyMessageTemplate();
     }
     function applyMessageTemplate() {
@@ -2161,7 +2283,7 @@
         const id = document.getElementById('leadMessageTemplate').value;
         const tpl = (ch?.templates || []).find(t => String(t.id) === String(id));
         if (tpl) {
-            document.getElementById('leadMessageBody').value = tpl.body || '';
+            setFollowUpBody(tpl.body || '');
             if (tpl.subject) document.getElementById('leadMessageSubject').value = tpl.subject;
         }
     }
@@ -2172,6 +2294,38 @@
         renderMessageChannels();
     });
     document.getElementById('leadMessageTemplate')?.addEventListener('change', applyMessageTemplate);
+    document.getElementById('leadMessageHtmlEditor')?.addEventListener('mousedown', (e) => {
+        if (e.target.closest('button')) e.preventDefault();
+    });
+    document.getElementById('leadMessageHtmlEditor')?.addEventListener('click', (e) => {
+        const modeBtn = e.target.closest('[data-html-mode]');
+        if (modeBtn) {
+            e.preventDefault();
+            setMailEditorMode(modeBtn.dataset.htmlMode);
+            return;
+        }
+        const cmdBtn = e.target.closest('[data-cmd]');
+        if (!cmdBtn) return;
+        e.preventDefault();
+        const ed = getMailHtmlEditor();
+        if (ed.source && !ed.source.hidden) {
+            alert('Switch to Visual to use formatting, or edit the HTML directly.');
+            return;
+        }
+        ed.visual?.focus();
+        const cmd = cmdBtn.dataset.cmd;
+        if (cmd === 'createLink') {
+            const url = prompt('Link URL', 'https://');
+            if (url) document.execCommand('createLink', false, url);
+        } else {
+            document.execCommand(cmd, false, null);
+        }
+        if (ed.source) ed.source.value = sanitizeFollowUpHtml(ed.visual?.innerHTML || '');
+    });
+    document.getElementById('leadMessageHtmlVisual')?.addEventListener('input', () => {
+        const ed = getMailHtmlEditor();
+        if (ed.source) ed.source.value = sanitizeFollowUpHtml(ed.visual?.innerHTML || '');
+    });
     document.getElementById('closeLeadMessageModal')?.addEventListener('click', closeMessageModal);
     document.getElementById('cancelLeadMessageBtn')?.addEventListener('click', closeMessageModal);
     document.getElementById('sendLeadMessageBtn')?.addEventListener('click', async () => {
@@ -2184,7 +2338,7 @@
         const payload = {
             channel: state.messageChannel,
             template_id: document.getElementById('leadMessageTemplate').value ? Number(document.getElementById('leadMessageTemplate').value) : null,
-            body: document.getElementById('leadMessageBody').value,
+            body: getFollowUpBody(),
             subject: document.getElementById('leadMessageSubject').value || null,
         };
         btn.disabled = true;

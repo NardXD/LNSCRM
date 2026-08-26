@@ -3,6 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\Company;
+use App\Models\InboxConversation;
+use App\Models\InboxMessage;
+use App\Models\InboxTemplate;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\LeadIdentity;
@@ -10,10 +13,13 @@ use App\Models\LeadLabel;
 use App\Models\LeadRule;
 use App\Models\LeadStatus;
 use App\Models\MessageTemplate;
+use App\Models\OutlookMailAccount;
 use App\Models\Permission;
 use App\Models\Role;
+use App\Models\SharedInbox;
 use App\Models\User;
 use App\Models\WhatsAppConversation;
+use App\Services\InboxReplyService;
 use App\Services\LeadRuleEngine;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -248,6 +254,85 @@ class LeadFollowUpDayTest extends TestCase
         ]);
 
         $this->assertSame(0, LeadActivity::query()->where('lead_id', $lead->id)->where('action', LeadActivity::TEMPLATE_SENT)->count());
+    }
+
+    public function test_mail_follow_up_sends_html_and_merges_tokens(): void
+    {
+        [$user, $company] = $this->userWithPermissions(['view_leads', 'view_inbox']);
+        $lead = $this->makeLead($company, 'Anna Cruz', 'new', now()->subDays(2));
+        $lead->addIdentity(LeadIdentity::TYPE_EMAIL, 'anna@example.com');
+
+        $account = OutlookMailAccount::query()->create([
+            'company_id' => $company->id,
+            'user_id' => $user->id,
+            'email' => 'inbox@example.com',
+            'access_token' => 'token',
+            'is_active' => true,
+        ]);
+        $inbox = SharedInbox::query()->create([
+            'company_id' => $company->id,
+            'outlook_mail_account_id' => $account->id,
+            'created_by' => $user->id,
+            'name' => 'Personal',
+            'email' => 'inbox@example.com',
+            'type' => SharedInbox::TYPE_PERSONAL,
+            'is_active' => true,
+        ]);
+        InboxConversation::query()->create([
+            'company_id' => $company->id,
+            'shared_inbox_id' => $inbox->id,
+            'lead_id' => $lead->id,
+            'external_conversation_id' => 'conv-html-1',
+            'subject' => 'Quote',
+            'from_name' => 'Anna Cruz',
+            'from_email' => 'anna@example.com',
+            'status' => 'open',
+        ]);
+        InboxTemplate::query()->create([
+            'company_id' => $company->id,
+            'created_by' => $user->id,
+            'name' => 'HTML follow-up',
+            'subject' => 'Checking in',
+            'body_html' => '<p>Hi <strong>{{first_name}}</strong></p>',
+            'body_text' => 'Hi {{first_name}}',
+        ]);
+
+        $channels = $this->actingAs($user)
+            ->getJson('/api/leads/'.$lead->id.'/message-channels')
+            ->assertOk()
+            ->json('data.channels');
+        $mail = collect($channels)->firstWhere('id', 'inbox');
+        $this->assertTrue($mail['available']);
+        $this->assertStringContainsString('<strong>{{first_name}}</strong>', $mail['templates'][0]['body']);
+
+        $captured = null;
+        $this->mock(InboxReplyService::class, function ($mock) use (&$captured) {
+            $mock->shouldReceive('send')
+                ->once()
+                ->andReturnUsing(function ($conversation, $sharedInbox, $actor, $payload) use (&$captured) {
+                    $captured = $payload['body'];
+
+                    return [
+                        'message' => new InboxMessage(['body_html' => $payload['body']]),
+                        'conversation' => $conversation,
+                    ];
+                });
+        });
+
+        $this->actingAs($user)
+            ->postJson('/api/leads/'.$lead->id.'/messages', [
+                'channel' => 'inbox',
+                'body' => '<p>Hi <strong>{{first_name}}</strong>, day {{follow_up_day}}.</p><p><a href="https://example.com">Open</a></p>',
+                'subject' => 'Checking in',
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertSame(
+            '<p>Hi <strong>Anna</strong>, day 2.</p><p><a href="https://example.com">Open</a></p>',
+            $captured
+        );
+        $this->assertSame(1, LeadActivity::query()->where('lead_id', $lead->id)->where('action', LeadActivity::TEMPLATE_SENT)->count());
     }
 
     /**
