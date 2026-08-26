@@ -359,7 +359,7 @@
                 <button type="button" class="modal-close-btn" id="closeLeadMessageModal">&times;</button>
             </div>
             <div class="leads-message-body">
-                <p class="leads-rules-help" id="leadMessageHelp">Pick a channel this lead can use, then a saved template.</p>
+                <p class="leads-rules-help" id="leadMessageHelp">Pick a channel this lead can use, then a saved template. Mail can send to the lead’s email even without an existing thread.</p>
                 <p class="form-error" id="leadMessageError" hidden></p>
                 <div class="form-group">
                     <label>Channel</label>

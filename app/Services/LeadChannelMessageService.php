@@ -10,6 +10,7 @@ use App\Models\InboxTemplate;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\MessageTemplate;
+use App\Models\SharedInbox;
 use App\Models\SmsConversation;
 use App\Models\SmsMessage;
 use App\Models\User;
@@ -78,8 +79,10 @@ class LeadChannelMessageService
                 $available = true;
             } elseif ($channel === 'sms') {
                 $reason = 'No SMS thread or phone number yet.';
+            } elseif ($channel === 'inbox' && $this->primaryEmail($lead) !== '') {
+                $available = true;
             } elseif ($channel === 'inbox') {
-                $reason = 'No email thread yet.';
+                $reason = 'No email address yet.';
             } else {
                 $reason = 'No '.$label.' thread yet.';
             }
@@ -287,6 +290,40 @@ class LeadChannelMessageService
         $phones = $lead->phoneValues();
 
         return $phones[0] ?? '';
+    }
+
+    protected function primaryEmail(Lead $lead): string
+    {
+        $emails = $lead->emailValues();
+
+        return trim((string) ($emails[0] ?? ''));
+    }
+
+    protected function mailboxFor(User $user): SharedInbox
+    {
+        $inbox = SharedInbox::query()
+            ->where('company_id', $user->company_id)
+            ->where('is_active', true)
+            ->whereHas('account')
+            ->where(function ($q) use ($user) {
+                $q->where(function ($personal) use ($user) {
+                    $personal->where('type', SharedInbox::TYPE_PERSONAL)
+                        ->where('created_by', $user->id);
+                })->orWhere(function ($shared) use ($user) {
+                    $shared->where('type', SharedInbox::TYPE_SHARED)
+                        ->whereHas('members', fn ($m) => $m->where('users.id', $user->id));
+                });
+            })
+            ->with('account')
+            ->orderByRaw("CASE WHEN type = ? THEN 0 ELSE 1 END", [SharedInbox::TYPE_PERSONAL])
+            ->orderBy('name')
+            ->first();
+
+        if (! $inbox) {
+            throw new \RuntimeException('No connected mailbox to send from. Open Inbox or connect Outlook under Integrations.');
+        }
+
+        return $inbox;
     }
 
     protected function conversationId(Lead $lead, string $channel): ?int
@@ -561,6 +598,7 @@ class LeadChannelMessageService
 
     protected function sendMail(Lead $lead, User $user, string $body, ?string $subject): void
     {
+        $html = $this->mailBodyHtml($body);
         $conversationId = $this->conversationId($lead, 'inbox');
         $conversation = $conversationId
             ? InboxConversation::query()
@@ -569,35 +607,61 @@ class LeadChannelMessageService
                 ->whereKey($conversationId)
                 ->first()
             : null;
-        if (! $conversation) {
-            throw new \RuntimeException('No email thread yet.');
+
+        if ($conversation) {
+            $inbox = $conversation->inbox;
+            if (! $inbox || ! $inbox->userCanAccess($user)) {
+                throw new \RuntimeException('You do not have access to this mailbox.');
+            }
+            if (! $inbox->account) {
+                throw new \RuntimeException('This inbox is not connected to Outlook.');
+            }
+
+            $to = trim((string) $conversation->from_email);
+            if ($to === '') {
+                $to = $this->primaryEmail($lead);
+            }
+            if ($to === '') {
+                throw new \RuntimeException('This email thread has no recipient address.');
+            }
+
+            try {
+                $this->inboxReplies->send($conversation, $inbox, $user, [
+                    'body' => $html,
+                    'to' => $to,
+                ]);
+            } catch (\Throwable $e) {
+                throw new \RuntimeException($e->getMessage());
+            }
+
+            return;
         }
 
-        $inbox = $conversation->inbox;
-        if (! $inbox || ! $inbox->userCanAccess($user)) {
-            throw new \RuntimeException('You do not have access to this mailbox.');
-        }
-        if (! $inbox->account) {
-            throw new \RuntimeException('This inbox is not connected to Outlook.');
-        }
-
-        $to = trim((string) $conversation->from_email);
+        $to = $this->primaryEmail($lead);
         if ($to === '') {
-            $to = (string) ($lead->emailValues()[0] ?? '');
-        }
-        if ($to === '') {
-            throw new \RuntimeException('This email thread has no recipient address.');
+            throw new \RuntimeException('No email address yet.');
         }
 
-        $html = $this->mailBodyHtml($body);
+        $inbox = $this->mailboxFor($user);
+        $composedSubject = trim((string) $subject);
+        if ($composedSubject === '') {
+            $composedSubject = 'Follow-up';
+        }
 
         try {
-            $this->inboxReplies->send($conversation, $inbox, $user, [
+            $result = $this->inboxReplies->sendCompose($inbox, $user, [
                 'body' => $html,
                 'to' => $to,
+                'subject' => $composedSubject,
             ]);
         } catch (\Throwable $e) {
             throw new \RuntimeException($e->getMessage());
+        }
+
+        $created = $result['conversation'] ?? null;
+        if ($created instanceof InboxConversation && ! $created->lead_id) {
+            $created->lead_id = $lead->id;
+            $created->save();
         }
     }
 

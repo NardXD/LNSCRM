@@ -335,6 +335,76 @@ class LeadFollowUpDayTest extends TestCase
         $this->assertSame(1, LeadActivity::query()->where('lead_id', $lead->id)->where('action', LeadActivity::TEMPLATE_SENT)->count());
     }
 
+    public function test_mail_follow_up_is_available_from_lead_email_without_thread(): void
+    {
+        [$user, $company] = $this->userWithPermissions(['view_leads', 'view_inbox']);
+        $lead = $this->makeLead($company, 'Anna Cruz', 'new', now()->subDays(2));
+        $lead->addIdentity(LeadIdentity::TYPE_EMAIL, 'anna@example.com');
+
+        $account = OutlookMailAccount::query()->create([
+            'company_id' => $company->id,
+            'user_id' => $user->id,
+            'email' => 'inbox@example.com',
+            'access_token' => 'token',
+            'is_active' => true,
+        ]);
+        SharedInbox::query()->create([
+            'company_id' => $company->id,
+            'outlook_mail_account_id' => $account->id,
+            'created_by' => $user->id,
+            'name' => 'Personal',
+            'email' => 'inbox@example.com',
+            'type' => SharedInbox::TYPE_PERSONAL,
+            'is_active' => true,
+        ]);
+
+        $channels = $this->actingAs($user)
+            ->getJson('/api/leads/'.$lead->id.'/message-channels')
+            ->assertOk()
+            ->json('data.channels');
+        $mail = collect($channels)->firstWhere('id', 'inbox');
+        $this->assertTrue($mail['available']);
+        $this->assertNull($mail['conversation_id']);
+
+        $captured = null;
+        $this->mock(InboxReplyService::class, function ($mock) use (&$captured, $lead) {
+            $mock->shouldReceive('send')->never();
+            $mock->shouldReceive('sendCompose')
+                ->once()
+                ->andReturnUsing(function ($inbox, $actor, $payload) use (&$captured, $lead) {
+                    $captured = $payload;
+                    $conversation = InboxConversation::query()->create([
+                        'company_id' => $lead->company_id,
+                        'shared_inbox_id' => $inbox->id,
+                        'external_conversation_id' => 'local-compose-test',
+                        'subject' => $payload['subject'],
+                        'from_name' => $actor->name,
+                        'from_email' => $inbox->email,
+                        'status' => 'sent',
+                    ]);
+
+                    return [
+                        'message' => new InboxMessage(['body_html' => $payload['body']]),
+                        'conversation' => $conversation,
+                    ];
+                });
+        });
+
+        $this->actingAs($user)
+            ->postJson('/api/leads/'.$lead->id.'/messages', [
+                'channel' => 'inbox',
+                'body' => '<p>Hi <strong>{{first_name}}</strong></p>',
+                'subject' => 'Checking in',
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertSame('anna@example.com', $captured['to']);
+        $this->assertSame('Checking in', $captured['subject']);
+        $this->assertSame('<p>Hi <strong>Anna</strong></p>', $captured['body']);
+        $this->assertSame($lead->id, InboxConversation::query()->where('external_conversation_id', 'local-compose-test')->value('lead_id'));
+    }
+
     /**
      * @param  list<string>  $slugs
      * @return array{0: User, 1: Company}
