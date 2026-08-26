@@ -100,7 +100,7 @@
                         <div class="emoji-picker-grid" id="emojiPickerGrid"></div>
                     </div>
                     <div class="msg-composer-row">
-                        <textarea id="messageInput" rows="1" placeholder="Text Message"></textarea>
+                        <textarea id="messageInput" rows="1" placeholder="Message or paste an image"></textarea>
                         <button type="button" class="msg-send-btn" id="sendBtn" title="Send" aria-label="Send" disabled>
                             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4l-1.4 1.4 5.6 5.6H4v2h12.2l-5.6 5.6L12 20l8-8z"/></svg>
                         </button>
@@ -1721,6 +1721,66 @@
         return json.data;
     }
 
+    function namedImageFile(file) {
+        if (file.name && file.name !== 'blob') return file;
+        const rawExt = (file.type.split('/')[1] || 'png').split('+')[0];
+        const ext = rawExt === 'jpeg' ? 'jpg' : rawExt;
+        return new File([file], 'pasted-image.' + ext, { type: file.type || 'image/png' });
+    }
+
+    async function queueChatAttachment(file, asImage) {
+        if (!currentConversationId) return;
+        if (asImage && file.type && !file.type.startsWith('image/')) {
+            alert('Please choose an image file');
+            return;
+        }
+        const upload = (asImage || (file.type && file.type.startsWith('image/'))) ? namedImageFile(file) : file;
+        if (pendingAttachment?.path) {
+            await window.clearPendingAttachment();
+        }
+        try {
+            const data = await uploadFile(upload);
+            const isImage = data.type === 'image' || asImage;
+            const previewUrl = isImage ? URL.createObjectURL(upload) : null;
+            setPendingAttachment({
+                path: data.path,
+                name: data.name,
+                type: isImage ? 'image' : data.type,
+                previewUrl
+            });
+            messageInput.focus();
+        } catch (err) {
+            alert(err.message || 'Upload failed');
+        }
+    }
+
+    function clipboardImageFile(clipboardData) {
+        if (!clipboardData) return null;
+        const items = clipboardData.items;
+        if (items) {
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                if (item.kind === 'file' && item.type && item.type.startsWith('image/')) {
+                    return item.getAsFile();
+                }
+            }
+        }
+        if (clipboardData.files && clipboardData.files.length) {
+            const f = clipboardData.files[0];
+            if (f && f.type && f.type.startsWith('image/')) return f;
+        }
+        return null;
+    }
+
+    function insertTextAtCursor(textarea, text) {
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const value = textarea.value;
+        textarea.value = value.slice(0, start) + text + value.slice(end);
+        textarea.selectionStart = textarea.selectionEnd = start + text.length;
+        textarea.dispatchEvent(new Event('input'));
+    }
+
     async function sendMessage() {
         const text = messageInput.value.trim();
         if ((!text && !pendingAttachment) || !currentConversationId) return;
@@ -2176,12 +2236,7 @@
         input.onchange = async function(e) {
             const file = e.target.files?.[0];
             if (!file) return;
-            try {
-                const data = await uploadFile(file);
-                setPendingAttachment({ path: data.path, name: data.name, type: data.type });
-            } catch (err) {
-                alert(err.message || 'Upload failed');
-            }
+            await queueChatAttachment(file, false);
         };
         input.click();
     };
@@ -2194,16 +2249,19 @@
         input.onchange = async function(e) {
             const file = e.target.files?.[0];
             if (!file) return;
-            try {
-                const data = await uploadFile(file);
-                const previewUrl = URL.createObjectURL(file);
-                setPendingAttachment({ path: data.path, name: data.name, type: 'image', previewUrl });
-            } catch (err) {
-                alert(err.message || 'Upload failed');
-            }
+            await queueChatAttachment(file, true);
         };
         input.click();
     };
+
+    document.getElementById('msgChat').addEventListener('paste', function(e) {
+        const imageFile = clipboardImageFile(e.clipboardData);
+        if (!imageFile) return;
+        e.preventDefault();
+        const text = e.clipboardData.getData('text/plain');
+        if (text) insertTextAtCursor(messageInput, text);
+        queueChatAttachment(imageFile, true);
+    });
 
     const emojiList = ['😀','😃','😄','😁','😅','😂','🤣','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😗','😙','😚','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','👍','👎','👌','✌️','🤞','🤟','🤘','🤙','👋','🤚','🖐️','✋','🖖','👏','🙌','🤝','🙏','✍️','💪','❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💘','💝','🔥','⭐','🌟','✨','💫','🎉','🎊','🙌','👏','🙏'];
     const emojiPicker = document.getElementById('emojiPickerPopover');
