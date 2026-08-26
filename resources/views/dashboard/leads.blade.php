@@ -89,7 +89,10 @@
                 <span id="leadModalBusyText">Saving…</span>
             </div>
             <div class="modal-header">
-                <h3 id="leadModalTitle">New Lead</h3>
+                <div class="lead-modal-heading">
+                    <h3 id="leadModalTitle">New Lead</h3>
+                    <p id="leadModalAdded" class="lead-modal-added" hidden></p>
+                </div>
                 <button type="button" class="modal-close-btn" id="closeLeadModal">&times;</button>
             </div>
             <div class="leads-modal-grid">
@@ -764,8 +767,11 @@
 .modal-overlay.open { display: flex; }
 #leadActivityModal { z-index: 1100; }
 .leads-modal { position: relative; background: var(--bg-card); border-radius: 12px; width: min(1080px, 96vw); max-height: 92vh; overflow: hidden; display: flex; flex-direction: column; }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
-.modal-close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted); }
+.modal-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); gap: 0.75rem; }
+.lead-modal-heading { min-width: 0; }
+.lead-modal-heading h3 { margin: 0; }
+.lead-modal-added { margin: 0.2rem 0 0; font-size: 0.78rem; color: var(--text-secondary); font-weight: 500; }
+.modal-close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted); line-height: 1; }
 .leads-modal-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr); min-height: 0; overflow: hidden; }
 .leads-form { padding: 1.15rem 1.25rem; overflow-y: auto; max-height: calc(92vh - 60px); }
 .leads-history { border-left: 1px solid var(--border); padding: 1.15rem 1.1rem; overflow-y: auto; background: var(--bg-primary); max-height: calc(92vh - 60px); }
@@ -913,6 +919,25 @@
     function formatDate(iso) {
         if (!iso) return '';
         try { return new Date(iso).toLocaleDateString(); } catch { return iso; }
+    }
+    function setLeadModalAdded(lead) {
+        const el = document.getElementById('leadModalAdded');
+        if (!el) return;
+        if (!lead?.created_at) {
+            el.hidden = true;
+            el.textContent = '';
+            return;
+        }
+        const added = formatDate(lead.created_at);
+        const days = Number.isFinite(Number(lead.follow_up_day))
+            ? Math.max(0, Number(lead.follow_up_day))
+            : null;
+        let age = '';
+        if (days === 0) age = 'today';
+        else if (days === 1) age = '1 day past';
+        else if (days != null) age = days + ' days past';
+        el.textContent = age ? `Added ${added} · ${age}` : `Added ${added}`;
+        el.hidden = false;
     }
     function statusName(slug) {
         const key = String(slug || '');
@@ -1687,6 +1712,7 @@
         syncLeadProfileFields();
         errorEl.hidden = true;
         document.getElementById('leadModalTitle').textContent = 'New Lead';
+        setLeadModalAdded(null);
         document.getElementById('deleteLeadBtn').hidden = true;
         document.getElementById('leadHistoryEmpty').hidden = false;
         document.getElementById('leadHistoryEmpty').textContent = 'Save this lead to load Phone, Inbox, Viber, WhatsApp, Facebook, and SMS history.';
@@ -1750,6 +1776,7 @@
             loadAttachedInboxEmails(lead.id);
         }
         document.getElementById('leadModalTitle').textContent = [lead.title, lead.name].filter(Boolean).join(' ') || 'Lead';
+        setLeadModalAdded(lead);
         document.getElementById('deleteLeadBtn').hidden = false;
         state.editingId = lead.id;
         renderLabels(lead.labels || []);
