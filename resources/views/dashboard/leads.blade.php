@@ -934,8 +934,8 @@
             : null;
         let age = '';
         if (days === 0) age = 'today';
-        else if (days === 1) age = '1 day past';
-        else if (days != null) age = days + ' days past';
+        else if (days === 1) age = '1 day';
+        else if (days != null) age = days + ' days';
         el.textContent = age ? `Added ${added} · ${age}` : `Added ${added}`;
         el.hidden = false;
     }
