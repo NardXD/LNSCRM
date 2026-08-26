@@ -7,6 +7,7 @@ use App\Models\ClientContact;
 use App\Models\FacebookConversation;
 use App\Models\InboxConversation;
 use App\Models\Lead;
+use App\Models\SharedInbox;
 use App\Models\PhoneCallLog;
 use App\Models\SmsConversation;
 use App\Models\SmsMessage;
@@ -372,6 +373,7 @@ class ContactConversationHistoryService
         return InboxConversation::query()
             ->notMerged()
             ->where('company_id', $companyId)
+            ->whereHas('inbox', fn ($inbox) => $inbox->where('type', SharedInbox::TYPE_SHARED))
             ->where(function ($query) use ($emails, $leadId) {
                 if ($leadId) {
                     $query->where('lead_id', $leadId);
@@ -593,6 +595,7 @@ class ContactConversationHistoryService
         return InboxConversation::query()
             ->notMerged()
             ->where('company_id', $companyId)
+            ->whereHas('inbox', fn ($inbox) => $inbox->where('type', SharedInbox::TYPE_SHARED))
             ->where(function ($query) use ($emails, $leadId) {
                 if ($leadId) {
                     $query->where('lead_id', $leadId);
