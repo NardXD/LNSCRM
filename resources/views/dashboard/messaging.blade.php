@@ -99,6 +99,17 @@
                     <div class="emoji-picker-popover" id="emojiPickerPopover">
                         <div class="emoji-picker-grid" id="emojiPickerGrid"></div>
                     </div>
+                    <div class="msg-edit-banner" id="msgEditBanner" hidden>
+                        <span>Editing message</span>
+                        <button type="button" id="msgEditCancel" onclick="window.cancelEditMessage()">Cancel</button>
+                    </div>
+                    <div class="msg-reply-banner" id="msgReplyBanner" hidden>
+                        <div class="msg-reply-banner-copy">
+                            <span class="msg-reply-banner-label">Replying to <strong id="msgReplyAuthor"></strong></span>
+                            <span class="msg-reply-banner-preview" id="msgReplyPreview"></span>
+                        </div>
+                        <button type="button" onclick="window.cancelReplyMessage()">Cancel</button>
+                    </div>
                     <div class="msg-composer-row">
                         <textarea id="messageInput" rows="1" placeholder="Message or paste an image"></textarea>
                         <button type="button" class="msg-send-btn" id="sendBtn" title="Send" aria-label="Send" disabled>
@@ -253,7 +264,7 @@
                     <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                     <input type="text" class="form-input" placeholder="Search team members..." id="addMemberSearch" oninput="filterAddMemberList(this.value)">
                 </div>
-                <div class="group-members-list" id="addMemberToList" style="max-height: 240px;"></div>
+                <div class="group-members-list" id="addMemberToList"></div>
             </div>
         </div>
     </div>
@@ -445,8 +456,130 @@
     .msg-row.outbound .msg-row-avatar { display: none; }
     .msg-row.direct .msg-row-avatar { display: none; }
     .msg-row-avatar img { width: 100%; height: 100%; object-fit: cover; }
-    .msg-col { display: flex; flex-direction: column; min-width: 0; }
+    .msg-col { display: flex; flex-direction: column; min-width: 0; position: relative; }
     .msg-row.outbound .msg-col { align-items: flex-end; }
+    .msg-bubble-wrap {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        max-width: 100%;
+        position: relative;
+    }
+    .msg-row.inbound .msg-bubble-wrap { flex-direction: row-reverse; }
+    .msg-row.outbound .msg-bubble-wrap { flex-direction: row; }
+    .msg-actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-shrink: 0;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.12s ease;
+    }
+    .msg-row:hover .msg-actions,
+    .msg-bubble-wrap:focus-within .msg-actions {
+        opacity: 1;
+        pointer-events: auto;
+    }
+    .msg-edit-btn,
+    .msg-reply-btn {
+        width: 34px; height: 34px; border: 0; border-radius: 50%;
+        background: #fff; color: #3a3a3c; cursor: pointer;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.16);
+        display: inline-flex; align-items: center; justify-content: center;
+        padding: 0; flex-shrink: 0;
+    }
+    .msg-edit-btn:hover,
+    .msg-reply-btn:hover {
+        background: #f2f2f7; color: #007aff;
+    }
+    .msg-edit-btn svg,
+    .msg-reply-btn svg { width: 16px; height: 16px; }
+    .msg-row.direct .msg-reply-btn { display: none !important; }
+    .msg-quote {
+        display: block; width: 100%; text-align: left;
+        border: 0; border-left: 3px solid rgba(0,0,0,0.22);
+        background: #fff;
+        color: #111;
+        border-radius: 8px;
+        padding: 5px 8px 6px;
+        margin: 0 0 6px;
+        cursor: pointer;
+        max-width: 260px;
+    }
+    .msg-bubble.outbound .msg-quote {
+        border-left-color: rgba(0,0,0,0.22);
+        background: #fff;
+        color: #111;
+    }
+    .msg-quote-author {
+        display: block; font-size: 11px; font-weight: 700; margin-bottom: 1px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .msg-quote-body {
+        display: block; font-size: 12px; opacity: 0.85; line-height: 1.25;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .msg-row-flash .msg-bubble { outline: 2px solid #007aff; outline-offset: 2px; }
+    .msg-reply-banner {
+        display: flex; align-items: flex-start; justify-content: space-between;
+        gap: 0.75rem; padding: 0.35rem 0.15rem 0.2rem;
+        border-left: 3px solid #007aff; padding-left: 0.65rem;
+    }
+    .msg-reply-banner[hidden] { display: none !important; }
+    .msg-reply-banner-copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .msg-reply-banner-label { font-size: 0.75rem; color: #007aff; }
+    .msg-reply-banner-preview {
+        font-size: 0.75rem; color: #8e8e93;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px;
+    }
+    .msg-reply-banner button {
+        border: 0; background: none; color: #8e8e93; cursor: pointer; font-size: 0.78rem; flex-shrink: 0;
+    }
+    .msg-reply-banner button:hover { color: #111; }
+    .msg-meta {
+        display: flex; align-items: center; gap: 0.35rem;
+        font-size: 11px; color: #8e8e93; margin: 2px 8px 0; line-height: 1.2;
+    }
+    .msg-row.outbound .msg-meta { justify-content: flex-end; }
+    .msg-seen {
+        font-size: 11px; color: #8e8e93; margin: 2px 8px 0; line-height: 1.2;
+        cursor: default; user-select: none;
+    }
+    .msg-seen.is-clickable { cursor: pointer; }
+    .msg-seen.is-clickable:hover { text-decoration: underline; }
+    .msg-seen-popover {
+        position: fixed; z-index: 2100;
+        min-width: 180px; max-width: 260px; max-height: 240px; overflow-y: auto;
+        background: #fff; border: 1px solid #e5e5ea; border-radius: 12px;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.14); padding: 0.5rem 0;
+        display: none;
+    }
+    .msg-seen-popover.open { display: block; }
+    .msg-seen-person {
+        display: flex; align-items: center; gap: 0.5rem;
+        padding: 0.4rem 0.75rem; font-size: 0.82rem; color: #111;
+    }
+    .msg-seen-person img, .msg-seen-person .msg-seen-initials {
+        width: 24px; height: 24px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
+    }
+    .msg-seen-initials {
+        background: var(--msg-accent); color: #fff;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 0.6rem; font-weight: 700;
+    }
+    .msg-seen-empty { padding: 0.5rem 0.75rem; font-size: 0.8rem; color: #8e8e93; }
+    .msg-edit-banner {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 0.75rem; font-size: 0.78rem; color: #007aff;
+        padding: 0.2rem 0.15rem 0.15rem;
+    }
+    .msg-edit-banner[hidden] { display: none !important; }
+    .msg-edit-banner button {
+        border: 0; background: none; color: #8e8e93; cursor: pointer; font-size: 0.78rem;
+    }
+    .msg-edit-banner button:hover { color: #111; }
+    .msg-composer.editing .msg-composer-tools { opacity: 0.45; pointer-events: none; }
     .msg-sender {
         display: none;
         font-size: 11px;
@@ -1171,21 +1304,22 @@
 
     .group-members-search .search-icon {
         position: absolute;
-        left: 0.75rem;
+        left: 0.6rem;
         top: 50%;
         transform: translateY(-50%);
-        width: 18px;
-        height: 18px;
+        width: 14px;
+        height: 14px;
         color: var(--text-muted);
     }
 
     .group-members-search .form-input {
-        padding-left: 2.5rem;
+        padding: 0.4rem 0.65rem 0.4rem 2rem;
+        font-size: 0.8125rem;
     }
 
     .group-members-list {
-        margin-top: 0.75rem;
-        max-height: 180px;
+        margin-top: 0.5rem;
+        max-height: 148px;
         overflow-y: auto;
         border: 1px solid var(--border);
         border-radius: 8px;
@@ -1195,10 +1329,12 @@
     .group-member-option {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
-        padding: 0.75rem 1rem;
+        gap: 0.5rem;
+        padding: 0.35rem 0.6rem;
         cursor: pointer;
         transition: background 0.15s;
+        font-size: 0.8125rem;
+        line-height: 1.2;
     }
 
     .group-member-option:hover {
@@ -1210,35 +1346,35 @@
     }
 
     .group-member-option .avatar-initials {
-        width: 36px;
-        height: 36px;
-        font-size: 0.8125rem;
+        width: 24px;
+        height: 24px;
+        font-size: 0.625rem;
     }
 
     .group-member-option .avatar-photo {
-        width: 36px;
-        height: 36px;
+        width: 24px;
+        height: 24px;
         border-radius: 50%;
         object-fit: cover;
         flex-shrink: 0;
     }
 
     .group-selected-members {
-        margin-top: 0.75rem;
+        margin-top: 0.5rem;
         display: flex;
         flex-wrap: wrap;
-        gap: 0.5rem;
+        gap: 0.35rem;
     }
 
     .selected-member-chip {
         display: inline-flex;
         align-items: center;
-        gap: 0.375rem;
-        padding: 0.25rem 0.5rem;
+        gap: 0.25rem;
+        padding: 0.15rem 0.4rem;
         background: var(--accent-light);
         color: var(--accent);
-        border-radius: 20px;
-        font-size: 0.8125rem;
+        border-radius: 16px;
+        font-size: 0.75rem;
     }
 
     .selected-member-chip button {
@@ -1301,6 +1437,9 @@
     const csrf = app.dataset.csrf;
     let currentConversationId = null;
     let currentConversationType = 'direct';
+    let conversationReceipts = [];
+    let editingMessageId = null;
+    let replyingTo = null;
     let companyUsers = [];
     const GROUP_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
     const sidebar = document.getElementById('msgSidebar');
@@ -1480,7 +1619,7 @@
     }
 
     function buildMessageElement(m) {
-        const mine = m.author === 'You';
+        const mine = m.is_mine || m.author === 'You';
         const dir = mine ? 'outbound' : 'inbound';
         const iso = m.created_at || '';
         const row = document.createElement('div');
@@ -1490,8 +1629,19 @@
         row.dataset.author = m.author || '';
         row.dataset.ts = iso;
         row.dataset.day = dayKey(iso);
+        row.dataset.body = m.body || '';
+        row.dataset.editedAt = m.edited_at || '';
+        row.dataset.hasAttachment = m.attachment_path ? '1' : '0';
+        row.dataset.preview = m.body || (m.attachment_type === 'image' ? 'Photo' : (m.attachment_name || 'Attachment') || '');
 
-        let body = '';
+        let quote = '';
+        if (m.reply_to && m.reply_to.id) {
+            quote = '<button type="button" class="msg-quote" onclick="window.scrollToRepliedMessage(' + Number(m.reply_to.id) + ', event)">' +
+                '<span class="msg-quote-author">' + escapeHtml(m.reply_to.author || '') + '</span>' +
+                '<span class="msg-quote-body">' + escapeHtml(m.reply_to.body || '') + '</span>' +
+                '</button>';
+        }
+        let body = quote;
         if (m.body) body += '<div class="msg-bubble-text">' + escapeHtml(m.body) + '</div>';
         if (m.attachment_path) {
             if (m.attachment_type === 'image') {
@@ -1503,13 +1653,88 @@
         const avatarInner = m.author_photo
             ? '<img src="' + escapeHtml(m.author_photo) + '" alt="">'
             : escapeHtml(m.author_initials || '?');
+        const editBtn = mine
+            ? '<button type="button" class="msg-edit-btn" title="Edit" aria-label="Edit" onclick="window.startEditMessage(' + Number(m.id) + ', event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></button>'
+            : '';
+        const replyBtn = currentConversationType === 'group'
+            ? '<button type="button" class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="window.startReplyMessage(' + Number(m.id) + ', event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg></button>'
+            : '';
+        const edited = m.edited_at ? '<div class="msg-meta"><span>Edited</span></div>' : '';
+        const actions = (replyBtn || editBtn) ? '<div class="msg-actions">' + replyBtn + editBtn + '</div>' : '';
         row.innerHTML =
             '<div class="msg-row-avatar">' + avatarInner + '</div>' +
             '<div class="msg-col">' +
                 '<div class="msg-sender">' + escapeHtml(m.author || '') + '</div>' +
-                '<div class="msg-bubble ' + dir + '">' + (body || '') + '</div>' +
+                '<div class="msg-bubble-wrap">' + actions + '<div class="msg-bubble ' + dir + '">' + (body || '') + '</div></div>' +
+                edited +
             '</div>';
         return row;
+    }
+
+    function seenForTimestamp(iso) {
+        if (!iso) return [];
+        const t = new Date(iso).getTime();
+        return conversationReceipts.filter(r => r.last_read_at && new Date(r.last_read_at).getTime() >= t);
+    }
+
+    function applySeenLabels() {
+        document.querySelectorAll('.msg-seen').forEach(el => el.remove());
+        const rows = [...document.querySelectorAll('#messageGroup .msg-row.outbound')];
+        const last = rows[rows.length - 1];
+        if (!last) return;
+        const seen = seenForTimestamp(last.dataset.ts);
+        if (!seen.length) return;
+        const el = document.createElement('div');
+        const isGroup = currentConversationType === 'group';
+        el.className = 'msg-seen' + (isGroup ? ' is-clickable' : '');
+        if (!isGroup) {
+            const when = seen[0].last_read_at
+                ? ' · ' + new Date(seen[0].last_read_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : '';
+            el.textContent = 'Seen' + when;
+        } else if (seen.length === 1) {
+            el.textContent = 'Seen by ' + seen[0].name;
+        } else {
+            el.textContent = 'Seen by ' + seen.length;
+        }
+        if (isGroup) {
+            el.addEventListener('click', function(e) {
+                e.stopPropagation();
+                toggleSeenPopover(el, seen);
+            });
+        }
+        last.querySelector('.msg-col').appendChild(el);
+    }
+
+    function toggleSeenPopover(anchor, seen) {
+        let pop = document.getElementById('msgSeenPopover');
+        if (!pop) {
+            pop = document.createElement('div');
+            pop.id = 'msgSeenPopover';
+            pop.className = 'msg-seen-popover';
+            document.body.appendChild(pop);
+            document.addEventListener('click', function(e) {
+                if (!pop.contains(e.target) && !e.target.closest('.msg-seen')) {
+                    pop.classList.remove('open');
+                }
+            });
+        }
+        if (pop.classList.contains('open')) {
+            pop.classList.remove('open');
+            return;
+        }
+        pop.innerHTML = seen.length
+            ? seen.map(s => {
+                const avatar = s.photo
+                    ? '<img src="' + escapeHtml(s.photo) + '" alt="">'
+                    : '<span class="msg-seen-initials">' + escapeHtml(s.initials || '?') + '</span>';
+                return '<div class="msg-seen-person">' + avatar + '<span>' + escapeHtml(s.name) + '</span></div>';
+            }).join('')
+            : '<div class="msg-seen-empty">No one has seen this yet</div>';
+        const rect = anchor.getBoundingClientRect();
+        pop.style.left = Math.max(8, Math.min(rect.right - 200, window.innerWidth - 228)) + 'px';
+        pop.style.top = (rect.bottom + 6) + 'px';
+        pop.classList.add('open');
     }
 
     function refreshThreadChrome() {
@@ -1541,6 +1766,7 @@
         }
         group.appendChild(buildMessageElement(m));
         refreshThreadChrome();
+        applySeenLabels();
     }
 
     function appendMessagesToGroup(group, messages) {
@@ -1564,6 +1790,7 @@
             firstStamp.remove();
         }
         refreshThreadChrome();
+        applySeenLabels();
     }
 
     function setHeaderAvatar(conversation) {
@@ -1579,11 +1806,14 @@
     }
 
     async function loadMessages(conversationId) {
+        if (typeof window.cancelEditMessage === 'function') window.cancelEditMessage();
+        if (typeof window.cancelReplyMessage === 'function') window.cancelReplyMessage();
         const params = new URLSearchParams({ limit: MESSAGES_PAGE_SIZE });
         const res = await api(baseUrl + '/conversations/' + conversationId + '/messages?' + params.toString());
         const json = await res.json();
         if (!json.success) return;
-        const { conversation, messages, has_more } = json.data;
+        const { conversation, messages, has_more, receipts } = json.data;
+        conversationReceipts = receipts || [];
         currentConversationType = conversation.type || 'direct';
         messagesHasMore = has_more ?? false;
         messagesOldestId = messages.length > 0 ? messages[0].id : null;
@@ -1601,6 +1831,7 @@
         const loadOlderEl = document.getElementById('messagesLoadOlder');
         if (loadOlderEl) loadOlderEl.hidden = !messagesHasMore;
         document.getElementById('messagesArea').scrollTop = document.getElementById('messagesArea').scrollHeight;
+        applySeenLabels();
         if (typeof window.updateHeaderMessagingBadge === 'function') window.updateHeaderMessagingBadge();
         if (typeof window.updateSidebarUnreadBadges === 'function') window.updateSidebarUnreadBadges();
     }
@@ -1653,6 +1884,12 @@
     let pendingAttachment = null;
 
     function updateSendButtonState() {
+        if (editingMessageId) {
+            const row = document.querySelector('.msg-row[data-message-id="' + editingMessageId + '"]');
+            const hasAttachment = row && row.dataset.hasAttachment === '1';
+            sendBtn.disabled = !messageInput.value.trim() && !hasAttachment;
+            return;
+        }
         const hasText = messageInput.value.trim().length > 0;
         const hasAttachment = pendingAttachment !== null;
         sendBtn.disabled = !hasText && !hasAttachment;
@@ -1729,7 +1966,7 @@
     }
 
     async function queueChatAttachment(file, asImage) {
-        if (!currentConversationId) return;
+        if (!currentConversationId || editingMessageId) return;
         if (asImage && file.type && !file.type.startsWith('image/')) {
             alert('Please choose an image file');
             return;
@@ -1781,7 +2018,92 @@
         textarea.dispatchEvent(new Event('input'));
     }
 
+    window.startReplyMessage = function(id, ev) {
+        if (ev) ev.stopPropagation();
+        if (currentConversationType !== 'group') return;
+        const row = document.querySelector('.msg-row[data-message-id="' + id + '"]');
+        if (!row) return;
+        if (editingMessageId) window.cancelEditMessage();
+        replyingTo = {
+            id: Number(id),
+            author: row.dataset.author || '',
+            preview: row.dataset.preview || ''
+        };
+        document.getElementById('msgReplyAuthor').textContent = replyingTo.author;
+        document.getElementById('msgReplyPreview').textContent = replyingTo.preview;
+        document.getElementById('msgReplyBanner').hidden = false;
+        messageInput.focus();
+    };
+
+    window.cancelReplyMessage = function() {
+        replyingTo = null;
+        const banner = document.getElementById('msgReplyBanner');
+        if (banner) banner.hidden = true;
+    };
+
+    window.scrollToRepliedMessage = function(id, ev) {
+        if (ev) ev.stopPropagation();
+        const row = document.querySelector('.msg-row[data-message-id="' + id + '"]');
+        if (!row) return;
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        row.classList.add('msg-row-flash');
+        setTimeout(() => row.classList.remove('msg-row-flash'), 1400);
+    };
+
+    window.startEditMessage = function(id, ev) {
+        if (ev) ev.stopPropagation();
+        const row = document.querySelector('.msg-row[data-message-id="' + id + '"]');
+        if (!row) return;
+        if (typeof window.cancelReplyMessage === 'function') window.cancelReplyMessage();
+        editingMessageId = id;
+        messageInput.value = row.dataset.body || '';
+        messageInput.dispatchEvent(new Event('input'));
+        document.getElementById('msgEditBanner').hidden = false;
+        document.getElementById('messageInputArea').classList.add('editing');
+        sendBtn.title = 'Save';
+        sendBtn.setAttribute('aria-label', 'Save');
+        messageInput.focus();
+        updateSendButtonState();
+    };
+
+    window.cancelEditMessage = function() {
+        editingMessageId = null;
+        document.getElementById('msgEditBanner').hidden = true;
+        document.getElementById('messageInputArea').classList.remove('editing');
+        sendBtn.title = 'Send';
+        sendBtn.setAttribute('aria-label', 'Send');
+        messageInput.value = '';
+        messageInput.style.height = 'auto';
+        updateSendButtonState();
+    };
+
+    async function saveEditedMessage() {
+        if (!editingMessageId || !currentConversationId) return;
+        const text = messageInput.value.trim();
+        const row = document.querySelector('.msg-row[data-message-id="' + editingMessageId + '"]');
+        const hasAttachment = row && row.dataset.hasAttachment === '1';
+        if (!text && !hasAttachment) return;
+        const res = await api(baseUrl + '/conversations/' + currentConversationId + '/messages/' + editingMessageId + '/update', {
+            method: 'POST',
+            body: { body: text || null }
+        });
+        const json = await res.json();
+        if (!json.success) {
+            alert(json.message || 'Failed to edit message');
+            return;
+        }
+        if (row) row.replaceWith(buildMessageElement(json.data));
+        refreshThreadChrome();
+        applySeenLabels();
+        window.cancelEditMessage();
+        loadConversations(document.getElementById('conversationSearch').value);
+    }
+
     async function sendMessage() {
+        if (editingMessageId) {
+            await saveEditedMessage();
+            return;
+        }
         const text = messageInput.value.trim();
         if ((!text && !pendingAttachment) || !currentConversationId) return;
         const body = { body: text || null };
@@ -1789,6 +2111,9 @@
             body.attachment_path = pendingAttachment.path;
             body.attachment_name = pendingAttachment.name;
             body.attachment_type = pendingAttachment.type;
+        }
+        if (replyingTo && currentConversationType === 'group') {
+            body.reply_to_id = replyingTo.id;
         }
         const res = await api(baseUrl + '/conversations/' + currentConversationId + '/messages', {
             method: 'POST',
@@ -1799,6 +2124,7 @@
             messageInput.value = '';
             messageInput.style.height = 'auto';
             setPendingAttachment(null);
+            window.cancelReplyMessage();
             updateSendButtonState();
             const m = json.data;
             const group = document.getElementById('messageGroup');
@@ -1809,6 +2135,16 @@
     }
 
     function handleMessageInput(event) {
+        if (event.key === 'Escape' && editingMessageId) {
+            event.preventDefault();
+            window.cancelEditMessage();
+            return;
+        }
+        if (event.key === 'Escape' && replyingTo) {
+            event.preventDefault();
+            window.cancelReplyMessage();
+            return;
+        }
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
             sendMessage();
@@ -2255,6 +2591,7 @@
     };
 
     document.getElementById('msgChat').addEventListener('paste', function(e) {
+        if (editingMessageId) return;
         const imageFile = clipboardImageFile(e.clipboardData);
         if (!imageFile) return;
         e.preventDefault();
@@ -2304,12 +2641,42 @@
     });
 
     // Init
+    async function refreshOpenConversation() {
+        if (!currentConversationId) return;
+        const params = new URLSearchParams({ limit: MESSAGES_PAGE_SIZE });
+        const res = await api(baseUrl + '/conversations/' + currentConversationId + '/messages?' + params.toString());
+        const json = await res.json();
+        if (!json.success) return;
+        conversationReceipts = json.data.receipts || [];
+        const group = document.getElementById('messageGroup');
+        const area = document.getElementById('messagesArea');
+        const nearBottom = area.scrollHeight - area.scrollTop - area.clientHeight < 80;
+        let appended = false;
+        (json.data.messages || []).forEach(m => {
+            const existing = group.querySelector('.msg-row[data-message-id="' + m.id + '"]');
+            if (existing) {
+                if (existing.dataset.body !== (m.body || '') || existing.dataset.editedAt !== (m.edited_at || '')) {
+                    existing.replaceWith(buildMessageElement(m));
+                }
+            } else {
+                appendMessage(m, group);
+                appended = true;
+            }
+        });
+        refreshThreadChrome();
+        applySeenLabels();
+        if (appended && nearBottom) {
+            area.scrollTop = area.scrollHeight;
+        }
+    }
+
     loadConversations();
 
-    // Poll for new chats and unread updates (refresh every 15 seconds)
+    // Poll for new chats, unread, edits, and seen-by updates
     setInterval(function() {
         if (document.visibilityState === 'visible') {
             loadConversations(document.getElementById('conversationSearch').value);
+            refreshOpenConversation();
         }
     }, 15000);
 })();

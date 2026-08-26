@@ -19,10 +19,16 @@ class Message extends Model
     protected $fillable = [
         'conversation_id',
         'user_id',
+        'reply_to_id',
         'body',
         'attachment_path',
         'attachment_name',
         'attachment_type',
+        'edited_at',
+    ];
+
+    protected $casts = [
+        'edited_at' => 'datetime',
     ];
 
     /**
@@ -39,5 +45,13 @@ class Message extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * The message this one is a reply to (group quotes).
+     */
+    public function replyTo(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'reply_to_id');
     }
 }

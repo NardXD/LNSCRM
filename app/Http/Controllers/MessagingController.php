@@ -6,6 +6,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -262,13 +263,14 @@ class MessagingController extends Controller
             return response()->json(['success' => false, 'message' => 'Not a participant'], 403);
         }
 
-        // Mark as read
-        $conversation->participants()->updateExistingPivot($user->id, ['last_read_at' => now()]);
+        $conversation->participants()->updateExistingPivot($user->id, [
+            'last_read_at' => now()->timezone(config('app.timezone'))->format('Y-m-d H:i:s'),
+        ]);
 
         $limit = min(max((int) $request->get('limit', 25), 5), 100);
         $beforeId = $request->get('before_id');
 
-        $query = $conversation->messages()->with('user');
+        $query = $conversation->messages()->with(['user', 'replyTo.user']);
 
         if ($beforeId) {
             $messages = $query->where('id', '<', $beforeId)
@@ -291,6 +293,7 @@ class MessagingController extends Controller
             $messages = $messages->reverse()->values();
         }
         $messages = $messages->map(fn ($m) => $this->formatMessage($m, $user));
+        $receipts = $this->formatReceipts($conversation, $user);
 
         $otherParticipant = $conversation->participants()->where('users.id', '!=', $user->id)->first();
         $displayName = $conversation->type === 'group'
@@ -315,6 +318,7 @@ class MessagingController extends Controller
                 ],
                 'messages' => $messages,
                 'has_more' => $hasMore,
+                'receipts' => $receipts,
             ],
         ]);
     }
@@ -339,14 +343,24 @@ class MessagingController extends Controller
             'attachment_path' => ['nullable', 'string'],
             'attachment_name' => ['nullable', 'string'],
             'attachment_type' => ['nullable', 'string', 'in:file,image'],
+            'reply_to_id' => ['nullable', 'integer'],
         ]);
 
         if (empty($validated['body']) && empty($validated['attachment_path'])) {
             return response()->json(['success' => false, 'message' => 'Message body or attachment required'], 422);
         }
 
+        $replyToId = $validated['reply_to_id'] ?? null;
+        if ($replyToId) {
+            $replyTarget = $conversation->messages()->whereKey($replyToId)->first();
+            if (! $replyTarget) {
+                return response()->json(['success' => false, 'message' => 'Message to reply to was not found'], 422);
+            }
+        }
+
         $message = $conversation->messages()->create([
             'user_id' => $user->id,
+            'reply_to_id' => $replyToId,
             'body' => $validated['body'] ?? null,
             'attachment_path' => $validated['attachment_path'] ?? null,
             'attachment_name' => $validated['attachment_name'] ?? null,
@@ -355,7 +369,53 @@ class MessagingController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatMessage($message->load('user'), $user),
+            'data' => $this->formatMessage($message->load(['user', 'replyTo.user']), $user),
+        ]);
+    }
+
+    /**
+     * Edit a previously sent message (author only). Attachments stay as-is.
+     */
+    public function updateMessage(Request $request, Conversation $conversation, Message $message)
+    {
+        $companyId = $this->requireCompany();
+        if (! $companyId || $conversation->company_id !== $companyId) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        $user = Auth::user();
+        if (! $conversation->participants()->where('users.id', $user->id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Not a participant'], 403);
+        }
+
+        if ($message->conversation_id !== $conversation->id) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        if ($message->user_id !== $user->id) {
+            return response()->json(['success' => false, 'message' => 'You can only edit your own messages'], 403);
+        }
+
+        $validated = $request->validate([
+            'body' => ['nullable', 'string', 'max:10000'],
+        ]);
+
+        $body = isset($validated['body']) ? trim($validated['body']) : '';
+        $body = $body === '' ? null : $body;
+
+        if ($body === null && empty($message->attachment_path)) {
+            return response()->json(['success' => false, 'message' => 'Message body or attachment required'], 422);
+        }
+
+        if (($message->body ?? null) !== $body) {
+            $message->body = $body;
+            $message->edited_at = now();
+            $message->save();
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->formatMessage($message->load(['user', 'replyTo.user']), $user),
         ]);
     }
 
@@ -669,6 +729,24 @@ class MessagingController extends Controller
         ];
     }
 
+    private function formatReceipts(Conversation $conversation, $currentUser): array
+    {
+        return $conversation->participants()
+            ->where('users.id', '!=', $currentUser->id)
+            ->get()
+            ->map(function ($p) {
+                return [
+                    'id' => $p->id,
+                    'name' => $p->name,
+                    'initials' => $this->getInitials($p->name),
+                    'photo' => $p->photo ? public_media_url($p->photo) : null,
+                    'last_read_at' => $this->isoTimestamp($p->pivot->last_read_at),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
     private function formatMessage(Message $m, $currentUser): array
     {
         $isMe = $m->user_id === $currentUser->id;
@@ -676,6 +754,7 @@ class MessagingController extends Controller
         return [
             'id' => $m->id,
             'user_id' => $m->user_id,
+            'is_mine' => $isMe,
             'author' => $isMe ? 'You' : $m->user->name,
             'author_initials' => $this->getInitials($m->user->name),
             'author_photo' => $m->user->photo ? public_media_url($m->user->photo) : null,
@@ -684,7 +763,40 @@ class MessagingController extends Controller
             'attachment_name' => $m->attachment_name,
             'attachment_type' => $m->attachment_type,
             'created_at' => $m->created_at->toIso8601String(),
+            'edited_at' => $m->edited_at?->toIso8601String(),
+            'reply_to' => $this->formatReplyTo($m, $currentUser),
         ];
+    }
+
+    private function formatReplyTo(Message $m, $currentUser): ?array
+    {
+        $target = $m->relationLoaded('replyTo') ? $m->replyTo : $m->replyTo()->with('user')->first();
+        if (! $target) {
+            return null;
+        }
+
+        $isMe = $target->user_id === $currentUser->id;
+        $preview = $this->messagePreview($target);
+
+        return [
+            'id' => $target->id,
+            'author' => $isMe ? 'You' : ($target->user->name ?? 'Unknown'),
+            'body' => $preview,
+            'attachment_type' => $target->attachment_type,
+        ];
+    }
+
+    private function isoTimestamp(mixed $value): ?string
+    {
+        if (! $value) {
+            return null;
+        }
+
+        if ($value instanceof \DateTimeInterface) {
+            return Carbon::instance($value)->toIso8601String();
+        }
+
+        return Carbon::parse((string) $value, 'UTC')->toIso8601String();
     }
 
     private function messagePreview(Message $m): string
