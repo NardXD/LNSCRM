@@ -313,9 +313,10 @@
                             <label>Labels</label>
                             <div id="leadLabelsList" class="lead-label-list"></div>
                             <div class="lead-label-add">
-                                <input type="text" id="leadLabelInput" list="leadLabelSuggestions" maxlength="50" placeholder="Add or create a label" autocomplete="off">
-                                <datalist id="leadLabelSuggestions"></datalist>
-                                <button type="button" class="btn btn-secondary btn-sm" id="addLeadLabelBtn">Add</button>
+                                <select id="leadLabelSelect" aria-label="Add a label">
+                                    <option value="">Select a label…</option>
+                                </select>
+                                <span class="leads-spinner" id="leadLabelBusy" hidden></span>
                             </div>
                         </div>
                         <div class="form-group">
@@ -579,7 +580,7 @@
     font-weight: 600;
     color: var(--text-secondary);
 }
-.leads-busy-overlay[hidden] { display: none !important; }
+.leads-busy-overlay[hidden], .leads-spinner[hidden] { display: none !important; }
 .leads-spinner {
     width: 1.2rem;
     height: 1.2rem;
@@ -663,8 +664,8 @@
 .lead-notes-list { flex-direction: column; flex-wrap: nowrap; }
 .lead-label-chip { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.18rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700; }
 .lead-label-chip button { background: none; border: none; color: inherit; cursor: pointer; font-size: 0.9rem; line-height: 1; padding: 0; opacity: 0.8; }
-.lead-label-add { display: flex; gap: 0.4rem; }
-.lead-label-add input { flex: 1; }
+.lead-label-add { display: flex; align-items: center; gap: 0.4rem; }
+.lead-label-add select { flex: 1; min-width: 0; }
 .lead-inbox-search { margin-top: 0.55rem; margin-bottom: 0; }
 .lead-inbox-search input[type="search"] {
     width: 100%;
@@ -1005,8 +1006,15 @@
         document.getElementById('leadExtrasHint').hidden = saved;
     }
     function renderLabelSuggestions() {
-        document.getElementById('leadLabelSuggestions').innerHTML =
-            state.companyLabels.map(label => `<option value="${esc(label.name)}"></option>`).join('');
+        const select = document.getElementById('leadLabelSelect');
+        if (select) {
+            const attached = new Set((state.labels || []).map(label => String(label.id)));
+            const available = (state.companyLabels || []).filter(label => !attached.has(String(label.id)));
+            select.innerHTML = '<option value="">Select a label…</option>' + available.map(label =>
+                `<option value="${esc(label.name)}">${esc(label.name)}</option>`
+            ).join('');
+            select.disabled = !state.editingId || !available.length;
+        }
         renderLabelFilter();
     }
     function selectedFilterLabels() {
@@ -1055,6 +1063,7 @@
         const list = document.getElementById('leadLabelsList');
         if (!state.labels.length) {
             list.innerHTML = '<span class="lead-note-empty">No labels yet.</span>';
+            renderLabelSuggestions();
             return;
         }
         list.innerHTML = state.labels.map(label => `
@@ -1063,6 +1072,7 @@
                 <button type="button" data-remove-label="${label.id}" title="Remove label">&times;</button>
             </span>
         `).join('');
+        renderLabelSuggestions();
     }
     function renderNotes(notes) {
         state.notes = Array.isArray(notes) ? notes : [];
@@ -1628,7 +1638,8 @@
         document.getElementById('leadHistoryBody').hidden = true;
         document.getElementById('leadHistoryBody').innerHTML = '';
         document.getElementById('leadNoteInput').value = '';
-        document.getElementById('leadLabelInput').value = '';
+        const labelSelect = document.getElementById('leadLabelSelect');
+        if (labelSelect) labelSelect.value = '';
         fillAssigneeSelect(document.getElementById('leadAssignedTo'), '');
         renderLabels([]);
         renderNotes([]);
@@ -2375,16 +2386,17 @@
 
     async function addLeadLabel() {
         const id = state.editingId;
-        const input = document.getElementById('leadLabelInput');
-        const name = input.value.trim();
-        if (!id) return;
-        if (!name) { input.focus(); return; }
+        const select = document.getElementById('leadLabelSelect');
+        const name = (select?.value || '').trim();
+        const busy = document.getElementById('leadLabelBusy');
+        if (!id || !select) return;
+        if (!name) return;
         if (state.labels.some(label => label.name.toLowerCase() === name.toLowerCase())) {
-            input.value = '';
+            select.value = '';
             return;
         }
-        const labelBtn = document.getElementById('addLeadLabelBtn');
-        setBusy(labelBtn, true, 'Adding…');
+        select.disabled = true;
+        if (busy) busy.hidden = false;
         try {
             const res = await fetch(api + '/' + id + '/labels', {
                 method: 'POST',
@@ -2394,30 +2406,25 @@
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.message || 'Could not add label.');
-            input.value = '';
+            select.value = '';
             renderLabels(data.labels || []);
             refreshActivities(id);
             if (data.data && !state.companyLabels.some(label => label.id === data.data.id)) {
                 state.companyLabels.push(data.data);
-                renderLabelSuggestions();
             }
+            renderLabelSuggestions();
             await loadLeads();
         } catch (err) {
             errorEl.hidden = false;
             errorEl.textContent = err.message;
+            renderLabelSuggestions();
         } finally {
-            setBusy(labelBtn, false);
+            if (busy) busy.hidden = true;
         }
     }
 
     document.getElementById('addLeadNoteBtn').addEventListener('click', addLeadNote);
-    document.getElementById('addLeadLabelBtn').addEventListener('click', addLeadLabel);
-    document.getElementById('leadLabelInput').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            addLeadLabel();
-        }
-    });
+    document.getElementById('leadLabelSelect').addEventListener('change', addLeadLabel);
     document.getElementById('leadNoteInput').addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
