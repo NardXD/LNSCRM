@@ -91,6 +91,7 @@ class LeadActivityService
         }
 
         if (($before['status'] ?? '') !== ($after['status'] ?? '')) {
+            $lead->clearScheduledStatusChange();
             $from = $this->statusLabel((string) ($before['status'] ?? ''), (int) $lead->company_id);
             $to = $this->statusLabel((string) ($after['status'] ?? ''), (int) $lead->company_id);
             $this->record(

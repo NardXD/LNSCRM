@@ -120,12 +120,28 @@ class Lead extends Model
         'reopen_at',
         'reopen_status',
         'follow_up_notified_day',
+        'scheduled_status_at',
+        'scheduled_status',
+        'scheduled_status_from',
     ];
 
     protected $casts = [
         'reopen_at' => 'datetime',
+        'scheduled_status_at' => 'datetime',
         'date_of_birth' => 'date',
     ];
+
+    public function clearScheduledStatusChange(): void
+    {
+        if ($this->scheduled_status_at === null && $this->scheduled_status === null && $this->scheduled_status_from === null) {
+            return;
+        }
+
+        $this->scheduled_status_at = null;
+        $this->scheduled_status = null;
+        $this->scheduled_status_from = null;
+        $this->save();
+    }
 
     /**
      * @return array{titles: list<string>, sources: list<string>, customer_types: array<string, string>, residential_types: list<string>, business_industries: list<string>, storage_reasons: list<string>}

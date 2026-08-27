@@ -1442,7 +1442,7 @@ class LeadsController extends Controller
             'conditions.*.operator' => ['required', 'in:contains,equals,starts_with,in,does_not_have,not_equals'],
             'conditions.*.value' => ['nullable'],
             'actions' => [$required, 'array', 'min:1'],
-            'actions.*.type' => ['required', 'in:create_lead,assign,add_label,set_status,notify_assignee,reopen_after_days,unsnooze'],
+            'actions.*.type' => ['required', 'in:create_lead,assign,add_label,set_status,set_status_after_days,notify_assignee,reopen_after_days,unsnooze'],
             'actions.*.value' => ['nullable'],
         ]);
 
@@ -1537,6 +1537,18 @@ class LeadsController extends Controller
                 $statusSlugs = LeadStatus::slugsForCompany((int) Auth::user()->company_id);
                 if ($status === Lead::STATUS_SNOOZED || ! in_array($status, $statusSlugs, true)) {
                     abort(response()->json(['message' => 'Choose a valid lead status.'], 422));
+                }
+            }
+            if ($type === 'set_status_after_days') {
+                $payload = $action['value'] ?? null;
+                $days = is_array($payload) ? (int) ($payload['days'] ?? 0) : (int) $payload;
+                $status = is_array($payload) ? strtolower(trim((string) ($payload['status'] ?? ''))) : '';
+                if ($days < 1 || $days > 365) {
+                    abort(response()->json(['message' => 'Choose how many days before the status changes (1–365).'], 422));
+                }
+                $statusSlugs = LeadStatus::slugsForCompany((int) Auth::user()->company_id);
+                if ($status === '' || $status === Lead::STATUS_SNOOZED || ! in_array($status, $statusSlugs, true)) {
+                    abort(response()->json(['message' => 'Choose a valid lead status to set after the delay.'], 422));
                 }
             }
             if ($type === 'reopen_after_days') {

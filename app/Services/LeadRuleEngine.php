@@ -353,6 +353,7 @@ class LeadRuleEngine
                     'assign' => $this->assign($lead, $value),
                     'add_label' => $this->addLabel($lead, $value),
                     'set_status' => $this->setStatus($lead, $value),
+                    'set_status_after_days' => $this->scheduleStatus($lead, $value),
                     'notify_assignee' => $this->notifyAssignee($lead),
                     'reopen_after_days' => $this->scheduleReopen($lead, $value),
                     'unsnooze' => $this->unsnooze($lead),
@@ -590,6 +591,49 @@ class LeadRuleEngine
         $lead->reopen_status = null;
         $lead->save();
         $this->leadActivity->recordDiff($lead, $before);
+    }
+
+    private function scheduleStatus(Lead $lead, mixed $value): void
+    {
+        $days = 0;
+        $status = '';
+        if (is_array($value)) {
+            $days = (int) ($value['days'] ?? 0);
+            $status = strtolower(trim((string) ($value['status'] ?? '')));
+        } else {
+            $status = strtolower(trim((string) $value));
+        }
+        if ($days < 1) {
+            return;
+        }
+        if ($days > 365) {
+            $days = 365;
+        }
+
+        $slugs = LeadStatus::slugsForCompany((int) $lead->company_id);
+        if ($status === '' || $status === Lead::STATUS_SNOOZED || ! in_array($status, $slugs, true)) {
+            return;
+        }
+
+        $from = strtolower(trim((string) $lead->status));
+        $lead->scheduled_status_from = $from !== '' ? $from : null;
+        $lead->scheduled_status = $status;
+        $lead->scheduled_status_at = now()->addDays($days);
+        $lead->save();
+
+        $until = $lead->scheduled_status_at?->toFormattedDateString() ?: $lead->scheduled_status_at;
+        $this->leadActivity->record(
+            $lead,
+            LeadActivity::STATUS_SCHEDULED,
+            'Status will change to '.LeadStatus::nameFor((int) $lead->company_id, $status).' in '.$days.' '.($days === 1 ? 'day' : 'days').' ('.$until.')',
+            [
+                'source' => 'set_status_after_days',
+                'days' => $days,
+                'from' => $lead->scheduled_status_from,
+                'to' => $status,
+                'scheduled_status_at' => $lead->scheduled_status_at?->toIso8601String(),
+            ]
+        );
     }
 
     private function scheduleReopen(Lead $lead, mixed $days): void

@@ -852,6 +852,8 @@
 .leads-rule-extra-card.is-action { grid-template-columns: 1fr 1fr auto; }
 .leads-rule-extra-card.is-action.is-create-lead { grid-template-columns: minmax(0, 1fr) auto; }
 .leads-rule-extra-card.is-action.is-create-lead [data-rule-action-value] { display: none; }
+.leads-rule-extra-card.is-action.is-delayed-status { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.7fr) minmax(0, 1fr) auto; }
+.leads-rule-delayed-help { grid-column: 1 / -1; margin: 0; font-size: 0.72rem; color: var(--text-muted); }
 .leads-rule-extra-card.is-action.is-rr-selected { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
 .leads-rule-rr-users { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.3rem; }
 .leads-rule-rr-users label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; padding: 0.3rem 0.4rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); cursor: pointer; }
@@ -2747,7 +2749,7 @@
         { value: 'outbound_call', label: 'Outbound call is placed', help: 'When an outbound phone call is placed.' },
         { value: 'lead_assigned', label: 'Lead is assigned', help: 'When a teammate is assigned to the lead.' },
         { value: 'lead_labeled', label: 'Label added', help: 'When this label is added to the lead.' },
-        { value: 'lead_status_changed', label: 'Status changed', help: 'When the lead status changes to this status.' },
+        { value: 'lead_status_changed', label: 'Status changed', help: 'When the lead status changes to this status. Delayed actions, like set status after X days, start counting from this change date.' },
         { value: 'lead_note_added', label: 'Note is added to lead', help: 'When a note is saved on the lead.' },
         { value: 'follow_up_day_reached', label: 'Follow-up day is reached', help: 'Once a day when the lead reaches this follow-up day. Day 1 is the day after it was created. Use labels like Inquiry or Move in only when you want a rule to depend on a tag, not on the follow-up bucket itself.' },
     ];
@@ -2985,6 +2987,7 @@
             ['assign', 'Assign lead to'],
             ['add_label', 'Add label'],
             ['set_status', 'Set status'],
+            ['set_status_after_days', 'Set status after days'],
             ['reopen_after_days', 'Reopen after days'],
             ['unsnooze', 'Unsnooze lead'],
             ['notify_assignee', 'Notify assignee'],
@@ -3021,7 +3024,7 @@
                 `<option value="${esc(s.slug)}" ${selectedStatus === s.slug ? 'selected' : ''}>${esc(s.name)}</option>`
             ).join('');
         }
-        if (type === 'reopen_after_days') {
+        if (type === 'reopen_after_days' || type === 'set_status_after_days') {
             const days = [1, 2, 3, 5, 7, 14, 30, 60, 90];
             const selectedDay = String(selected || '3');
             const opts = days.map(d =>
@@ -3111,6 +3114,24 @@
         }
         return String(value || '');
     }
+    function delayedStatusDays(value) {
+        if (value && typeof value === 'object' && !Array.isArray(value) && value.days != null && value.days !== '') {
+            return String(value.days);
+        }
+        if (value != null && value !== '' && typeof value !== 'object') {
+            return String(value);
+        }
+        return '3';
+    }
+    function delayedStatusSlug(value) {
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+            return String(value.status || 'contacted');
+        }
+        return 'contacted';
+    }
+    function delayedStatusSelectHtml(selected = 'contacted') {
+        return `<select data-rule-action-status>${actionValueOptions('set_status', selected || 'contacted')}</select>`;
+    }
     function selectedRoundRobinIds(value) {
         if (value && typeof value === 'object' && Array.isArray(value.user_ids)) {
             return value.user_ids.map(String);
@@ -3171,21 +3192,32 @@
     function syncActionRow(row, type, preset = {}) {
         if (!row) return;
         row.classList.toggle('is-create-lead', type === 'create_lead');
+        row.classList.toggle('is-delayed-status', type === 'set_status_after_days');
         const valueSel = row.querySelector('[data-rule-action-value]');
         const needsValue = actionNeedsValue(type);
         if (valueSel) {
             valueSel.hidden = type === 'create_lead';
             valueSel.disabled = !needsValue;
             if (type !== 'create_lead') {
-                const fallback = type === 'set_status' ? 'contacted' : (type === 'reopen_after_days' ? '3' : '');
-                const selected = assignMode(preset.value) || fallback;
+                let fallback = '';
+                if (type === 'set_status') fallback = 'contacted';
+                if (type === 'reopen_after_days' || type === 'set_status_after_days') fallback = '3';
+                const selected = type === 'set_status_after_days'
+                    ? delayedStatusDays(preset.value)
+                    : (assignMode(preset.value) || fallback);
                 valueSel.innerHTML = actionValueOptions(type, selected || fallback);
             }
         }
         row.querySelector('[data-create-lead-keywords]')?.remove();
         row.querySelector('.leads-rule-create-help')?.remove();
+        row.querySelector('[data-rule-action-status]')?.remove();
+        row.querySelector('.leads-rule-delayed-help')?.remove();
         if (type === 'create_lead') {
             row.insertAdjacentHTML('beforeend', createLeadKeywordsHtml(preset));
+        }
+        if (type === 'set_status_after_days') {
+            valueSel?.insertAdjacentHTML('afterend', delayedStatusSelectHtml(delayedStatusSlug(preset.value)));
+            row.insertAdjacentHTML('beforeend', '<p class="leads-rule-delayed-help">The countdown starts when this rule’s trigger happens, for example the date the status changed to Qualified.</p>');
         }
         syncAssignTeammatePicker(row, preset);
     }
@@ -3194,10 +3226,13 @@
         if (!wrap) return;
         const type = preset.type || 'assign';
         const needsValue = actionNeedsValue(type);
-        const defaultValue = assignMode(preset.value)
-            || ((preset.value && typeof preset.value !== 'object') ? preset.value : (type === 'reopen_after_days' ? '3' : ''));
+        let defaultValue = assignMode(preset.value)
+            || ((preset.value && typeof preset.value !== 'object') ? preset.value : '');
+        if (!defaultValue && (type === 'reopen_after_days' || type === 'set_status_after_days')) {
+            defaultValue = delayedStatusDays(preset.value);
+        }
         const row = document.createElement('div');
-        row.className = 'leads-rule-extra-card is-action' + (type === 'create_lead' ? ' is-create-lead' : '');
+        row.className = 'leads-rule-extra-card is-action' + (type === 'create_lead' ? ' is-create-lead' : '') + (type === 'set_status_after_days' ? ' is-delayed-status' : '');
         row.innerHTML = `
             <select data-rule-action-type>${actionTypeOptions(type)}</select>
             <select data-rule-action-value ${needsValue ? '' : 'disabled hidden'}>${actionValueOptions(type, defaultValue)}</select>
@@ -3310,6 +3345,16 @@
                 return;
             }
             const valueSel = row.querySelector('[data-rule-action-value]');
+            if (type === 'set_status_after_days') {
+                actions.push({
+                    type,
+                    value: {
+                        days: Number(valueSel?.value || 0),
+                        status: row.querySelector('[data-rule-action-status]')?.value || '',
+                    },
+                });
+                return;
+            }
             if (type === 'assign' && valueSel?.value === '__round_robin_selected__') {
                 const userIds = [...row.querySelectorAll('[data-rr-users] input:checked')]
                     .map(cb => Number(cb.value))
@@ -3616,6 +3661,16 @@
             }
             if (['add_label', 'set_status'].includes(action.type) && (action.value === null || action.value === '')) {
                 return alert('That action needs a value.');
+            }
+            if (action.type === 'set_status_after_days') {
+                const days = Number(action.value?.days);
+                const status = String(action.value?.status || '').trim();
+                if (!Number.isFinite(days) || days < 1 || days > 365) {
+                    return alert('Choose how many days before the status changes (1–365).');
+                }
+                if (!status) {
+                    return alert('Choose which status to set after the delay.');
+                }
             }
             if (action.type === 'reopen_after_days') {
                 const days = Number(action.value);

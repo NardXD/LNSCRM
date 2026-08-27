@@ -11,6 +11,7 @@ Artisan::command('inspire', function () {
 Schedule::command('live-view:cleanup')->everyFiveMinutes();
 Schedule::command('inbox:process-reopens')->everyMinute();
 Schedule::command('leads:process-reopens')->everyFiveMinutes();
+Schedule::command('leads:process-scheduled-statuses')->everyFiveMinutes();
 Schedule::command('leads:process-follow-up-days')->dailyAt('06:00');
 Schedule::command('inbox:process-scheduled-replies')->everyMinute();
 Schedule::command('inbox:sync-mail')
