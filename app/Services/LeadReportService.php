@@ -65,7 +65,9 @@ class LeadReportService
 
         $statuses = $filters['statuses'] ?? [];
         $status = (string) ($filters['status'] ?? '');
-        if ($statuses !== []) {
+        if (! empty($filters['all_statuses'])) {
+            // Status tab counts need every slug, including archived.
+        } elseif ($statuses !== []) {
             $query->whereIn('leads.status', $statuses);
         } elseif ($status !== '' && $status !== 'all') {
             $query->where('leads.status', $status);
@@ -145,6 +147,51 @@ class LeadReportService
             'labels' => $config['labels'],
             'counts' => $counts,
         ];
+    }
+
+    /**
+     * Counts for status tabs. The All tab matches the list (archived excluded);
+     * each status slug includes its own total under the current filters.
+     *
+     * @param  array<string, mixed>|Request  $filters
+     * @return array<string, int>
+     */
+    public function statusCounts(int $companyId, array|Request $filters): array
+    {
+        $filters = $this->normalizeFilters($filters);
+        $allFilters = $filters;
+        $allFilters['status'] = 'all';
+        $allFilters['statuses'] = [];
+        $allFilters['all_statuses'] = false;
+
+        $perStatusFilters = $filters;
+        $perStatusFilters['status'] = 'all';
+        $perStatusFilters['statuses'] = [];
+        $perStatusFilters['all_statuses'] = true;
+
+        $rows = $this->filteredQuery($companyId, $perStatusFilters)
+            ->select([
+                'leads.status',
+                DB::raw('COUNT(*) as aggregate'),
+            ])
+            ->groupBy('leads.status')
+            ->pluck('aggregate', 'leads.status');
+
+        $counts = [
+            'all' => $this->filteredQuery($companyId, $allFilters)->count(),
+        ];
+        foreach (LeadStatus::slugsForCompany($companyId) as $slug) {
+            $counts[$slug] = (int) ($rows[$slug] ?? 0);
+        }
+
+        foreach ($rows as $slug => $count) {
+            $slug = (string) $slug;
+            if (! array_key_exists($slug, $counts)) {
+                $counts[$slug] = (int) $count;
+            }
+        }
+
+        return $counts;
     }
 
     /**
@@ -406,6 +453,7 @@ class LeadReportService
             'follow_up_day' => $followUpDay > 0 ? $followUpDay : 0,
             'follow_up_day_min' => $followUpDayMin > 0 ? $followUpDayMin : 0,
             'follow_up_counts' => (bool) ($filters['follow_up_counts'] ?? false),
+            'all_statuses' => (bool) ($filters['all_statuses'] ?? false),
         ];
     }
 

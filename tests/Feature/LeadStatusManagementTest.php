@@ -73,6 +73,31 @@ class LeadStatusManagementTest extends TestCase
             ->assertStatus(422);
     }
 
+    public function test_lead_list_includes_counts_per_status_tab(): void
+    {
+        [$user, $lead] = $this->userWithLead();
+        LeadStatus::ensureForCompany((int) $lead->company_id);
+
+        Lead::query()->create([
+            'company_id' => $lead->company_id,
+            'name' => 'Contacted Lead',
+            'status' => 'contacted',
+        ]);
+        Lead::query()->create([
+            'company_id' => $lead->company_id,
+            'name' => 'Archived Lead',
+            'status' => Lead::STATUS_ARCHIVED,
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/leads')
+            ->assertOk()
+            ->assertJsonPath('status_counts.all', 2)
+            ->assertJsonPath('status_counts.new', 1)
+            ->assertJsonPath('status_counts.contacted', 1)
+            ->assertJsonPath('status_counts.archived', 1);
+    }
+
     /**
      * @return array{0: User, 1: Lead}
      */

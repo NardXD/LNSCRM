@@ -588,6 +588,7 @@
 .lead-label-filter-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 .leads-tabs { display: flex; gap: 0.25rem; flex-wrap: wrap; }
 .leads-tab { border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary); border-radius: 999px; padding: 0.35rem 0.75rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
+.leads-tab span { margin-left: 0.2rem; opacity: 0.75; font-weight: 700; }
 .leads-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .leads-followup-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: -0.35rem 0 1rem; }
 .leads-followup-chips { display: flex; gap: 0.35rem; flex-wrap: wrap; flex: 1; }
@@ -897,7 +898,7 @@
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
     const LEAD_OPTIONS = @json($leadFormOptions);
     const LEAD_FOLLOW_UP = @json($leadFollowUpConfig ?? []);
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, selectedIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadIds: [], messageChannels: [], messageChannel: '' };
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, selectedIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadIds: [], messageChannels: [], messageChannel: '' };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -1345,10 +1346,13 @@
         const wrap = document.getElementById('leadStatusTabs');
         if (!wrap) return;
         const current = state.status || 'all';
+        const counts = state.statusCounts || {};
         const tabs = [{ slug: 'all', name: 'All' }, ...(state.statuses || [])];
-        wrap.innerHTML = tabs.map(status =>
-            `<button type="button" class="leads-tab${current === status.slug ? ' active' : ''}" data-status="${esc(status.slug)}">${esc(status.name)}</button>`
-        ).join('');
+        wrap.innerHTML = tabs.map(status => {
+            const count = counts[status.slug];
+            const badge = count == null ? '' : ` <span data-count="${esc(status.slug)}">${count}</span>`;
+            return `<button type="button" class="leads-tab${current === status.slug ? ' active' : ''}" data-status="${esc(status.slug)}">${esc(status.name)}${badge}</button>`;
+        }).join('');
         if (current !== 'all' && !(state.statuses || []).some(s => s.slug === current)) {
             state.status = 'all';
             wrap.querySelector('[data-status="all"]')?.classList.add('active');
@@ -1540,6 +1544,10 @@
             document.getElementById('leadsPrev').disabled = (pag.current_page || 1) <= 1;
             document.getElementById('leadsNext').disabled = (pag.current_page || 1) >= (pag.last_page || 1);
             renderSourceFilter(data.sources || []);
+            if (data.status_counts && typeof data.status_counts === 'object') {
+                state.statusCounts = data.status_counts;
+                renderStatusTabs();
+            }
             syncLeadSelection();
             loadFollowUpCounts();
         } catch {

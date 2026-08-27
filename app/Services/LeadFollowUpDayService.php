@@ -165,6 +165,10 @@ class LeadFollowUpDayService
      */
     public function shouldExcludeClosed(array $filters): bool
     {
+        if (! empty($filters['all_statuses'])) {
+            return false;
+        }
+
         $day = (int) ($filters['follow_up_day'] ?? 0);
         $min = (int) ($filters['follow_up_day_min'] ?? 0);
         if ($day < 1 && $min < 1 && empty($filters['follow_up_counts'])) {
