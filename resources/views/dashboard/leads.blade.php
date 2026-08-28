@@ -487,7 +487,7 @@
                 <button type="button" class="modal-close-btn" id="closeLeadLabelsModal">&times;</button>
             </div>
             <div class="leads-rules-body">
-                <p class="leads-rules-help">Create labels here, then use them on leads, filters, and rules.</p>
+                <p class="leads-rules-help">Add, rename, recolor, or delete labels. Use them on leads, filters, and rules.</p>
                 <div id="leadCompanyLabelList" class="leads-rule-list"></div>
                 <form id="leadCompanyLabelForm" class="leads-label-create">
                     <input type="text" id="leadCompanyLabelName" maxlength="50" placeholder="New label name" required>
@@ -1309,6 +1309,7 @@
             state.companyLabels = data.data || [];
             renderLabelSuggestions();
             renderCompanyLabelList();
+            syncOpenLeadLabelsFromCompany();
         } catch {
             state.companyLabels = [];
             renderCompanyLabelList();
@@ -1396,12 +1397,11 @@
         list.innerHTML = state.companyLabels.map(label => `
             <div class="leads-rule-row">
                 <div class="leads-rule-row-main">
-                    <div class="leads-rule-row-name">
-                        <span class="lead-label-chip" style="background:${esc(label.color || '#4338ca')};color:${chipText(label.color)}">${esc(label.name)}</span>
-                    </div>
+                    <input type="text" class="leads-status-name-input" data-label-name="${label.id}" value="${esc(label.name)}" maxlength="50" aria-label="Label name">
                 </div>
                 <div class="leads-rule-row-actions">
                     <input type="color" class="leads-label-row-color" data-label-color="${label.id}" value="${esc(label.color || '#4338ca')}" title="Change color" aria-label="Change color">
+                    <button type="button" class="btn btn-secondary btn-sm" data-save-company-label="${label.id}">Save</button>
                     <button type="button" class="btn btn-secondary btn-sm" data-delete-company-label="${label.id}">Delete</button>
                 </div>
             </div>
@@ -1415,6 +1415,39 @@
     }
     function closeLabelsModal() {
         document.getElementById('leadLabelsModal')?.classList.remove('open');
+    }
+    function syncOpenLeadLabelsFromCompany() {
+        if (!state.labels.length) return;
+        const next = state.labels.map(label => {
+            const updated = state.companyLabels.find(item => String(item.id) === String(label.id));
+            return updated ? { ...label, name: updated.name, color: updated.color } : label;
+        });
+        const changed = next.some((label, index) =>
+            label.name !== state.labels[index].name || label.color !== state.labels[index].color
+        );
+        if (changed) renderLabels(next);
+    }
+    async function saveCompanyLabel(id) {
+        const input = document.querySelector(`[data-label-name="${id}"]`);
+        const colorEl = document.querySelector(`[data-label-color="${id}"]`);
+        const name = input?.value.trim() || '';
+        if (!name) { input?.focus(); return; }
+        const save = document.querySelector(`[data-save-company-label="${id}"]`);
+        if (save) save.disabled = true;
+        try {
+            const res = await fetch(api + '/labels/' + id, {
+                method: 'PATCH', credentials: 'same-origin', headers: headers(true),
+                body: JSON.stringify({ name, color: colorEl?.value || '#4338ca' }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.message || 'Could not update label.');
+            await loadCompanyLabels();
+            loadLeads();
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            if (save) save.disabled = false;
+        }
     }
 
     function contactKindLabel(type) {
@@ -3471,6 +3504,11 @@
         }
     });
     document.getElementById('leadCompanyLabelList')?.addEventListener('click', async (e) => {
+        const save = e.target.closest('[data-save-company-label]');
+        if (save) {
+            await saveCompanyLabel(save.dataset.saveCompanyLabel);
+            return;
+        }
         const del = e.target.closest('[data-delete-company-label]');
         if (!del) return;
         if (!confirm('Delete this label? It will be removed from all leads.')) return;
@@ -3483,6 +3521,13 @@
         await loadCompanyLabels();
         loadFollowUpCounts();
         loadLeads();
+    });
+    document.getElementById('leadCompanyLabelList')?.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        const input = e.target.closest('[data-label-name]');
+        if (!input) return;
+        e.preventDefault();
+        saveCompanyLabel(input.dataset.labelName);
     });
     document.getElementById('leadCompanyLabelList')?.addEventListener('change', async (e) => {
         const color = e.target.closest('[data-label-color]');
