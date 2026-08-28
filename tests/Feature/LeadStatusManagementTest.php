@@ -110,10 +110,15 @@ class LeadStatusManagementTest extends TestCase
         $this->actingAs($user)
             ->getJson('/api/leads')
             ->assertOk()
-            ->assertJsonPath('status_counts.all', 2)
-            ->assertJsonPath('status_counts.new', 1)
-            ->assertJsonPath('status_counts.contacted', 1)
-            ->assertJsonPath('status_counts.archived', 1);
+            ->assertJsonPath('success', true);
+
+        $this->actingAs($user)
+            ->getJson('/api/leads/status-counts')
+            ->assertOk()
+            ->assertJsonPath('data.all', 2)
+            ->assertJsonPath('data.new', 1)
+            ->assertJsonPath('data.contacted', 1)
+            ->assertJsonPath('data.archived', 1);
     }
 
     /**

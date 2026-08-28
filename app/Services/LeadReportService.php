@@ -165,36 +165,46 @@ class LeadReportService
         $allFilters['statuses'] = [];
         $allFilters['all_statuses'] = false;
 
+        $counts = [
+            'all' => $this->filteredQuery($companyId, $allFilters)->count(),
+        ];
+
+        $slugs = array_unique(array_merge(
+            $this->statusSlugsForCounts($companyId),
+            $this->distinctStatusSlugs($companyId, $filters)
+        ));
+
+        foreach ($slugs as $slug) {
+            $slugFilters = $filters;
+            $slugFilters['status'] = $slug;
+            $slugFilters['statuses'] = [];
+            $slugFilters['all_statuses'] = false;
+            $counts[$slug] = $this->filteredQuery($companyId, $slugFilters)->count();
+        }
+
+        return $counts;
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     * @return list<string>
+     */
+    protected function distinctStatusSlugs(int $companyId, array $filters): array
+    {
         $perStatusFilters = $filters;
         $perStatusFilters['status'] = 'all';
         $perStatusFilters['statuses'] = [];
         $perStatusFilters['all_statuses'] = true;
 
-        $counts = [
-            'all' => $this->filteredQuery($companyId, $allFilters)->count(),
-        ];
-
-        $rows = $this->filteredQuery($companyId, $perStatusFilters)
-            ->select([
-                'leads.status',
-                DB::raw('COUNT(*) as aggregate'),
-            ])
-            ->groupBy('leads.status')
-            ->get();
-
-        foreach ($rows as $row) {
-            $slug = trim((string) ($row->status ?? ''));
-            if ($slug === '') {
-                continue;
-            }
-            $counts[$slug] = (int) $row->aggregate;
-        }
-
-        foreach ($this->statusSlugsForCounts($companyId) as $slug) {
-            $counts[$slug] ??= 0;
-        }
-
-        return $counts;
+        return $this->filteredQuery($companyId, $perStatusFilters)
+            ->whereNotNull('leads.status')
+            ->distinct()
+            ->orderBy('leads.status')
+            ->pluck('leads.status')
+            ->map(fn ($slug) => trim((string) $slug))
+            ->filter(fn ($slug) => $slug !== '')
+            ->values()
+            ->all();
     }
 
     /**

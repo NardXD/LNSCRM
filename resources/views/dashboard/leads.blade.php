@@ -1566,7 +1566,8 @@
         state.labelIds.forEach(id => q.append('label_ids[]', id));
         try {
             const res = await fetch(api + '?' + q.toString(), { credentials: 'same-origin', headers: headers() });
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.message || 'Could not load leads.');
             const rows = data.data || [];
             body.innerHTML = rows.length
                 ? rows.map(lead => leadRowHtml(lead)).join('')
@@ -1577,14 +1578,12 @@
             document.getElementById('leadsPrev').disabled = (pag.current_page || 1) <= 1;
             document.getElementById('leadsNext').disabled = (pag.current_page || 1) >= (pag.last_page || 1);
             renderSourceFilter(data.sources || []);
-            if (data.status_counts && typeof data.status_counts === 'object') {
-                state.statusCounts = data.status_counts;
-                renderStatusTabs();
-            }
             syncLeadSelection();
+            loadStatusCounts();
             loadFollowUpCounts();
-        } catch {
+        } catch (err) {
             body.innerHTML = '<tr><td colspan="9" class="empty-state">Could not load leads. Try again.</td></tr>';
+            if (err?.message) console.error(err.message);
         } finally {
             if (opts.overlay !== false) setOverlay('leadsTableBusy', false);
         }
@@ -1667,6 +1666,23 @@
             if (payload.days) applyFollowUpConfig(payload);
             state.followUpCounts = payload.counts || payload;
             renderFollowUpChips();
+        } catch {}
+    }
+    async function loadStatusCounts() {
+        const q = new URLSearchParams({ status: state.status });
+        if (state.search) q.set('search', state.search);
+        if (state.source) q.set('source', state.source);
+        if (state.assignedTo) q.set('assigned_to', state.assignedTo);
+        if (state.followUp) q.set('follow_up_day', String(state.followUp));
+        state.labelIds.forEach(id => q.append('label_ids[]', id));
+        try {
+            const res = await fetch(api + '/status-counts?' + q.toString(), { credentials: 'same-origin', headers: headers() });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) return;
+            if (data.data && typeof data.data === 'object') {
+                state.statusCounts = data.data;
+                renderStatusTabs();
+            }
         } catch {}
     }
 

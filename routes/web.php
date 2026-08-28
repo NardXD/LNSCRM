@@ -185,6 +185,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/assignees', [LeadsController::class, 'assignees'])->name('api.leads.assignees');
         Route::get('/inbox-conversations', [LeadsController::class, 'searchInboxConversations'])->name('api.leads.inbox-conversations.search');
         Route::get('/follow-up-counts', [LeadsController::class, 'followUpCounts'])->name('api.leads.follow-up-counts');
+        Route::get('/status-counts', [LeadsController::class, 'statusTabCounts'])->name('api.leads.status-counts');
         Route::get('/follow-up-days', [LeadsController::class, 'followUpDays'])->name('api.leads.follow-up-days.index');
         Route::put('/follow-up-days', [LeadsController::class, 'updateFollowUpDays'])->name('api.leads.follow-up-days.update');
         Route::post('/messages', [LeadsController::class, 'sendMessagesBulk'])->name('api.leads.messages.bulk');

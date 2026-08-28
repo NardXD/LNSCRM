@@ -119,9 +119,10 @@ class LeadsController extends Controller
 
         $perPage = min(100, max(10, (int) $request->get('per_page', 20)));
         $leads = $query->paginate($perPage);
-        $threads = $this->connectedThreads->forLeads(
-            $companyId,
-            collect($leads->items())
+        $threads = rescue(
+            fn () => $this->connectedThreads->forLeads($companyId, collect($leads->items())),
+            [],
+            report: true
         );
 
         return response()->json([
@@ -140,11 +141,6 @@ class LeadsController extends Controller
                 ->pluck('source')
                 ->values()
                 ->all(),
-            'status_counts' => rescue(
-                fn () => $this->leadReports->statusCounts($companyId, $request),
-                ['all' => 0],
-                report: false
-            ),
             'pagination' => [
                 'current_page' => $leads->currentPage(),
                 'last_page' => $leads->lastPage(),
@@ -161,6 +157,20 @@ class LeadsController extends Controller
         return response()->json([
             'success' => true,
             'data' => $this->leadReports->followUpCounts($companyId, $request),
+        ]);
+    }
+
+    public function statusTabCounts(Request $request): JsonResponse
+    {
+        $companyId = (int) Auth::user()->company_id;
+
+        return response()->json([
+            'success' => true,
+            'data' => rescue(
+                fn () => $this->leadReports->statusCounts($companyId, $request),
+                ['all' => 0],
+                report: true
+            ),
         ]);
     }
 
@@ -998,6 +1008,22 @@ class LeadsController extends Controller
     /**
      * @return array<string, mixed>
      */
+    protected function serializeDate(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        try {
+            return \Illuminate\Support\Carbon::parse($value)->format('Y-m-d');
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     protected function serialize(Lead $lead): array
     {
         $phones = $lead->identities->where('type', LeadIdentity::TYPE_PHONE)->values();
@@ -1021,7 +1047,7 @@ class LeadsController extends Controller
             'address' => $lead->address,
             'city' => $lead->city,
             'postal_code' => $lead->postal_code,
-            'date_of_birth' => $lead->date_of_birth?->format('Y-m-d'),
+            'date_of_birth' => $this->serializeDate($lead->getRawOriginal('date_of_birth')),
             'initials' => $lead->initials,
             'company_name' => $lead->company_name,
             'alt_title' => $lead->alt_title,
