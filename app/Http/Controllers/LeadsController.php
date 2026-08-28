@@ -139,6 +139,7 @@ class LeadsController extends Controller
                 ->distinct()
                 ->orderBy('source')
                 ->pluck('source')
+                ->map(fn ($source) => $this->sanitizeUtf8String((string) $source))
                 ->values()
                 ->all(),
             'pagination' => [
@@ -1038,7 +1039,7 @@ class LeadsController extends Controller
         ];
         $connected = is_array($lead->connected_thread ?? null) ? $lead->connected_thread : null;
 
-        return [
+        return $this->sanitizeForJson([
             'id' => $lead->id,
             'name' => $lead->name,
             'title' => $lead->title,
@@ -1095,7 +1096,42 @@ class LeadsController extends Controller
             'crm_url' => url('/leads?lead='.$lead->id),
             'updated_at' => $lead->updated_at?->toIso8601String(),
             'created_at' => $lead->created_at?->toIso8601String(),
-        ];
+        ]);
+    }
+
+    protected function sanitizeUtf8String(string $value): string
+    {
+        if (mb_check_encoding($value, 'UTF-8')) {
+            return $value;
+        }
+
+        $converted = @iconv('UTF-8', 'UTF-8//IGNORE', $value);
+        if ($converted !== false) {
+            return $converted;
+        }
+
+        return mb_convert_encoding($value, 'UTF-8', 'UTF-8');
+    }
+
+    /**
+     * @return array<string|int, mixed>|list<mixed>|string|int|float|bool|null
+     */
+    protected function sanitizeForJson(mixed $value): mixed
+    {
+        if (is_array($value)) {
+            $sanitized = [];
+            foreach ($value as $key => $item) {
+                $sanitized[$key] = $this->sanitizeForJson($item);
+            }
+
+            return $sanitized;
+        }
+
+        if (is_string($value)) {
+            return $this->sanitizeUtf8String($value);
+        }
+
+        return $value;
     }
 
     /**
