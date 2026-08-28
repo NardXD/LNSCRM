@@ -723,9 +723,6 @@
 .lead-label-chip button { background: none; border: none; color: inherit; cursor: pointer; font-size: 0.9rem; line-height: 1; padding: 0; opacity: 0.8; }
 .lead-label-add { display: flex; align-items: center; gap: 0.4rem; }
 .lead-label-add select { flex: 1; min-width: 0; }
-.lead-label-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; max-width: 280px; }
-.lead-label-row-add { max-width: 118px; font-size: 0.75rem; padding: 0.22rem 0.35rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); color: var(--text-primary); }
-.lead-label-row-add:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .lead-inbox-search { margin-top: 0.55rem; margin-bottom: 0; }
 .lead-inbox-search input[type="search"] {
     width: 100%;
@@ -994,36 +991,10 @@
         const r = parseInt(c.slice(0, 2), 16), g = parseInt(c.slice(2, 4), 16), b = parseInt(c.slice(4, 6), 16);
         return (r * 299 + g * 587 + b * 114) / 1000 > 160 ? '#111' : '#fff';
     }
-    function labelAddOptions(leadId, labels) {
-        const attached = new Set((labels || []).map(label => String(label.id)));
-        const available = (state.companyLabels || []).filter(label => !attached.has(String(label.id)));
-        if (!available.length) {
-            if ((labels || []).length) return '';
-            return `<select class="lead-label-row-add" data-id="${leadId}" aria-label="Add label" disabled><option value="">+ Label</option></select>`;
-        }
-        return `<select class="lead-label-row-add" data-id="${leadId}" aria-label="Add label">
-            <option value="">+ Label</option>
-            ${available.map(label => `<option value="${label.id}">${esc(label.name)}</option>`).join('')}
-        </select>`;
-    }
-    function labelCellHtml(lead) {
-        const labels = lead.labels || [];
-        const chips = labels.map(label =>
-            `<span class="lead-label-chip" style="background:${esc(label.color || '#4338ca')};color:${chipText(label.color)}">
-                ${esc(label.name)}
-                <button type="button" data-remove-row-label="${label.id}" data-id="${lead.id}" title="Remove label">&times;</button>
-            </span>`
-        ).join('');
-        return `<div class="lead-label-cell">${chips}${labelAddOptions(lead.id, labels)}</div>`;
-    }
-    function applyLeadRowLabels(leadId, labels) {
-        const row = body.querySelector('tr[data-id="' + leadId + '"]');
-        const cell = row?.querySelector('.lead-labels-col');
-        if (cell) cell.innerHTML = labelCellHtml({ id: leadId, labels: labels || [] });
-        if (String(state.editingId) === String(leadId)) {
-            renderLabels(labels || []);
-            refreshActivities(leadId);
-        }
+    function labelChips(labels) {
+        return (labels || []).map(label =>
+            `<span class="lead-label-chip" style="background:${esc(label.color || '#4338ca')};color:${chipText(label.color)}">${esc(label.name)}</span>`
+        ).join(' ') || '<span class="lead-meta">—</span>';
     }
     function spinnerHtml() {
         return '<span class="leads-spinner" aria-hidden="true"></span>';
@@ -1064,7 +1035,7 @@
                 </td>
                 <td class="lead-meta">${esc((lead.phones || []).map(p => p.value).join(', ') || '—')}</td>
                 <td class="lead-meta">${esc((lead.emails || []).map(e => e.value).join(', ') || '—')}</td>
-                <td class="lead-labels-col">${labelCellHtml(lead)}</td>
+                <td>${labelChips(lead.labels)}</td>
                 <td>
                     <select class="lead-assign" data-id="${lead.id}" aria-label="Assign lead">
                         ${assigneeOptions(lead.assigned_to, lead.assigned_user)}
@@ -2524,57 +2495,7 @@
             syncLeadSelection();
         }
     });
-    body.addEventListener('click', async (e) => {
-        const btn = e.target.closest('[data-remove-row-label]');
-        if (!btn) return;
-        e.stopPropagation();
-        const id = btn.dataset.id;
-        const labelId = btn.dataset.removeRowLabel;
-        btn.disabled = true;
-        try {
-            const res = await fetch(api + '/' + id + '/labels/' + labelId, {
-                method: 'DELETE',
-                credentials: 'same-origin',
-                headers: headers(),
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(data.message || 'Could not remove label.');
-            applyLeadRowLabels(id, data.labels || []);
-        } catch (err) {
-            alert(err.message);
-            btn.disabled = false;
-            loadLeads();
-        }
-    });
     body.addEventListener('change', async (e) => {
-        const labelSelect = e.target.closest('.lead-label-row-add');
-        if (labelSelect) {
-            const id = labelSelect.dataset.id;
-            const labelId = labelSelect.value;
-            if (!labelId) return;
-            labelSelect.disabled = true;
-            try {
-                const res = await fetch(api + '/' + id + '/labels', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: headers(true),
-                    body: JSON.stringify({ label_id: Number(labelId) }),
-                });
-                const data = await res.json().catch(() => ({}));
-                if (!res.ok) throw new Error(data.message || 'Could not add label.');
-                if (data.data && !state.companyLabels.some(label => String(label.id) === String(data.data.id))) {
-                    state.companyLabels.push(data.data);
-                    renderLabelSuggestions();
-                }
-                applyLeadRowLabels(id, data.labels || []);
-            } catch (err) {
-                alert(err.message);
-                labelSelect.disabled = false;
-                labelSelect.value = '';
-                loadLeads();
-            }
-            return;
-        }
         const select = e.target.closest('.lead-assign');
         if (!select) return;
         const id = select.dataset.id;
