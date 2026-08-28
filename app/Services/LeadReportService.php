@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class LeadReportService
 {
@@ -169,29 +170,47 @@ class LeadReportService
         $perStatusFilters['statuses'] = [];
         $perStatusFilters['all_statuses'] = true;
 
+        $counts = [
+            'all' => $this->filteredQuery($companyId, $allFilters)->count(),
+        ];
+
         $rows = $this->filteredQuery($companyId, $perStatusFilters)
             ->select([
                 'leads.status',
                 DB::raw('COUNT(*) as aggregate'),
             ])
             ->groupBy('leads.status')
-            ->pluck('aggregate', 'leads.status');
+            ->get();
 
-        $counts = [
-            'all' => $this->filteredQuery($companyId, $allFilters)->count(),
-        ];
-        foreach (LeadStatus::slugsForCompany($companyId) as $slug) {
-            $counts[$slug] = (int) ($rows[$slug] ?? 0);
+        foreach ($rows as $row) {
+            $slug = trim((string) ($row->status ?? ''));
+            if ($slug === '') {
+                continue;
+            }
+            $counts[$slug] = (int) $row->aggregate;
         }
 
-        foreach ($rows as $slug => $count) {
-            $slug = (string) $slug;
-            if (! array_key_exists($slug, $counts)) {
-                $counts[$slug] = (int) $count;
-            }
+        foreach ($this->statusSlugsForCounts($companyId) as $slug) {
+            $counts[$slug] ??= 0;
         }
 
         return $counts;
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function statusSlugsForCounts(int $companyId): array
+    {
+        if (! Schema::hasTable('lead_statuses')) {
+            return Lead::STATUSES;
+        }
+
+        try {
+            return LeadStatus::slugsForCompany($companyId);
+        } catch (\Throwable) {
+            return Lead::STATUSES;
+        }
     }
 
     /**

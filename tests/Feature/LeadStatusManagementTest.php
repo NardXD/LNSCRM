@@ -73,6 +73,24 @@ class LeadStatusManagementTest extends TestCase
             ->assertStatus(422);
     }
 
+    public function test_ensure_for_company_is_idempotent(): void
+    {
+        [$user, $lead] = $this->userWithLead();
+
+        LeadStatus::ensureForCompany((int) $lead->company_id);
+        LeadStatus::ensureForCompany((int) $lead->company_id);
+
+        $this->assertSame(
+            count(LeadStatus::defaults()),
+            LeadStatus::query()->where('company_id', $lead->company_id)->count()
+        );
+
+        $this->actingAs($user)
+            ->getJson('/api/leads?status=all')
+            ->assertOk()
+            ->assertJsonPath('success', true);
+    }
+
     public function test_lead_list_includes_counts_per_status_tab(): void
     {
         [$user, $lead] = $this->userWithLead();

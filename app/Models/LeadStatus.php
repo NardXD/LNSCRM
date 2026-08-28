@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class LeadStatus extends Model
@@ -49,13 +50,17 @@ class LeadStatus extends Model
         }
 
         foreach (static::defaults() as $index => $row) {
-            static::create([
-                'company_id' => $companyId,
-                'slug' => $row['slug'],
-                'name' => $row['name'],
-                'sort_order' => $index + 1,
-                'is_locked' => $row['is_locked'],
-            ]);
+            static::query()->firstOrCreate(
+                [
+                    'company_id' => $companyId,
+                    'slug' => $row['slug'],
+                ],
+                [
+                    'name' => $row['name'],
+                    'sort_order' => $index + 1,
+                    'is_locked' => $row['is_locked'],
+                ]
+            );
         }
     }
 
@@ -64,6 +69,10 @@ class LeadStatus extends Model
      */
     public static function forCompany(int $companyId): Collection
     {
+        if (! Schema::hasTable((new static)->getTable())) {
+            return static::defaultCollection($companyId);
+        }
+
         static::ensureForCompany($companyId);
 
         return static::query()
@@ -74,12 +83,32 @@ class LeadStatus extends Model
     }
 
     /**
+     * @return Collection<int, self>
+     */
+    protected static function defaultCollection(int $companyId): Collection
+    {
+        return collect(static::defaults())->values()->map(function (array $row, int $index) use ($companyId) {
+            return new static([
+                'company_id' => $companyId,
+                'slug' => $row['slug'],
+                'name' => $row['name'],
+                'sort_order' => $index + 1,
+                'is_locked' => $row['is_locked'],
+            ]);
+        });
+    }
+
+    /**
      * @return list<string>
      */
     public static function slugsForCompany(int $companyId): array
     {
         if ($companyId < 1) {
             return Lead::STATUSES;
+        }
+
+        if (! Schema::hasTable((new static)->getTable())) {
+            return collect(static::defaults())->pluck('slug')->all();
         }
 
         return static::forCompany($companyId)->pluck('slug')->all();

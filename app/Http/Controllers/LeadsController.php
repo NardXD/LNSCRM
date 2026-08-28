@@ -140,7 +140,11 @@ class LeadsController extends Controller
                 ->pluck('source')
                 ->values()
                 ->all(),
-            'status_counts' => $this->leadReports->statusCounts($companyId, $request),
+            'status_counts' => rescue(
+                fn () => $this->leadReports->statusCounts($companyId, $request),
+                ['all' => 0],
+                report: false
+            ),
             'pagination' => [
                 'current_page' => $leads->currentPage(),
                 'last_page' => $leads->lastPage(),
