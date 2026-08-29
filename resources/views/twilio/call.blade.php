@@ -1485,6 +1485,14 @@
     document.addEventListener('DOMContentLoaded', function() {
         // Device ready and registered logs are already in the HTML
         // This ensures they show on page load
+
+        const phoneFromQuery = new URLSearchParams(window.location.search).get('phone');
+        if (phoneFromQuery) {
+            const phoneInput = document.getElementById('phoneNumber');
+            if (phoneInput && !phoneInput.disabled) {
+                phoneInput.value = phoneFromQuery.trim();
+            }
+        }
         
         // Try to initialize browser calling
         initializeTwilioDevice();

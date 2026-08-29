@@ -924,6 +924,28 @@
         }
     }
 
+    function phonesLooselyMatch(a, b) {
+        const da = String(a || '').replace(/\D+/g, '');
+        const db = String(b || '').replace(/\D+/g, '');
+        if (!da || !db) return false;
+        if (da === db) return true;
+        const len = Math.min(10, da.length, db.length);
+        return len >= 7 && da.slice(-len) === db.slice(-len);
+    }
+
+    async function openPhoneFromQuery() {
+        const phone = new URLSearchParams(window.location.search).get('phone');
+        if (!phone) return;
+        const match = conversations.find(c => phonesLooselyMatch(c.peer_phone, phone));
+        if (match) {
+            await openConversation(match.id);
+            return;
+        }
+        els.newTo.value = phone.trim();
+        if (els.newName) els.newName.value = '';
+        els.modal.hidden = false;
+    }
+
     document.getElementById('smsRefreshBtn').addEventListener('click', () => loadConversations().catch(console.error));
     document.getElementById('smsBackBtn').addEventListener('click', () => {
         els.sidebar.classList.remove('hidden-mobile');
@@ -976,6 +998,8 @@
             const openId = Number(params.get('conversation') || 0);
             if (openId) {
                 await openConversation(openId);
+            } else {
+                await openPhoneFromQuery();
             }
             pollTimer = setInterval(() => {
                 loadConversations({ merge: true }).catch(() => {});

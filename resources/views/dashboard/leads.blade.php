@@ -92,6 +92,7 @@
                 <div class="lead-modal-heading">
                     <h3 id="leadModalTitle">New Lead</h3>
                     <p id="leadModalAdded" class="lead-modal-added" hidden></p>
+                    <div id="leadModalChannelLinks" class="lead-modal-channel-links" hidden aria-label="Messaging channels"></div>
                 </div>
                 <button type="button" class="modal-close-btn" id="closeLeadModal">&times;</button>
             </div>
@@ -707,6 +708,8 @@
 .lead-source.has-thread.facebook { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
 .lead-source.has-thread.instagram { border-color: #f9a8d4; background: #fdf2f8; color: #be185d; }
 .lead-source.has-thread.inbox { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, var(--bg-card)); color: var(--accent); }
+.lead-source.has-thread.call,
+.lead-source.has-thread.phone { border-color: #fcd34d; background: #fffbeb; color: #b45309; }
 .lead-meta { font-size: 0.8rem; color: var(--text-secondary); }
 .lead-badge { display: inline-block; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; padding: 0.15rem 0.45rem; border-radius: 999px; background: #eef2ff; color: #4338ca; }
 .lead-badge.contacted { background: #e0f2fe; color: #0369a1; }
@@ -772,6 +775,8 @@
 .lead-modal-heading { min-width: 0; }
 .lead-modal-heading h3 { margin: 0; }
 .lead-modal-added { margin: 0.2rem 0 0; font-size: 0.78rem; color: var(--text-secondary); font-weight: 500; }
+.lead-modal-channel-links { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.45rem; }
+.lead-modal-channel-links .lead-source { margin-top: 0; }
 .modal-close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted); line-height: 1; }
 .leads-modal-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr); min-height: 0; overflow: hidden; }
 .leads-form { padding: 1.15rem 1.25rem; overflow-y: auto; max-height: calc(92vh - 60px); }
@@ -898,7 +903,7 @@
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
     const LEAD_OPTIONS = @json($leadFormOptions);
     const LEAD_FOLLOW_UP = @json($leadFollowUpConfig ?? []);
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, selectedIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadIds: [], messageChannels: [], messageChannel: '' };
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, selectedIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadIds: [], messageChannels: [], messageChannel: '', leadPhones: [] };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -976,7 +981,17 @@
         }
         return `<span class="${cls}" title="${esc(title)}">${icon}<span>${esc(label)}</span></span>`;
     }
+    const LEAD_MODAL_CHANNEL_NAV = [
+        { key: 'phone', label: 'Phone', channels: ['call'] },
+        { key: 'inbox', label: 'Inbox', channels: ['inbox'] },
+        { key: 'viber', label: 'Viber', channels: ['viber'] },
+        { key: 'facebook', label: 'Facebook', channels: ['facebook', 'instagram'] },
+        { key: 'sms', label: 'SMS', channels: ['sms'] },
+    ];
     function channelIcon(channel) {
+        if (channel === 'call' || channel === 'phone') {
+            return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`;
+        }
         if (channel === 'whatsapp' || channel === 'viber' || channel === 'sms') {
             return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
         }
@@ -984,6 +999,77 @@
             return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>`;
         }
         return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>`;
+    }
+    function pickLeadChannelLink(threads, events, channelIds) {
+        for (const thread of threads || []) {
+            const channel = String(thread.channel || '');
+            if (channelIds.includes(channel) && thread.deep_link) {
+                return { url: thread.deep_link, title: thread.title || thread.label || '' };
+            }
+        }
+        for (const event of events || []) {
+            const channel = String(event.channel || '');
+            if (channelIds.includes(channel) && event.deep_link) {
+                return { url: event.deep_link, title: event.label || '' };
+            }
+        }
+        return null;
+    }
+    function leadPhoneValues(lead) {
+        const values = [];
+        const push = (value) => {
+            const trimmed = String(value || '').trim();
+            if (trimmed) values.push(trimmed);
+        };
+        for (const list of [lead?.primary_phones, lead?.phones, lead?.alt_phones]) {
+            if (!Array.isArray(list)) continue;
+            for (const item of list) push(typeof item === 'string' ? item : item?.value);
+        }
+        push(lead?.phone);
+        push(lead?.alt_phone);
+        return [...new Set(values)];
+    }
+    function leadPhoneChannelUrl(channelKey, phone) {
+        const trimmed = String(phone || '').trim();
+        if (!trimmed) return null;
+        if (channelKey === 'phone') {
+            return '/twilio/call?phone=' + encodeURIComponent(trimmed);
+        }
+        if (channelKey === 'sms') {
+            return '/sms?phone=' + encodeURIComponent(trimmed);
+        }
+        return null;
+    }
+    function clearLeadModalChannelLinks() {
+        const el = document.getElementById('leadModalChannelLinks');
+        if (!el) return;
+        el.hidden = true;
+        el.innerHTML = '';
+    }
+    function renderLeadModalChannelLinks(threads, events, leadPhones) {
+        const el = document.getElementById('leadModalChannelLinks');
+        if (!el) return;
+        const primaryPhone = (leadPhones || [])[0] || '';
+        const links = LEAD_MODAL_CHANNEL_NAV.map(def => {
+            const picked = pickLeadChannelLink(threads, events, def.channels);
+            let url = picked?.url || '';
+            let title = picked?.title || '';
+            if (!url && primaryPhone && (def.key === 'phone' || def.key === 'sms')) {
+                url = leadPhoneChannelUrl(def.key, primaryPhone) || '';
+                title = primaryPhone;
+            }
+            if (!url) return '';
+            const iconChannel = def.key === 'phone' ? 'call' : def.key;
+            const linkTitle = title ? `Open ${def.label}: ${title}` : `Open ${def.label}`;
+            return `<a class="lead-source has-thread ${esc(def.key)}" href="${esc(url)}" title="${esc(linkTitle)}">${channelIcon(iconChannel)}<span>${esc(def.label)}</span></a>`;
+        }).filter(Boolean).join('');
+        if (!links) {
+            el.hidden = true;
+            el.innerHTML = '';
+            return;
+        }
+        el.innerHTML = links;
+        el.hidden = false;
     }
     function chipText(hex) {
         const c = String(hex || '#4338ca').replace('#', '');
@@ -1772,6 +1858,7 @@
         errorEl.hidden = true;
         document.getElementById('leadModalTitle').textContent = 'New Lead';
         setLeadModalAdded(null);
+        clearLeadModalChannelLinks();
         document.getElementById('deleteLeadBtn').hidden = true;
         document.getElementById('leadHistoryEmpty').hidden = false;
         document.getElementById('leadHistoryEmpty').textContent = 'Save this lead to load Phone, Inbox, Viber, WhatsApp, Facebook, and SMS history.';
@@ -1785,6 +1872,7 @@
         renderNotes([]);
         setExtrasVisible(false);
         state.editingId = null;
+        state.leadPhones = [];
         state.attachedInboxConversations = [];
         state.pendingInboxConversations = [];
         document.getElementById('leadInboxSearch').value = '';
@@ -1838,6 +1926,8 @@
         setLeadModalAdded(lead);
         document.getElementById('deleteLeadBtn').hidden = false;
         state.editingId = lead.id;
+        state.leadPhones = leadPhoneValues(lead);
+        renderLeadModalChannelLinks([], [], state.leadPhones);
         renderLabels(lead.labels || []);
         renderNotes(lead.notes || []);
         renderActivities(lead);
@@ -1854,11 +1944,13 @@
         empty.hidden = false;
         empty.textContent = 'Loading contact history…';
         pane.hidden = true;
+        renderLeadModalChannelLinks([], [], state.leadPhones);
         try {
             const res = await fetch(api + '/' + id + '/history', { credentials: 'same-origin', headers: headers() });
             const data = await res.json();
             const threads = data.threads || [];
             const events = (data.events || []).slice(0, 20);
+            renderLeadModalChannelLinks(threads, data.events || [], state.leadPhones);
             if (!threads.length && !events.length) {
                 empty.textContent = 'No matching conversations yet. History appears after this person messages any channel.';
                 return;
@@ -1884,6 +1976,7 @@
                 `).join('')}
             `;
         } catch (err) {
+            renderLeadModalChannelLinks([], [], state.leadPhones);
             empty.textContent = err.message || 'Could not load contact history.';
         }
     }
