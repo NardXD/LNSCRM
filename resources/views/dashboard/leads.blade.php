@@ -38,7 +38,6 @@
             <option value="">All assignees</option>
             <option value="__none__">Unassigned</option>
         </select>
-        <button type="button" class="btn btn-secondary" id="leadBulkMessageBtn" hidden>Message selected</button>
         <div class="leads-tabs" role="tablist" id="leadStatusTabs">
             <button type="button" class="leads-tab active" data-status="all">All</button>
         </div>
@@ -57,7 +56,6 @@
             <table class="data-table leads-table">
                 <thead>
                     <tr>
-                        <th class="leads-check-col"><input type="checkbox" id="leadSelectAll" aria-label="Select all leads on this page"></th>
                         <th>Lead</th>
                         <th>Phones</th>
                         <th>Emails</th>
@@ -69,7 +67,7 @@
                     </tr>
                 </thead>
                 <tbody id="leadsTableBody">
-                    <tr><td colspan="9" class="empty-state">Loading leads…</td></tr>
+                    <tr><td colspan="8" class="empty-state">Loading leads…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -596,7 +594,6 @@
 .leads-followup-chip { border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary); border-radius: 999px; padding: 0.32rem 0.7rem; font-size: 0.78rem; font-weight: 600; cursor: pointer; }
 .leads-followup-chip span { margin-left: 0.2rem; opacity: 0.75; }
 .leads-followup-chip.active { background: var(--bg-primary); border-color: var(--accent); color: var(--accent); }
-.leads-check-col { width: 2.2rem; }
 .lead-day-badge { display: inline-block; margin-left: 0.4rem; padding: 0.08rem 0.4rem; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: 0.68rem; font-weight: 700; vertical-align: middle; }
 .lead-message-channels { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .lead-message-channel { border: 1px solid var(--border); background: var(--bg-card); border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; color: var(--text-primary); }
@@ -903,7 +900,7 @@
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
     const LEAD_OPTIONS = @json($leadFormOptions);
     const LEAD_FOLLOW_UP = @json($leadFollowUpConfig ?? []);
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, selectedIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadIds: [], messageChannels: [], messageChannel: '', leadPhones: [], leadName: '' };
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '' };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -1111,12 +1108,8 @@
         if (label && text) label.textContent = text;
     }
     function leadRowHtml(lead) {
-        const selected = new Set(state.selectedIds.map(String));
         return `
             <tr data-id="${lead.id}">
-                <td class="leads-check-col">
-                    <input type="checkbox" class="lead-row-check" data-id="${lead.id}" ${selected.has(String(lead.id)) ? 'checked' : ''} aria-label="Select lead">
-                </td>
                 <td>
                     <div class="lead-name">${esc([lead.title, lead.name].filter(Boolean).join(' '))}</div>
                     ${lead.company_name ? `<div class="lead-company">${esc(lead.company_name)}</div>` : ''}
@@ -1148,16 +1141,13 @@
         } else {
             body.insertAdjacentHTML('afterbegin', leadRowHtml(lead));
         }
-        syncLeadSelection();
     }
     function removeLeadRow(id) {
         const existing = body.querySelector('tr[data-id="' + id + '"]');
         if (existing) existing.remove();
         if (!body.querySelector('tr[data-id]')) {
-            body.innerHTML = `<tr><td colspan="9" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
+            body.innerHTML = `<tr><td colspan="8" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
         }
-        state.selectedIds = state.selectedIds.filter(item => String(item) !== String(id));
-        syncLeadSelection();
     }
     function assigneeOptions(selectedId, extraUser) {
         const users = [...state.assignees];
@@ -1660,18 +1650,17 @@
             const rows = data.data || [];
             body.innerHTML = rows.length
                 ? rows.map(lead => leadRowHtml(lead)).join('')
-                : `<tr><td colspan="9" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
+                : `<tr><td colspan="8" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
 
             const pag = data.pagination || {};
             document.getElementById('leadsPageInfo').textContent = `Showing page ${pag.current_page || 1} of ${pag.last_page || 1} (${pag.total || 0} leads)`;
             document.getElementById('leadsPrev').disabled = (pag.current_page || 1) <= 1;
             document.getElementById('leadsNext').disabled = (pag.current_page || 1) >= (pag.last_page || 1);
             renderSourceFilter(data.sources || []);
-            syncLeadSelection();
             loadStatusCounts();
             loadFollowUpCounts();
         } catch (err) {
-            body.innerHTML = '<tr><td colspan="9" class="empty-state">Could not load leads. Try again.</td></tr>';
+            body.innerHTML = '<tr><td colspan="8" class="empty-state">Could not load leads. Try again.</td></tr>';
             if (err?.message) console.error(err.message);
         } finally {
             if (opts.overlay !== false) setOverlay('leadsTableBusy', false);
@@ -2313,29 +2302,9 @@
             alert(err.message);
         }
     });
-    function syncLeadSelection() {
-        const boxes = [...document.querySelectorAll('.lead-row-check')];
-        const checked = boxes.filter(b => b.checked).map(b => b.dataset.id);
-        state.selectedIds = checked;
-        const all = document.getElementById('leadSelectAll');
-        if (all) {
-            all.checked = boxes.length > 0 && boxes.every(b => b.checked);
-            all.indeterminate = checked.length > 0 && checked.length < boxes.length;
-        }
-        const bulk = document.getElementById('leadBulkMessageBtn');
-        if (bulk) bulk.hidden = checked.length < 1;
-    }
-    document.getElementById('leadSelectAll')?.addEventListener('change', (e) => {
-        document.querySelectorAll('.lead-row-check').forEach(box => { box.checked = e.target.checked; });
-        syncLeadSelection();
-    });
-    document.getElementById('leadBulkMessageBtn')?.addEventListener('click', () => {
-        if (!state.selectedIds.length) return;
-        openMessageModal(state.selectedIds);
-    });
     function closeMessageModal() {
         document.getElementById('leadMessageModal')?.classList.remove('open');
-        state.messageLeadIds = [];
+        state.messageLeadId = '';
         state.messageChannels = [];
         state.messageChannel = '';
     }
@@ -2433,12 +2402,12 @@
         if (isMailFollowUp()) setMailEditorContent(value || '');
         else document.getElementById('leadMessageBody').value = value || '';
     }
-    async function openMessageModal(leadIds) {
-        state.messageLeadIds = leadIds.map(String);
+    async function openMessageModal(leadId) {
+        state.messageLeadId = String(leadId || '');
         const title = document.getElementById('leadMessageModalTitle');
         const err = document.getElementById('leadMessageError');
         if (err) { err.hidden = true; err.textContent = ''; }
-        if (title) title.textContent = state.messageLeadIds.length > 1 ? `Send follow-up (${state.messageLeadIds.length} leads)` : 'Send follow-up';
+        if (title) title.textContent = 'Send follow-up';
         document.getElementById('leadMessageModal')?.classList.add('open');
         document.getElementById('leadMessageBody').value = '';
         document.getElementById('leadMessageSubject').value = '';
@@ -2446,9 +2415,9 @@
         if (toList) toList.innerHTML = '';
         setMailEditorContent('');
         setMailEditorMode('visual');
-        const firstId = state.messageLeadIds[0];
+        if (!state.messageLeadId) return;
         try {
-            const res = await fetch(api + '/' + firstId + '/message-channels', { credentials: 'same-origin', headers: headers() });
+            const res = await fetch(api + '/' + state.messageLeadId + '/message-channels', { credentials: 'same-origin', headers: headers() });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message || 'Could not load channels.');
             state.messageChannels = data.data?.channels || [];
@@ -2598,25 +2567,12 @@
         };
         btn.disabled = true;
         try {
-            if (state.messageLeadIds.length === 1) {
-                const res = await fetch(api + '/' + state.messageLeadIds[0] + '/messages', {
-                    method: 'POST', credentials: 'same-origin', headers: headers(true),
-                    body: JSON.stringify(payload),
-                });
-                const data = await res.json().catch(() => ({}));
-                if (!res.ok) throw new Error(data.message || 'Could not send.');
-            } else {
-                const res = await fetch(api + '/messages', {
-                    method: 'POST', credentials: 'same-origin', headers: headers(true),
-                    body: JSON.stringify({ lead_ids: state.messageLeadIds.map(Number), ...payload }),
-                });
-                const data = await res.json().catch(() => ({}));
-                if (!res.ok) throw new Error(data.message || 'Could not send.');
-                const skipped = data.skipped || [];
-                if (skipped.length) {
-                    alert(`Sent ${data.sent || 0}. Skipped ${skipped.length}: ${skipped.map(s => s.name + ' (' + s.reason + ')').join('; ')}`);
-                }
-            }
+            const res = await fetch(api + '/' + state.messageLeadId + '/messages', {
+                method: 'POST', credentials: 'same-origin', headers: headers(true),
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.message || 'Could not send.');
             closeMessageModal();
             loadLeads();
         } catch (e) {
@@ -2628,19 +2584,14 @@
     body.addEventListener('click', (e) => {
         const messageBtn = e.target.closest('[data-message]');
         if (messageBtn) {
-            openMessageModal([messageBtn.dataset.message]);
+            openMessageModal(messageBtn.dataset.message);
             return;
         }
-        if (e.target.closest('a, button, input, select, textarea, .leads-check-col')) {
+        if (e.target.closest('a, button, input, select, textarea')) {
             return;
         }
         const row = e.target.closest('tr[data-id]');
         if (row) openLead(row.dataset.id);
-    });
-    body.addEventListener('change', (e) => {
-        if (e.target.closest('.lead-row-check')) {
-            syncLeadSelection();
-        }
     });
     body.addEventListener('change', async (e) => {
         const select = e.target.closest('.lead-assign');
