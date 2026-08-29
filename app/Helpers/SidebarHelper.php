@@ -257,6 +257,35 @@ class SidebarHelper
     }
 
     /**
+     * Check if a user can access a module (permission + company module filter).
+     *
+     * @param  array<string>  $userPermissions
+     * @param  array<string>|null  $companyModuleSlugs
+     * @param  string|array<string>  $permission  Single permission or list (any match)
+     * @param  string|array<string>|null  $moduleSlug  Single slug or list (any match)
+     */
+    public static function canAccessModule(array $userPermissions, ?array $companyModuleSlugs, string|array $permission, string|array|null $moduleSlug = null): bool
+    {
+        if (empty($userPermissions)) {
+            return false;
+        }
+
+        $permissions = is_array($permission) ? $permission : [$permission];
+        if (empty(array_intersect($permissions, $userPermissions))) {
+            return false;
+        }
+
+        if ($companyModuleSlugs !== null && $moduleSlug !== null) {
+            $slugs = is_array($moduleSlug) ? $moduleSlug : [$moduleSlug];
+            if (empty(array_intersect($slugs, $companyModuleSlugs))) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * Get filtered menu items based on user permissions and company modules
      *
      * @param  array<string>  $userPermissions  Permission slugs the user has

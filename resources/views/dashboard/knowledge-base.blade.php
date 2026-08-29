@@ -90,12 +90,18 @@
                 @endif
             </div>
 
+            @php
+                use App\Helpers\SidebarHelper;
+                $canGuide = fn ($permission, $moduleSlug = null) => SidebarHelper::canAccessModule($userPermissions ?? [], $companyModuleSlugs ?? null, $permission, $moduleSlug);
+            @endphp
+
             <!-- Default Application Guides (step-by-step, first use) -->
             <div class="default-guides-section">
                 <h3 class="default-guides-heading">Default Application Guides</h3>
-                <p class="default-guides-intro">Step-by-step instructions for navigating and using each module. Click a module to expand.</p>
+                <p class="default-guides-intro">Step-by-step instructions for navigating and using each module you have access to. Click a module to expand.</p>
 
                 <div class="default-guides-list">
+                    @if($canGuide('view_dashboard', 'dashboard'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Dashboard</summary>
                         <div class="default-guide-steps">
@@ -106,7 +112,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_time_tracking', 'time-tracking'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Time Tracking</summary>
                         <div class="default-guide-steps">
@@ -119,7 +127,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_user_management', 'user-management'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">User Management</summary>
                         <div class="default-guide-steps">
@@ -132,7 +142,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_employee_monitoring', 'employee-monitoring'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Employee Monitoring</summary>
                         <div class="default-guide-steps">
@@ -144,7 +156,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide(['view_payroll', 'view_wise_recipients', 'view_pnl', 'view_payroll_report', 'view_payroll_sales_rep_report', 'generate_payroll_report'], ['payroll', 'pnl']))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Payroll</summary>
                         <div class="default-guide-steps">
@@ -157,7 +171,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_wise_recipients', 'payroll'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Wise Recipients</summary>
                         <div class="default-guide-steps">
@@ -169,7 +185,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_project_management', 'project-management'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Project Management</summary>
                         <div class="default-guide-steps">
@@ -182,7 +200,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_team_management', 'team-management'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Team Management</summary>
                         <div class="default-guide-steps">
@@ -194,7 +214,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_leave_management', 'leave-management'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Leave Management</summary>
                         <div class="default-guide-steps">
@@ -207,7 +229,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_client_management', 'client-management'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Client Management</summary>
                         <div class="default-guide-steps">
@@ -220,7 +244,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_quotation_builder', 'quotation-builder'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Quotation Builder</summary>
                         <div class="default-guide-steps">
@@ -233,7 +259,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_quotation_builder', 'quotation-builder'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Quotation Item Templates</summary>
                         <div class="default-guide-steps">
@@ -244,7 +272,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_phone_system', 'phone-system'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Phone System</summary>
                         <div class="default-guide-steps">
@@ -257,7 +287,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_messaging', 'messaging'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Messaging</summary>
                         <div class="default-guide-steps">
@@ -268,7 +300,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_billing', 'billing'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Billing & Payments</summary>
                         <div class="default-guide-steps">
@@ -281,7 +315,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_tickets', 'tickets'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Tickets & Helpdesk</summary>
                         <div class="default-guide-steps">
@@ -294,7 +330,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_knowledge_base', 'knowledge-base'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Knowledge Base</summary>
                         <div class="default-guide-steps">
@@ -305,7 +343,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_integrations', 'integrations'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Integrations</summary>
                         <div class="default-guide-steps">
@@ -318,7 +358,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_calendar', 'calendar'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Calendar</summary>
                         <div class="default-guide-steps">
@@ -331,7 +373,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_email_tracking', 'email-tracking'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Email Tracking</summary>
                         <div class="default-guide-steps">
@@ -342,7 +386,9 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_ai_assistant', 'openai'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">AI Assistant</summary>
                         <div class="default-guide-steps">
@@ -353,18 +399,22 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_contracts', 'contracts'))
                     <details class="default-guide-item">
-                        <summary class="default-guide-summary">E-Signature</summary>
+                        <summary class="default-guide-summary">Contracts & E-Sign</summary>
                         <div class="default-guide-steps">
                             <ol>
-                                <li>Go to <strong>E-Signature</strong> from the sidebar.</li>
+                                <li>Go to <strong>Contracts & E-Sign</strong> from the sidebar.</li>
                                 <li>Upload a document and add signer fields.</li>
                                 <li>Send for signature and track when it's completed.</li>
                             </ol>
                         </div>
                     </details>
+                    @endif
 
+                    @if($canGuide('view_change_password', 'change-password'))
                     <details class="default-guide-item">
                         <summary class="default-guide-summary">Change Password</summary>
                         <div class="default-guide-steps">
@@ -375,6 +425,7 @@
                             </ol>
                         </div>
                     </details>
+                    @endif
                 </div>
             </div>
 
