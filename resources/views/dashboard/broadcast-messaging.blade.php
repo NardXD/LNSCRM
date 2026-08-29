@@ -141,6 +141,7 @@
                                 <strong>Selected</strong>
                                 <span id="selectedCount">0</span>
                             </div>
+                            <p class="bc-hint" id="recipientLimitHint"></p>
                             <div id="selectedList" class="bc-selected-list">
                                 <div class="bc-empty">No recipients yet.</div>
                             </div>
@@ -490,6 +491,23 @@
     const MAX_ATTACH_BYTES = 3 * 1024 * 1024;
     const MAX_ATTACH_COUNT = 5;
 
+    function maxRecipients() {
+        return Number(state.bootstrap?.max_recipients) || 10000;
+    }
+
+    function remainingRecipientSlots(selectedCount = state.selected.size) {
+        return Math.max(0, maxRecipients() - selectedCount);
+    }
+
+    function recipientLimitMessage(count = state.selected.size) {
+        const max = maxRecipients();
+        return count > max ? `A broadcast can include at most ${max.toLocaleString()} recipients.` : null;
+    }
+
+    function canAddRecipients(count = 1, selectedCount = state.selected.size) {
+        return selectedCount + count <= maxRecipients();
+    }
+
     const state = {
         view: 'list',
         step: 1,
@@ -784,11 +802,15 @@
         });
     }
 
-    function toggleRows(map, rows, selected) {
+    function toggleRows(map, rows, selected, maxCount = null) {
         (rows || []).forEach((row) => {
             const key = recipientKey(row);
-            if (selected) map.set(key, row);
-            else map.delete(key);
+            if (selected) {
+                if (maxCount !== null && map.size >= maxCount) return;
+                map.set(key, row);
+            } else {
+                map.delete(key);
+            }
         });
     }
 
@@ -884,6 +906,12 @@
         const recipients = [...state.detailSelected.values()];
         if (!recipients.length) {
             alert('Select at least one new recipient.');
+            return;
+        }
+        const max = maxRecipients();
+        const existing = Number(campaign.recipient_count || 0);
+        if (existing + recipients.length > max) {
+            alert(`This broadcast can include at most ${max.toLocaleString()} recipients (${existing.toLocaleString()} already on it).`);
             return;
         }
         const btn = el('btnSendDetailRecipients');
@@ -1051,7 +1079,14 @@
 
     function renderSelected() {
         const items = [...state.selected.values()];
-        el('selectedCount').textContent = items.length;
+        const max = maxRecipients();
+        el('selectedCount').textContent = `${items.length.toLocaleString()} / ${max.toLocaleString()}`;
+        const hint = el('recipientLimitHint');
+        if (hint) {
+            hint.textContent = items.length >= max
+                ? 'Recipient limit reached. Remove some before adding more.'
+                : `Up to ${max.toLocaleString()} recipients per broadcast. Large sends continue in the background after you submit.`;
+        }
         el('selectedList').innerHTML = items.length
             ? items.map((row) => `<div class="bc-chip"><div><strong>${escapeHtml(row.name || row.address)}</strong><small style="display:block;color:var(--text-secondary)">${escapeHtml(row.address)}</small></div><button type="button" data-key="${escapeHtml(recipientKey(row))}">Remove</button></div>`).join('')
             : '<div class="bc-empty">No recipients yet.</div>';
@@ -1099,8 +1134,16 @@
                 input.addEventListener('change', () => {
                     const row = rows[index];
                     const key = recipientKey(row);
-                    if (input.checked) state.selected.set(key, row);
-                    else state.selected.delete(key);
+                    if (input.checked) {
+                        if (!canAddRecipients()) {
+                            input.checked = false;
+                            alert(recipientLimitMessage(maxRecipients() + 1));
+                            return;
+                        }
+                        state.selected.set(key, row);
+                    } else {
+                        state.selected.delete(key);
+                    }
                     renderSelected();
                 });
             });
@@ -1116,10 +1159,24 @@
 
     function addPasted() {
         const lines = el('recipPaste').value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        if (!lines.length) return;
+        const slots = remainingRecipientSlots();
+        if (slots <= 0) {
+            alert(recipientLimitMessage(maxRecipients() + 1));
+            return;
+        }
+        let added = 0;
         lines.forEach((address) => {
+            if (added >= slots) return;
             const row = { source: 'manual', source_id: null, name: address, address, meta: 'Manual' };
-            state.selected.set(recipientKey(row), row);
+            const key = recipientKey(row);
+            if (state.selected.has(key)) return;
+            state.selected.set(key, row);
+            added += 1;
         });
+        if (lines.length > added) {
+            alert(`Added ${added.toLocaleString()} address${added === 1 ? '' : 'es'}. ${recipientLimitMessage(maxRecipients() + 1)}`);
+        }
         el('recipPaste').value = '';
         renderSelected();
     }
@@ -1172,7 +1229,11 @@
                 if (!el('fInbox').value) return 'Select a shared Microsoft 365 mailbox.';
             }
         }
-        if (step === 2 && state.selected.size === 0) return 'Select at least one recipient.';
+        if (step === 2) {
+            if (state.selected.size === 0) return 'Select at least one recipient.';
+            const limitError = recipientLimitMessage();
+            if (limitError) return limitError;
+        }
         if (step === 3) {
             if (selectedType() === 'email' && !el('fSubject').value.trim()) return 'Enter an email subject.';
             const body = getComposeBody();
@@ -1482,7 +1543,11 @@
     el('btnPaste').addEventListener('click', addPasted);
     el('btnClearSelected').addEventListener('click', () => { state.selected.clear(); renderSelected(); searchRecipients(); });
     el('btnSelectAllRecipients')?.addEventListener('click', () => {
-        toggleRows(state.selected, state.lastRecipRows, true);
+        const before = state.selected.size;
+        toggleRows(state.selected, state.lastRecipRows, true, maxRecipients());
+        if (state.selected.size >= maxRecipients() && before < state.lastRecipRows.length) {
+            alert(recipientLimitMessage(maxRecipients() + 1));
+        }
         renderSelected();
         searchRecipients();
     });
@@ -1504,7 +1569,12 @@
         }
     });
     el('btnSelectAllDetailRecipients')?.addEventListener('click', () => {
-        toggleRows(state.detailSelected, state.lastDetailRecipRows, true);
+        const slots = Math.max(0, maxRecipients() - Number(state.current?.recipient_count || 0));
+        const before = state.detailSelected.size;
+        toggleRows(state.detailSelected, state.lastDetailRecipRows, true, slots);
+        if (state.detailSelected.size >= slots && before < state.lastDetailRecipRows.length) {
+            alert(`This broadcast can include at most ${maxRecipients().toLocaleString()} recipients in total.`);
+        }
         renderDetailSelected();
         searchDetailRecipients();
     });

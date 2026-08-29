@@ -47,6 +47,7 @@ class BroadcastMessagingController extends Controller
                 'outlook_configured' => ! empty($outlookCreds['client_id']) && ! empty($outlookCreds['client_secret']),
                 'can_send_sms' => $user->hasPermission('send_broadcast_sms'),
                 'can_send_email' => $user->hasPermission('send_broadcast_email'),
+                'max_recipients' => BroadcastMessagingService::maxRecipients(),
                 'sms_senders' => $this->broadcasts->smsSenders($user),
                 'email_senders' => $this->broadcasts->emailSenders($user),
                 'integrations_url' => route('integrations'),
@@ -152,9 +153,10 @@ class BroadcastMessagingController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        @set_time_limit(120);
+        @set_time_limit(300);
 
         $user = $request->user();
+        $maxRecipients = BroadcastMessagingService::maxRecipients();
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:160'],
             'type' => ['required', 'in:sms,email'],
@@ -168,7 +170,7 @@ class BroadcastMessagingController extends Controller
             'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:5000000'],
             'attachments.*.isInline' => ['nullable', 'boolean'],
             'attachments.*.contentId' => ['nullable', 'string', 'max:120'],
-            'recipients' => ['required', 'array', 'min:1', 'max:'.BroadcastMessagingService::MAX_RECIPIENTS],
+            'recipients' => ['required', 'array', 'min:1', 'max:'.$maxRecipients],
             'recipients.*.source' => ['nullable', 'string', 'max:32'],
             'recipients.*.source_id' => ['nullable', 'integer'],
             'recipients.*.name' => ['nullable', 'string', 'max:160'],
@@ -208,11 +210,12 @@ class BroadcastMessagingController extends Controller
 
     public function addRecipients(Request $request, BroadcastCampaign $campaign): JsonResponse
     {
-        @set_time_limit(120);
+        @set_time_limit(300);
 
         $user = $request->user();
+        $maxRecipients = BroadcastMessagingService::maxRecipients();
         $validated = $request->validate([
-            'recipients' => ['required', 'array', 'min:1', 'max:'.BroadcastMessagingService::MAX_RECIPIENTS],
+            'recipients' => ['required', 'array', 'min:1', 'max:'.$maxRecipients],
             'recipients.*.source' => ['nullable', 'string', 'max:32'],
             'recipients.*.source_id' => ['nullable', 'integer'],
             'recipients.*.name' => ['nullable', 'string', 'max:160'],
@@ -238,7 +241,7 @@ class BroadcastMessagingController extends Controller
 
         $user = $request->user();
         $validated = $request->validate([
-            'recipient_ids' => ['nullable', 'array', 'max:'.BroadcastMessagingService::MAX_RECIPIENTS],
+            'recipient_ids' => ['nullable', 'array', 'max:'.BroadcastMessagingService::maxRecipients()],
             'recipient_ids.*' => ['integer'],
         ]);
 

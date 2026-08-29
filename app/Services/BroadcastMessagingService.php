@@ -20,13 +20,25 @@ use Illuminate\Support\Facades\Log;
 
 class BroadcastMessagingService
 {
-    public const MAX_RECIPIENTS = 1000;
+    /** @deprecated Use config('broadcast.max_recipients') */
+    public const MAX_RECIPIENTS = 10000;
 
-    public const BATCH_SIZE = 12;
+    /** @deprecated Use config('broadcast.batch_size') */
+    public const BATCH_SIZE = 25;
 
     public const MAX_ATTACHMENTS = 15;
 
     public const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+
+    public static function maxRecipients(): int
+    {
+        return max(1, (int) config('broadcast.max_recipients', self::MAX_RECIPIENTS));
+    }
+
+    public static function batchSize(): int
+    {
+        return max(1, (int) config('broadcast.batch_size', self::BATCH_SIZE));
+    }
 
     public function __construct(
         protected TwilioCompanyService $twilioCompany,
@@ -185,8 +197,8 @@ class BroadcastMessagingService
             throw new \InvalidArgumentException('Add at least one valid recipient.');
         }
 
-        if (count($recipients) > self::MAX_RECIPIENTS) {
-            throw new \InvalidArgumentException('A broadcast can include at most '.self::MAX_RECIPIENTS.' recipients.');
+        if (count($recipients) > self::maxRecipients()) {
+            throw new \InvalidArgumentException('A broadcast can include at most '.self::maxRecipients().' recipients.');
         }
 
         $body = (string) $payload['body'];
@@ -225,9 +237,7 @@ class BroadcastMessagingService
                 'sent_at' => now(),
             ]);
 
-            foreach ($recipients as $recipient) {
-                $campaign->recipients()->create($recipient);
-            }
+            $this->insertRecipients($campaign, $recipients);
 
             return $campaign;
         });
@@ -264,16 +274,14 @@ class BroadcastMessagingService
         }
 
         $total = (int) $campaign->recipient_count + count($toAdd);
-        if ($total > self::MAX_RECIPIENTS) {
-            throw new \InvalidArgumentException('This broadcast can include at most '.self::MAX_RECIPIENTS.' recipients.');
+        if ($total > self::maxRecipients()) {
+            throw new \InvalidArgumentException('This broadcast can include at most '.self::maxRecipients().' recipients.');
         }
 
         $this->verifyCampaignSender($user, $campaign);
 
         DB::transaction(function () use ($campaign, $toAdd, $total) {
-            foreach ($toAdd as $recipient) {
-                $campaign->recipients()->create($recipient);
-            }
+            $this->insertRecipients($campaign, $toAdd);
 
             $campaign->update([
                 'status' => BroadcastCampaign::STATUS_SENDING,
@@ -331,6 +339,9 @@ class BroadcastMessagingService
     {
         $started = microtime(true);
         $processed = 0;
+        $messageLimit = max(1, (int) config('broadcast.initial_message_limit', 48));
+        $maxSeconds = max(1, (int) config('broadcast.initial_max_seconds', 45));
+        $delaySeconds = max(0, (int) config('broadcast.batch_delay_seconds', 1));
 
         do {
             $batchCount = $this->processBatch($campaign, dispatchRemainder: false);
@@ -342,12 +353,12 @@ class BroadcastMessagingService
         } while (
             $batchCount > 0
             && $hasPending
-            && $processed < 60
-            && (microtime(true) - $started) < 45
+            && $processed < $messageLimit
+            && (microtime(true) - $started) < $maxSeconds
         );
 
         if ($campaign->recipients()->where('status', BroadcastCampaignRecipient::STATUS_PENDING)->exists()) {
-            ProcessBroadcastJob::dispatch($campaign->id)->delay(now()->addSeconds(2));
+            ProcessBroadcastJob::dispatch($campaign->id)->delay(now()->addSeconds($delaySeconds));
         }
 
         return $campaign->fresh(['creator', 'recipients']);
@@ -360,7 +371,7 @@ class BroadcastMessagingService
                 ->where('broadcast_campaign_id', $campaign->id)
                 ->where('status', BroadcastCampaignRecipient::STATUS_PENDING)
                 ->orderBy('id')
-                ->limit(self::BATCH_SIZE)
+                ->limit(self::batchSize())
                 ->lockForUpdate()
                 ->get();
 
@@ -391,7 +402,8 @@ class BroadcastMessagingService
             $dispatchRemainder
             && $campaign->recipients()->where('status', BroadcastCampaignRecipient::STATUS_PENDING)->exists()
         ) {
-            ProcessBroadcastJob::dispatch($campaign->id)->delay(now()->addSeconds(2));
+            $delaySeconds = max(0, (int) config('broadcast.batch_delay_seconds', 1));
+            ProcessBroadcastJob::dispatch($campaign->id)->delay(now()->addSeconds($delaySeconds));
         }
 
         return $recipients->count();
@@ -492,6 +504,34 @@ class BroadcastMessagingService
             'shared_inbox_id' => $inboxId,
             'label' => $label,
         ];
+    }
+
+    /**
+     * @param  list<array{source: string, source_id: ?int, name: ?string, address: string, status: string}>  $recipients
+     */
+    protected function insertRecipients(BroadcastCampaign $campaign, array $recipients): void
+    {
+        if ($recipients === []) {
+            return;
+        }
+
+        $chunkSize = max(1, (int) config('broadcast.insert_chunk_size', 500));
+        $now = now();
+
+        foreach (array_chunk($recipients, $chunkSize) as $chunk) {
+            $rows = array_map(fn (array $recipient) => [
+                'broadcast_campaign_id' => $campaign->id,
+                'source' => $recipient['source'],
+                'source_id' => $recipient['source_id'],
+                'name' => $recipient['name'],
+                'address' => $recipient['address'],
+                'status' => $recipient['status'],
+                'created_at' => $now,
+                'updated_at' => $now,
+            ], $chunk);
+
+            BroadcastCampaignRecipient::query()->insert($rows);
+        }
     }
 
     /**
