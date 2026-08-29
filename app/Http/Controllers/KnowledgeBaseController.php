@@ -12,6 +12,7 @@ use App\Models\KnowledgeBaseFaq;
 use App\Models\KnowledgeBaseGuide;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class KnowledgeBaseController extends Controller
@@ -88,7 +89,7 @@ class KnowledgeBaseController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
         }
 
-        $slug = \Illuminate\Support\Str::slug(trim($request->validated('name')));
+        $slug = Str::slug(trim($request->validated('name')));
         if ($slug === '') {
             return response()->json([
                 'success' => false,
@@ -136,10 +137,7 @@ class KnowledgeBaseController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
         }
 
-        $category = KnowledgeBaseCategory::where('company_id', $user->company_id)
-            ->where('type', 'article')
-            ->where('slug', $request->validated('category'))
-            ->firstOrFail();
+        $categoryName = $this->resolveCategoryName($user->company_id, 'article', $request->validated('category'));
 
         $article = KnowledgeBaseArticle::create([
             'company_id' => $user->company_id,
@@ -147,7 +145,7 @@ class KnowledgeBaseController extends Controller
             'title' => $request->validated('title'),
             'excerpt' => $request->validated('excerpt'),
             'content' => $request->validated('content'),
-            'category' => $category->name,
+            'category' => $categoryName,
             'visibility' => $request->validated('visibility'),
         ]);
 
@@ -169,11 +167,14 @@ class KnowledgeBaseController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
         }
 
+        $categoryName = $this->resolveCategoryName($user->company_id, 'faq', $request->validated('category'));
+
         $faq = KnowledgeBaseFaq::create([
             'company_id' => $user->company_id,
             'question' => $request->validated('question'),
             'answer' => $request->validated('answer'),
-            'category' => $request->validated('category'),
+            'category' => $categoryName,
+            'visibility' => $request->validated('visibility'),
         ]);
 
         return response()->json([
@@ -223,16 +224,13 @@ class KnowledgeBaseController extends Controller
         }
 
         $article = KnowledgeBaseArticle::where('company_id', $user->company_id)->findOrFail($id);
-        $category = KnowledgeBaseCategory::where('company_id', $user->company_id)
-            ->where('type', 'article')
-            ->where('slug', $request->validated('category'))
-            ->firstOrFail();
+        $categoryName = $this->resolveCategoryName($user->company_id, 'article', $request->validated('category'));
 
         $article->update([
             'title' => $request->validated('title'),
             'excerpt' => $request->validated('excerpt'),
             'content' => $request->validated('content'),
-            'category' => $category->name,
+            'category' => $categoryName,
             'visibility' => $request->validated('visibility'),
         ]);
 
@@ -271,10 +269,13 @@ class KnowledgeBaseController extends Controller
         }
 
         $faq = KnowledgeBaseFaq::where('company_id', $user->company_id)->findOrFail($id);
+        $categoryName = $this->resolveCategoryName($user->company_id, 'faq', $request->validated('category'));
+
         $faq->update([
             'question' => $request->validated('question'),
             'answer' => $request->validated('answer'),
-            'category' => $request->validated('category'),
+            'category' => $categoryName,
+            'visibility' => $request->validated('visibility'),
         ]);
 
         return response()->json([
@@ -345,6 +346,20 @@ class KnowledgeBaseController extends Controller
         return response()->json(['success' => true]);
     }
 
+    private function resolveCategoryName(int $companyId, string $type, ?string $categorySlug): ?string
+    {
+        if ($categorySlug === null || trim($categorySlug) === '') {
+            return null;
+        }
+
+        $category = KnowledgeBaseCategory::where('company_id', $companyId)
+            ->where('type', $type)
+            ->where('slug', $categorySlug)
+            ->firstOrFail();
+
+        return $category->name;
+    }
+
     private function formatArticle(KnowledgeBaseArticle $article): array
     {
         return [
@@ -367,6 +382,7 @@ class KnowledgeBaseController extends Controller
             'question' => $faq->question,
             'answer' => $faq->answer,
             'category' => $faq->category,
+            'visibility' => $faq->visibility,
             'views' => $faq->views,
         ];
     }

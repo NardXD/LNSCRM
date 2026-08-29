@@ -35,18 +35,6 @@ class KnowledgeBaseCategory extends Model
     public static function ensureDefaultsForCompany(int $companyId): void
     {
         $defaults = [
-            'article' => [
-                ['name' => 'Getting Started', 'slug' => 'getting-started'],
-                ['name' => 'Features', 'slug' => 'features'],
-                ['name' => 'Troubleshooting', 'slug' => 'troubleshooting'],
-                ['name' => 'API Documentation', 'slug' => 'api'],
-            ],
-            'faq' => [
-                ['name' => 'Account', 'slug' => 'account'],
-                ['name' => 'Billing', 'slug' => 'billing'],
-                ['name' => 'Features', 'slug' => 'features'],
-                ['name' => 'Technical', 'slug' => 'technical'],
-            ],
             'guide' => [
                 ['name' => 'Getting Started', 'slug' => 'getting-started'],
                 ['name' => 'Features', 'slug' => 'features'],

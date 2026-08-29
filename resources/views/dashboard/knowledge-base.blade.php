@@ -21,13 +21,14 @@
             <div class="section-header">
                 <h2 class="section-title">Articles</h2>
                 <div class="section-actions">
-                    
+                    @if(! empty($articleCategories))
                     <select class="filter-select" id="articleCategoryFilter">
                         <option value="all">All Categories</option>
                         @foreach($articleCategories ?? [] as $cat)
-                            <option value="{{ $cat['slug'] }}">{{ $cat['name'] }}</option>
+                            <option value="{{ $cat['name'] }}">{{ $cat['name'] }}</option>
                         @endforeach
                     </select>
+                    @endif
                     @if($canCreateKnowledgeBase ?? true)
                     <button class="btn-primary" onclick="createArticle()">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -65,7 +66,7 @@
             <div class="faq-categories" id="faqCategoriesContainer">
                 <button type="button" class="faq-category-btn active" data-category="all">All</button>
                 @foreach($faqCategories ?? [] as $cat)
-                    <button type="button" class="faq-category-btn" data-category="{{ $cat['slug'] }}">{{ $cat['name'] }}</button>
+                    <button type="button" class="faq-category-btn" data-category="{{ $cat['name'] }}">{{ $cat['name'] }}</button>
                 @endforeach
             </div>
 
@@ -448,17 +449,17 @@
             <div class="modal-header">
                 <h2 class="modal-title">New Article</h2>
             </div>
-            <form id="newArticleForm" class="modal-form" onsubmit="submitNewArticle(event)">
+            <form id="newArticleForm" class="modal-form" onsubmit="previewArticle(event)">
                 <div class="form-row">
                     <div class="form-group form-group-flex">
                         <label for="newArticleTitle" class="form-label">Title <span class="required">*</span></label>
                         <input type="text" id="newArticleTitle" name="title" class="form-input" required placeholder="Enter article title">
                     </div>
                     <div class="form-group">
-                        <label for="newArticleCategory" class="form-label">Category <span class="required">*</span></label>
+                        <label for="newArticleCategory" class="form-label">Category</label>
                         <div class="form-input-group">
-                            <select id="newArticleCategory" name="category" class="form-input" required>
-                                <option value="">Select category</option>
+                            <select id="newArticleCategory" name="category" class="form-input">
+                                <option value="">No category</option>
                                 @foreach($articleCategories ?? [] as $cat)
                                     <option value="{{ $cat['slug'] }}">{{ $cat['name'] }}</option>
                                 @endforeach
@@ -467,7 +468,6 @@
                         </div>
                     </div>
                 </div>
-                <input type="hidden" id="newArticleVisibility" name="visibility" value="internal">
                 <div class="form-group">
                     <label for="newArticleExcerptEditor" class="form-label">Excerpt / Summary <span class="required">*</span></label>
                     <div class="rich-editor">
@@ -550,14 +550,44 @@
                     <button type="button" class="btn-secondary" onclick="closeNewArticleModal()">Cancel</button>
                     <button type="submit" class="btn-primary">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-                            <polyline points="17 21 17 13 7 13 7 21"/>
-                            <polyline points="7 3 7 8 15 8 15 3"/>
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                            <circle cx="12" cy="12" r="3"/>
                         </svg>
-                        Create Article
+                        Preview
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Article Preview Modal -->
+    <div class="knowledge-modal" id="articlePreviewModal">
+        <div class="knowledge-modal-content knowledge-modal-form">
+            <button type="button" class="modal-close" onclick="closeArticlePreviewModal()" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
+            <div class="modal-header">
+                <div class="modal-header-info">
+                    <div class="modal-badge draft" id="articlePreviewBadge">Draft</div>
+                    <h2 class="modal-title" id="articlePreviewTitle">Article title</h2>
+                    <div class="modal-meta" id="articlePreviewMeta">
+                        <span id="articlePreviewCategory">No category</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-body article-preview-body">
+                <div class="article-preview-excerpt article-excerpt-html" id="articlePreviewExcerpt"></div>
+                <div class="content-body article-preview-content" id="articlePreviewContent"></div>
+            </div>
+            <div class="modal-form-actions article-preview-actions">
+                <button type="button" class="btn-secondary" onclick="closeArticlePreviewModal()">Back to Edit</button>
+                <button type="button" class="btn-secondary" onclick="saveArticleWithStatus('draft')">Save as Draft</button>
+                <button type="button" class="btn-secondary" onclick="saveArticleWithStatus('archived')">Archive</button>
+                <button type="button" class="btn-primary" onclick="saveArticleWithStatus('published')">Publish</button>
+            </div>
         </div>
     </div>
 
@@ -573,21 +603,23 @@
             <div class="modal-header">
                 <h2 class="modal-title">New FAQ</h2>
             </div>
-            <form id="newFAQForm" class="modal-form" onsubmit="submitNewFAQ(event)">
-                <div class="form-group">
-                    <label for="newFAQQuestion" class="form-label">Question <span class="required">*</span></label>
-                    <input type="text" id="newFAQQuestion" name="question" class="form-input" required placeholder="Enter the question">
-                </div>
-                <div class="form-group">
-                    <label for="newFAQCategory" class="form-label">Category <span class="required">*</span></label>
-                    <div class="form-input-group">
-                        <select id="newFAQCategory" name="category" class="form-input" required>
-                            <option value="">Select category</option>
-                            @foreach($faqCategories ?? [] as $cat)
-                                <option value="{{ $cat['slug'] }}">{{ $cat['name'] }}</option>
-                            @endforeach
-                        </select>
-                        <button type="button" class="btn-secondary btn-sm" onclick="openAddCategoryModal('faq')" title="Add category">+</button>
+            <form id="newFAQForm" class="modal-form" onsubmit="previewFaq(event)">
+                <div class="form-row">
+                    <div class="form-group form-group-flex">
+                        <label for="newFAQQuestion" class="form-label">Question <span class="required">*</span></label>
+                        <input type="text" id="newFAQQuestion" name="question" class="form-input" required placeholder="Enter the question">
+                    </div>
+                    <div class="form-group">
+                        <label for="newFAQCategory" class="form-label">Category</label>
+                        <div class="form-input-group">
+                            <select id="newFAQCategory" name="category" class="form-input">
+                                <option value="">No category</option>
+                                @foreach($faqCategories ?? [] as $cat)
+                                    <option value="{{ $cat['slug'] }}">{{ $cat['name'] }}</option>
+                                @endforeach
+                            </select>
+                            <button type="button" class="btn-secondary btn-sm" onclick="openAddCategoryModal('faq')" title="Add category">+</button>
+                        </div>
                     </div>
                 </div>
                 <div class="form-group">
@@ -633,14 +665,43 @@
                     <button type="button" class="btn-secondary" onclick="closeNewFAQModal()">Cancel</button>
                     <button type="submit" class="btn-primary">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-                            <polyline points="17 21 17 13 7 13 7 21"/>
-                            <polyline points="7 3 7 8 15 8 15 3"/>
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                            <circle cx="12" cy="12" r="3"/>
                         </svg>
-                        Create FAQ
+                        Preview
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- FAQ Preview Modal -->
+    <div class="knowledge-modal" id="faqPreviewModal">
+        <div class="knowledge-modal-content knowledge-modal-form">
+            <button type="button" class="modal-close" onclick="closeFaqPreviewModal()" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
+            <div class="modal-header">
+                <div class="modal-header-info">
+                    <div class="modal-badge draft" id="faqPreviewBadge">Preview</div>
+                    <h2 class="modal-title" id="faqPreviewQuestion">Question</h2>
+                    <div class="modal-meta" id="faqPreviewMeta">
+                        <span id="faqPreviewCategory">No category</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-body article-preview-body">
+                <div class="faq-answer-text content-body" id="faqPreviewAnswer"></div>
+            </div>
+            <div class="modal-form-actions article-preview-actions">
+                <button type="button" class="btn-secondary" onclick="closeFaqPreviewModal()">Back to Edit</button>
+                <button type="button" class="btn-secondary" onclick="saveFaqWithStatus('draft')">Save as Draft</button>
+                <button type="button" class="btn-secondary" onclick="saveFaqWithStatus('archived')">Archive</button>
+                <button type="button" class="btn-primary" onclick="saveFaqWithStatus('published')">Publish</button>
+            </div>
         </div>
     </div>
 
@@ -1035,6 +1096,21 @@
         color: #2563eb;
     }
 
+    .article-badge.draft {
+        background: #f3f4f6;
+        color: #6b7280;
+    }
+
+    .article-badge.published {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+    .article-badge.archived {
+        background: #fef3c7;
+        color: #d97706;
+    }
+
     .article-title {
         font-size: 1.125rem;
         font-weight: 600;
@@ -1149,6 +1225,14 @@
         align-items: center;
         justify-content: space-between;
         gap: 1rem;
+    }
+
+    .faq-question-main {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex: 1;
+        min-width: 0;
     }
 
     .faq-question-text {
@@ -1480,6 +1564,50 @@
     .modal-badge.internal {
         background: #dbeafe;
         color: #2563eb;
+    }
+
+    .modal-badge.draft {
+        background: #f3f4f6;
+        color: #6b7280;
+    }
+
+    .modal-badge.published {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+    .modal-badge.archived {
+        background: #fef3c7;
+        color: #d97706;
+    }
+
+    .article-preview-body {
+        padding: 0 1.5rem 1rem;
+    }
+
+    .article-preview-excerpt {
+        font-size: 1rem;
+        color: var(--text-secondary);
+        line-height: 1.7;
+        margin-bottom: 1.25rem;
+        padding-bottom: 1.25rem;
+        border-bottom: 1px solid var(--border);
+        display: block;
+        -webkit-line-clamp: unset;
+        -webkit-box-orient: unset;
+        overflow: visible;
+        min-height: 0;
+    }
+
+    .article-preview-content:empty::before {
+        content: 'No content added yet.';
+        color: var(--text-muted);
+        font-style: italic;
+    }
+
+    .article-preview-actions {
+        padding: 0 1.5rem 1.5rem;
+        flex-wrap: wrap;
     }
 
     .modal-title {
@@ -2091,33 +2219,77 @@
         }
     };
 
+    function formatArticleStatus(status) {
+        const labels = {
+            draft: 'Draft',
+            published: 'Published',
+            archived: 'Archived',
+            internal: 'Published',
+            public: 'Published',
+        };
+        return labels[status] || (status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Draft');
+    }
+
+    function normalizeArticleStatus(status) {
+        if (status === 'internal' || status === 'public') {
+            return 'published';
+        }
+        return status || 'draft';
+    }
+
+    function getArticleCategoryFilter() {
+        return document.getElementById('articleCategoryFilter')?.value || 'all';
+    }
+
     // Render Articles
-    function renderArticles() {
+    function renderArticles(categoryFilter = 'all') {
         const grid = document.getElementById('articlesGrid');
-        grid.innerHTML = articlesData.map(article => `
+        const filtered = categoryFilter === 'all'
+            ? articlesData
+            : articlesData.filter(article => article.category === categoryFilter);
+        grid.innerHTML = filtered.map(article => {
+            const status = normalizeArticleStatus(article.visibility);
+            return `
             <div class="article-card" onclick="openArticle(${article.id})">
                 <div class="article-header">
-                    <span class="article-badge ${article.visibility}">${article.visibility.charAt(0).toUpperCase() + article.visibility.slice(1)}</span>
+                    <span class="article-badge ${status}">${formatArticleStatus(article.visibility)}</span>
                 </div>
                 <h3 class="article-title">${article.title}</h3>
                 <div class="article-excerpt article-excerpt-html">${article.excerpt}</div>
                 <div class="article-footer">
-                    <span class="article-category">${article.category}</span>
+                    ${article.category ? `<span class="article-category">${article.category}</span>` : ''}
                     <span>${article.views} views</span>
                 </div>
             </div>
-        `).join('');
+        `;
+        }).join('');
+    }
+
+    const articleCategoryFilter = document.getElementById('articleCategoryFilter');
+    if (articleCategoryFilter) {
+        articleCategoryFilter.addEventListener('change', function() {
+            renderArticles(this.value);
+        });
     }
 
     // Render FAQs
-    function renderFAQs(category = 'all') {
+    function getFaqCategoryFilter() {
+        return document.querySelector('.faq-category-btn.active')?.dataset.category || 'all';
+    }
+
+    function renderFAQs(category = getFaqCategoryFilter()) {
         const list = document.getElementById('faqsList');
         const filtered = category === 'all' ? faqsData : faqsData.filter(faq => faq.category === category);
-        
-        list.innerHTML = filtered.map(faq => `
+
+        list.innerHTML = filtered.map(faq => {
+            const status = normalizeArticleStatus(faq.visibility);
+            return `
             <div class="faq-item" onclick="toggleFAQ(${faq.id})">
                 <div class="faq-question">
-                    <div class="faq-question-text">${faq.question}</div>
+                    <div class="faq-question-main">
+                        <span class="article-badge ${status}">${formatArticleStatus(faq.visibility)}</span>
+                        <div class="faq-question-text">${faq.question}</div>
+                    </div>
                     <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <polyline points="6 9 12 15 18 9"/>
                     </svg>
@@ -2125,6 +2297,7 @@
                 <div class="faq-answer">
                     <div class="faq-answer-text">${faq.answer}</div>
                     <div class="faq-meta">
+                        ${faq.category ? `<span>${faq.category}</span>` : ''}
                         <span>${faq.views} views</span>
                         <div class="faq-item-actions" onclick="event.stopPropagation()">
                             ${canEditKnowledgeBase ? `<button type="button" class="btn-secondary" onclick="editFaq(${faq.id})">Edit</button>` : ''}
@@ -2133,7 +2306,8 @@
                     </div>
                 </div>
             </div>
-        `).join('');
+        `;
+        }).join('');
     }
 
     // Render Guides
@@ -2200,10 +2374,11 @@
     function openKnowledgeModal(item, type) {
         currentKnowledgeItem = item;
         currentKnowledgeType = type;
-        document.getElementById('modalBadge').textContent = item.visibility ? item.visibility.charAt(0).toUpperCase() + item.visibility.slice(1) : 'Guide';
-        document.getElementById('modalBadge').className = `modal-badge ${item.visibility || 'internal'}`;
+        document.getElementById('modalBadge').textContent = formatArticleStatus(item.visibility);
+        document.getElementById('modalBadge').className = `modal-badge ${normalizeArticleStatus(item.visibility)}`;
         document.getElementById('modalTitle').textContent = item.title;
-        document.getElementById('modalCategory').textContent = item.category;
+        document.getElementById('modalCategory').textContent = item.category || 'No category';
+        document.getElementById('modalCategory').style.display = type === 'article' && !item.category ? 'none' : '';
         document.getElementById('modalDate').textContent = item.date || 'Dec 31, 2025';
         document.getElementById('modalAuthor').textContent = `By ${item.author || 'Admin'}`;
         
@@ -2236,7 +2411,7 @@
                 await knowledgeBaseApi.deleteArticle(currentKnowledgeItem.id);
                 const idx = articlesData.findIndex(a => a.id === currentKnowledgeItem.id);
                 if (idx !== -1) articlesData.splice(idx, 1);
-                renderArticles();
+                renderArticles(getArticleCategoryFilter());
             } else {
                 await knowledgeBaseApi.deleteGuide(currentKnowledgeItem.id);
                 const idx = guidesData.findIndex(g => g.id === currentKnowledgeItem.id);
@@ -2264,8 +2439,12 @@
         if (e.key === 'Escape') {
             if (document.getElementById('addCategoryModal').classList.contains('active')) {
                 closeAddCategoryModal();
+            } else if (document.getElementById('articlePreviewModal').classList.contains('active')) {
+                closeArticlePreviewModal();
             } else if (document.getElementById('newArticleModal').classList.contains('active')) {
                 closeNewArticleModal();
+            } else if (document.getElementById('faqPreviewModal').classList.contains('active')) {
+                closeFaqPreviewModal();
             } else if (document.getElementById('newFAQModal').classList.contains('active')) {
                 closeNewFAQModal();
             } else if (document.getElementById('newGuideModal').classList.contains('active')) {
@@ -2305,10 +2484,28 @@
                 sel.appendChild(opt);
                 opt.selected = true;
                 const filterSel = document.getElementById('articleCategoryFilter');
-                const filterOpt = document.createElement('option');
-                filterOpt.value = category.slug;
-                filterOpt.textContent = category.name;
-                filterSel.appendChild(filterOpt);
+                if (filterSel) {
+                    const filterOpt = document.createElement('option');
+                    filterOpt.value = category.name;
+                    filterOpt.textContent = category.name;
+                    filterSel.appendChild(filterOpt);
+                } else {
+                    const sectionActions = document.querySelector('#articlesTab .section-actions');
+                    if (sectionActions) {
+                        const select = document.createElement('select');
+                        select.className = 'filter-select';
+                        select.id = 'articleCategoryFilter';
+                        select.innerHTML = '<option value="all">All Categories</option>';
+                        const filterOpt = document.createElement('option');
+                        filterOpt.value = category.name;
+                        filterOpt.textContent = category.name;
+                        select.appendChild(filterOpt);
+                        select.addEventListener('change', function() {
+                            renderArticles(this.value);
+                        });
+                        sectionActions.insertBefore(select, sectionActions.firstChild);
+                    }
+                }
             } else if (type === 'faq') {
                 faqCategoriesData.push(category);
                 const sel = document.getElementById('newFAQCategory');
@@ -2321,7 +2518,7 @@
                 const btn = document.createElement('button');
                 btn.type = 'button';
                 btn.className = 'faq-category-btn';
-                btn.dataset.category = category.slug;
+                btn.dataset.category = category.name;
                 btn.textContent = category.name;
                 container.appendChild(btn);
             } else {
@@ -2348,10 +2545,28 @@
 
     function setArticleCategoryByDisplayName(displayName) {
         const sel = document.getElementById('newArticleCategory');
+        if (!displayName) {
+            sel.value = '';
+            return;
+        }
         for (const opt of sel.options) {
             if (opt.textContent === displayName) { sel.value = opt.value; return; }
         }
+        sel.value = '';
     }
+
+    function setFaqCategoryByDisplayName(displayName) {
+        const sel = document.getElementById('newFAQCategory');
+        if (!displayName) {
+            sel.value = '';
+            return;
+        }
+        for (const opt of sel.options) {
+            if (opt.textContent === displayName) { sel.value = opt.value; return; }
+        }
+        sel.value = '';
+    }
+
     function setGuideCategoryByDisplayName(displayName) {
         const sel = document.getElementById('newGuideCategory');
         for (const opt of sel.options) {
@@ -2403,7 +2618,7 @@
         const answerHidden = document.getElementById('newFAQAnswer');
         answerEditor.innerHTML = faq.answer || '';
         answerHidden.value = faq.answer || '';
-        document.getElementById('newFAQCategory').value = faq.category;
+        setFaqCategoryByDisplayName(faq.category);
         document.getElementById('newFAQModal').classList.add('active');
         document.querySelector('#newFAQModal .modal-title').textContent = 'Edit FAQ';
         document.body.style.overflow = 'hidden';
@@ -2415,10 +2630,43 @@
             await knowledgeBaseApi.deleteFaq(id);
             const idx = faqsData.findIndex(f => f.id === id);
             if (idx !== -1) faqsData.splice(idx, 1);
-            renderFAQs(document.querySelector('.faq-category-btn.active')?.dataset.category || 'all');
+            renderFAQs(getFaqCategoryFilter());
         } catch (err) {
             alert(err.message || 'Failed to delete.');
         }
+    }
+
+    function syncArticleEditors() {
+        ['newArticleExcerptEditor', 'newArticleContentEditor'].forEach(id => {
+            const editor = document.getElementById(id);
+            if (editor) richEditorSync(editor);
+        });
+    }
+
+    function collectArticleFormData() {
+        syncArticleEditors();
+        const title = document.getElementById('newArticleTitle').value.trim();
+        const excerptHtml = document.getElementById('newArticleExcerpt').value;
+        const excerpt = stripHtml(excerptHtml).length ? excerptHtml : (document.getElementById('newArticleExcerptEditor').innerText || '').trim();
+        const category = document.getElementById('newArticleCategory').value;
+        const content = document.getElementById('newArticleContent').value;
+        const categorySelect = document.getElementById('newArticleCategory');
+        const categoryLabel = category
+            ? categorySelect.options[categorySelect.selectedIndex]?.textContent || 'No category'
+            : 'No category';
+        return { title, excerpt, category, categoryLabel, content };
+    }
+
+    function validateArticleForm(data) {
+        if (!data.title) {
+            document.getElementById('newArticleTitle').focus();
+            return false;
+        }
+        if (!data.excerpt) {
+            document.getElementById('newArticleExcerptEditor').focus();
+            return false;
+        }
+        return true;
     }
 
     // New Article Modal
@@ -2434,39 +2682,71 @@
         if (excerptHidden) { excerptHidden.value = ''; }
         if (contentEditor) { contentEditor.innerHTML = ''; }
         if (contentHidden) { contentHidden.value = ''; }
+        document.getElementById('newArticleCategory').value = '';
         document.getElementById('newArticleModal').classList.add('active');
         document.body.style.overflow = 'hidden';
     }
 
     function closeNewArticleModal() {
         document.getElementById('newArticleModal').classList.remove('active');
-        document.body.style.overflow = '';
+        if (!document.getElementById('articlePreviewModal').classList.contains('active')) {
+            document.body.style.overflow = '';
+        }
     }
 
-    async function submitNewArticle(e) {
+    function previewArticle(e) {
         e.preventDefault();
-        const title = document.getElementById('newArticleTitle').value.trim();
-        const excerptHtml = document.getElementById('newArticleExcerpt').value;
-        const excerpt = stripHtml(excerptHtml).length ? excerptHtml : (document.getElementById('newArticleExcerptEditor').innerText || '').trim();
-        if (!excerpt) {
-            document.getElementById('newArticleExcerptEditor').focus();
+        const data = collectArticleFormData();
+        if (!validateArticleForm(data)) return;
+
+        document.getElementById('articlePreviewTitle').textContent = data.title;
+        document.getElementById('articlePreviewCategory').textContent = data.categoryLabel;
+        document.getElementById('articlePreviewMeta').style.display = data.category ? '' : 'none';
+        document.getElementById('articlePreviewExcerpt').innerHTML = data.excerpt;
+        document.getElementById('articlePreviewContent').innerHTML = data.content || '';
+        document.getElementById('articlePreviewBadge').textContent = 'Preview';
+        document.getElementById('articlePreviewBadge').className = 'modal-badge draft';
+
+        document.getElementById('articlePreviewModal').classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeArticlePreviewModal() {
+        document.getElementById('articlePreviewModal').classList.remove('active');
+        if (document.getElementById('newArticleModal').classList.contains('active')) {
+            document.body.style.overflow = 'hidden';
+        } else {
+            document.body.style.overflow = '';
+        }
+    }
+
+    async function saveArticleWithStatus(status) {
+        const data = collectArticleFormData();
+        if (!validateArticleForm(data)) {
+            closeArticlePreviewModal();
             return;
         }
-        const category = document.getElementById('newArticleCategory').value;
-        const visibility = document.getElementById('newArticleVisibility').value;
-        const content = document.getElementById('newArticleContent').value;
-        if (!title || !category) return;
+
+        const payload = {
+            title: data.title,
+            excerpt: data.excerpt || data.title,
+            content: data.content,
+            category: data.category || null,
+            visibility: status,
+        };
+
         try {
             if (editArticleId) {
-                const { article } = await knowledgeBaseApi.putArticle(editArticleId, { title, excerpt: excerpt || title, content, category, visibility });
+                const { article } = await knowledgeBaseApi.putArticle(editArticleId, payload);
                 const idx = articlesData.findIndex(a => a.id === editArticleId);
                 if (idx !== -1) articlesData[idx] = article;
                 editArticleId = null;
             } else {
-                const { article } = await knowledgeBaseApi.postArticles({ title, excerpt: excerpt || title, content, category, visibility });
+                const { article } = await knowledgeBaseApi.postArticles(payload);
                 articlesData.unshift(article);
             }
-            renderArticles();
+            renderArticles(getArticleCategoryFilter());
+            closeArticlePreviewModal();
             closeNewArticleModal();
         } catch (err) {
             alert(err.message || 'Failed to save article.');
@@ -2477,7 +2757,41 @@
         if (e.target === this) closeNewArticleModal();
     });
 
+    document.getElementById('articlePreviewModal').addEventListener('click', function(e) {
+        if (e.target === this) closeArticlePreviewModal();
+    });
+
     // New FAQ Modal
+    function syncFaqEditors() {
+        const editor = document.getElementById('newFAQAnswerEditor');
+        if (editor) richEditorSync(editor);
+    }
+
+    function collectFaqFormData() {
+        syncFaqEditors();
+        const question = document.getElementById('newFAQQuestion').value.trim();
+        const answerHtml = document.getElementById('newFAQAnswer').value;
+        const answer = stripHtml(answerHtml).length ? answerHtml : (document.getElementById('newFAQAnswerEditor').innerText || '').trim();
+        const category = document.getElementById('newFAQCategory').value;
+        const categorySelect = document.getElementById('newFAQCategory');
+        const categoryLabel = category
+            ? categorySelect.options[categorySelect.selectedIndex]?.textContent || 'No category'
+            : 'No category';
+        return { question, answer, answerHtml, category, categoryLabel };
+    }
+
+    function validateFaqForm(data) {
+        if (!data.question) {
+            document.getElementById('newFAQQuestion').focus();
+            return false;
+        }
+        if (!data.answer) {
+            document.getElementById('newFAQAnswerEditor').focus();
+            return false;
+        }
+        return true;
+    }
+
     function createFAQ() {
         editFaqId = null;
         document.getElementById('newFAQForm').reset();
@@ -2486,37 +2800,69 @@
         const answerHidden = document.getElementById('newFAQAnswer');
         if (answerEditor) { answerEditor.innerHTML = ''; }
         if (answerHidden) { answerHidden.value = ''; }
+        document.getElementById('newFAQCategory').value = '';
         document.getElementById('newFAQModal').classList.add('active');
         document.body.style.overflow = 'hidden';
     }
 
     function closeNewFAQModal() {
         document.getElementById('newFAQModal').classList.remove('active');
-        document.body.style.overflow = '';
+        if (!document.getElementById('faqPreviewModal').classList.contains('active')) {
+            document.body.style.overflow = '';
+        }
     }
 
-    async function submitNewFAQ(e) {
+    function previewFaq(e) {
         e.preventDefault();
-        const question = document.getElementById('newFAQQuestion').value.trim();
-        const answerHtml = document.getElementById('newFAQAnswer').value;
-        const answer = stripHtml(answerHtml).length ? answerHtml : (document.getElementById('newFAQAnswerEditor').innerText || '').trim();
-        if (!answer) {
-            document.getElementById('newFAQAnswerEditor').focus();
+        const data = collectFaqFormData();
+        if (!validateFaqForm(data)) return;
+
+        document.getElementById('faqPreviewQuestion').textContent = data.question;
+        document.getElementById('faqPreviewCategory').textContent = data.categoryLabel;
+        document.getElementById('faqPreviewMeta').style.display = data.category ? '' : 'none';
+        document.getElementById('faqPreviewAnswer').innerHTML = data.answer;
+        document.getElementById('faqPreviewBadge').textContent = 'Preview';
+        document.getElementById('faqPreviewBadge').className = 'modal-badge draft';
+
+        document.getElementById('faqPreviewModal').classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeFaqPreviewModal() {
+        document.getElementById('faqPreviewModal').classList.remove('active');
+        if (document.getElementById('newFAQModal').classList.contains('active')) {
+            document.body.style.overflow = 'hidden';
+        } else {
+            document.body.style.overflow = '';
+        }
+    }
+
+    async function saveFaqWithStatus(status) {
+        const data = collectFaqFormData();
+        if (!validateFaqForm(data)) {
+            closeFaqPreviewModal();
             return;
         }
-        const category = document.getElementById('newFAQCategory').value;
-        if (!question || !category) return;
+
+        const payload = {
+            question: data.question,
+            answer: data.answerHtml.length ? data.answerHtml : data.answer,
+            category: data.category || null,
+            visibility: status,
+        };
+
         try {
             if (editFaqId) {
-                const { faq } = await knowledgeBaseApi.putFaq(editFaqId, { question, answer: answerHtml.length ? answerHtml : answer, category });
+                const { faq } = await knowledgeBaseApi.putFaq(editFaqId, payload);
                 const idx = faqsData.findIndex(f => f.id === editFaqId);
                 if (idx !== -1) faqsData[idx] = faq;
                 editFaqId = null;
             } else {
-                const { faq } = await knowledgeBaseApi.postFaqs({ question, answer: answerHtml.length ? answerHtml : answer, category });
+                const { faq } = await knowledgeBaseApi.postFaqs(payload);
                 faqsData.unshift(faq);
             }
-            renderFAQs(document.querySelector('.faq-category-btn.active')?.dataset.category || 'all');
+            renderFAQs(getFaqCategoryFilter());
+            closeFaqPreviewModal();
             closeNewFAQModal();
         } catch (err) {
             alert(err.message || 'Failed to save FAQ.');
@@ -2525,6 +2871,10 @@
 
     document.getElementById('newFAQModal').addEventListener('click', function(e) {
         if (e.target === this) closeNewFAQModal();
+    });
+
+    document.getElementById('faqPreviewModal').addEventListener('click', function(e) {
+        if (e.target === this) closeFaqPreviewModal();
     });
 
     // New Guide Modal
@@ -2592,8 +2942,8 @@
     });
 
     // Initialize
-    renderArticles();
-    renderFAQs();
+    renderArticles(getArticleCategoryFilter());
+    renderFAQs(getFaqCategoryFilter());
     renderGuides();
 </script>
 @endpush

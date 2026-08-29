@@ -17,6 +17,7 @@ class KnowledgeBaseFaq extends Model
         'question',
         'answer',
         'category',
+        'visibility',
         'views',
     ];
 
