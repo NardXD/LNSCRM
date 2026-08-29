@@ -903,7 +903,7 @@
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
     const LEAD_OPTIONS = @json($leadFormOptions);
     const LEAD_FOLLOW_UP = @json($leadFollowUpConfig ?? []);
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, selectedIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadIds: [], messageChannels: [], messageChannel: '', leadPhones: [] };
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, selectedIds: [], editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadIds: [], messageChannels: [], messageChannel: '', leadPhones: [], leadName: '' };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -1029,14 +1029,17 @@
         push(lead?.alt_phone);
         return [...new Set(values)];
     }
-    function leadPhoneChannelUrl(channelKey, phone) {
+    function leadPhoneChannelUrl(channelKey, phone, name) {
         const trimmed = String(phone || '').trim();
         if (!trimmed) return null;
         if (channelKey === 'phone') {
             return '/twilio/call?phone=' + encodeURIComponent(trimmed);
         }
         if (channelKey === 'sms') {
-            return '/sms?phone=' + encodeURIComponent(trimmed);
+            const params = new URLSearchParams({ phone: trimmed });
+            const leadName = String(name || '').trim();
+            if (leadName) params.set('name', leadName);
+            return '/sms?' + params.toString();
         }
         return null;
     }
@@ -1055,7 +1058,7 @@
             let url = picked?.url || '';
             let title = picked?.title || '';
             if (!url && primaryPhone && (def.key === 'phone' || def.key === 'sms')) {
-                url = leadPhoneChannelUrl(def.key, primaryPhone) || '';
+                url = leadPhoneChannelUrl(def.key, primaryPhone, state.leadName) || '';
                 title = primaryPhone;
             }
             if (!url) return '';
@@ -1873,6 +1876,7 @@
         setExtrasVisible(false);
         state.editingId = null;
         state.leadPhones = [];
+        state.leadName = '';
         state.attachedInboxConversations = [];
         state.pendingInboxConversations = [];
         document.getElementById('leadInboxSearch').value = '';
@@ -1927,6 +1931,7 @@
         document.getElementById('deleteLeadBtn').hidden = false;
         state.editingId = lead.id;
         state.leadPhones = leadPhoneValues(lead);
+        state.leadName = [lead.title, lead.name].filter(Boolean).join(' ').trim();
         renderLeadModalChannelLinks([], [], state.leadPhones);
         renderLabels(lead.labels || []);
         renderNotes(lead.notes || []);

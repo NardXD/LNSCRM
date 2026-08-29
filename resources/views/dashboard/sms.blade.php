@@ -934,15 +934,17 @@
     }
 
     async function openPhoneFromQuery() {
-        const phone = new URLSearchParams(window.location.search).get('phone');
+        const params = new URLSearchParams(window.location.search);
+        const phone = params.get('phone');
         if (!phone) return;
+        const name = params.get('name');
         const match = conversations.find(c => phonesLooselyMatch(c.peer_phone, phone));
         if (match) {
             await openConversation(match.id);
             return;
         }
         els.newTo.value = phone.trim();
-        if (els.newName) els.newName.value = '';
+        if (els.newName) els.newName.value = name ? name.trim() : '';
         els.modal.hidden = false;
     }
 
