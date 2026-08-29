@@ -5,6 +5,8 @@
 @section('content')
     @php
         $leadFormOptions = $leadFormOptions ?? \App\Models\Lead::formOptions();
+        $reportDefaultDateFrom = now()->startOfMonth()->toDateString();
+        $reportDefaultDateTo = now()->endOfMonth()->toDateString();
     @endphp
     <div class="page-header leads-header">
         <div>
@@ -50,8 +52,8 @@
                 <option value="{{ $value }}">{{ $label }}</option>
             @endforeach
         </select>
-        <input type="date" id="reportDateFrom" class="leads-assignee-filter" aria-label="Created from">
-        <input type="date" id="reportDateTo" class="leads-assignee-filter" aria-label="Created to">
+        <input type="date" id="reportDateFrom" class="leads-assignee-filter" aria-label="Created from" value="{{ $reportDefaultDateFrom }}">
+        <input type="date" id="reportDateTo" class="leads-assignee-filter" aria-label="Created to" value="{{ $reportDefaultDateTo }}">
         <div class="leads-tabs" role="tablist" id="reportStatusTabs">
             <button type="button" class="leads-tab active" data-status="all">All</button>
         </div>
@@ -184,6 +186,8 @@
     const LEAD_OPTIONS = @json($leadFormOptions);
     const BOOTSTRAP_LABELS = @json($labels ?? []);
     const BOOTSTRAP_ASSIGNEES = @json($assignees ?? []);
+    const DEFAULT_DATE_FROM = @json($reportDefaultDateFrom);
+    const DEFAULT_DATE_TO = @json($reportDefaultDateTo);
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
 
     const state = {
@@ -191,8 +195,8 @@
         source: '',
         assigned_to: '',
         customer_type: '',
-        date_from: '',
-        date_to: '',
+        date_from: DEFAULT_DATE_FROM,
+        date_to: DEFAULT_DATE_TO,
         search: '',
         labelIds: [],
         companyLabels: Array.isArray(BOOTSTRAP_LABELS) ? BOOTSTRAP_LABELS.map(l => ({
@@ -486,14 +490,14 @@
         state.source = '';
         state.assigned_to = '';
         state.customer_type = '';
-        state.date_from = '';
-        state.date_to = '';
+        state.date_from = DEFAULT_DATE_FROM;
+        state.date_to = DEFAULT_DATE_TO;
         state.search = '';
         state.labelIds = [];
         document.getElementById('reportSearch').value = '';
         document.getElementById('reportCustomerTypeFilter').value = '';
-        document.getElementById('reportDateFrom').value = '';
-        document.getElementById('reportDateTo').value = '';
+        document.getElementById('reportDateFrom').value = DEFAULT_DATE_FROM;
+        document.getElementById('reportDateTo').value = DEFAULT_DATE_TO;
         document.querySelectorAll('#reportStatusTabs .leads-tab').forEach(tab => {
             tab.classList.toggle('active', tab.dataset.status === 'all');
         });
