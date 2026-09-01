@@ -2420,6 +2420,9 @@
             if (!res.ok) throw new Error(data.message || 'Could not attach email.');
             state.attachedInboxConversations = data.data?.attached_inbox_conversations
                 || (data.conversation ? state.attachedInboxConversations.concat([data.conversation]) : state.attachedInboxConversations);
+            if (data.data?.labels) {
+                renderLabels(data.data.labels);
+            }
             renderAttachedInboxEmails();
             loadHistory(state.editingId);
             return;

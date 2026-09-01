@@ -731,6 +731,7 @@ class LeadsController extends Controller
         $conversation = $this->inboxAttach->conversationForLead($lead, (int) $validated['conversation_id']);
         $result = $this->inboxAttach->attach($lead, $conversation, $request->user());
         $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
+        $lead->load(['labels', 'inboxConversations.leadLabels']);
 
         return response()->json([
             'success' => true,

@@ -98,12 +98,29 @@ class LeadInboxAttachService
 
         $conversation->lead_id = $lead->id;
         $conversation->save();
+        $this->graduateConversationLabels($lead, $conversation);
         $this->leadActivity->recordInboxAttached($lead, $conversation);
 
         return [
             'conversation' => $this->serialize($conversation->fresh(['inbox:id,name,email,type']) ?? $conversation),
             'previous_lead_id' => $previousLeadId && $previousLeadId !== (int) $lead->id ? $previousLeadId : null,
         ];
+    }
+
+    /**
+     * Labels applied while this conversation had no matching lead (e.g. Front
+     * import) graduate onto the lead itself once the conversation is attached,
+     * and no longer need to live directly on the conversation.
+     */
+    private function graduateConversationLabels(Lead $lead, InboxConversation $conversation): void
+    {
+        $conversationLabelIds = $conversation->leadLabels()->pluck('lead_labels.id')->map(fn ($id) => (int) $id)->all();
+        if ($conversationLabelIds === []) {
+            return;
+        }
+
+        $lead->labels()->syncWithoutDetaching($conversationLabelIds);
+        $conversation->leadLabels()->detach($conversationLabelIds);
     }
 
     public function detach(Lead $lead, InboxConversation $conversation, User $user): void
