@@ -316,6 +316,10 @@
         font-weight: 700;
     }
 
+    .lead-label-chip--front {
+        border: 1px dashed currentColor;
+    }
+
     .lead-label-chip button,
     .qb-label-chip button {
         background: none;

@@ -41,7 +41,7 @@ class LeadInboxAttachService
 
         $search = trim($query);
         $builder = InboxConversation::query()
-            ->with('inbox:id,name,email,type')
+            ->with(['inbox:id,name,email,type', 'leadLabels'])
             ->notMerged()
             ->where('company_id', $user->company_id)
             ->whereIn('shared_inbox_id', $inboxIds)
@@ -71,7 +71,7 @@ class LeadInboxAttachService
     public function attached(Lead $lead): array
     {
         return InboxConversation::query()
-            ->with('inbox:id,name,email,type')
+            ->with(['inbox:id,name,email,type', 'leadLabels'])
             ->notMerged()
             ->where('lead_id', $lead->id)
             ->orderByDesc('last_message_at')
@@ -143,7 +143,7 @@ class LeadInboxAttachService
      */
     public function serialize(InboxConversation $conversation): array
     {
-        $conversation->loadMissing('inbox:id,name,email,type');
+        $conversation->loadMissing(['inbox:id,name,email,type', 'leadLabels']);
 
         return [
             'id' => $conversation->id,
@@ -160,6 +160,13 @@ class LeadInboxAttachService
                 'name' => $conversation->inbox->name,
                 'email' => $conversation->inbox->email,
             ] : null,
+            // Front.com labels still attached directly to this conversation
+            // (not yet graduated onto the lead's own labels).
+            'lead_labels' => $conversation->leadLabels->map(fn ($label) => [
+                'id' => $label->id,
+                'name' => $label->name,
+                'color' => $label->color,
+            ])->all(),
         ];
     }
 

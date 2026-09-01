@@ -1058,7 +1058,7 @@
         const facilityEl = document.getElementById('leadModalStoreganise');
         if (!metaRow || !labelsWrap || !labelsEl || !facilityWrap || !facilityEl) return;
 
-        const labels = state.labels || lead?.labels || [];
+        const labels = mergedLeadLabels();
         const hasLabels = labels.length > 0;
         labelsWrap.hidden = !hasLabels;
         labelsEl.innerHTML = hasLabels ? labelChips(labels) : '';
@@ -1210,9 +1210,26 @@
         return (r * 299 + g * 587 + b * 114) / 1000 > 160 ? '#111' : '#fff';
     }
     function labelChips(labels) {
-        return (labels || []).map(label =>
-            `<span class="lead-label-chip" style="background:${esc(label.color || '#4338ca')};color:${chipText(label.color)}">${esc(label.name)}</span>`
-        ).join(' ') || '<span class="lead-meta">—</span>';
+        return (labels || []).map(label => {
+            const fromFront = label.source === 'front';
+            const cls = fromFront ? 'lead-label-chip lead-label-chip--front' : 'lead-label-chip';
+            const title = fromFront ? ' title="Imported from Front.com — not yet saved on this lead"' : '';
+            return `<span class="${cls}" style="background:${esc(label.color || '#4338ca')};color:${chipText(label.color)}"${title}>${esc(label.name)}</span>`;
+        }).join(' ') || '<span class="lead-meta">—</span>';
+    }
+    function mergedLeadLabels() {
+        const merged = new Map();
+        (state.labels || []).forEach(label => {
+            const key = String(label?.name || '').trim().toLowerCase();
+            if (key) merged.set(key, { ...label, source: 'lead' });
+        });
+        (state.attachedInboxConversations || []).forEach(conversation => {
+            (conversation.lead_labels || []).forEach(label => {
+                const key = String(label?.name || '').trim().toLowerCase();
+                if (key && !merged.has(key)) merged.set(key, { ...label, source: 'front' });
+            });
+        });
+        return Array.from(merged.values());
     }
     function spinnerHtml() {
         return '<span class="leads-spinner" aria-hidden="true"></span>';
@@ -2304,6 +2321,7 @@
         return { from, mailbox, subject };
     }
     function renderAttachedInboxEmails() {
+        renderLeadModalHeaderMeta();
         const list = document.getElementById('leadInboxAttachedList');
         if (!list) return;
         const items = state.editingId ? state.attachedInboxConversations : state.pendingInboxConversations;
