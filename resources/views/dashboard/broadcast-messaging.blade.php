@@ -6,6 +6,9 @@
     @if(session('status') === 'outlook-mail-connected')
         <div class="flash-alert flash-alert-success" role="alert">Microsoft 365 mailbox connected. You can now use it as an email sender.</div>
     @endif
+    @if(session('error'))
+        <div class="flash-alert flash-alert-error" role="alert">{{ session('error') }}</div>
+    @endif
 
     <div class="bc-page" id="broadcastApp"
          data-api-base="{{ url('api/broadcast') }}"
@@ -105,10 +108,13 @@
                     <div id="emailSenderBlock" hidden>
                         <div class="bc-sender-head">
                             <label class="bc-label">Microsoft 365 sender</label>
-                            <a href="{{ route('inbox') }}" class="btn btn-secondary" id="btnAddAccount">Manage shared mailboxes</a>
+                            <div class="bc-sender-actions">
+                                <a href="{{ route('inbox.connect.outlook', ['intent' => 'broadcast']) }}" class="btn btn-primary" id="btnConnectM365">Sign in with Microsoft 365</a>
+                                <a href="{{ route('inbox') }}" class="btn btn-secondary" id="btnAddAccount">Manage shared mailboxes</a>
+                            </div>
                         </div>
                         <select id="fInbox" class="bc-input"></select>
-                        <p class="bc-hint">Only shared Microsoft 365 mailboxes you belong to can send broadcasts. Personal mailboxes are not listed. Add or connect shared mailboxes in Inbox.</p>
+                        <p class="bc-hint">Choose a shared team mailbox or sign in with a Microsoft 365 account for broadcast-only sending. Direct accounts are not synced in Inbox.</p>
                     </div>
                 </section>
 
@@ -369,7 +375,8 @@
     .bc-type-card:has(input:checked) { border-color: var(--accent); background: var(--accent-light); }
     .bc-type-card input { accent-color: var(--accent); }
     .bc-type-card span { font-size: 0.8125rem; color: var(--text-secondary); }
-    .bc-sender-head { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; }
+    .bc-sender-head { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+    .bc-sender-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
     .bc-recip-layout { display: grid; grid-template-columns: 1.4fr 0.9fr; gap: 1rem; }
     .bc-recip-tools { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
     .bc-recip-results { border: 1px solid var(--border); border-radius: 10px; max-height: 320px; overflow: auto; margin-bottom: 1rem; }
@@ -1036,6 +1043,12 @@
         return document.querySelector('input[name="bcType"]:checked')?.value || state.type;
     }
 
+    function senderTypeLabel(type) {
+        if (type === 'broadcast') return 'Direct';
+        if (type === 'shared') return 'Shared';
+        return '';
+    }
+
     function fillSenders() {
         const data = state.bootstrap || {};
         const smsSelect = el('fFromNumber');
@@ -1044,9 +1057,20 @@
         ).join('') || '<option value="">No Twilio SMS numbers found</option>';
 
         const emailSelect = el('fInbox');
-        emailSelect.innerHTML = (data.email_senders || []).map((inbox) =>
-            `<option value="${inbox.id}" ${inbox.connected ? '' : 'disabled'}>${escapeHtml(inbox.name)} — ${escapeHtml(inbox.email || 'No address')}${inbox.connected ? '' : ' (not connected)'}</option>`
-        ).join('') || '<option value="">No shared Microsoft 365 mailboxes available</option>';
+        const senders = data.email_senders || [];
+        emailSelect.innerHTML = senders.map((inbox) => {
+            const kind = senderTypeLabel(inbox.type);
+            const prefix = kind ? `[${kind}] ` : '';
+            const suffix = inbox.connected ? '' : ' (not connected)';
+            return `<option value="${inbox.id}" ${inbox.connected ? '' : 'disabled'}>${escapeHtml(prefix + inbox.name)} — ${escapeHtml(inbox.email || 'No address')}${suffix}</option>`;
+        }).join('') || '<option value="">No Microsoft 365 senders available</option>';
+
+        const connectBtn = el('btnConnectM365');
+        if (connectBtn) {
+            const connectUrl = data.outlook_connect_url || connectBtn.getAttribute('href');
+            connectBtn.href = connectUrl;
+            connectBtn.hidden = !data.outlook_configured;
+        }
     }
 
     function applyType() {
@@ -1226,7 +1250,7 @@
                 if (!el('fFromNumber').value) return 'Select a Twilio phone number.';
             } else {
                 if (!canEmail) return 'You do not have permission to send email broadcasts.';
-                if (!el('fInbox').value) return 'Select a shared Microsoft 365 mailbox.';
+                if (!el('fInbox').value) return 'Select a Microsoft 365 sender or sign in with Microsoft 365.';
             }
         }
         if (step === 2) {

@@ -52,6 +52,7 @@ class BroadcastMessagingController extends Controller
                 'email_senders' => $this->broadcasts->emailSenders($user),
                 'integrations_url' => route('integrations'),
                 'inbox_url' => route('inbox'),
+                'outlook_connect_url' => route('inbox.connect.outlook', ['intent' => 'broadcast']),
             ],
         ]);
     }

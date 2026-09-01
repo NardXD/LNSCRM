@@ -13,6 +13,8 @@ class SharedInbox extends Model
 
     public const TYPE_SHARED = 'shared';
 
+    public const TYPE_BROADCAST = 'broadcast';
+
     protected $fillable = [
         'company_id',
         'outlook_mail_account_id',
@@ -73,13 +75,18 @@ class SharedInbox extends Model
         return $this->type === self::TYPE_PERSONAL;
     }
 
+    public function isBroadcast(): bool
+    {
+        return $this->type === self::TYPE_BROADCAST;
+    }
+
     public function userCanAccess(User $user): bool
     {
         if ($user->company_id !== $this->company_id) {
             return false;
         }
 
-        if ($this->isPersonal()) {
+        if ($this->isPersonal() || $this->isBroadcast()) {
             return (int) $this->created_by === (int) $user->id;
         }
 
@@ -88,7 +95,7 @@ class SharedInbox extends Model
 
     public function userIsAdmin(User $user): bool
     {
-        if ($this->isPersonal()) {
+        if ($this->isPersonal() || $this->isBroadcast()) {
             return (int) $this->created_by === (int) $user->id;
         }
 

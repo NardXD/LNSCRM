@@ -110,14 +110,25 @@ class BroadcastMessagingService
             return [];
         }
 
-        return SharedInbox::query()
+        $shared = SharedInbox::query()
             ->where('company_id', $user->company_id)
             ->where('is_active', true)
             ->where('type', SharedInbox::TYPE_SHARED)
             ->whereHas('members', fn ($m) => $m->where('users.id', $user->id))
             ->with('account')
             ->orderBy('name')
-            ->get()
+            ->get();
+
+        $direct = SharedInbox::query()
+            ->where('company_id', $user->company_id)
+            ->where('is_active', true)
+            ->where('type', SharedInbox::TYPE_BROADCAST)
+            ->where('created_by', $user->id)
+            ->with('account')
+            ->orderBy('name')
+            ->get();
+
+        return $shared->concat($direct)
             ->map(function (SharedInbox $inbox) {
                 $email = $inbox->external_mailbox ?: $inbox->email ?: $inbox->account?->email;
 
@@ -491,10 +502,10 @@ class BroadcastMessagingService
     {
         $inbox = collect($this->emailSenders($user))->firstWhere('id', $inboxId);
         if (! $inbox) {
-            throw new \InvalidArgumentException('Select a connected shared Microsoft 365 mailbox to send from.');
+            throw new \InvalidArgumentException('Select a connected Microsoft 365 mailbox to send from.');
         }
         if (empty($inbox['connected'])) {
-            throw new \InvalidArgumentException('Connect this shared Microsoft 365 mailbox in Inbox before sending.');
+            throw new \InvalidArgumentException('Connect this Microsoft 365 mailbox before sending.');
         }
 
         $label = trim($inbox['name'].' <'.$inbox['email'].'>');

@@ -334,7 +334,7 @@ class InboxController extends Controller
                 ]
             );
 
-            if (in_array($state['intent'] ?? 'personal', ['personal', 'broadcast'], true)) {
+            if (($state['intent'] ?? 'personal') === 'personal') {
                 $inbox = SharedInbox::updateOrCreate(
                     [
                         'company_id' => $user->company_id,
@@ -355,6 +355,29 @@ class InboxController extends Controller
                     ['role' => 'admin']
                 );
                 // Sync is started by the inbox UI after redirect (paged) — never block OAuth callback.
+            }
+
+            if (($state['intent'] ?? '') === 'broadcast') {
+                $displayName = trim((string) ($userInfo['displayName'] ?? ''));
+                $inbox = SharedInbox::updateOrCreate(
+                    [
+                        'company_id' => $user->company_id,
+                        'type' => SharedInbox::TYPE_BROADCAST,
+                        'created_by' => $user->id,
+                        'email' => $email,
+                    ],
+                    [
+                        'outlook_mail_account_id' => $account->id,
+                        'name' => $displayName !== '' ? $displayName : $email,
+                        'external_mailbox' => null,
+                        'is_active' => true,
+                        'color' => '#6366f1',
+                    ]
+                );
+                SharedInboxMember::updateOrCreate(
+                    ['shared_inbox_id' => $inbox->id, 'user_id' => $user->id],
+                    ['role' => 'admin']
+                );
             }
 
             if (! empty($state['shared_inbox_id'])) {
@@ -2467,6 +2490,7 @@ class InboxController extends Controller
         return SharedInbox::query()
             ->where('company_id', $user->company_id)
             ->where('is_active', true)
+            ->where('type', '!=', SharedInbox::TYPE_BROADCAST)
             ->where(function ($q) use ($user) {
                 $q->where(function ($personal) use ($user) {
                     $personal->where('type', SharedInbox::TYPE_PERSONAL)

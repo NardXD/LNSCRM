@@ -3,8 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\Company;
+use App\Models\OutlookMailAccount;
 use App\Models\Permission;
 use App\Models\Role;
+use App\Models\SharedInbox;
+use App\Models\SharedInboxMember;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -34,6 +37,55 @@ class BroadcastMessagingLimitTest extends TestCase
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.max_recipients', 10000);
+    }
+
+    public function test_bootstrap_includes_shared_and_direct_m365_senders(): void
+    {
+        [$user, $company] = $this->userWithPermissions([
+            'view_broadcast_messaging',
+            'send_broadcast_email',
+        ]);
+
+        $account = OutlookMailAccount::query()->create([
+            'company_id' => $company->id,
+            'user_id' => $user->id,
+            'email' => 'sender@example.com',
+            'access_token' => 'token',
+            'is_active' => true,
+        ]);
+
+        $shared = SharedInbox::query()->create([
+            'company_id' => $company->id,
+            'outlook_mail_account_id' => $account->id,
+            'created_by' => $user->id,
+            'name' => 'Support',
+            'email' => 'support@example.com',
+            'type' => SharedInbox::TYPE_SHARED,
+            'is_active' => true,
+        ]);
+        SharedInboxMember::query()->create([
+            'shared_inbox_id' => $shared->id,
+            'user_id' => $user->id,
+            'role' => 'admin',
+        ]);
+
+        $direct = SharedInbox::query()->create([
+            'company_id' => $company->id,
+            'outlook_mail_account_id' => $account->id,
+            'created_by' => $user->id,
+            'name' => 'Marketing',
+            'email' => 'marketing@example.com',
+            'type' => SharedInbox::TYPE_BROADCAST,
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/broadcast/bootstrap')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonFragment(['id' => $shared->id, 'type' => 'shared', 'email' => 'support@example.com'])
+            ->assertJsonFragment(['id' => $direct->id, 'type' => 'broadcast', 'email' => 'marketing@example.com'])
+            ->assertJsonStructure(['data' => ['outlook_connect_url']]);
     }
 
     public function test_store_rejects_more_than_max_recipients(): void

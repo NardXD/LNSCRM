@@ -54,6 +54,7 @@ class SyncInboxMail extends Command
         $query = SharedInbox::query()
             ->with('account')
             ->where('is_active', true)
+            ->where('type', '!=', SharedInbox::TYPE_BROADCAST)
             ->whereNotNull('outlook_mail_account_id')
             ->whereHas('account', fn ($q) => $q->where('is_active', true))
             ->orderBy('id');
