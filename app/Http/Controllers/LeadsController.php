@@ -56,6 +56,7 @@ class LeadsController extends Controller
 
         return view('dashboard.leads', [
             'canManageLeadRules' => Auth::user()?->hasPermission('create_lead_rules') ?? false,
+            'canViewQuotationBuilder' => Auth::user()?->hasPermission('view_quotation_builder') ?? false,
             'leadFormOptions' => Lead::formOptions(),
             'leadFollowUpConfig' => $this->followUpDays->configForCompany($companyId),
             'storeganiseConnected' => StoreganiseIntegration::query()

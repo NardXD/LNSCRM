@@ -39,7 +39,7 @@ class CheckPermission
         'knowledge-base' => 'view_knowledge_base',
         'integrations' => 'view_integrations',
         'quotation-builder' => 'view_quotation_builder',
-        'quotation-item-templates' => 'view_quotation_builder',
+        'quotation-builder.microsoft-365-mail' => 'view_quotation_builder_microsoft_365_mail',
         'contracts' => 'view_contracts',
         'calendar' => 'view_calendar',
         'email-tracking' => 'view_email_tracking',
@@ -77,7 +77,7 @@ class CheckPermission
         'knowledge-base' => 'knowledge-base',
         'integrations' => 'integrations',
         'quotation-builder' => 'quotation-builder',
-        'quotation-item-templates' => 'quotation-builder',
+        'quotation-builder.microsoft-365-mail' => 'quotation-builder',
         'contracts' => 'contracts',
         'calendar' => 'calendar',
         'email-tracking' => 'email-tracking',
@@ -205,6 +205,9 @@ class CheckPermission
         }
 
         // Check api.quotation-builder.* etc
+        if (str_starts_with($routeName, 'api.integrations')) {
+            return 'integrations';
+        }
         if (str_starts_with($routeName, 'api.quotation-builder')) {
             return 'quotation-builder';
         }

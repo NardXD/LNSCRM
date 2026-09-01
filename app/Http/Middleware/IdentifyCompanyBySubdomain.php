@@ -23,8 +23,12 @@ class IdentifyCompanyBySubdomain
         $company = Company::current();
 
         if ($company) {
-            $request->merge(['company' => $company]);
             app()->instance('company', $company);
+
+            // Do not overwrite a posted "company" field (e.g. tenant name on storage quotes).
+            if (! $request->has('company')) {
+                $request->merge(['company' => $company]);
+            }
         }
 
         return $next($request);

@@ -15,6 +15,8 @@ class SharedInbox extends Model
 
     public const TYPE_BROADCAST = 'broadcast';
 
+    public const TYPE_QUOTATION = 'quotation';
+
     protected $fillable = [
         'company_id',
         'outlook_mail_account_id',
@@ -80,10 +82,19 @@ class SharedInbox extends Model
         return $this->type === self::TYPE_BROADCAST;
     }
 
+    public function isQuotation(): bool
+    {
+        return $this->type === self::TYPE_QUOTATION;
+    }
+
     public function userCanAccess(User $user): bool
     {
         if ($user->company_id !== $this->company_id) {
             return false;
+        }
+
+        if ($this->isQuotation()) {
+            return $user->hasPermission('view_quotation_builder_microsoft_365_mail');
         }
 
         if ($this->isPersonal() || $this->isBroadcast()) {
@@ -95,6 +106,10 @@ class SharedInbox extends Model
 
     public function userIsAdmin(User $user): bool
     {
+        if ($this->isQuotation()) {
+            return $user->hasPermission('view_quotation_builder_microsoft_365_mail');
+        }
+
         if ($this->isPersonal() || $this->isBroadcast()) {
             return (int) $this->created_by === (int) $user->id;
         }

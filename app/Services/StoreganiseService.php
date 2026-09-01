@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Models\StoreganiseIntegration;
+use App\Support\Facilities;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -559,5 +561,272 @@ class StoreganiseService
         }
 
         return $body['message'] ?? null;
+    }
+
+    /**
+     * @return array{name: string, gross: float, net: float, sqm: float}|null
+     */
+    public function getUnitQuote(string $localSiteCode, string $unitName): ?array
+    {
+        $unitName = trim($unitName);
+        if ($unitName === '' || ! $this->isConfigured()) {
+            return null;
+        }
+
+        $site = $this->siteByLocalCode($localSiteCode);
+        $siteId = $site['id'] ?? null;
+
+        $unit = $this->findUnit($siteId, $unitName);
+        if (! $unit) {
+            return null;
+        }
+
+        $net = $this->unitNetRate($unit);
+        $sqm = $this->unitArea($unit);
+
+        return [
+            'name' => (string) ($unit['code'] ?? $unit['name'] ?? $unitName),
+            'gross' => round($net),
+            'net' => round($net),
+            'sqm' => $sqm,
+        ];
+    }
+
+    public function unitQuoteLine(string $localSiteCode, string $unitName): string
+    {
+        $quote = $this->getUnitQuote($localSiteCode, $unitName);
+
+        if (! $quote) {
+            return '';
+        }
+
+        return $quote['name'].'|'.$quote['gross'].'|'.$quote['net'].'|'.$quote['sqm'];
+    }
+
+    /**
+     * @return list<array{code: string, price: float|int}>
+     */
+    public function searchUnits(string $localSiteCode, string $term): array
+    {
+        $term = trim($term);
+        if ($term === '' || ! $this->isConfigured()) {
+            return [];
+        }
+
+        $site = $this->siteByLocalCode($localSiteCode);
+        $siteId = $site['id'] ?? null;
+
+        $data = $this->get('units', array_filter([
+            'siteId' => $siteId,
+            'search' => $term,
+        ]));
+
+        $units = $this->normalizeList($data);
+        $results = [];
+
+        foreach ($units as $unit) {
+            $code = (string) ($unit['code'] ?? $unit['name'] ?? '');
+            if ($code === '' || isset($results[$code])) {
+                continue;
+            }
+
+            $results[$code] = [
+                'code' => $code,
+                'price' => round($this->unitNetRate($unit)),
+            ];
+
+            if (count($results) >= 15) {
+                break;
+            }
+        }
+
+        return array_values($results);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function siteByLocalCode(string $localCode): array
+    {
+        $code = Facilities::siteCode($localCode) ?: $localCode;
+        $directory = [];
+
+        try {
+            $directory = $this->listSitesDirectory();
+        } catch (\Throwable) {
+            $directory = [];
+        }
+
+        $entry = $directory[$localCode] ?? $directory[$code] ?? null;
+        $lookup = (string) ($entry['id'] ?? $entry['code'] ?? $code);
+
+        return Cache::remember("storeganise.site.{$lookup}", 300, function () use ($lookup, $code, $entry) {
+            $site = $this->get('sites/'.rawurlencode($lookup))
+                ?? $this->get('sites/'.rawurlencode($code))
+                ?? $this->get('sites', ['code' => $code, 'search' => $code]);
+
+            if (! $site && is_array($entry) && ! empty($entry['id'])) {
+                return $entry;
+            }
+
+            if (! $site) {
+                return [
+                    'id' => $lookup,
+                    'code' => $code,
+                    'name' => Facilities::name($code) ?: $code,
+                ];
+            }
+
+            return $site;
+        });
+    }
+
+    /**
+     * @return array<string, array{id: string, code: string, name: string}>
+     */
+    public function listSitesDirectory(): array
+    {
+        $cached = Cache::get(Facilities::CACHE_KEY);
+        if (is_array($cached) && $cached !== []) {
+            return $cached;
+        }
+
+        $sites = $this->fetchSitesForDirectory();
+
+        if ($sites !== []) {
+            Cache::put(Facilities::CACHE_KEY, $sites, 300);
+        }
+
+        return $sites;
+    }
+
+    /**
+     * @return array<string, array{id: string, code: string, name: string}>
+     */
+    protected function fetchSitesForDirectory(): array
+    {
+        $sites = [];
+        $limit = 100;
+
+        for ($offset = 0, $page = 0; $page < 10; $offset += $limit, $page++) {
+            $data = $this->get('sites', ['limit' => $limit, 'offset' => $offset]);
+            if ($data === null) {
+                break;
+            }
+
+            $items = $this->normalizeList($data);
+
+            foreach ($items as $site) {
+                if (! is_array($site)) {
+                    continue;
+                }
+
+                $normalized = $this->normalizeSiteForDirectory($site);
+                if ($normalized) {
+                    $sites[$normalized['code']] = $normalized;
+                }
+            }
+
+            if (count($items) < $limit) {
+                break;
+            }
+        }
+
+        if ($sites === []) {
+            foreach (Facilities::configured() as $localCode => $configured) {
+                $sites[$localCode] = [
+                    'id' => (string) ($configured['code'] ?? $localCode),
+                    'code' => (string) ($configured['code'] ?? $localCode),
+                    'name' => (string) ($configured['name'] ?? $localCode),
+                ];
+            }
+        }
+
+        uasort($sites, fn (array $a, array $b) => strcasecmp($a['name'], $b['name']));
+
+        return $sites;
+    }
+
+    /**
+     * @param  array<string, mixed>  $site
+     * @return array{id: string, code: string, name: string}|null
+     */
+    protected function normalizeSiteForDirectory(array $site): ?array
+    {
+        $normalized = $this->normalizeSite($site);
+        if (! $normalized) {
+            return null;
+        }
+
+        $code = (string) ($normalized['code'] ?? $normalized['id']);
+
+        return [
+            'id' => (string) $normalized['id'],
+            'code' => $code,
+            'name' => (string) $normalized['name'],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $unit
+     */
+    protected function findUnit(?string $siteId, string $unitName): ?array
+    {
+        $queries = [
+            array_filter(['siteId' => $siteId, 'code' => $unitName]),
+            array_filter(['siteId' => $siteId, 'search' => $unitName]),
+        ];
+
+        foreach ($queries as $query) {
+            $units = $this->normalizeList($this->get('units', $query));
+            foreach ($units as $unit) {
+                $code = (string) ($unit['code'] ?? $unit['name'] ?? '');
+                if (strcasecmp($code, $unitName) === 0) {
+                    return $unit;
+                }
+            }
+            if (count($units) === 1) {
+                return $units[0];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $unit
+     */
+    protected function unitNetRate(array $unit): float
+    {
+        $custom = is_array($unit['customFields'] ?? null) ? $unit['customFields'] : [];
+        $type = is_array($unit['unitType'] ?? null) ? $unit['unitType'] : [];
+
+        return (float) ($unit['price']
+            ?? $unit['defaultPrice']
+            ?? $type['price']
+            ?? $custom['standardRate']
+            ?? $custom['dcStdSecDep']
+            ?? 0);
+    }
+
+    /**
+     * @param  array<string, mixed>  $unit
+     */
+    protected function unitArea(array $unit): float
+    {
+        if (isset($unit['area'])) {
+            return round((float) $unit['area'], 1);
+        }
+
+        $width = (float) ($unit['width'] ?? $unit['dcWidth'] ?? 0);
+        $length = (float) ($unit['length'] ?? $unit['dcLength'] ?? 0);
+
+        if ($width && $length) {
+            return round($width * $length, 1);
+        }
+
+        $type = is_array($unit['unitType'] ?? null) ? $unit['unitType'] : [];
+
+        return round((float) ($type['area'] ?? 0), 1);
     }
 }

@@ -125,41 +125,49 @@
                         </div>
                         @endif
                     @elseif($item['route'] === 'quotation-builder')
-                        <div class="nav-item-parent {{ request()->routeIs('quotation-builder') || request()->routeIs('quotation-item-templates') || request()->routeIs('quotation.*') ? 'active' : '' }}">
+                        @php
+                            $hasQuotationBuilder = in_array('view_quotation_builder', $userPermissions ?? []);
+                            $hasQuotationM365Mail = in_array('view_quotation_builder_microsoft_365_mail', $userPermissions ?? []);
+                            $showQuotationMenu = $hasQuotationBuilder || $hasQuotationM365Mail;
+                        @endphp
+                        @if($showQuotationMenu)
+                        <div class="nav-item-parent {{ request()->routeIs('quotation-builder') || request()->routeIs('quotation-builder.*') ? 'active' : '' }}">
                             <div class="nav-item nav-item-toggle" onclick="toggleSubmenu('quotationBuilderSubmenu')">
                                 <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                                    <polyline points="14 2 14 8 20 8"/>
-                                    <line x1="16" y1="13" x2="8" y2="13"/>
-                                    <line x1="16" y1="17" x2="8" y2="17"/>
-                                    <polyline points="10 9 9 9 8 9"/>
+                                    <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+                                    <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+                                    <path d="M2 2l7.586 7.586"/>
+                                    <circle cx="11" cy="11" r="2"/>
                                 </svg>
-                                <span class="nav-text">{{ $item['label'] }}</span>
+                                <span class="nav-text">Quotation Builder</span>
                                 <svg class="nav-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <polyline points="6 9 12 15 18 9"/>
                                 </svg>
                             </div>
-                            <div class="nav-submenu" id="quotationBuilderSubmenu" style="display: {{ request()->routeIs('quotation-builder') || request()->routeIs('quotation-item-templates') || request()->routeIs('quotation.*') ? 'block' : 'none' }};">
-                                <a href="{{ route('quotation-builder') }}" class="nav-subitem {{ request()->routeIs('quotation-builder') && !request()->routeIs('quotation-item-templates') ? 'active' : '' }}">
+                            <div class="nav-submenu" id="quotationBuilderSubmenu" style="display: {{ request()->routeIs('quotation-builder') || request()->routeIs('quotation-builder.*') ? 'block' : 'none' }};">
+                                @if($hasQuotationBuilder)
+                                <a href="{{ route('quotation-builder') }}" class="nav-subitem {{ request()->routeIs('quotation-builder') && !request()->routeIs('quotation-builder.microsoft-365-mail') && !request()->routeIs('quotation-builder.leads.quote') ? 'active' : '' }}">
                                     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                                        <polyline points="14 2 14 8 20 8"/>
-                                        <line x1="16" y1="13" x2="8" y2="13"/>
-                                        <line x1="16" y1="17" x2="8" y2="17"/>
-                                        <polyline points="10 9 9 9 8 9"/>
+                                        <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+                                        <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+                                        <path d="M2 2l7.586 7.586"/>
+                                        <circle cx="11" cy="11" r="2"/>
                                     </svg>
-                                    <span class="nav-text">Quotations</span>
+                                    <span class="nav-text">Leads &amp; quotes</span>
                                 </a>
-                                <a href="{{ route('quotation-item-templates') }}" class="nav-subitem {{ request()->routeIs('quotation-item-templates') ? 'active' : '' }}">
+                                @endif
+                                @if($hasQuotationM365Mail)
+                                <a href="{{ route('quotation-builder.microsoft-365-mail') }}" class="nav-subitem {{ request()->routeIs('quotation-builder.microsoft-365-mail') ? 'active' : '' }}">
                                     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-                                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
-                                        <line x1="12" y1="22.08" x2="12" y2="12"/>
+                                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                                        <polyline points="22,6 12,13 2,6"/>
                                     </svg>
-                                    <span class="nav-text">Item Templates</span>
+                                    <span class="nav-text">Microsoft 365 Mail</span>
                                 </a>
+                                @endif
                             </div>
                         </div>
+                        @endif
                     @else
                         <a href="{{ route($item['route']) }}" class="nav-item {{ request()->routeIs($item['route']) || request()->routeIs($item['route'] . '.*') ? 'active' : '' }}">
                             @if($item['icon'] === 'dashboard')

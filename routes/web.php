@@ -46,7 +46,7 @@ use App\Http\Controllers\PayrollController;
 use App\Http\Controllers\ProjectManagementController;
 use App\Http\Controllers\PublicMediaController;
 use App\Http\Controllers\QuotationController;
-use App\Http\Controllers\QuotationItemTemplateController;
+use App\Http\Controllers\StorageQuoteController;
 use App\Http\Controllers\SmsController;
 use App\Http\Controllers\StripeWebhookController;
 use App\Http\Controllers\TeamManagementController;
@@ -640,10 +640,10 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         ->middleware('permission:view_inbox')
         ->name('inbox');
     Route::get('/inbox/connect/outlook', [InboxController::class, 'redirectOutlook'])
-        ->middleware('permission:view_inbox|view_broadcast_messaging')
+        ->middleware('permission:view_inbox|view_broadcast_messaging|view_quotation_builder_microsoft_365_mail')
         ->name('inbox.connect.outlook');
     Route::get('/inbox/connect/outlook/callback', [InboxController::class, 'callbackOutlook'])
-        ->middleware('permission:view_inbox|view_broadcast_messaging')
+        ->middleware('permission:view_inbox|view_broadcast_messaging|view_quotation_builder_microsoft_365_mail')
         ->name('inbox.connect.outlook.callback');
 
     Route::prefix('api/inbox')->middleware('permission:view_inbox')->group(function () {
@@ -816,6 +816,12 @@ Route::middleware(['auth', 'company.active'])->group(function () {
     })->name('billing-plan');
 
     Route::get('/quotation-builder', [QuotationController::class, 'index'])->middleware('permission:view_quotation_builder')->name('quotation-builder');
+    Route::get('/quotation-builder/microsoft-365-mail', [IntegrationController::class, 'microsoft365MailPage'])
+        ->middleware('permission:view_quotation_builder_microsoft_365_mail')
+        ->name('quotation-builder.microsoft-365-mail');
+    Route::get('/quotation-builder/leads/{lead}/quote', [StorageQuoteController::class, 'show'])
+        ->middleware('permission:view_quotation_builder')
+        ->name('quotation-builder.leads.quote');
 
     // Quotation Builder API Routes
     Route::prefix('api/quotation-builder')->group(function () {
@@ -832,19 +838,18 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::patch('/quotations/{quotation}/status', [QuotationController::class, 'updateStatus'])->name('api.quotation-builder.quotations.status.update');
         Route::delete('/quotations/{quotation}', [QuotationController::class, 'destroy'])->name('api.quotation-builder.quotations.destroy');
 
-        // Item templates autocomplete
-        Route::get('/item-templates/search', [QuotationItemTemplateController::class, 'search'])->name('api.quotation-builder.item-templates.search');
-    });
+        Route::get('/storage-quotes/units', [StorageQuoteController::class, 'unit'])->name('api.quotation-builder.storage-quotes.units');
+        Route::get('/storage-quotes/units/search', [StorageQuoteController::class, 'searchUnits'])->name('api.quotation-builder.storage-quotes.units.search');
+        Route::post('/storage-quotes/print', [StorageQuoteController::class, 'print'])->name('api.quotation-builder.storage-quotes.print');
+        Route::post('/storage-quotes/download', [StorageQuoteController::class, 'download'])->name('api.quotation-builder.storage-quotes.download');
+        Route::post('/storage-quotes/email', [StorageQuoteController::class, 'email'])->name('api.quotation-builder.storage-quotes.email');
 
-    // Quotation Item Templates Routes
-    Route::get('/quotation-item-templates', [QuotationItemTemplateController::class, 'index'])->middleware('permission:view_quotation_builder')->name('quotation-item-templates');
-
-    Route::prefix('api/quotation-item-templates')->group(function () {
-        Route::get('/templates', [QuotationItemTemplateController::class, 'getTemplates'])->name('api.quotation-item-templates.templates');
-        Route::post('/templates', [QuotationItemTemplateController::class, 'store'])->name('api.quotation-item-templates.templates.store');
-        Route::get('/templates/{quotationItemTemplate}', [QuotationItemTemplateController::class, 'show'])->name('api.quotation-item-templates.templates.show');
-        Route::put('/templates/{quotationItemTemplate}', [QuotationItemTemplateController::class, 'update'])->name('api.quotation-item-templates.templates.update');
-        Route::delete('/templates/{quotationItemTemplate}', [QuotationItemTemplateController::class, 'destroy'])->name('api.quotation-item-templates.templates.destroy');
+        Route::get('/microsoft-365-mail', [IntegrationController::class, 'getMicrosoft365MailIntegration'])
+            ->middleware('permission:view_quotation_builder_microsoft_365_mail')
+            ->name('api.quotation-builder.microsoft-365-mail.get');
+        Route::delete('/microsoft-365-mail', [IntegrationController::class, 'deleteMicrosoft365MailIntegration'])
+            ->middleware('permission:view_quotation_builder_microsoft_365_mail')
+            ->name('api.quotation-builder.microsoft-365-mail.delete');
     });
 
     // Contracts & E-Sign Routes

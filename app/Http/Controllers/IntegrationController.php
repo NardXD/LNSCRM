@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Company;
 use App\Models\GmailIntegration;
 use App\Models\OpenAIIntegration;
+use App\Models\SharedInbox;
 use App\Models\StripeIntegration;
 use App\Models\StoreganiseIntegration;
 use App\Models\TwilioFlexIntegration;
@@ -15,6 +16,7 @@ use App\Models\FacebookIntegration;
 use App\Models\WhatsAppIntegration;
 use App\Models\WiseIntegration;
 use App\Services\FacebookGraphMessagingService;
+use App\Services\OutlookMailService;
 use App\Services\StoreganiseService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
@@ -899,6 +901,80 @@ class IntegrationController extends Controller
         }
 
         return response()->json(['message' => 'Gmail integration deleted successfully']);
+    }
+
+    public function microsoft365MailPage(OutlookMailService $mailService)
+    {
+        $companyId = auth()->user()?->company_id;
+        $creds = $companyId ? $mailService->getMailCredentials($companyId) : [];
+
+        return view('dashboard.microsoft-365-mail', [
+            'outlookConfigured' => ! empty($creds['client_id']) && ! empty($creds['client_secret']),
+        ]);
+    }
+
+    /**
+     * Get Microsoft 365 outbound mail connection for quotation builder.
+     */
+    public function getMicrosoft365MailIntegration(Request $request, OutlookMailService $mailService): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $creds = $mailService->getMailCredentials($company->id);
+        $inbox = SharedInbox::query()
+            ->where('company_id', $company->id)
+            ->where('type', SharedInbox::TYPE_QUOTATION)
+            ->with('account')
+            ->first();
+
+        $connected = $inbox
+            && $inbox->is_active
+            && $inbox->outlook_mail_account_id
+            && $inbox->account;
+
+        if ($connected) {
+            return response()->json([
+                'integration' => [
+                    'email' => $inbox->email ?: $inbox->account->email,
+                    'name' => $inbox->name,
+                    'connected_at' => $inbox->updated_at,
+                ],
+                'status' => 'connected',
+                'outlook_configured' => ! empty($creds['client_id']) && ! empty($creds['client_secret']),
+            ]);
+        }
+
+        return response()->json([
+            'integration' => null,
+            'status' => 'disconnected',
+            'outlook_configured' => ! empty($creds['client_id']) && ! empty($creds['client_secret']),
+        ]);
+    }
+
+    /**
+     * Disconnect Microsoft 365 outbound mail for quotation builder.
+     */
+    public function deleteMicrosoft365MailIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        SharedInbox::query()
+            ->where('company_id', $company->id)
+            ->where('type', SharedInbox::TYPE_QUOTATION)
+            ->update([
+                'outlook_mail_account_id' => null,
+                'is_active' => false,
+            ]);
+
+        return response()->json(['message' => 'Microsoft 365 mailbox disconnected successfully']);
     }
 
     /**

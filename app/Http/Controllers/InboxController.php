@@ -229,7 +229,11 @@ class InboxController extends Controller
         $companyId = $request->user()->company_id;
         $creds = $this->mailService->getMailCredentials($companyId);
         if (empty($creds['client_id']) || empty($creds['client_secret'])) {
-            $home = $request->query('intent') === 'broadcast' ? 'broadcast-messaging' : 'inbox';
+            $home = match ($request->query('intent')) {
+                'broadcast' => 'broadcast-messaging',
+                'quotation' => 'quotation-builder.microsoft-365-mail',
+                default => 'inbox',
+            };
 
             return redirect()->route($home)->with('error', 'Outlook is not configured. Add Microsoft OAuth credentials in Integrations.');
         }
@@ -380,6 +384,25 @@ class InboxController extends Controller
                 );
             }
 
+            if (($state['intent'] ?? '') === 'quotation') {
+                $displayName = trim((string) ($userInfo['displayName'] ?? ''));
+                SharedInbox::updateOrCreate(
+                    [
+                        'company_id' => $user->company_id,
+                        'type' => SharedInbox::TYPE_QUOTATION,
+                    ],
+                    [
+                        'outlook_mail_account_id' => $account->id,
+                        'created_by' => $user->id,
+                        'name' => $displayName !== '' ? $displayName : 'Quotation mail',
+                        'email' => $email,
+                        'external_mailbox' => null,
+                        'is_active' => true,
+                        'color' => '#0ea5e9',
+                    ]
+                );
+            }
+
             if (! empty($state['shared_inbox_id'])) {
                 $inbox = SharedInbox::where('company_id', $user->company_id)
                     ->where('id', $state['shared_inbox_id'])
@@ -449,9 +472,11 @@ class InboxController extends Controller
 
     private function outlookConnectRedirect(array $state, string $flashKey, mixed $flashValue): RedirectResponse
     {
-        $route = (($state['intent'] ?? '') === 'broadcast')
-            ? 'broadcast-messaging'
-            : 'inbox';
+        $route = match ($state['intent'] ?? '') {
+            'broadcast' => 'broadcast-messaging',
+            'quotation' => 'quotation-builder.microsoft-365-mail',
+            default => 'inbox',
+        };
 
         return redirect()->route($route)->with($flashKey, $flashValue);
     }

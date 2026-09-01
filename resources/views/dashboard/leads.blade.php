@@ -94,7 +94,12 @@
                     <p id="leadModalAdded" class="lead-modal-added" hidden></p>
                     <div id="leadModalChannelLinks" class="lead-modal-channel-links" hidden aria-label="Messaging channels"></div>
                 </div>
-                <button type="button" class="modal-close-btn lead-modal-close" id="closeLeadModal">&times;</button>
+                <div class="lead-modal-header-actions">
+                    @if (! empty($canViewQuotationBuilder))
+                        <a id="leadModalQuoteBtn" class="btn btn-primary btn-sm lead-modal-quote-btn" href="#" hidden>Build Quote</a>
+                    @endif
+                    <button type="button" class="modal-close-btn lead-modal-close" id="closeLeadModal">&times;</button>
+                </div>
                 <div id="leadModalHeaderMeta" class="lead-modal-header-meta" hidden>
                     <div class="lead-modal-meta-block lead-modal-heading-labels" id="leadModalLabelsWrap" hidden>
                         <span class="lead-modal-meta-kicker">Labels</span>
@@ -946,7 +951,10 @@
 .modal-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 0.65rem 0.85rem; border-bottom: 1px solid var(--border); gap: 0.65rem; }
 .lead-modal-header { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.9fr); align-items: start; gap: 0.35rem 0.65rem; }
 .lead-modal-heading { grid-column: 1; grid-row: 1; min-width: 0; }
-.lead-modal-close { grid-column: 2; grid-row: 1; justify-self: end; align-self: start; }
+.lead-modal-header-actions { grid-column: 2; grid-row: 1; justify-self: end; align-self: start; display: flex; align-items: center; gap: 0.45rem; flex-shrink: 0; }
+.lead-modal-quote-btn { white-space: nowrap; text-decoration: none; }
+.lead-modal-quote-btn[hidden] { display: none !important; }
+.lead-modal-close { justify-self: end; align-self: start; }
 .lead-modal-header-meta { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.9fr); gap: 0.35rem 0.65rem; margin-top: 0.15rem; }
 .lead-modal-heading h3 { margin: 0; font-size: 0.875rem; font-weight: 700; }
 .lead-modal-added { margin: 0.15rem 0 0; font-size: 0.6875rem; color: var(--text-secondary); font-weight: 500; }
@@ -1146,7 +1154,9 @@
     const LEAD_OPTIONS = @json($leadFormOptions);
     const LEAD_FOLLOW_UP = @json($leadFollowUpConfig ?? []);
     const STOREGANISE_CONNECTED = @json(!empty($storeganiseConnected));
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
+    const CAN_VIEW_QUOTATION_BUILDER = @json(!empty($canViewQuotationBuilder));
+    const LEAD_QUOTE_URL_BASE = @json(url('/quotation-builder/leads'));
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', savedLeadStoreganiseSiteId: null, storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -1190,6 +1200,39 @@
         el.textContent = age ? `Added ${added} · ${age}` : `Added ${added}`;
         el.hidden = false;
     }
+    function activeLeadTab() {
+        return document.querySelector('.lead-form-tab.active')?.dataset.leadTab || 'primary';
+    }
+    function leadQuoteUrl(leadId) {
+        return `${LEAD_QUOTE_URL_BASE}/${encodeURIComponent(leadId)}/quote`;
+    }
+    function resetLeadStoreganiseFacilitySelect() {
+        const select = document.getElementById('leadStoreganiseSite');
+        if (!select) return;
+        select.innerHTML = '<option value="">Select a facility…</option>';
+        select.value = '';
+    }
+    function setSavedLeadStoreganiseSiteId(siteId) {
+        const normalized = String(siteId ?? '').trim();
+        state.savedLeadStoreganiseSiteId = normalized !== '' ? normalized : null;
+    }
+    function leadHasStoreganiseFacility() {
+        if (!STOREGANISE_CONNECTED) return false;
+        if (!(state.editingId || document.getElementById('leadId')?.value)) return false;
+
+        return String(state.savedLeadStoreganiseSiteId || '').trim() !== '';
+    }
+    function updateLeadModalQuoteButton() {
+        const btn = document.getElementById('leadModalQuoteBtn');
+        if (!btn || !CAN_VIEW_QUOTATION_BUILDER) return;
+
+        const leadId = state.editingId || document.getElementById('leadId')?.value || '';
+        const onSourceTab = activeLeadTab() === 'source';
+        const show = Boolean(leadId) && onSourceTab && leadHasStoreganiseFacility();
+
+        btn.hidden = !show;
+        btn.href = show ? leadQuoteUrl(leadId) : '#';
+    }
     function renderLeadModalHeaderMeta(lead = null) {
         const metaRow = document.getElementById('leadModalHeaderMeta');
         const labelsWrap = document.getElementById('leadModalLabelsWrap');
@@ -1204,20 +1247,17 @@
         labelsEl.innerHTML = hasLabels ? labelChips(labels) : '';
 
         let facilityLabel = '';
-        if (STOREGANISE_CONNECTED && (state.editingId || lead?.id)) {
-            const siteId = document.getElementById('leadStoreganiseSite')?.value
-                || lead?.storeganise_site_id
-                || '';
-            if (siteId) {
-                const site = state.storeganiseSites.find(s => String(s.id) === String(siteId));
-                facilityLabel = site ? storeganiseSiteLabel(site) : siteId;
-            }
+        const siteId = String(state.savedLeadStoreganiseSiteId || document.getElementById('leadStoreganiseSite')?.value || '').trim();
+        if (STOREGANISE_CONNECTED && (state.editingId || lead?.id) && siteId) {
+            const site = state.storeganiseSites.find(s => String(s.id) === String(siteId));
+            facilityLabel = site ? storeganiseSiteLabel(site) : siteId;
         }
         const hasFacility = facilityLabel !== '';
         facilityWrap.hidden = !hasFacility;
         facilityEl.textContent = facilityLabel;
 
         metaRow.hidden = !hasLabels && !hasFacility;
+        updateLeadModalQuoteButton();
     }
     function statusName(slug) {
         const key = String(slug || '');
@@ -2120,6 +2160,7 @@
         if (tabName === 'matching') {
             searchInboxEmails(document.getElementById('leadInboxSearch').value.trim());
         }
+        updateLeadModalQuoteButton();
     }
     function showLeadTabForElement(el) {
         const panel = el?.closest?.('[data-lead-panel]');
@@ -2154,6 +2195,8 @@
         renderNotes([]);
         setExtrasVisible(false);
         state.editingId = null;
+        state.savedLeadStoreganiseSiteId = null;
+        resetLeadStoreganiseFacilitySelect();
         state.leadPhones = [];
         state.leadName = '';
         state.attachedInboxConversations = [];
@@ -2164,6 +2207,7 @@
         renderActivities([]);
         renderLeadModalHeaderMeta(null);
         renderStoreganiseBlock(null);
+        updateLeadModalQuoteButton();
     }
 
     function storeganiseSiteLabel(site) {
@@ -2331,6 +2375,9 @@
     function fillForm(lead) {
         const parsed = splitName(lead.name);
         document.getElementById('leadId').value = lead.id;
+        setSavedLeadStoreganiseSiteId(lead.storeganise_site_id);
+        resetLeadStoreganiseFacilitySelect();
+        updateLeadModalQuoteButton();
         setVal('leadTitle', lead.title);
         setVal('leadFirstName', lead.first_name || parsed.first);
         setVal('leadLastName', lead.last_name || parsed.last);
@@ -2572,18 +2619,30 @@
         modal.classList.remove('open');
         const url = new URL(window.location.href);
         url.searchParams.delete('lead');
+        url.searchParams.delete('tab');
         history.replaceState(null, '', url);
     }
 
-    async function openLead(id) {
+    function resolveLeadTab(name) {
+        const allowed = ['primary', 'alternate', 'source', 'matching', 'notes'];
+        return allowed.includes(name) ? name : 'primary';
+    }
+
+    async function openLead(id, options = {}) {
         const res = await fetch(api + '/' + id, { credentials: 'same-origin', headers: headers() });
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || 'Lead not found');
-        showLeadTab('primary');
         fillForm(data.data);
+        const tab = resolveLeadTab(options.tab || new URLSearchParams(window.location.search).get('tab') || 'primary');
+        showLeadTab(tab);
         openModal();
         const url = new URL(window.location.href);
         url.searchParams.set('lead', id);
+        if (tab !== 'primary') {
+            url.searchParams.set('tab', tab);
+        } else {
+            url.searchParams.delete('tab');
+        }
         history.replaceState(null, '', url);
     }
 
@@ -2596,6 +2655,7 @@
         const siteId = document.getElementById('leadStoreganiseSite')?.value || '';
         refreshStoreganiseAction(leadId, siteId);
         renderLeadModalHeaderMeta();
+        updateLeadModalQuoteButton();
     });
     document.getElementById('leadActivityTrigger').addEventListener('click', openActivityModal);
     document.getElementById('closeLeadActivityModal').addEventListener('click', closeActivityModal);
@@ -4304,8 +4364,10 @@
         applyFollowUpConfig({ days: state.followUpDays, plus_min: state.followUpPlusMin });
         return loadLeads();
     }).then(() => {
-        const id = new URLSearchParams(window.location.search).get('lead');
-        if (id) openLead(id).catch(() => {});
+        const params = new URLSearchParams(window.location.search);
+        const id = params.get('lead');
+        const tab = params.get('tab') || undefined;
+        if (id) openLead(id, { tab }).catch(() => {});
     });
 })();
 </script>

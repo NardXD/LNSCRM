@@ -3700,6 +3700,52 @@
                             });
                             groupDiv.appendChild(orphanList);
                         }
+                    } else if (moduleName === 'Quotation Builder') {
+                        const quotationSubCategories = {
+                            'Microsoft 365 Mail': ['view_quotation_builder_microsoft_365_mail'],
+                        };
+
+                        const viewQuotationBuilder = permissions.find(p => p.slug === 'view_quotation_builder');
+                        if (viewQuotationBuilder) {
+                            groupDiv.appendChild(createPermissionItem(viewQuotationBuilder, moduleName));
+                        }
+
+                        for (const [subCategoryName, slugs] of Object.entries(quotationSubCategories)) {
+                            const subCategoryPerms = permissions.filter(p => slugs.includes(p.slug));
+                            if (subCategoryPerms.length > 0) {
+                                const subCategoryTitle = document.createElement('div');
+                                subCategoryTitle.className = 'permission-group-title';
+                                subCategoryTitle.style.marginTop = '1rem';
+                                subCategoryTitle.style.marginBottom = '0.5rem';
+                                subCategoryTitle.textContent = subCategoryName;
+                                groupDiv.appendChild(subCategoryTitle);
+
+                                const subCategoryList = document.createElement('div');
+                                subCategoryList.className = 'permission-list';
+                                subCategoryList.style.marginLeft = '1rem';
+
+                                subCategoryPerms.forEach(perm => {
+                                    subCategoryList.appendChild(createPermissionItem(perm, moduleName));
+                                });
+
+                                groupDiv.appendChild(subCategoryList);
+                            }
+                        }
+
+                        const allSubCategorySlugs = Object.values(quotationSubCategories).flat();
+                        const remainingPerms = permissions.filter(p =>
+                            p.slug !== 'view_quotation_builder' &&
+                            !allSubCategorySlugs.includes(p.slug)
+                        );
+                        if (remainingPerms.length > 0) {
+                            const orphanList = document.createElement('div');
+                            orphanList.className = 'permission-list';
+                            orphanList.style.marginTop = '0.75rem';
+                            remainingPerms.forEach(perm => {
+                                orphanList.appendChild(createPermissionItem(perm, moduleName));
+                            });
+                            groupDiv.appendChild(orphanList);
+                        }
                     } else if (moduleName === 'Leave Management') {
                         // For Leave Management module, organize permissions into sub-categories
                         const leaveSubCategories = {

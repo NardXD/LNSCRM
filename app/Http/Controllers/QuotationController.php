@@ -5,18 +5,19 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreQuotationRequest;
 use App\Http\Requests\UpdateQuotationRequest;
 use App\Models\Client;
-use App\Models\GmailIntegration;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Lead;
 use App\Models\Quotation;
 use App\Models\QuotationItem;
 use App\Models\QuotationStatusHistory;
+use App\Services\CompanyOutboundMailService;
+use App\Services\StoreganiseService;
+use App\Support\Facilities;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 
@@ -101,6 +102,48 @@ class QuotationController extends Controller
     }
 
     /**
+     * @return array<string, array{id?: string, code?: string, name?: string}>
+     */
+    protected function storeganiseSiteDirectory(int $companyId): array
+    {
+        $directory = [];
+
+        $storeganise = new StoreganiseService($companyId);
+        if ($storeganise->isConfigured()) {
+            try {
+                foreach ($storeganise->listSitesDirectory() as $code => $site) {
+                    $directory[$code] = $site;
+                }
+
+                foreach ($storeganise->listSites() as $site) {
+                    $id = (string) ($site['id'] ?? '');
+                    if ($id !== '') {
+                        $directory[$id] = [
+                            'id' => $id,
+                            'code' => (string) ($site['code'] ?? ''),
+                            'name' => (string) ($site['name'] ?? ''),
+                        ];
+                    }
+                }
+            } catch (\Throwable) {
+                // Fall back to configured sites below.
+            }
+        }
+
+        if ($directory === []) {
+            foreach (Facilities::configured() as $localCode => $site) {
+                $directory[$localCode] = [
+                    'id' => (string) ($site['code'] ?? $localCode),
+                    'code' => (string) ($site['code'] ?? $localCode),
+                    'name' => (string) ($site['name'] ?? $localCode),
+                ];
+            }
+        }
+
+        return $directory;
+    }
+
+    /**
      * Get quotation statistics.
      */
     public function getStats(): JsonResponse
@@ -156,26 +199,70 @@ class QuotationController extends Controller
     }
 
     /**
-     * Get all clients for dropdown.
+     * Get leads for the storage quote client dropdown / picker.
      */
-    public function getClients(): JsonResponse
+    public function getClients(Request $request): JsonResponse
     {
         $user = Auth::user();
         $companyId = $user->company_id;
 
-        $clients = Client::where('company_id', $companyId)
-            ->orderBy('name')
-            ->get(['id', 'name'])
-            ->map(function ($client) {
-                return [
-                    'id' => $client->id,
-                    'name' => $client->name,
-                ];
+        $query = Lead::where('company_id', $companyId)
+            ->whereNotIn('status', ['archived'])
+            ->with('identities')
+            ->orderBy('first_name')
+            ->orderBy('last_name');
+
+        if ($request->filled('search')) {
+            $search = $request->string('search')->toString();
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('first_name', 'like', "%{$search}%")
+                    ->orWhere('last_name', 'like', "%{$search}%")
+                    ->orWhere('company_name', 'like', "%{$search}%")
+                    ->orWhereHas('identities', function ($q) use ($search) {
+                        $q->where('value', 'like', "%{$search}%");
+                    });
             });
+        }
+
+        $perPage = min((int) $request->get('per_page', 25), 100);
+        $leads = $query->paginate($perPage);
+
+        $siteDirectory = $this->storeganiseSiteDirectory($companyId);
+
+        $data = $leads->map(function (Lead $lead) use ($siteDirectory) {
+            $displayName = trim(($lead->first_name ?? '').' '.($lead->last_name ?? ''));
+            if ($displayName === '') {
+                $displayName = (string) $lead->name;
+            }
+
+            $email = $lead->identities
+                ->where('type', 'email')
+                ->sortByDesc(fn ($identity) => $identity->is_primary ? 1 : 0)
+                ->first()?->value;
+
+            $facilityName = Facilities::displayLabelForSite($lead->storeganise_site_id, $siteDirectory);
+
+            return [
+                'id' => $lead->id,
+                'name' => $displayName,
+                'email' => $email,
+                'status' => $lead->status,
+                'storeganise_site_id' => $lead->storeganise_site_id,
+                'facility_name' => $facilityName !== '' ? $facilityName : null,
+                'quote_url' => route('quotation-builder.leads.quote', $lead),
+            ];
+        });
 
         return response()->json([
             'success' => true,
-            'data' => $clients,
+            'data' => $data,
+            'pagination' => [
+                'current_page' => $leads->currentPage(),
+                'last_page' => $leads->lastPage(),
+                'per_page' => $leads->perPage(),
+                'total' => $leads->total(),
+            ],
         ]);
     }
 
@@ -518,7 +605,7 @@ class QuotationController extends Controller
     }
 
     /**
-     * Send quotation via email using Gmail integration.
+     * Send quotation via email using the company's outbound mail integration (M365 or Gmail).
      */
     public function sendEmail(Quotation $quotation): JsonResponse
     {
@@ -540,17 +627,8 @@ class QuotationController extends Controller
                 ], 400);
             }
 
-            // Get Gmail integration
-            $gmailIntegration = GmailIntegration::where('company_id', $user->company_id)
-                ->where('is_active', true)
-                ->first();
-
-            if (! $gmailIntegration) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Gmail integration is not configured. Please configure it in Integrations.',
-                ], 400);
-            }
+            $mailService = app(CompanyOutboundMailService::class);
+            $mailbox = $mailService->quotationMailbox((int) $user->company_id);
 
             // Load quotation with relationships
             $quotation->load(['client', 'company', 'items']);
@@ -562,8 +640,19 @@ class QuotationController extends Controller
                 ], 400);
             }
 
-            // Decrypt Gmail app password
-            $appPassword = Crypt::decryptString($gmailIntegration->app_password);
+            if (! $mailbox) {
+                $from = $mailService->configureMailer(
+                    (int) $user->company_id,
+                    $quotation->company->name ?? 'Company'
+                );
+
+                if (! $from) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => CompanyOutboundMailService::configurationHelpMessage(),
+                    ], 400);
+                }
+            }
 
             // Generate PDF
             $pdf = Pdf::loadView('quotation.pdf', ['quotation' => $quotation])
@@ -573,31 +662,41 @@ class QuotationController extends Controller
             $pdfContent = $pdf->output();
             $filename = 'quotation-'.$quotation->quotation_number.'.pdf';
 
-            // Configure mail to use Gmail SMTP dynamically
-            Config::set('mail.default', 'smtp');
-            Config::set('mail.mailers.smtp.host', 'smtp.gmail.com');
-            Config::set('mail.mailers.smtp.port', 587);
-            Config::set('mail.mailers.smtp.encryption', 'tls');
-            Config::set('mail.mailers.smtp.username', $gmailIntegration->email);
-            Config::set('mail.mailers.smtp.password', $appPassword);
-            Config::set('mail.from.address', $gmailIntegration->email);
-            Config::set('mail.from.name', $quotation->company->name ?? 'Company');
-
-            // Create a simple mailable or send directly
             $emailHtml = view('emails.quotation', [
                 'quotation' => $quotation,
                 'client' => $quotation->client,
                 'company' => $quotation->company,
             ])->render();
 
-            Mail::html($emailHtml, function ($message) use ($quotation, $gmailIntegration, $pdfContent, $filename) {
-                $message->from($gmailIntegration->email, $quotation->company->name ?? 'Company')
-                    ->to($quotation->client->email, $quotation->client->name)
-                    ->subject('Quotation #'.$quotation->quotation_number)
-                    ->attachData($pdfContent, $filename, [
-                        'mime' => 'application/pdf',
-                    ]);
-            });
+            if ($mailbox) {
+                $sent = $mailService->sendViaOutlook(
+                    $mailbox,
+                    $quotation->client->email,
+                    'Quotation #'.$quotation->quotation_number,
+                    $emailHtml,
+                    [[
+                        'name' => $filename,
+                        'content' => $pdfContent,
+                        'contentType' => 'application/pdf',
+                    ]]
+                );
+
+                if (! $sent) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Could not send the email. Please try again.',
+                    ], 500);
+                }
+            } else {
+                Mail::html($emailHtml, function ($message) use ($quotation, $from, $pdfContent, $filename) {
+                    $message->from($from['email'], $quotation->company->name ?? 'Company')
+                        ->to($quotation->client->email, $quotation->client->name)
+                        ->subject('Quotation #'.$quotation->quotation_number)
+                        ->attachData($pdfContent, $filename, [
+                            'mime' => 'application/pdf',
+                        ]);
+                });
+            }
 
             // Update quotation status to 'sent' if it's currently 'draft'
             $previousStatus = $quotation->status;

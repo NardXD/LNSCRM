@@ -692,6 +692,18 @@ class UserManagementController extends Controller
                     'category' => 'main',
                 ]
             );
+            Permission::firstOrCreate(
+                [
+                    'slug' => 'view_quotation_builder_microsoft_365_mail',
+                    'company_id' => $user->company_id,
+                ],
+                [
+                    'name' => 'view_quotation_builder_microsoft_365_mail',
+                    'display_name' => 'Microsoft 365 Mail',
+                    'description' => 'Access to configure Microsoft 365 mail for quotation builder',
+                    'category' => 'quotation-builder',
+                ]
+            );
         }
 
         $permissionsQuery = Permission::query();
@@ -703,7 +715,7 @@ class UserManagementController extends Controller
 
         // Filter for sidebar permissions (category = 'main', 'settings', 'payroll', 'team_management', 'sidebar', or 'Leave Management')
         $allPermissions = $permissionsQuery
-            ->whereIn('category', ['main', 'settings', 'payroll', 'team_management', 'sidebar', 'Leave Management', 'phone'])
+            ->whereIn('category', ['main', 'settings', 'payroll', 'team_management', 'sidebar', 'Leave Management', 'phone', 'quotation-builder'])
             ->orderBy('display_name')
             ->get();
 
@@ -796,7 +808,11 @@ class UserManagementController extends Controller
                 'module_slug' => 'knowledge-base',
             ],
             'Integrations' => ['view_integrations', 'module_slug' => 'integrations'],
-            'Quotation Builder' => ['view_quotation_builder', 'module_slug' => 'quotation-builder'],
+            'Quotation Builder' => [
+                'view_quotation_builder',
+                'view_quotation_builder_microsoft_365_mail',
+                'module_slug' => 'quotation-builder',
+            ],
             'Contracts & E-Sign' => [
                 'view_contracts',
                 'create_contracts',
