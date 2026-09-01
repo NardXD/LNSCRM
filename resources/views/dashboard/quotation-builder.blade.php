@@ -11,12 +11,26 @@
     <div class="quotation-container">
         <div class="quotation-header">
             <div class="header-left">
-                <div class="search-box">
-                    <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="11" cy="11" r="8"/>
-                        <path d="m21 21-4.35-4.35"/>
-                    </svg>
-                    <input type="search" class="search-input" placeholder="Search leads by name, email, or phone..." id="leadSearch">
+                <div class="header-filters-stack">
+                    <div class="search-box">
+                        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/>
+                            <path d="m21 21-4.35-4.35"/>
+                        </svg>
+                        <input type="search" class="search-input" placeholder="Search leads by name, email, phone, or label…" id="leadSearch">
+                    </div>
+                    <div class="header-filter-row">
+                        <div class="qb-label-filter" id="qbLabelFilter">
+                            <div id="qbLabelFilterChips" class="qb-label-filter-chips"></div>
+                            <select id="qbLabelFilterSelect" class="qb-label-filter-select" aria-label="Filter by labels">
+                                <option value="">Filter labels…</option>
+                            </select>
+                        </div>
+                        <select id="qbAssigneeFilter" class="qb-assignee-filter" aria-label="Filter by assignee">
+                            <option value="">All assignees</option>
+                            <option value="__none__">Unassigned</option>
+                        </select>
+                    </div>
                 </div>
             </div>
             <div class="header-right">
@@ -31,6 +45,8 @@
                         <tr>
                             <th>Lead</th>
                             <th>Email</th>
+                            <th>Labels</th>
+                            <th>Assigned</th>
                             <th>Status</th>
                             <th>Facility</th>
                             <th>Actions</th>
@@ -38,7 +54,7 @@
                     </thead>
                     <tbody id="leadsTableBody">
                         <tr>
-                            <td colspan="5" class="empty-cell">
+                            <td colspan="7" class="empty-cell">
                                 <div class="qb-loading">
                                     <span class="spinner" aria-hidden="true"></span>
                                     Loading leads…
@@ -78,8 +94,22 @@
         border-radius: 12px;
         padding: 1.25rem;
     }
-    .header-left, .header-right { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
-    .search-box { position: relative; min-width: min(100%, 320px); flex: 1; }
+    .header-left, .header-right { display: flex; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap; }
+    .header-left { flex: 1; min-width: min(100%, 320px); }
+    .header-filters-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+        width: 100%;
+        max-width: 640px;
+    }
+    .header-filter-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 0.625rem;
+        align-items: stretch;
+    }
+    .search-box { position: relative; width: 100%; }
     .search-icon {
         position: absolute;
         left: 0.75rem;
@@ -104,6 +134,72 @@
         outline: none;
         border-color: var(--accent);
         box-shadow: 0 0 0 3px rgba(95, 97, 230, 0.1);
+    }
+    .qb-label-filter {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.35rem;
+        min-width: 0;
+        padding: 0.35rem 0.5rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-card);
+    }
+    .qb-label-filter-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+    }
+    .qb-label-filter-select,
+    .qb-assignee-filter {
+        width: 100%;
+        min-width: 0;
+        padding: 0.625rem 0.75rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-size: 0.875rem;
+        background: var(--bg-card);
+        color: var(--text-primary);
+    }
+    .qb-label-filter-select {
+        border: none;
+        background: transparent;
+        flex: 1;
+        min-width: 0;
+        padding: 0.2rem 0.15rem;
+        font-size: 0.8125rem;
+    }
+    .qb-label-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.15rem 0.45rem;
+        border-radius: 999px;
+        font-size: 0.6875rem;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .qb-label-chip button {
+        background: none;
+        border: none;
+        color: inherit;
+        cursor: pointer;
+        font-size: 0.9rem;
+        line-height: 1;
+        padding: 0;
+        opacity: 0.85;
+    }
+    .qb-label-chip-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+    }
+    .qb-label-empty,
+    .qb-assignee-empty {
+        color: var(--text-muted);
+        font-size: 0.8125rem;
+        font-style: italic;
     }
     .btn-primary, .btn-secondary {
         display: inline-flex;
@@ -340,6 +436,8 @@
     @media (max-width: 640px) {
         .quotation-header { flex-direction: column; align-items: stretch; }
         .header-left, .header-right { width: 100%; }
+        .header-filters-stack { max-width: none; }
+        .header-filter-row { grid-template-columns: 1fr; }
         .header-right .btn-secondary { width: 100%; justify-content: center; }
     }
 </style>
@@ -349,9 +447,16 @@
 <script>
 (function () {
     const clientsUrl = @json(route('api.quotation-builder.clients'));
+    const filterOptionsUrl = @json(route('api.quotation-builder.client-filters'));
     const leadsUrl = @json(route('leads'));
     let currentPage = 1;
     let searchTimer = null;
+    const filters = {
+        labelIds: [],
+        assignedTo: '',
+        labels: [],
+        assignees: [],
+    };
 
     const tbody = document.getElementById('leadsTableBody');
     const cardsEl = document.getElementById('leadsCards');
@@ -359,6 +464,9 @@
     const prevBtn = document.getElementById('prevBtn');
     const nextBtn = document.getElementById('nextBtn');
     const searchInput = document.getElementById('leadSearch');
+    const labelFilterSelect = document.getElementById('qbLabelFilterSelect');
+    const labelFilterChips = document.getElementById('qbLabelFilterChips');
+    const assigneeFilter = document.getElementById('qbAssigneeFilter');
 
     function escapeHtml(value) {
         return String(value ?? '')
@@ -366,6 +474,17 @@
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;');
+    }
+
+    function chipText(hex) {
+        if (!hex || !/^#[0-9A-Fa-f]{6}$/.test(hex)) {
+            return '#fff';
+        }
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        return luminance > 0.6 ? '#111827' : '#fff';
     }
 
     function statusBadge(status) {
@@ -381,6 +500,23 @@
         return `<span class="lead-facility">${escapeHtml(facilityName)}</span>`;
     }
 
+    function labelsCell(labels) {
+        const items = Array.isArray(labels) ? labels.filter(function (label) { return label && label.name; }) : [];
+        if (!items.length) {
+            return '<span class="qb-label-empty">—</span>';
+        }
+        return `<div class="qb-label-chip-list">${items.map(function (label) {
+            return `<span class="qb-label-chip" style="background:${escapeHtml(label.color || '#4338ca')};color:${chipText(label.color)}">${escapeHtml(label.name)}</span>`;
+        }).join('')}</div>`;
+    }
+
+    function assigneeCell(name) {
+        if (!name) {
+            return '<span class="qb-assignee-empty">Unassigned</span>';
+        }
+        return escapeHtml(name);
+    }
+
     function quoteButton(lead) {
         if (!lead.facility_name) {
             const note = 'Set a facility on the lead first. Click to open the lead.';
@@ -390,10 +526,14 @@
         return `<a href="${escapeHtml(lead.quote_url)}" class="btn-primary btn-sm">Build Quote</a>`;
     }
 
+    function hasActiveFilters(search) {
+        return Boolean(search || filters.labelIds.length || filters.assignedTo);
+    }
+
     function loadingMarkup(message) {
         return `
             <tr>
-                <td colspan="5" class="empty-cell">
+                <td colspan="7" class="empty-cell">
                     <div class="qb-loading">
                         <span class="spinner" aria-hidden="true"></span>
                         ${escapeHtml(message)}
@@ -404,7 +544,65 @@
     }
 
     function emptyMarkup(message) {
-        return `<tr><td colspan="5" class="empty-cell">${escapeHtml(message)}</td></tr>`;
+        return `<tr><td colspan="7" class="empty-cell">${escapeHtml(message)}</td></tr>`;
+    }
+
+    function selectedFilterLabels() {
+        return filters.labels.filter(function (label) {
+            return filters.labelIds.includes(String(label.id));
+        });
+    }
+
+    function renderLabelFilter() {
+        const selected = selectedFilterLabels();
+        labelFilterChips.innerHTML = selected.map(function (label) {
+            return `
+                <span class="qb-label-chip" style="background:${escapeHtml(label.color || '#4338ca')};color:${chipText(label.color)}">
+                    ${escapeHtml(label.name)}
+                    <button type="button" data-unfilter-label="${label.id}" title="Remove filter">&times;</button>
+                </span>
+            `;
+        }).join('');
+
+        const available = filters.labels.filter(function (label) {
+            return !filters.labelIds.includes(String(label.id));
+        });
+        labelFilterSelect.innerHTML = `<option value="">${selected.length ? 'Add label…' : 'Filter labels…'}</option>` +
+            available.map(function (label) {
+                return `<option value="${label.id}">${escapeHtml(label.name)}</option>`;
+            }).join('');
+        labelFilterSelect.hidden = available.length === 0 && selected.length > 0 && filters.labels.length > 0;
+    }
+
+    function renderAssigneeFilter() {
+        const current = filters.assignedTo || '';
+        const users = filters.assignees.slice();
+        if (current && current !== '__none__' && !users.some(function (user) { return String(user.id) === String(current); })) {
+            users.push({ id: current, name: 'Assignee #' + current });
+        }
+        assigneeFilter.innerHTML = `<option value="">All assignees</option><option value="__none__">Unassigned</option>` +
+            users.map(function (user) {
+                return `<option value="${user.id}">${escapeHtml(user.name)}</option>`;
+            }).join('');
+        assigneeFilter.value = current;
+    }
+
+    async function loadFilterOptions() {
+        try {
+            const response = await fetch(filterOptionsUrl, {
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin',
+            });
+            const result = await response.json();
+            if (response.ok && result.success) {
+                filters.labels = Array.isArray(result.labels) ? result.labels : [];
+                filters.assignees = Array.isArray(result.assignees) ? result.assignees : [];
+            }
+        } catch (error) {
+            console.error(error);
+        }
+        renderLabelFilter();
+        renderAssigneeFilter();
     }
 
     function renderRows(leads) {
@@ -413,6 +611,8 @@
                 <tr>
                     <td><span class="lead-name">${escapeHtml(lead.name)}</span></td>
                     <td><span class="lead-email">${escapeHtml(lead.email || '—')}</span></td>
+                    <td>${labelsCell(lead.labels)}</td>
+                    <td>${assigneeCell(lead.assignee_name)}</td>
                     <td>${statusBadge(lead.status)}</td>
                     <td>${facilityCell(lead.facility_name)}</td>
                     <td><div class="table-actions">${quoteButton(lead)}</div></td>
@@ -433,6 +633,14 @@
                             <span class="card-value">${escapeHtml(lead.email || '—')}</span>
                         </div>
                         <div class="card-detail">
+                            <span class="card-label">Assigned</span>
+                            <span class="card-value">${lead.assignee_name ? escapeHtml(lead.assignee_name) : 'Unassigned'}</span>
+                        </div>
+                        <div class="card-detail">
+                            <span class="card-label">Labels</span>
+                            <span class="card-value">${labelsCell(lead.labels)}</span>
+                        </div>
+                        <div class="card-detail">
                             <span class="card-label">Facility</span>
                             <span class="card-value">${lead.facility_name ? escapeHtml(lead.facility_name) : 'Not set'}</span>
                         </div>
@@ -443,7 +651,7 @@
         }).join('');
     }
 
-    async function loadLeads(page = 1, search = '') {
+    async function loadLeads(page, search) {
         currentPage = page;
         tbody.innerHTML = loadingMarkup('Loading leads…');
         cardsEl.innerHTML = '';
@@ -452,14 +660,24 @@
         if (search) {
             params.set('search', search);
         }
+        if (filters.assignedTo) {
+            params.set('assigned_to', filters.assignedTo);
+        }
+        filters.labelIds.forEach(function (id) {
+            params.append('label_ids[]', id);
+        });
 
         try {
-            const response = await fetch(`${clientsUrl}?${params.toString()}`);
+            const response = await fetch(`${clientsUrl}?${params.toString()}`, {
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin',
+            });
             const result = await response.json();
+            const emptyMessage = hasActiveFilters(search) ? 'No leads match your filters.' : 'No leads found.';
 
             if (!result.success || !Array.isArray(result.data) || result.data.length === 0) {
-                tbody.innerHTML = emptyMarkup(search ? 'No leads match your search.' : 'No leads found.');
-                cardsEl.innerHTML = `<div class="empty-cell">${escapeHtml(search ? 'No leads match your search.' : 'No leads found.')}</div>`;
+                tbody.innerHTML = emptyMarkup(emptyMessage);
+                cardsEl.innerHTML = `<div class="empty-cell">${escapeHtml(emptyMessage)}</div>`;
                 paginationInfo.textContent = 'No results';
                 prevBtn.disabled = true;
                 nextBtn.disabled = true;
@@ -484,6 +702,10 @@
         }
     }
 
+    function reloadLeads() {
+        loadLeads(1, searchInput.value.trim());
+    }
+
     prevBtn.addEventListener('click', function () {
         if (currentPage > 1) {
             loadLeads(currentPage - 1, searchInput.value.trim());
@@ -497,11 +719,40 @@
     searchInput.addEventListener('input', function () {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(function () {
-            loadLeads(1, searchInput.value.trim());
+            reloadLeads();
         }, 300);
     });
 
-    loadLeads();
+    labelFilterSelect.addEventListener('change', function () {
+        const id = String(labelFilterSelect.value || '');
+        if (id && !filters.labelIds.includes(id)) {
+            filters.labelIds.push(id);
+            renderLabelFilter();
+            reloadLeads();
+        }
+        labelFilterSelect.value = '';
+    });
+
+    labelFilterChips.addEventListener('click', function (event) {
+        const btn = event.target.closest('[data-unfilter-label]');
+        if (!btn) {
+            return;
+        }
+        filters.labelIds = filters.labelIds.filter(function (id) {
+            return id !== String(btn.dataset.unfilterLabel);
+        });
+        renderLabelFilter();
+        reloadLeads();
+    });
+
+    assigneeFilter.addEventListener('change', function () {
+        filters.assignedTo = assigneeFilter.value || '';
+        reloadLeads();
+    });
+
+    loadFilterOptions().finally(function () {
+        loadLeads(1, '');
+    });
 })();
 </script>
 @endpush

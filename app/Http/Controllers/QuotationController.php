@@ -8,9 +8,11 @@ use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Lead;
+use App\Models\LeadLabel;
 use App\Models\Quotation;
 use App\Models\QuotationItem;
 use App\Models\QuotationStatusHistory;
+use App\Models\User;
 use App\Services\CompanyOutboundMailService;
 use App\Services\Quote\QuotationBuilderEmailTemplateService;
 use App\Services\StoreganiseService;
@@ -255,6 +257,40 @@ class QuotationController extends Controller
     }
 
     /**
+     * Labels and assignees for quotation builder lead filters.
+     */
+    public function getClientFilterOptions(): JsonResponse
+    {
+        $companyId = (int) Auth::user()->company_id;
+
+        $labels = LeadLabel::query()
+            ->where('company_id', $companyId)
+            ->orderBy('name')
+            ->get(['id', 'name', 'color'])
+            ->map(fn (LeadLabel $label) => [
+                'id' => $label->id,
+                'name' => $label->name,
+                'color' => $label->color,
+            ])
+            ->values();
+
+        $assignees = User::query()
+            ->where('company_id', $companyId)
+            ->where(function ($q) {
+                $q->where('status', 'active')->orWhereNull('status');
+            })
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'labels' => $labels,
+            'assignees' => $assignees,
+        ]);
+    }
+
+    /**
      * Get leads for the storage quote client dropdown / picker.
      */
     public function getClients(Request $request): JsonResponse
@@ -264,7 +300,7 @@ class QuotationController extends Controller
 
         $query = Lead::where('company_id', $companyId)
             ->whereNotIn('status', ['archived'])
-            ->with('identities')
+            ->with(['identities', 'assignedUser:id,name', 'labels:id,name,color'])
             ->orderBy('first_name')
             ->orderBy('last_name');
 
@@ -277,8 +313,22 @@ class QuotationController extends Controller
                     ->orWhere('company_name', 'like', "%{$search}%")
                     ->orWhereHas('identities', function ($q) use ($search) {
                         $q->where('value', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('labels', function ($q) use ($search) {
+                        $q->where('lead_labels.name', 'like', "%{$search}%");
                     });
             });
+        }
+
+        foreach ($this->normalizeClientLabelIds($request) as $labelId) {
+            $query->whereHas('labels', fn ($label) => $label->where('lead_labels.id', $labelId));
+        }
+
+        $assignedTo = trim((string) $request->input('assigned_to', ''));
+        if ($assignedTo === '__none__') {
+            $query->whereNull('assigned_to');
+        } elseif ($assignedTo !== '' && ctype_digit($assignedTo)) {
+            $query->where('assigned_to', (int) $assignedTo);
         }
 
         $perPage = min((int) $request->get('per_page', 25), 100);
@@ -306,6 +356,16 @@ class QuotationController extends Controller
                 'status' => $lead->status,
                 'storeganise_site_id' => $lead->storeganise_site_id,
                 'facility_name' => $facilityName !== '' ? $facilityName : null,
+                'assigned_to' => $lead->assigned_to,
+                'assignee_name' => $lead->assignedUser?->name,
+                'labels' => $lead->labels
+                    ->map(fn (LeadLabel $label) => [
+                        'id' => $label->id,
+                        'name' => $label->name,
+                        'color' => $label->color,
+                    ])
+                    ->values()
+                    ->all(),
                 'quote_url' => route('quotation-builder.leads.quote', $lead),
             ];
         });
@@ -320,6 +380,21 @@ class QuotationController extends Controller
                 'total' => $leads->total(),
             ],
         ]);
+    }
+
+    /**
+     * @return list<int>
+     */
+    protected function normalizeClientLabelIds(Request $request): array
+    {
+        $labelIds = $request->input('label_ids', $request->input('label_id', []));
+        if (! is_array($labelIds)) {
+            $labelIds = $labelIds !== null && $labelIds !== ''
+                ? preg_split('/\s*,\s*/', (string) $labelIds)
+                : [];
+        }
+
+        return array_values(array_unique(array_filter(array_map('intval', $labelIds))));
     }
 
     /**

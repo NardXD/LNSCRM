@@ -831,6 +831,9 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/quotations', [QuotationController::class, 'getQuotations'])->name('api.quotation-builder.quotations');
         Route::get('/stats', [QuotationController::class, 'getStats'])->name('api.quotation-builder.stats');
         Route::get('/clients', [QuotationController::class, 'getClients'])->name('api.quotation-builder.clients');
+        Route::get('/client-filters', [QuotationController::class, 'getClientFilterOptions'])
+            ->middleware('permission:view_quotation_builder')
+            ->name('api.quotation-builder.client-filters');
         Route::get('/next-quotation-number', [QuotationController::class, 'getNextQuotationNumber'])->name('api.quotation-builder.next-quotation-number');
         Route::post('/quotations', [QuotationController::class, 'store'])->name('api.quotation-builder.quotations.store');
         Route::get('/quotations/{quotation}', [QuotationController::class, 'show'])->name('api.quotation-builder.quotations.show');
