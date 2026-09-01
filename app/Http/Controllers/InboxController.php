@@ -1390,16 +1390,6 @@ class InboxController extends Controller
         }
 
         $this->inboxAttach->attach($lead, $conversation, $request->user());
-
-        // Labels applied while this conversation had no matching lead (e.g. Front
-        // import) now graduate onto the lead itself, and no longer need to live
-        // directly on the conversation.
-        $conversationLabelIds = $conversation->leadLabels()->pluck('lead_labels.id')->map(fn ($id) => (int) $id)->all();
-        if ($conversationLabelIds !== []) {
-            $lead->labels()->syncWithoutDetaching($conversationLabelIds);
-            $conversation->leadLabels()->detach($conversationLabelIds);
-        }
-
         $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
 
         return response()->json([
