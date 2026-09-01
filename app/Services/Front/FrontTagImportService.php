@@ -39,21 +39,62 @@ class FrontTagImportService
      */
     public function importFromApi(Company $company, FrontApiClient $client, array $options = []): array
     {
-        $frontInboxes = $client->listInboxes();
         $sharedInboxes = $this->loadSharedInboxes($company, $options['shared_inbox_id'] ?? null);
-        $inboxMap = $this->resolveInboxMap(
-            $frontInboxes,
-            $sharedInboxes,
-            $options['inbox_map'] ?? [],
-            $options['front_inbox_id'] ?? null
-        );
-
-        if ($inboxMap === []) {
-            throw new RuntimeException('No Front inbox could be mapped to a local shared inbox. Pass --inbox-map or align inbox names/emails.');
+        if ($sharedInboxes->isEmpty()) {
+            throw new RuntimeException('No active shared inboxes found in LNSCRM. Connect Outlook mailboxes under Inbox first.');
         }
 
+        $manualMap = $options['inbox_map'] ?? [];
+        $inboxListingError = null;
+
+        try {
+            $frontInboxes = $client->listInboxes();
+            $inboxMap = $this->resolveInboxMap(
+                $frontInboxes,
+                $sharedInboxes,
+                $manualMap,
+                $options['front_inbox_id'] ?? null
+            );
+
+            if ($inboxMap !== []) {
+                return $this->importFromApiViaInboxes($company, $client, $sharedInboxes, $inboxMap, $options);
+            }
+
+            if ($manualMap !== []) {
+                throw new RuntimeException('None of the selected Front inbox mappings matched a local shared inbox.');
+            }
+        } catch (\Throwable $e) {
+            $inboxListingError = $e->getMessage();
+            if ($manualMap !== []) {
+                throw $e;
+            }
+        }
+
+        $stats = $this->importFromApiViaTags($company, $client, $sharedInboxes, $options);
+        $stats['import_mode'] = 'tags';
+        if ($inboxListingError) {
+            $stats['front_inbox_warning'] = $inboxListingError;
+        }
+
+        return $stats;
+    }
+
+    /**
+     * @param  Collection<int, SharedInbox>  $sharedInboxes
+     * @param  array<string, int>  $inboxMap
+     * @param  array<string, mixed>  $options
+     * @return array<string, int|list<string>>
+     */
+    private function importFromApiViaInboxes(
+        Company $company,
+        FrontApiClient $client,
+        Collection $sharedInboxes,
+        array $inboxMap,
+        array $options
+    ): array {
         $stats = $this->emptyStats();
         $stats['mapped_inboxes'] = count($inboxMap);
+        $stats['import_mode'] = 'inboxes';
 
         foreach ($inboxMap as $frontInboxId => $sharedInboxId) {
             $sharedInbox = $sharedInboxes->firstWhere('id', $sharedInboxId);
@@ -77,13 +118,91 @@ class FrontTagImportService
     }
 
     /**
-     * @param  array{
-     *     dry_run?: bool,
-     *     include_private?: bool,
-     *     inbox_map?: array<string, int|string>,
-     *     front_inbox_id?: string|null,
-     *     shared_inbox_id?: int|null,
-     * }  $options
+     * @param  Collection<int, SharedInbox>  $sharedInboxes
+     * @param  array<string, mixed>  $options
+     * @return array<string, int|list<string>>
+     */
+    private function importFromApiViaTags(
+        Company $company,
+        FrontApiClient $client,
+        Collection $sharedInboxes,
+        array $options
+    ): array {
+        $stats = $this->emptyStats();
+        $stats['mapped_inboxes'] = $sharedInboxes->count();
+        $seenConversationIds = [];
+        $statuses = $options['statuses'] ?? ['archived', 'assigned', 'unassigned'];
+
+        foreach ($client->listTags() as $frontTag) {
+            if (! ($options['include_private'] ?? false) && (bool) ($frontTag['is_private'] ?? false)) {
+                continue;
+            }
+
+            $tagId = (string) ($frontTag['id'] ?? '');
+            if ($tagId === '') {
+                continue;
+            }
+
+            foreach ($client->listTaggedConversations($tagId, $statuses) as $frontConversation) {
+                $frontConversationId = (string) ($frontConversation['id'] ?? '');
+                if ($frontConversationId !== '' && isset($seenConversationIds[$frontConversationId])) {
+                    continue;
+                }
+
+                if ($frontConversationId !== '') {
+                    $seenConversationIds[$frontConversationId] = true;
+                }
+
+                if (collect($frontConversation['tags'] ?? [])->isEmpty()) {
+                    continue;
+                }
+
+                $matched = $this->matchConversationAcrossInboxes($sharedInboxes, $frontConversation);
+                if (! $matched) {
+                    $stats['conversations_unmatched'] = ((int) ($stats['conversations_unmatched'] ?? 0)) + 1;
+                    $stats['unmatched_samples'] = $this->appendSample(
+                        $stats['unmatched_samples'] ?? [],
+                        $this->conversationLabel($frontConversation)
+                    );
+
+                    continue;
+                }
+
+                $this->importConversationTags(
+                    $company,
+                    $matched['inbox'],
+                    $frontConversation,
+                    $options,
+                    $stats
+                );
+            }
+        }
+
+        return $stats;
+    }
+
+    /**
+     * @param  Collection<int, SharedInbox>  $sharedInboxes
+     * @param  array<string, mixed>  $frontConversation
+     * @return array{inbox: SharedInbox, conversation: InboxConversation}|null
+     */
+    private function matchConversationAcrossInboxes(Collection $sharedInboxes, array $frontConversation): ?array
+    {
+        foreach ($sharedInboxes as $sharedInbox) {
+            $conversation = $this->matchConversation($sharedInbox, $frontConversation);
+            if ($conversation) {
+                return [
+                    'inbox' => $sharedInbox,
+                    'conversation' => $conversation,
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $options
      * @return array<string, int|list<string>>
      */
     public function importFromFile(Company $company, string $path, array $options = []): array
@@ -154,29 +273,38 @@ class FrontTagImportService
      *     suggested_map: array<string, int>
      * }
      */
-    public function mappingPreview(Company $company, FrontApiClient $client): array
+    public function mappingPreview(Company $company, ?FrontApiClient $client = null): array
     {
-        $frontInboxes = $client->listInboxes();
         $sharedInboxes = $this->loadSharedInboxes($company);
         $rows = [];
         $suggestedMap = [];
+        $frontError = null;
+        $importMode = 'inboxes';
 
-        foreach ($frontInboxes as $frontInbox) {
-            $frontId = (string) ($frontInbox['id'] ?? '');
-            if ($frontId === '') {
-                continue;
-            }
+        if ($client) {
+            try {
+                $frontInboxes = $client->listInboxes();
+                foreach ($frontInboxes as $frontInbox) {
+                    $frontId = (string) ($frontInbox['id'] ?? '');
+                    if ($frontId === '') {
+                        continue;
+                    }
 
-            $matched = $this->matchSharedInbox($frontInbox, $sharedInboxes);
-            $rows[] = [
-                'front_id' => $frontId,
-                'front_name' => (string) ($frontInbox['name'] ?? $frontId),
-                'shared_inbox_id' => $matched ? (int) $matched->id : null,
-                'shared_inbox_name' => $matched?->name,
-            ];
+                    $matched = $this->matchSharedInbox($frontInbox, $sharedInboxes);
+                    $rows[] = [
+                        'front_id' => $frontId,
+                        'front_name' => (string) ($frontInbox['name'] ?? $frontId),
+                        'shared_inbox_id' => $matched ? (int) $matched->id : null,
+                        'shared_inbox_name' => $matched?->name,
+                    ];
 
-            if ($matched) {
-                $suggestedMap[$frontId] = (int) $matched->id;
+                    if ($matched) {
+                        $suggestedMap[$frontId] = (int) $matched->id;
+                    }
+                }
+            } catch (\Throwable $e) {
+                $frontError = $e->getMessage();
+                $importMode = 'tags';
             }
         }
 
@@ -191,6 +319,8 @@ class FrontTagImportService
                 ->values()
                 ->all(),
             'suggested_map' => $suggestedMap,
+            'front_error' => $frontError,
+            'import_mode' => $importMode,
         ];
     }
 

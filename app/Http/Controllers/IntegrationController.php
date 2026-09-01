@@ -1702,6 +1702,14 @@ class IntegrationController extends Controller
 
         $data = ['is_active' => true];
         if ($apiToken !== '') {
+            try {
+                (new FrontApiClient($apiToken))->verifyConnection();
+            } catch (\Throwable $e) {
+                return response()->json([
+                    'error' => 'Front API token could not be verified: '.$e->getMessage(),
+                ], 422);
+            }
+
             $data['api_token'] = Crypt::encryptString($apiToken);
         } elseif ($existing) {
             $data['api_token'] = $existing->api_token;
@@ -1748,12 +1756,14 @@ class IntegrationController extends Controller
             return response()->json(['error' => 'Front is not connected.'], 400);
         }
 
-        try {
-            $client = new FrontApiClient($integration->getDecryptedApiToken());
-            $preview = $importService->mappingPreview($company, $client);
-        } catch (\Throwable $e) {
-            return response()->json(['error' => $e->getMessage()], 422);
+        $token = $integration->getDecryptedApiToken();
+        if (! $token) {
+            return response()->json([
+                'error' => 'Front token could not be read. Disconnect and save your API token again.',
+            ], 400);
         }
+
+        $preview = $importService->mappingPreview($company, new FrontApiClient($token));
 
         return response()->json($preview);
     }
@@ -1772,6 +1782,13 @@ class IntegrationController extends Controller
             return response()->json(['error' => 'Front is not connected. Save your API token first.'], 400);
         }
 
+        $token = $integration->getDecryptedApiToken();
+        if (! $token) {
+            return response()->json([
+                'error' => 'Front token could not be read. Disconnect and save your API token again.',
+            ], 400);
+        }
+
         $validated = $request->validate([
             'dry_run' => ['sometimes', 'boolean'],
             'include_private' => ['sometimes', 'boolean'],
@@ -1787,7 +1804,7 @@ class IntegrationController extends Controller
         ];
 
         try {
-            $client = new FrontApiClient($integration->getDecryptedApiToken());
+            $client = new FrontApiClient($token);
             $stats = $importService->importFromApi($company, $client, $options);
         } catch (\Throwable $e) {
             return response()->json(['error' => $e->getMessage()], 422);

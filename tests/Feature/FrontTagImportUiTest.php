@@ -10,6 +10,7 @@ use App\Models\Role;
 use App\Models\SharedInbox;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -30,6 +31,11 @@ class FrontTagImportUiTest extends TestCase
         $this->seedConversation($company, $sharedInbox, 'Pricing request', 'pat@example.com');
 
         Http::fake([
+            'https://api2.frontapp.com/tags*' => Http::response([
+                '_results' => [
+                    ['id' => 'tag_1', 'name' => 'Hot', 'highlight' => 'red', 'is_private' => false],
+                ],
+            ]),
             'https://api2.frontapp.com/inboxes' => Http::response([
                 '_results' => [
                     ['id' => 'inb_1', 'name' => $sharedInbox->name],
@@ -85,6 +91,99 @@ class FrontTagImportUiTest extends TestCase
         $this->actingAs($user)
             ->postJson('/api/integrations/front/import-tags', ['dry_run' => true])
             ->assertStatus(400);
+    }
+
+    public function test_mapping_endpoint_returns_local_inboxes_when_front_inbox_list_fails(): void
+    {
+        [$user, $company, $sharedInbox] = $this->userWithIntegrationsPermission();
+
+        FrontIntegration::query()->create([
+            'company_id' => $company->id,
+            'api_token' => Crypt::encryptString('front-secret-token'),
+            'is_active' => true,
+        ]);
+
+        Http::fake([
+            'https://api2.frontapp.com/inboxes*' => Http::response([
+                '_error' => [
+                    'title' => 'Forbidden',
+                    'message' => 'Insufficient scopes',
+                ],
+            ], 403),
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/integrations/front/mapping')
+            ->assertOk()
+            ->assertJsonPath('import_mode', 'tags')
+            ->assertJsonPath('shared_inboxes.0.id', $sharedInbox->id)
+            ->assertJsonPath('front_error', fn ($value) => is_string($value) && $value !== '');
+    }
+
+    public function test_import_falls_back_to_tag_based_matching_when_inboxes_are_unavailable(): void
+    {
+        [$user, $company, $sharedInbox] = $this->seedInboxConversation(
+            subject: 'Pricing request',
+            fromEmail: 'pat@example.com'
+        );
+
+        FrontIntegration::query()->create([
+            'company_id' => $company->id,
+            'api_token' => Crypt::encryptString('front-secret-token'),
+            'is_active' => true,
+        ]);
+
+        Http::fake([
+            'https://api2.frontapp.com/inboxes*' => Http::response([
+                '_error' => ['title' => 'Forbidden', 'message' => 'Insufficient scopes'],
+            ], 403),
+            'https://api2.frontapp.com/tags/tag_1/conversations*' => Http::response([
+                '_results' => [
+                    [
+                        'id' => 'cnv_1',
+                        'subject' => 'Pricing request',
+                        'recipient' => ['handle' => 'pat@example.com'],
+                        'tags' => [
+                            ['name' => 'Hot', 'highlight' => 'red', 'is_private' => false],
+                        ],
+                    ],
+                ],
+            ]),
+            'https://api2.frontapp.com/tags*' => Http::response([
+                '_results' => [
+                    ['id' => 'tag_1', 'name' => 'Hot', 'highlight' => 'red', 'is_private' => false],
+                ],
+            ]),
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/integrations/front/import-tags', ['dry_run' => true])
+            ->assertOk()
+            ->assertJsonPath('stats.import_mode', 'tags')
+            ->assertJsonPath('stats.conversations_matched', 1);
+    }
+
+    /**
+     * @return array{0: User, 1: Company, 2: SharedInbox}
+     */
+    private function seedInboxConversation(string $subject, string $fromEmail): array
+    {
+        [$user, $company, $sharedInbox] = $this->userWithIntegrationsPermission();
+
+        InboxConversation::query()->create([
+            'company_id' => $company->id,
+            'shared_inbox_id' => $sharedInbox->id,
+            'folder' => 'inbox',
+            'subject' => $subject,
+            'from_name' => 'Customer',
+            'from_email' => $fromEmail,
+            'status' => 'open',
+            'is_read' => true,
+            'message_count' => 1,
+            'last_message_at' => now(),
+        ]);
+
+        return [$user, $company, $sharedInbox];
     }
 
     /**

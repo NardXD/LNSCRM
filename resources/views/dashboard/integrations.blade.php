@@ -2245,10 +2245,15 @@
 
         const samples = Array.isArray(stats.unmatched_samples) ? stats.unmatched_samples : [];
         const when = lastImportAt ? new Date(lastImportAt).toLocaleString() : new Date().toLocaleString();
+        const modeLabel = stats.import_mode === 'tags'
+            ? 'Tag-based matching across all shared inboxes'
+            : 'Front inbox mapping';
 
         wrap.innerHTML = `
             <div class="front-import-results">
                 <h4>${dryRun ? 'Preview results' : 'Import results'} <span style="font-weight:400;color:var(--text-secondary);">· ${when}</span></h4>
+                <p class="form-help" style="margin:0 0 0.75rem;">${escapeHtml(modeLabel)}</p>
+                ${stats.front_inbox_warning ? `<p class="form-help" style="margin:0 0 0.75rem;color:#b45309;">${escapeHtml(String(stats.front_inbox_warning))}</p>` : ''}
                 <dl>
                     <dt>Mapped inboxes</dt><dd>${stats.mapped_inboxes ?? 0}</dd>
                     <dt>Front conversations with tags</dt><dd>${stats.front_conversations_with_tags ?? 0}</dd>
@@ -2259,6 +2264,18 @@
                     <dt>Tag links ${dryRun ? 'would apply' : 'applied'}</dt><dd>${stats.tags_applied ?? 0}</dd>
                 </dl>
                 ${samples.length ? `<ul class="front-unmatched-list">${samples.map(s => `<li>${escapeHtml(String(s))}</li>`).join('')}</ul>` : ''}
+            </div>
+        `;
+    }
+
+    function renderFrontImportError(message) {
+        const wrap = document.getElementById('front-import-results');
+        if (!wrap) return;
+
+        wrap.innerHTML = `
+            <div class="front-import-results" style="border-color:#fecaca;">
+                <h4 style="color:#b91c1c;margin-bottom:0.5rem;">Import failed</h4>
+                <p class="form-help" style="margin:0;color:#b91c1c;">${escapeHtml(String(message || 'Unknown error'))}</p>
             </div>
         `;
     }
@@ -2299,11 +2316,24 @@
         }
 
         try {
-            const response = await fetch('/api/integrations/front/mapping');
+            const response = await fetch('/api/integrations/front/mapping', {
+                headers: { 'Accept': 'application/json' },
+            });
             const data = await response.json();
             if (!response.ok) {
-                mappingWrap.innerHTML = `<span class="form-help" style="color:#ef4444;">${escapeHtml(data.error || 'Could not load inbox mapping.')}</span>`;
+                const message = data.error || 'Could not load inbox mapping.';
+                mappingWrap.innerHTML = `
+                    <div class="form-help" style="color:#b45309;margin-bottom:0.75rem;">${escapeHtml(message)}</div>
+                    <div class="form-help">Preview and import can still run using tag-based matching across all shared inboxes.</div>
+                `;
                 return;
+            }
+
+            if (data.front_error) {
+                mappingWrap.innerHTML = `
+                    <div class="form-help" style="color:#b45309;margin-bottom:0.75rem;">Could not list Front inboxes: ${escapeHtml(data.front_error)}</div>
+                    <div class="form-help" style="margin-bottom:0.75rem;">Preview and import will use tag-based matching across your ${(data.shared_inboxes || []).length} shared inbox(es).</div>
+                `;
             }
 
             const sharedOptions = (data.shared_inboxes || []).map(inbox => {
@@ -2323,13 +2353,21 @@
                 </tr>
             `).join('');
 
-            mappingWrap.innerHTML = rows ? `
-                <label class="form-label">Map Front inboxes to LNSCRM shared inboxes</label>
-                <table class="front-mapping-table">
-                    <thead><tr><th>Front inbox</th><th>LNSCRM shared inbox</th></tr></thead>
-                    <tbody>${rows}</tbody>
-                </table>
-            ` : '<span class="form-help">No Front inboxes found.</span>';
+            if (rows) {
+                const prefix = data.front_error ? mappingWrap.innerHTML : '';
+                mappingWrap.innerHTML = `${prefix}
+                    <label class="form-label">Map Front inboxes to LNSCRM shared inboxes</label>
+                    <table class="front-mapping-table">
+                        <thead><tr><th>Front inbox</th><th>LNSCRM shared inbox</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                `;
+            } else if (!data.front_error) {
+                mappingWrap.innerHTML = `
+                    <div class="form-help" style="margin-bottom:0.75rem;">No Front inboxes returned. Preview and import will use tag-based matching across your ${(data.shared_inboxes || []).length} shared inbox(es).</div>
+                    <div class="form-help">Local shared inboxes: ${(data.shared_inboxes || []).map(inbox => escapeHtml(inbox.name)).join(', ') || 'none found'}</div>
+                `;
+            }
 
             (data.rows || []).forEach(row => {
                 const select = mappingWrap.querySelector(`[data-front-inbox-id="${row.front_id}"]`);
@@ -2339,7 +2377,7 @@
             });
         } catch (error) {
             console.error('Error loading Front mapping:', error);
-            mappingWrap.innerHTML = '<span class="form-help" style="color:#ef4444;">Could not load inbox mapping.</span>';
+            mappingWrap.innerHTML = '<span class="form-help" style="color:#ef4444;">Could not load inbox mapping. You can still try Preview — import will match by tags across all shared inboxes.</span>';
         }
     }
 
@@ -2451,7 +2489,7 @@
             const data = await response.json();
 
             if (!response.ok) {
-                alert(data.error || 'Front tag import failed.');
+                renderFrontImportError(data.error || 'Front tag import failed.');
                 return;
             }
 
@@ -2464,7 +2502,7 @@
             };
         } catch (error) {
             console.error('Error:', error);
-            alert('Front tag import failed. Please try again.');
+            renderFrontImportError('Front tag import failed. Please try again.');
         } finally {
             [dryRunBtn, importBtn].forEach(btn => { if (btn) btn.disabled = false; });
         }

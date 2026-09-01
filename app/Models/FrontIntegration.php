@@ -38,7 +38,7 @@ class FrontIntegration extends Model
         try {
             return Crypt::decryptString($this->api_token);
         } catch (\Throwable) {
-            return $this->api_token;
+            return null;
         }
     }
 
