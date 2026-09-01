@@ -86,7 +86,7 @@
 
         function showAlert(message, type) {
             alertEl.textContent = message;
-            alertEl.className = 'qb-flash qb-inline-alert ' + type;
+            alertEl.className = 'ld-flash ld-inline-alert ' + type;
             alertEl.style.display = 'block';
         }
 
@@ -211,7 +211,7 @@
             }
         });
 
-        document.querySelectorAll('.qb-placeholder-btn').forEach(function (btn) {
+        document.querySelectorAll('.ld-placeholder-btn').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 const token = btn.dataset.placeholder || '';
                 const target = document.activeElement === subjectInput ? subjectInput : bodyInput;

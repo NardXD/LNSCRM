@@ -3,76 +3,78 @@
 @section('title', 'Microsoft 365 Mail')
 
 @section('content')
-    <div class="page-header">
-        <h1 class="page-title">Microsoft 365 Mail</h1>
-        <p class="page-subtitle">Connect a Microsoft 365 mailbox to send storage quote emails from Quotation Builder.</p>
-    </div>
+    <div class="ld-page">
+        <div class="ld-top">
+            <div class="ld-top-main">
+                <h1 class="ld-title">Microsoft 365 Mail</h1>
+                <p class="ld-subtitle">Connect a Microsoft 365 mailbox to send storage quote emails from Quotation Builder.</p>
+            </div>
+        </div>
 
-    <div class="qb-settings-page">
         @if(session('status') === 'outlook-mail-connected')
-            <div class="qb-flash success" role="alert">Microsoft 365 mailbox connected. You can now send quotation emails from this account.</div>
+            <div class="ld-flash success" role="alert">Microsoft 365 mailbox connected. You can now send quotation emails from this account.</div>
         @endif
         @if(session('error'))
-            <div class="qb-flash error" role="alert">{{ session('error') }}</div>
+            <div class="ld-flash error" role="alert">{{ session('error') }}</div>
         @endif
 
-        <div class="qb-settings-layout">
-            <div class="qb-settings-card">
-                <div class="qb-settings-card-header">
-                    <div class="qb-settings-icon m365">
+        <div class="ld-settings-layout">
+            <div class="ld-settings-card">
+                <div class="ld-settings-card-header">
+                    <div class="ld-settings-icon m365">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                             <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
                             <polyline points="22,6 12,13 2,6"/>
                         </svg>
                     </div>
-                    <div class="qb-settings-heading">
+                    <div class="ld-settings-heading">
                         <h2>Sender mailbox</h2>
                         <p>Sign in with the Microsoft 365 account that should appear as the sender when you email a quote. If not connected, outbound email falls back to Gmail from <a href="{{ route('integrations') }}">Integrations</a>.</p>
                     </div>
                 </div>
 
-                <div class="qb-status-row">
-                    <span class="qb-status-pill" id="m365-status-badge" data-status="loading">Loading connection…</span>
+                <div class="ld-status-row">
+                    <span class="ld-status-pill" id="m365-status-badge" data-status="loading">Loading connection…</span>
                 </div>
 
-                <div class="qb-connected-box" id="m365-connected-box">
-                    <span class="qb-connected-label">Connected mailbox</span>
-                    <div class="qb-connected-email" id="m365-connected-email"></div>
-                    <div class="qb-connected-name" id="m365-connected-name"></div>
+                <div class="ld-connected-box" id="m365-connected-box">
+                    <span class="ld-connected-label">Connected mailbox</span>
+                    <div class="ld-connected-email" id="m365-connected-email"></div>
+                    <div class="ld-connected-name" id="m365-connected-name"></div>
                 </div>
 
                 @if(empty($outlookConfigured))
-                    <div class="qb-flash error" role="alert">
+                    <div class="ld-flash error" role="alert">
                         Microsoft OAuth is not configured yet. Add Microsoft Client ID and Client Secret in
                         <a href="{{ route('integrations') }}">Integrations</a>, then return here to sign in.
                     </div>
                 @else
-                    <div class="qb-form-actions" style="border-top: none; padding-top: 0; margin-top: 0;">
-                        <a href="{{ route('inbox.connect.outlook', ['intent' => 'quotation']) }}" class="qb-btn-primary" id="m365-sign-in-btn">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+                    <div class="ld-form-actions" style="border-top: none; padding-top: 0; margin-top: 0;">
+                        <a href="{{ route('inbox.connect.outlook', ['intent' => 'quotation']) }}" class="btn btn-primary btn-sm" id="m365-sign-in-btn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
                             Sign in with Microsoft 365
                         </a>
-                        <button type="button" class="qb-btn-secondary" id="m365-disconnect-btn" style="display: none;">Disconnect</button>
+                        <button type="button" class="btn btn-secondary btn-sm" id="m365-disconnect-btn" style="display: none;">Disconnect</button>
                     </div>
                 @endif
 
-                <div id="m365-alert" class="qb-flash qb-inline-alert" style="display: none;" role="alert"></div>
+                <div id="m365-alert" class="ld-flash ld-inline-alert" style="display: none;" role="alert"></div>
             </div>
 
-            <aside class="qb-settings-aside">
-                <h3 class="qb-aside-title">How it works</h3>
-                <p class="qb-aside-text">This uses the same Microsoft sign-in flow as Broadcast Messaging.</p>
-                <ol class="qb-steps">
+            <aside class="ld-settings-aside">
+                <h3 class="ld-aside-title">How it works</h3>
+                <p class="ld-aside-text">This uses the same Microsoft sign-in flow as Broadcast Messaging.</p>
+                <ol class="ld-steps">
                     <li>
-                        <span class="qb-step-num">1</span>
+                        <span class="ld-step-num">1</span>
                         <span>Configure Microsoft OAuth in <a href="{{ route('integrations') }}">Integrations</a>.</span>
                     </li>
                     <li>
-                        <span class="qb-step-num">2</span>
+                        <span class="ld-step-num">2</span>
                         <span>Click <strong>Sign in with Microsoft 365</strong> and choose the sender mailbox.</span>
                     </li>
                     <li>
-                        <span class="qb-step-num">3</span>
+                        <span class="ld-step-num">3</span>
                         <span>Send quotes from the storage quote page — emails go out from this account.</span>
                     </li>
                 </ol>
@@ -82,7 +84,7 @@
 @endsection
 
 @push('styles')
-    @include('partials.quotation-builder-settings-styles')
+    @include('partials.leads-page-base-styles')
 @endpush
 
 @push('scripts')
@@ -106,7 +108,7 @@
 
         function showAlert(message, type) {
             alertEl.textContent = message;
-            alertEl.className = 'qb-flash qb-inline-alert ' + type;
+            alertEl.className = 'ld-flash ld-inline-alert ' + type;
             alertEl.style.display = 'block';
         }
 
@@ -125,12 +127,12 @@
                     if (connectedEmail) connectedEmail.textContent = email;
                     if (connectedName) connectedName.textContent = name && name !== email ? name : '';
                     disconnectBtn && (disconnectBtn.style.display = 'inline-flex');
-                    if (signInBtn) signInBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Reconnect Microsoft 365';
+                    if (signInBtn) signInBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Reconnect Microsoft 365';
                 } else {
                     setStatus('disconnected', 'Not connected');
                     connectedBox?.classList.remove('visible');
                     disconnectBtn && (disconnectBtn.style.display = 'none');
-                    if (signInBtn) signInBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Sign in with Microsoft 365';
+                    if (signInBtn) signInBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Sign in with Microsoft 365';
                 }
             } catch (e) {
                 setStatus('disconnected', 'Could not load status');
