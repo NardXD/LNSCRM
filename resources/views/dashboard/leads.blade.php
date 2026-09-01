@@ -1218,6 +1218,18 @@
             return `<span class="${cls}" style="background:${color}22;color:${color}"${title}>${esc(label.name)}</span>`;
         }).join(' ') || '<span class="lead-meta">—</span>';
     }
+    function mergedLabelsForLead(lead) {
+        const merged = new Map();
+        (lead?.labels || []).forEach(label => {
+            const key = String(label?.name || '').trim().toLowerCase();
+            if (key) merged.set(key, { ...label, source: 'lead' });
+        });
+        (lead?.front_labels || []).forEach(label => {
+            const key = String(label?.name || '').trim().toLowerCase();
+            if (key && !merged.has(key)) merged.set(key, { ...label, source: 'front' });
+        });
+        return Array.from(merged.values());
+    }
     function mergedLeadLabels() {
         const merged = new Map();
         (state.labels || []).forEach(label => {
@@ -1267,7 +1279,7 @@
                 </td>
                 <td class="lead-meta">${esc((lead.phones || []).map(p => p.value).join(', ') || '—')}</td>
                 <td class="lead-meta">${esc((lead.emails || []).map(e => e.value).join(', ') || '—')}</td>
-                <td>${labelChips(lead.labels)}</td>
+                <td>${labelChips(mergedLabelsForLead(lead))}</td>
                 <td>
                     <select class="lead-assign" data-id="${lead.id}" aria-label="Assign lead">
                         ${assigneeOptions(lead.assigned_to, lead.assigned_user)}
