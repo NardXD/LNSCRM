@@ -316,6 +316,12 @@
         font-weight: 700;
     }
 
+    .inbox-pill {
+        display: inline-flex; align-items: center; gap: 0.25rem;
+        font-size: 0.68rem; font-weight: 600; padding: 0.1rem 0.4rem; border-radius: 999px;
+        background: #f1f5f9; color: #334155;
+    }
+
     .lead-label-chip--front {
         border: 1px dashed currentColor;
     }

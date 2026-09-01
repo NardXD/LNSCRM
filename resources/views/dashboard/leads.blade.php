@@ -1211,10 +1211,11 @@
     }
     function labelChips(labels) {
         return (labels || []).map(label => {
+            const color = label.color || '#4338ca';
             const fromFront = label.source === 'front';
-            const cls = fromFront ? 'lead-label-chip lead-label-chip--front' : 'lead-label-chip';
+            const cls = fromFront ? 'inbox-pill lead-label-chip--front' : 'inbox-pill';
             const title = fromFront ? ' title="Imported from Front.com — not yet saved on this lead"' : '';
-            return `<span class="${cls}" style="background:${esc(label.color || '#4338ca')};color:${chipText(label.color)}"${title}>${esc(label.name)}</span>`;
+            return `<span class="${cls}" style="background:${color}22;color:${color}"${title}>${esc(label.name)}</span>`;
         }).join(' ') || '<span class="lead-meta">—</span>';
     }
     function mergedLeadLabels() {
