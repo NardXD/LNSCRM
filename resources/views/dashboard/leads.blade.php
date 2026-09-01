@@ -39,9 +39,10 @@
             <option value="">All assignees</option>
             <option value="__none__">Unassigned</option>
         </select>
-        <div class="leads-tabs" role="tablist" id="leadStatusTabs">
-            <button type="button" class="leads-tab active" data-status="all">All</button>
-        </div>
+    </div>
+
+    <div class="leads-tabs" role="tablist" id="leadStatusTabs">
+        <button type="button" class="leads-tab active" data-status="all">All</button>
     </div>
 
     <div class="leads-followup-row">
@@ -681,7 +682,13 @@
     color: var(--text-primary);
 }
 .lead-label-filter-chips { display: flex; flex-wrap: wrap; gap: 0.25rem; }
-.leads-tabs { display: flex; gap: 0.2rem; flex-wrap: wrap; align-items: center; }
+.leads-tabs {
+    display: flex;
+    gap: 0.2rem;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 0 0 0.5rem;
+}
 .leads-tab {
     border: 1px solid var(--border);
     background: var(--bg-card);
