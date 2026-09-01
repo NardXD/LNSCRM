@@ -300,7 +300,7 @@ class QuotationController extends Controller
 
         $query = Lead::where('company_id', $companyId)
             ->whereNotIn('status', ['archived'])
-            ->with(['identities', 'assignedUser:id,name', 'labels:id,name,color', 'inboxConversations:id,lead_id', 'inboxConversations.leadLabels:id,name,color'])
+            ->with(['identities', 'assignedUser:id,name', 'labels:id,name,color'])
             ->orderBy('first_name')
             ->orderBy('last_name');
 
@@ -316,18 +316,12 @@ class QuotationController extends Controller
                     })
                     ->orWhereHas('labels', function ($q) use ($search) {
                         $q->where('lead_labels.name', 'like', "%{$search}%");
-                    })
-                    ->orWhereHas('inboxConversations.leadLabels', function ($q) use ($search) {
-                        $q->where('lead_labels.name', 'like', "%{$search}%");
                     });
             });
         }
 
         foreach ($this->normalizeClientLabelIds($request) as $labelId) {
-            $query->where(function ($q) use ($labelId) {
-                $q->whereHas('labels', fn ($label) => $label->where('lead_labels.id', $labelId))
-                    ->orWhereHas('inboxConversations.leadLabels', fn ($label) => $label->where('lead_labels.id', $labelId));
-            });
+            $query->whereHas('labels', fn ($label) => $label->where('lead_labels.id', $labelId));
         }
 
         $assignedTo = trim((string) $request->input('assigned_to', ''));
@@ -365,8 +359,6 @@ class QuotationController extends Controller
                 'assigned_to' => $lead->assigned_to,
                 'assignee_name' => $lead->assignedUser?->name,
                 'labels' => $lead->labels
-                    ->concat($lead->inboxConversations->flatMap->leadLabels)
-                    ->unique('id')
                     ->map(fn (LeadLabel $label) => [
                         'id' => $label->id,
                         'name' => $label->name,
