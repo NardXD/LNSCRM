@@ -1673,7 +1673,10 @@ class IntegrationController extends Controller
             'integration' => [
                 'id' => $integration->id,
                 'api_token' => $integration->api_token ? '***hidden***' : null,
+                'has_token' => $integration->hasToken(),
                 'is_active' => $integration->is_active,
+                'verify_error' => $integration->verify_error,
+                'verified_at' => $integration->verified_at?->toIso8601String(),
                 'last_import_at' => $integration->last_import_at?->toIso8601String(),
                 'last_import_dry_run' => $integration->last_import_dry_run,
                 'last_import_stats' => $integration->last_import_stats,
@@ -1713,8 +1716,11 @@ class IntegrationController extends Controller
             }
 
             $data['api_token'] = Crypt::encryptString($apiToken);
+            $data['verify_error'] = $verifyWarning;
+            $data['verified_at'] = $verifyWarning === null ? now() : null;
         } elseif ($existing) {
             $data['api_token'] = $existing->api_token;
+            // A blank token means "keep the current one" — leave its verify state untouched.
         } else {
             return response()->json(['errors' => ['api_token' => ['API token is required for new integrations.']]], 422);
         }
@@ -1765,8 +1771,13 @@ class IntegrationController extends Controller
         }
 
         $integration = FrontIntegration::query()->where('company_id', $company->id)->first();
-        if (! $integration?->isConnected()) {
-            return response()->json(['error' => 'Front is not connected.'], 400);
+        if (! $integration?->hasToken()) {
+            return response()->json(['error' => 'Front is not connected. Save your API token first.'], 400);
+        }
+        if (! $integration->isConnected()) {
+            return response()->json([
+                'error' => 'Front token is saved but not verified: '.($integration->verify_error ?: 'unknown error').'. Paste a fresh token and save to reconnect.',
+            ], 400);
         }
 
         $token = $integration->getDecryptedApiToken();
@@ -1791,8 +1802,13 @@ class IntegrationController extends Controller
         }
 
         $integration = FrontIntegration::query()->where('company_id', $company->id)->first();
-        if (! $integration?->isConnected()) {
+        if (! $integration?->hasToken()) {
             return response()->json(['error' => 'Front is not connected. Save your API token first.'], 400);
+        }
+        if (! $integration->isConnected()) {
+            return response()->json([
+                'error' => 'Front token is saved but not verified: '.($integration->verify_error ?: 'unknown error').'. Paste a fresh token and save to reconnect.',
+            ], 400);
         }
 
         $token = $integration->getDecryptedApiToken();

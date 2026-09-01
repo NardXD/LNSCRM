@@ -322,6 +322,12 @@
         animation: frontImportIndeterminate 1.2s ease-in-out infinite;
     }
 
+    .front-import-loading-bar > span.determinate {
+        width: 0%;
+        animation: none;
+        transition: width 0.3s ease;
+    }
+
     @keyframes frontImportIndeterminate {
         0% { transform: translateX(-120%); }
         100% { transform: translateX(320%); }
@@ -855,6 +861,10 @@
 
     let currentCategory = 'all';
     let currentIntegration = null;
+    // Total Front inboxes the mapping table listed (0 when Front returned none, or the
+    // mapping call failed) — lets handleFrontImport tell "nothing to map" apart from
+    // "user explicitly skipped every row".
+    let frontMappingRowsTotal = 0;
 
     // Render Integrations
     function renderIntegrations(category = 'all') {
@@ -1206,6 +1216,16 @@
                     ${getIntegrationConfig(integration.id, existingIntegration)}
                 </div>
             `;
+        } else if (integration.id === 'front' && existingIntegration?.has_token) {
+            configHtml = `
+                <div class="connected-info" style="background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.35);">
+                    <div class="connected-info-title" style="color: #b45309;">⚠ Token saved but not verified</div>
+                    <div class="connected-info-text" style="color:#b45309;">Front rejected the last check${existingIntegration.verify_error ? ': ' + escapeHtml(existingIntegration.verify_error) : '.'} Paste a fresh API token and save to reconnect.</div>
+                </div>
+                <div class="config-form">
+                    ${getIntegrationConfig(integration.id, existingIntegration)}
+                </div>
+            `;
         } else {
             configHtml = `
                 <div class="config-form">
@@ -1271,7 +1291,7 @@
                 d.onclick = () => { if (confirm('Disconnect Storeganise?')) handleStoreganiseDisconnect(); };
                 footer.insertBefore(d, actionBtn);
             }
-        } else if (integration.status === 'connected' && integrationId === 'front') {
+        } else if ((integration.status === 'connected' || existingIntegration?.has_token) && integrationId === 'front') {
             actionBtn.textContent = 'Save token';
             actionBtn.className = 'btn-primary';
             actionBtn.onclick = () => handleFrontSave(false);
@@ -1325,6 +1345,8 @@
         }
         if (integrationId === 'calendar' || integrationId === 'outlook') {
             // Handled above - Save settings button
+        } else if (integrationId === 'front' && existingIntegration?.has_token) {
+            // Handled above - Save token / Disconnect button, even when not yet verified.
         } else if (integration.status === 'connected' && integrationId !== 'wise' && integrationId !== 'gmail' && integrationId !== 'stripe' && integrationId !== 'openai' && integrationId !== 'storeganise' && integrationId !== 'front' && integrationId !== 'twilio' && integrationId !== 'facebook') {
             actionBtn.textContent = 'Disconnect';
             actionBtn.className = 'btn-primary btn-danger';
@@ -1474,11 +1496,11 @@
             'front': `
                 <div class="form-group">
                     <label class="form-label">Front API token</label>
-                    <input type="password" class="form-input" id="front-api-token" placeholder="${existingData && existingData.api_token ? 'Leave blank to keep current token' : 'Paste bearer token'}">
+                    <input type="password" class="form-input" id="front-api-token" placeholder="${existingData && existingData.has_token ? 'Leave blank to keep current token' : 'Paste bearer token'}">
                     <span class="form-help">Create a token in Front → Settings → Developers with scopes <code>tags:read</code>, <code>conversations:read</code>, and optionally <code>inboxes:read</code>. Paste the token only — do not include <code>Bearer</code>.</span>
                     <div id="front-token-error" class="form-help" style="color:#b91c1c;display:none;margin-top:0.5rem;"></div>
                 </div>
-                <div id="front-import-panel" class="front-import-panel" ${existingData && existingData.api_token ? '' : 'hidden'}>
+                <div id="front-import-panel" class="front-import-panel" ${existingData && existingData.status === 'connected' ? '' : 'hidden'}>
                     <h4 style="font-size:0.9375rem;font-weight:600;margin:0 0 0.5rem;">Import inbox tags</h4>
                     <p class="form-help" style="margin-bottom:0.75rem;">Sync mail into LNSCRM first (<strong>Inbox → Sync</strong> or <code>php artisan inbox:sync-mail --full</code>), then run the import below.</p>
                     <div id="front-mapping-wrap">
@@ -1496,7 +1518,7 @@
                         <div class="front-import-spinner" aria-hidden="true"></div>
                         <div style="flex:1;">
                             <div id="front-import-loading-label">Processing…</div>
-                            <div class="front-import-loading-bar" aria-hidden="true"><span></span></div>
+                            <div class="front-import-loading-bar" aria-hidden="true"><span id="front-import-loading-fill"></span></div>
                         </div>
                     </div>
                     <div id="front-import-results"></div>
@@ -2421,14 +2443,25 @@
         return target;
     }
 
-    function setFrontImportLoading(isLoading, message = 'Processing…') {
+    function setFrontImportLoading(isLoading, message = 'Processing…', percent = null) {
         const loading = document.getElementById('front-import-loading');
         const label = document.getElementById('front-import-loading-label');
+        const fill = document.getElementById('front-import-loading-fill');
         const dryRunBtn = document.getElementById('front-dry-run-btn');
         const importBtn = document.getElementById('front-import-btn');
         [dryRunBtn, importBtn].forEach(btn => { if (btn) btn.disabled = !!isLoading; });
-        if (label) label.textContent = message;
+        const pct = percent === null || percent === undefined ? null : Math.max(0, Math.min(100, Math.round(percent)));
+        if (label) label.textContent = pct === null ? message : `${message} ${pct}%`;
         if (loading) loading.hidden = !isLoading;
+        if (fill) {
+            if (pct === null) {
+                fill.classList.remove('determinate');
+                fill.style.width = '';
+            } else {
+                fill.classList.add('determinate');
+                fill.style.width = `${pct}%`;
+            }
+        }
     }
 
     async function parseFrontImportResponse(response) {
@@ -2476,11 +2509,11 @@
         return parseFrontImportResponse(response);
     }
 
-    async function runFrontInboxImportPaged(dryRun, entry, actionLabel) {
+    async function runFrontInboxImportPaged(dryRun, entry, actionLabel, basePercent = 0, nextPercent = 100) {
         const partial = emptyFrontImportStats();
 
         if (dryRun) {
-            setFrontImportLoading(true, `${actionLabel} ${entry.frontName} (first 100)…`);
+            setFrontImportLoading(true, `${actionLabel} ${entry.frontName} (first 100)…`, basePercent);
             const data = await runFrontImportRequest(
                 dryRun,
                 { [entry.frontId]: entry.sharedId },
@@ -2496,9 +2529,15 @@
 
         do {
             page += 1;
+            // Front's cursor pagination doesn't expose a total count, so within this
+            // inbox's slice of the overall bar we approach (but never reach) nextPercent
+            // as more pages come in, rather than faking a number we don't have.
+            const withinInboxFraction = 1 - 1 / (page + 1);
+            const currentPercent = basePercent + (nextPercent - basePercent) * withinInboxFraction;
             setFrontImportLoading(
                 true,
-                `${actionLabel} ${entry.frontName} – page ${page}…`
+                `${actionLabel} ${entry.frontName} – page ${page}…`,
+                currentPercent
             );
             const data = await runFrontImportRequest(
                 dryRun,
@@ -2520,6 +2559,7 @@
         if (!panel || !mappingWrap) return;
 
         panel.hidden = false;
+        frontMappingRowsTotal = 0;
 
         if (existingIntegration?.last_import_stats) {
             renderFrontImportResults(
@@ -2554,6 +2594,8 @@
                 const label = inbox.email ? `${inbox.name} (${inbox.email})` : inbox.name;
                 return `<option value="${inbox.id}">${escapeHtml(label)}</option>`;
             }).join('');
+
+            frontMappingRowsTotal = (data.rows || []).length;
 
             const rows = (data.rows || []).map(row => `
                 <tr>
@@ -2610,7 +2652,7 @@
 
     async function handleFrontSave(closeOnSuccess = true) {
         const apiToken = document.getElementById('front-api-token')?.value?.trim() || '';
-        const hasExisting = window.existingIntegration && window.existingIntegration.api_token;
+        const hasExisting = window.existingIntegration && window.existingIntegration.has_token;
 
         if (!apiToken && !hasExisting) {
             showFrontTokenError('Please enter your Front API token.');
@@ -2639,31 +2681,39 @@
                 return false;
             }
 
-            currentIntegration.status = 'connected';
+            // Trust the server's verified status rather than assuming "saved" means "connected" —
+            // a stored token that Front rejects must not keep showing Successfully Connected.
+            const verified = data.status === 'connected';
+            currentIntegration.status = data.status || 'disconnected';
             window.existingIntegration = {
                 ...(window.existingIntegration || {}),
                 api_token: '***hidden***',
+                has_token: true,
                 is_active: true,
-                status: 'connected',
+                status: currentIntegration.status,
+                verify_error: data.verify_warning || null,
             };
 
             if (data.verify_warning) {
-                showFrontTokenError(`Token saved, but Front could not verify it yet: ${data.verify_warning}`, 'warning');
+                showFrontTokenError(`Token saved, but Front could not verify it: ${data.verify_warning}`, 'warning');
             }
 
-            const panel = document.getElementById('front-import-panel');
-            if (panel) panel.hidden = false;
-
-            if (closeOnSuccess && !data.verify_warning) {
+            if (closeOnSuccess && verified) {
                 closeIntegrationModal();
                 renderIntegrations(currentCategory);
-            } else {
+            } else if (verified) {
                 const tokenInput = document.getElementById('front-api-token');
                 if (tokenInput) tokenInput.value = '';
+                const panel = document.getElementById('front-import-panel');
+                if (panel) panel.hidden = false;
                 await loadFrontImportPanel(window.existingIntegration);
+            } else {
+                // Re-render the modal from the fresh (unverified) state so the amber
+                // "not verified" banner and Save/Disconnect buttons show correctly.
+                await openIntegrationModal('front');
             }
 
-            return true;
+            return verified;
         } catch (error) {
             console.error('Error:', error);
             showFrontTokenError('Error saving Front integration. Please try again.');
@@ -2695,7 +2745,7 @@
     }
 
     async function handleFrontImport(dryRun = false) {
-        const hasExisting = window.existingIntegration && window.existingIntegration.api_token;
+        const hasExisting = window.existingIntegration && window.existingIntegration.has_token;
         const apiToken = document.getElementById('front-api-token')?.value?.trim() || '';
 
         if (!hasExisting && !apiToken) {
@@ -2709,28 +2759,43 @@
         }
 
         const entries = collectFrontInboxEntries();
-        const aggregated = emptyFrontImportStats();
         const actionLabel = dryRun ? 'Previewing' : 'Importing';
 
-        setFrontImportLoading(true, `${actionLabel}…`);
+        // Front inboxes existed in the mapping table but every one of them is set to
+        // "— Skip —": respect that choice instead of silently falling back to scanning
+        // every shared inbox by tag (which used to match conversations into whichever
+        // shared inbox happened to be first, even though the user asked to skip it).
+        if (entries.length === 0 && frontMappingRowsTotal > 0) {
+            renderFrontImportError('Every Front inbox is set to "— Skip —", so there is nothing to import. Map at least one Front inbox to a LNSCRM shared inbox first.');
+            return;
+        }
+
+        const aggregated = emptyFrontImportStats();
+
+        setFrontImportLoading(true, `${actionLabel}…`, entries.length ? 0 : null);
         document.getElementById('front-import-results')?.replaceChildren();
 
         try {
             if (entries.length === 0) {
-                setFrontImportLoading(true, dryRun ? `${actionLabel} (first 100)…` : `${actionLabel} tags across all shared inboxes…`);
+                setFrontImportLoading(true, dryRun ? `${actionLabel} (first 100)…` : `${actionLabel} tags across all shared inboxes…`, null);
                 const data = await runFrontImportRequest(dryRun, {}, null);
                 mergeFrontImportStats(aggregated, data.stats || {});
+                setFrontImportLoading(true, 'Finishing…', 100);
             } else {
                 for (let index = 0; index < entries.length; index++) {
                     const entry = entries[index];
+                    const basePercent = (index / entries.length) * 100;
+                    const nextPercent = ((index + 1) / entries.length) * 100;
                     setFrontImportLoading(
                         true,
-                        `${actionLabel} ${entry.frontName} (${index + 1} of ${entries.length})…`
+                        `${actionLabel} ${entry.frontName} (${index + 1} of ${entries.length})…`,
+                        basePercent
                     );
-                    const inboxStats = await runFrontInboxImportPaged(dryRun, entry, actionLabel);
+                    const inboxStats = await runFrontInboxImportPaged(dryRun, entry, actionLabel, basePercent, nextPercent);
                     mergeFrontImportStats(aggregated, inboxStats);
                 }
 
+                setFrontImportLoading(true, 'Finishing…', 100);
                 await runFrontImportRequest(dryRun, {}, null, true, null, aggregated);
             }
 
