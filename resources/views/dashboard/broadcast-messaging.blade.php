@@ -18,16 +18,27 @@
          data-twilio="{{ !empty($twilioConnected) ? '1' : '0' }}"
          data-outlook="{{ !empty($outlookConfigured) ? '1' : '0' }}">
 
-        <div class="page-header bc-header">
-            <div>
-                <h1 class="page-title">Broadcast Messaging</h1>
-                <p class="page-subtitle">Send bulk SMS and email messages, then track delivery results</p>
+        <div class="bc-top">
+            <div class="bc-top-main">
+                <h1 class="bc-title">Broadcast Messaging</h1>
+                <p class="bc-subtitle">Send bulk SMS and email, then track delivery</p>
             </div>
-            <button type="button" class="btn btn-primary" id="btnNew" {{ (empty($canSendSms) && empty($canSendEmail)) ? 'disabled' : '' }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                New Broadcast
-            </button>
+            <div class="bc-top-actions" id="bcTopActions">
+                <button type="button" class="btn btn-primary btn-sm" id="btnNew" {{ (empty($canSendSms) && empty($canSendEmail)) ? 'disabled' : '' }}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    New broadcast
+                </button>
+            </div>
         </div>
+
+        <nav class="bc-context-nav" id="bcContextNav" hidden aria-label="Broadcast navigation">
+            <button type="button" class="bc-context-back btn btn-secondary btn-sm" id="btnContextBack">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+                Broadcasts
+            </button>
+            <span class="bc-context-sep" aria-hidden="true">/</span>
+            <span class="bc-context-title" id="bcContextTitle">New broadcast</span>
+        </nav>
 
         <div id="viewList">
             <div class="bc-toolbar">
@@ -72,11 +83,23 @@
         </div>
 
         <div id="viewWizard" hidden>
-            <div class="bc-steps">
-                <button type="button" class="bc-step active" data-step="1">1. Setup</button>
-                <button type="button" class="bc-step" data-step="2">2. Recipients</button>
-                <button type="button" class="bc-step" data-step="3">3. Compose</button>
-                <button type="button" class="bc-step" data-step="4">4. Review</button>
+            <div class="bc-stepper" role="tablist" aria-label="Broadcast steps">
+                <button type="button" class="bc-step-item active" data-step="1" role="tab" aria-selected="true">
+                    <span class="bc-step-num">1</span>
+                    <span class="bc-step-label">Setup</span>
+                </button>
+                <button type="button" class="bc-step-item" data-step="2" role="tab" aria-selected="false">
+                    <span class="bc-step-num">2</span>
+                    <span class="bc-step-label">Recipients</span>
+                </button>
+                <button type="button" class="bc-step-item" data-step="3" role="tab" aria-selected="false">
+                    <span class="bc-step-num">3</span>
+                    <span class="bc-step-label">Compose</span>
+                </button>
+                <button type="button" class="bc-step-item" data-step="4" role="tab" aria-selected="false">
+                    <span class="bc-step-num">4</span>
+                    <span class="bc-step-label">Review</span>
+                </button>
             </div>
 
             <div class="bc-card bc-wizard-card">
@@ -109,8 +132,8 @@
                         <div class="bc-sender-head">
                             <label class="bc-label">Microsoft 365 sender</label>
                             <div class="bc-sender-actions">
-                                <a href="{{ route('inbox.connect.outlook', ['intent' => 'broadcast']) }}" class="btn btn-primary" id="btnConnectM365">Sign in with Microsoft 365</a>
-                                <a href="{{ route('inbox') }}" class="btn btn-secondary" id="btnAddAccount">Manage shared mailboxes</a>
+                                <a href="{{ route('inbox.connect.outlook', ['intent' => 'broadcast']) }}" class="btn btn-primary btn-sm" id="btnConnectM365">Sign in M365</a>
+                                <a href="{{ route('inbox') }}" class="btn btn-secondary btn-sm" id="btnAddAccount">Shared mailboxes</a>
                             </div>
                         </div>
                         <select id="fInbox" class="bc-input"></select>
@@ -131,16 +154,16 @@
                                 </select>
                             </div>
                             <div class="bc-recip-actions">
-                                <button type="button" class="btn btn-secondary" id="btnSelectAllRecipients">Select all</button>
-                                <button type="button" class="btn btn-secondary" id="btnDeselectAllRecipients">Deselect all</button>
+                                <button type="button" class="btn btn-secondary btn-sm" id="btnSelectAllRecipients">Select all</button>
+                                <button type="button" class="btn btn-secondary btn-sm" id="btnDeselectAllRecipients">Deselect all</button>
                             </div>
                             <div class="bc-recip-results" id="recipResults">
                                 <div class="bc-empty">Search to find people with a phone number or email address.</div>
                             </div>
                             <div class="bc-pager" id="recipPager"></div>
                             <label class="bc-label">Or paste addresses (one per line)</label>
-                            <textarea id="recipPaste" class="bc-input" rows="4" placeholder="+15551234567 or name@example.com"></textarea>
-                            <button type="button" class="btn btn-secondary" id="btnPaste">Add pasted addresses</button>
+                            <textarea id="recipPaste" class="bc-input" rows="3" placeholder="+15551234567 or name@example.com"></textarea>
+                            <button type="button" class="btn btn-secondary btn-sm" id="btnPaste">Add pasted</button>
                         </div>
                         <div class="bc-selected">
                             <div class="bc-selected-head">
@@ -151,7 +174,7 @@
                             <div id="selectedList" class="bc-selected-list">
                                 <div class="bc-empty">No recipients yet.</div>
                             </div>
-                            <button type="button" class="btn btn-secondary" id="btnClearSelected">Clear all</button>
+                            <button type="button" class="btn btn-secondary btn-sm" id="btnClearSelected">Clear all</button>
                         </div>
                     </div>
                 </section>
@@ -163,7 +186,7 @@
                     </div>
                     <div id="smsBodyBlock">
                         <label class="bc-label">SMS message</label>
-                        <textarea id="fBody" class="bc-input" rows="10" placeholder="Write your message…"></textarea>
+                        <textarea id="fBody" class="bc-input" rows="7" placeholder="Write your message…"></textarea>
                         <div class="bc-char" id="charCount"></div>
                     </div>
                     <div id="emailBodyBlock" hidden>
@@ -216,17 +239,16 @@
                 </section>
 
                 <div class="bc-wizard-actions">
-                    <button type="button" class="btn btn-secondary" id="btnCancel">Cancel</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btnCancel">Cancel</button>
                     <div class="bc-wizard-nav">
-                        <button type="button" class="btn btn-secondary" id="btnBack" hidden>Back</button>
-                        <button type="button" class="btn btn-primary" id="btnNext">Continue</button>
+                        <button type="button" class="btn btn-secondary btn-sm" id="btnBack" hidden>Back</button>
+                        <button type="button" class="btn btn-primary btn-sm" id="btnNext">Continue</button>
                     </div>
                 </div>
             </div>
         </div>
 
         <div id="viewDetail" hidden>
-            <button type="button" class="btn btn-secondary bc-back" id="btnBackList">Back to broadcasts</button>
             <div class="bc-detail-head">
                 <div>
                     <h2 id="detailName" class="bc-detail-title"></h2>
@@ -246,8 +268,8 @@
                         <div class="bc-detail-results-head">
                             <h3 class="bc-review-title">Results</h3>
                             <div class="bc-detail-actions" id="detailActions" hidden>
-                                <button type="button" class="btn btn-secondary" id="btnRetryFailed" hidden>Retry failed</button>
-                                <button type="button" class="btn btn-primary" id="btnToggleAddRecipients">Add recipients</button>
+                                <button type="button" class="btn btn-secondary btn-sm" id="btnRetryFailed" hidden>Retry failed</button>
+                                <button type="button" class="btn btn-primary btn-sm" id="btnToggleAddRecipients">Add recipients</button>
                             </div>
                         </div>
                         <div class="table-container">
@@ -291,8 +313,8 @@
                                 </select>
                             </div>
                             <div class="bc-recip-actions">
-                                <button type="button" class="btn btn-secondary" id="btnSelectAllDetailRecipients">Select all</button>
-                                <button type="button" class="btn btn-secondary" id="btnDeselectAllDetailRecipients">Deselect all</button>
+                                <button type="button" class="btn btn-secondary btn-sm" id="btnSelectAllDetailRecipients">Select all</button>
+                                <button type="button" class="btn btn-secondary btn-sm" id="btnDeselectAllDetailRecipients">Deselect all</button>
                             </div>
                             <div class="bc-recip-results" id="detailRecipResults">
                                 <div class="bc-empty">Search to find people with a phone number or email address.</div>
@@ -300,7 +322,7 @@
                             <div class="bc-pager" id="detailRecipPager"></div>
                             <label class="bc-label">Or paste addresses (one per line)</label>
                             <textarea id="detailRecipPaste" class="bc-input" rows="3" placeholder="+15551234567 or name@example.com"></textarea>
-                            <button type="button" class="btn btn-secondary" id="btnDetailPaste">Add pasted addresses</button>
+                            <button type="button" class="btn btn-secondary btn-sm" id="btnDetailPaste">Add pasted</button>
                         </div>
                         <div class="bc-selected">
                             <div class="bc-selected-head">
@@ -314,8 +336,8 @@
                     </div>
                 </div>
                 <div class="bc-modal-footer">
-                    <button type="button" class="btn btn-secondary" id="btnCancelAddRecipients">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="btnSendDetailRecipients">Send to selected</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btnCancelAddRecipients">Cancel</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="btnSendDetailRecipients">Send to selected</button>
                 </div>
             </div>
         </div>
@@ -324,26 +346,156 @@
 
 @push('styles')
 <style>
-    .bc-page { max-width: 1200px; }
-    .bc-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
-    .bc-toolbar { display: flex; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap; }
-    .bc-search { position: relative; flex: 1; min-width: 220px; }
-    .bc-search svg { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--text-muted); }
-    .bc-search input, .bc-select, .bc-input {
-        width: 100%; padding: 0.625rem 0.875rem; border: 1px solid var(--border); border-radius: 8px;
-        font-size: 0.875rem; font-family: inherit; background: #fff; color: var(--text-primary);
+    .bc-page {
+        max-width: 1120px;
+        font-size: 0.8125rem;
     }
-    .bc-search input { padding-left: 2.25rem; }
-    .bc-select { width: auto; min-width: 140px; }
-    .bc-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+
+    /* Compact page header */
+    .bc-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 0.75rem;
+        margin-bottom: 0.85rem;
+    }
+    .bc-title {
+        font-size: 1.125rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin: 0 0 0.15rem;
+        line-height: 1.3;
+    }
+    .bc-subtitle {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        margin: 0;
+    }
+    .bc-top-actions { flex-shrink: 0; display: flex; align-items: center; margin: 0.25rem 0; }
+
+    /* Context breadcrumb nav */
+    .bc-context-nav {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        margin-bottom: 0.75rem;
+        padding: 0.35rem 0;
+        flex-wrap: wrap;
+    }
+    .bc-context-nav[hidden] { display: none; }
+    .bc-context-back {
+        text-decoration: none;
+    }
+    .bc-context-back svg { width: 14px; height: 14px; }
+    .bc-context-sep { color: var(--text-muted); font-size: 0.75rem; }
+    .bc-context-title {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 320px;
+    }
+
+    /* Scoped compact buttons */
+    .bc-page .btn,
+    .bc-page a.btn {
+        padding: 0.35rem 0.7rem;
+        margin: 0.4rem 0;
+        font-size: 0.75rem;
+        border-radius: 6px;
+        gap: 0.3rem;
+        font-weight: 500;
+        line-height: 1.35;
+        text-decoration: none;
+    }
+    .bc-page a.btn:hover,
+    .bc-page a.btn:focus,
+    .bc-page a.btn:active {
+        text-decoration: none;
+    }
+    .bc-page .btn svg { width: 14px; height: 14px; }
+    .bc-page .btn-sm,
+    .bc-page a.btn-sm {
+        padding: 0.3rem 0.6rem;
+        margin: 0.35rem 0;
+    }
+
+    /* List toolbar */
+    .bc-toolbar {
+        display: flex;
+        gap: 0.45rem;
+        margin-bottom: 0.6rem;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+    .bc-search { position: relative; flex: 1; min-width: 180px; }
+    .bc-search svg {
+        position: absolute; left: 0.55rem; top: 50%; transform: translateY(-50%);
+        width: 13px; height: 13px; color: var(--text-muted); pointer-events: none;
+    }
+    .bc-search input, .bc-select, .bc-input {
+        width: 100%;
+        padding: 0.4rem 0.6rem;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-family: inherit;
+        background: #fff;
+        color: var(--text-primary);
+        line-height: 1.35;
+    }
+    .bc-search input { padding-left: 1.85rem; }
+    .bc-select { width: auto; min-width: 110px; padding-right: 1.5rem; }
+
+    /* Cards & tables */
+    .bc-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+    }
     .table-container { overflow-x: auto; }
-    .data-table { width: 100%; border-collapse: collapse; }
-    .data-table th { padding: 0.875rem 1rem; text-align: left; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); background: var(--bg-primary); }
-    .data-table td { padding: 0.9rem 1rem; font-size: 0.875rem; border-bottom: 1px solid var(--border); }
-    .data-table tbody tr { cursor: pointer; }
-    .data-table tbody tr:hover { background: var(--bg-primary); }
-    .bc-empty { text-align: center; color: var(--text-secondary); padding: 2rem 1rem !important; cursor: default; }
-    .bc-badge { display: inline-flex; align-items: center; padding: 0.2rem 0.65rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+    .bc-page .data-table { width: 100%; border-collapse: collapse; }
+    .bc-page .data-table th {
+        padding: 0.45rem 0.65rem;
+        text-align: left;
+        font-size: 0.625rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-primary);
+        white-space: nowrap;
+    }
+    .bc-page .data-table td {
+        padding: 0.5rem 0.65rem;
+        font-size: 0.75rem;
+        border-bottom: 1px solid var(--border);
+        vertical-align: middle;
+    }
+    .bc-page .data-table tbody tr { cursor: pointer; }
+    .bc-page .data-table tbody tr:hover { background: var(--bg-primary); }
+    .bc-empty {
+        text-align: center;
+        color: var(--text-secondary);
+        padding: 1.25rem 0.75rem !important;
+        cursor: default;
+        font-size: 0.75rem;
+    }
+
+    /* Badges */
+    .bc-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.1rem 0.45rem;
+        border-radius: 999px;
+        font-size: 0.625rem;
+        font-weight: 600;
+        line-height: 1.4;
+    }
     .bc-badge.sms { background: #eef2ff; color: #4338ca; }
     .bc-badge.email { background: #eff6ff; color: #1d4ed8; }
     .bc-badge.sending { background: #fff7ed; color: #c2410c; }
@@ -351,138 +503,465 @@
     .bc-badge.partial { background: #fef3c7; color: #b45309; }
     .bc-badge.failed, .bc-badge.undelivered { background: #fef2f2; color: #b91c1c; }
     .bc-badge.pending { background: #f3f4f6; color: #4b5563; }
-    .bc-pager { padding: 0.75rem 1rem; }
+
+    /* Pagination */
+    .bc-pager { padding: 0.45rem 0.65rem; }
     .bc-pager:empty { display: none; }
-    .bc-pager-inner { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
-    .bc-pager-info { font-size: 0.8125rem; color: var(--text-secondary); }
-    .bc-pager-controls { display: flex; gap: 0.35rem; flex-wrap: wrap; align-items: center; }
+    .bc-pager-inner {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+    .bc-pager-info { font-size: 0.6875rem; color: var(--text-secondary); }
+    .bc-pager-controls { display: flex; gap: 0.2rem; flex-wrap: wrap; align-items: center; }
     .bc-page-btn {
-        min-width: 2rem; border: 1px solid var(--border); background: #fff; border-radius: 8px;
-        padding: 0.35rem 0.6rem; font-size: 0.8125rem; cursor: pointer; font-family: inherit; color: var(--text-primary);
+        min-width: 1.6rem;
+        border: 1px solid var(--border);
+        background: #fff;
+        border-radius: 5px;
+        padding: 0.2rem 0.45rem;
+        margin: 0.25rem 0;
+        font-size: 0.6875rem;
+        cursor: pointer;
+        font-family: inherit;
+        color: var(--text-primary);
+        line-height: 1.3;
+        text-decoration: none;
     }
     .bc-page-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
     .bc-page-btn.is-active { background: var(--accent-light); border-color: transparent; color: var(--accent); font-weight: 600; }
-    .bc-page-btn:disabled { opacity: 0.5; cursor: default; }
-    .bc-recip-actions { display: flex; gap: 0.5rem; margin-bottom: 0.65rem; flex-wrap: wrap; }
-    .bc-steps { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
-    .bc-step { border: 1px solid var(--border); background: #fff; border-radius: 999px; padding: 0.45rem 0.9rem; font-size: 0.8125rem; color: var(--text-secondary); cursor: pointer; }
-    .bc-step.active { background: var(--accent-light); color: var(--accent); border-color: transparent; font-weight: 600; }
-    .bc-wizard-card { padding: 1.5rem; }
-    .bc-label { display: block; font-size: 0.8125rem; font-weight: 600; margin: 1rem 0 0.4rem; }
-    .bc-hint { font-size: 0.8125rem; color: var(--text-secondary); margin-top: 0.4rem; }
-    .bc-type-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
-    .bc-type-card { border: 1px solid var(--border); border-radius: 10px; padding: 1rem; cursor: pointer; display: flex; flex-direction: column; gap: 0.25rem; }
+    .bc-page-btn:disabled { opacity: 0.45; cursor: default; }
+
+    /* Wizard stepper */
+    .bc-stepper {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0;
+        margin-bottom: 0.65rem;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .bc-step-item {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.35rem;
+        padding: 0.45rem 0.35rem;
+        margin: 0.25rem 0;
+        border: none;
+        border-right: 1px solid var(--border);
+        background: var(--bg-primary);
+        color: var(--text-secondary);
+        font-size: 0.6875rem;
+        font-weight: 500;
+        font-family: inherit;
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+        text-decoration: none;
+    }
+    .bc-step-item:last-child { border-right: none; }
+    .bc-step-item:hover:not(.active) { background: #fff; color: var(--text-primary); }
+    .bc-step-item.active {
+        background: #fff;
+        color: var(--accent);
+        font-weight: 600;
+        box-shadow: inset 0 -2px 0 var(--accent);
+    }
+    .bc-step-item.done { color: var(--text-primary); }
+    .bc-step-item.done .bc-step-num {
+        background: #ecfdf5;
+        color: #047857;
+        border-color: #a7f3d0;
+    }
+    .bc-step-num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.15rem;
+        height: 1.15rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: #fff;
+        font-size: 0.625rem;
+        font-weight: 700;
+        flex-shrink: 0;
+    }
+    .bc-step-item.active .bc-step-num {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+    }
+    .bc-step-label { white-space: nowrap; }
+
+    /* Wizard form */
+    .bc-wizard-card { padding: 0.85rem 1rem; }
+    .bc-label {
+        display: block;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        margin: 0.65rem 0 0.25rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+    .bc-label:first-child { margin-top: 0; }
+    .bc-hint {
+        font-size: 0.6875rem;
+        color: var(--text-muted);
+        margin-top: 0.3rem;
+        line-height: 1.4;
+    }
+    .bc-type-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .bc-type-card {
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.55rem 0.65rem;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+    }
+    .bc-type-card strong { font-size: 0.75rem; }
     .bc-type-card:has(input:checked) { border-color: var(--accent); background: var(--accent-light); }
     .bc-type-card input { accent-color: var(--accent); }
-    .bc-type-card span { font-size: 0.8125rem; color: var(--text-secondary); }
-    .bc-sender-head { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
-    .bc-sender-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-    .bc-recip-layout { display: grid; grid-template-columns: 1.4fr 0.9fr; gap: 1rem; }
-    .bc-recip-tools { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
-    .bc-recip-results { border: 1px solid var(--border); border-radius: 10px; max-height: 320px; overflow: auto; margin-bottom: 1rem; }
-    .bc-recip-row { display: flex; gap: 0.75rem; align-items: flex-start; padding: 0.7rem 0.85rem; border-bottom: 1px solid var(--border); cursor: pointer; }
-    .bc-recip-row:hover { background: var(--bg-primary); }
-    .bc-recip-row small { display: block; color: var(--text-secondary); }
-    .bc-selected { border: 1px solid var(--border); border-radius: 10px; padding: 0.85rem; background: var(--bg-primary); }
-    .bc-selected-head { display: flex; justify-content: space-between; margin-bottom: 0.75rem; }
-    .bc-selected-list { max-height: 360px; overflow: auto; margin-bottom: 0.75rem; }
-    .bc-chip { display: flex; justify-content: space-between; gap: 0.5rem; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.65rem; margin-bottom: 0.4rem; font-size: 0.8125rem; }
-    .bc-chip button { border: 0; background: none; color: #b91c1c; cursor: pointer; }
-    .bc-char { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.4rem; text-align: right; }
-    .bc-wizard-actions { display: flex; justify-content: space-between; gap: 0.75rem; margin-top: 1.5rem; }
-    .bc-wizard-nav { display: flex; gap: 0.5rem; }
-    .bc-review { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem; }
-    .bc-review-item { background: var(--bg-primary); border-radius: 10px; padding: 0.85rem; }
-    .bc-review-item span { display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.25rem; }
-    .bc-review-title { font-size: 0.95rem; margin: 0 0 0.75rem; }
-    .bc-back { margin-bottom: 1rem; }
-    .bc-detail-head { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; margin-bottom: 1rem; }
-    .bc-detail-title { font-size: 1.25rem; margin-bottom: 0.35rem; }
-    .bc-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 1rem; }
-    .bc-stat { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 0.9rem; }
-    .bc-stat span { display: block; font-size: 0.75rem; color: var(--text-secondary); }
-    .bc-stat strong { font-size: 1.25rem; }
-    .bc-detail-body { display: grid; grid-template-columns: 0.9fr 1.4fr; gap: 1.25rem; padding: 1.25rem; }
-    .bc-message-preview { white-space: pre-wrap; background: var(--bg-primary); border-radius: 10px; padding: 1rem; font-size: 0.875rem; min-height: 120px; }
-    .bc-message-preview.is-html { white-space: normal; line-height: 1.5; }
-    .bc-html-editor {
-        display: grid; gap: 0.45rem; border: 1px solid var(--border); border-radius: 10px;
-        padding: 0.55rem; background: var(--bg-primary);
+    .bc-type-card span { font-size: 0.6875rem; color: var(--text-secondary); }
+    .bc-sender-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-top: 0.65rem;
     }
-    .bc-html-toolbar { display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; }
+    .bc-sender-head .bc-label { margin: 0; }
+    .bc-sender-actions { display: flex; gap: 0.35rem; flex-wrap: wrap; align-items: center; margin: 0.25rem 0 0.5rem; }
+
+    /* Recipients */
+    .bc-recip-layout { display: grid; grid-template-columns: 1.35fr 0.85fr; gap: 0.65rem; }
+    .bc-recip-tools { display: flex; gap: 0.35rem; margin-bottom: 0.45rem; }
+    .bc-recip-actions { display: flex; gap: 0.35rem; margin: 0.35rem 0 0.5rem; flex-wrap: wrap; align-items: center; }
+    .bc-recip-results {
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        max-height: 240px;
+        overflow: auto;
+        margin-bottom: 0.6rem;
+    }
+    .bc-recip-row {
+        display: flex;
+        gap: 0.5rem;
+        align-items: flex-start;
+        padding: 0.45rem 0.55rem;
+        border-bottom: 1px solid var(--border);
+        cursor: pointer;
+        font-size: 0.75rem;
+    }
+    .bc-recip-row:hover { background: var(--bg-primary); }
+    .bc-recip-row strong { font-size: 0.75rem; font-weight: 600; }
+    .bc-recip-row small { display: block; color: var(--text-secondary); font-size: 0.6875rem; }
+    .bc-recip-row input[type="checkbox"] { margin-top: 0.15rem; flex-shrink: 0; }
+    .bc-selected {
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.55rem;
+        background: var(--bg-primary);
+    }
+    .bc-selected-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.45rem;
+        font-size: 0.75rem;
+    }
+    .bc-selected-head strong { font-size: 0.75rem; }
+    .bc-selected-head span {
+        font-size: 0.6875rem;
+        color: var(--text-secondary);
+        font-weight: 600;
+    }
+    .bc-selected-list { max-height: 280px; overflow: auto; margin-bottom: 0.45rem; }
+    .bc-chip {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.35rem;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 0.3rem 0.45rem;
+        margin-bottom: 0.25rem;
+        font-size: 0.6875rem;
+    }
+    .bc-chip button { border: 0; background: none; color: #b91c1c; cursor: pointer; font-size: 0.6875rem; }
+    .bc-char { font-size: 0.625rem; color: var(--text-muted); margin-top: 0.25rem; text-align: right; }
+
+    /* Wizard footer */
+    .bc-wizard-actions {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.5rem;
+        margin-top: 0.85rem;
+        padding: 0.65rem 0 0.25rem;
+        border-top: 1px solid var(--border);
+        align-items: center;
+    }
+    .bc-wizard-nav { display: flex; gap: 0.35rem; align-items: center; }
+
+    /* Review */
+    .bc-review {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        gap: 0.45rem;
+        margin-bottom: 0.75rem;
+    }
+    .bc-review-item {
+        background: var(--bg-primary);
+        border-radius: 6px;
+        padding: 0.5rem 0.55rem;
+        border: 1px solid var(--border);
+    }
+    .bc-review-item span {
+        display: block;
+        font-size: 0.625rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.15rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+    .bc-review-item strong { font-size: 0.75rem; font-weight: 600; word-break: break-word; }
+    .bc-review-title { font-size: 0.75rem; font-weight: 600; margin: 0 0 0.45rem; }
+
+    /* Detail view */
+    .bc-detail-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.65rem;
+        align-items: flex-start;
+        margin-bottom: 0.6rem;
+    }
+    .bc-detail-title { font-size: 0.95rem; font-weight: 700; margin-bottom: 0.15rem; line-height: 1.3; }
+    .bc-detail-head .page-subtitle { font-size: 0.6875rem; }
+    .bc-stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.45rem;
+        margin-bottom: 0.6rem;
+    }
+    .bc-stat {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.45rem 0.55rem;
+    }
+    .bc-stat span { display: block; font-size: 0.625rem; color: var(--text-secondary); }
+    .bc-stat strong { font-size: 0.95rem; font-weight: 700; }
+    .bc-detail-body {
+        display: grid;
+        grid-template-columns: 0.85fr 1.35fr;
+        gap: 0.75rem;
+        padding: 0.75rem;
+    }
+    .bc-message-preview {
+        white-space: pre-wrap;
+        background: var(--bg-primary);
+        border-radius: 6px;
+        padding: 0.55rem 0.65rem;
+        font-size: 0.75rem;
+        min-height: 80px;
+        border: 1px solid var(--border);
+        line-height: 1.45;
+    }
+    .bc-message-preview.is-html { white-space: normal; }
+
+    /* Email editor */
+    .bc-html-editor {
+        display: grid;
+        gap: 0.3rem;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.4rem;
+        background: var(--bg-primary);
+    }
+    .bc-html-toolbar { display: flex; flex-wrap: wrap; gap: 0.2rem; align-items: center; }
     .bc-html-toolbar button {
-        border: 1px solid var(--border); background: #fff; border-radius: 6px; padding: 0.25rem 0.45rem;
-        font-size: 0.75rem; font-weight: 600; cursor: pointer; color: var(--text-primary); font-family: inherit;
+        border: 1px solid var(--border);
+        background: #fff;
+        border-radius: 4px;
+        padding: 0.15rem 0.35rem;
+        font-size: 0.625rem;
+        font-weight: 600;
+        cursor: pointer;
+        color: var(--text-primary);
+        font-family: inherit;
+        line-height: 1.3;
     }
     .bc-html-toolbar button:hover, .bc-html-toolbar button.is-active {
-        border-color: var(--accent); color: var(--accent); background: var(--accent-light);
+        border-color: var(--accent);
+        color: var(--accent);
+        background: var(--accent-light);
     }
     .bc-html-toolbar-spacer { flex: 1; }
     .bc-html-visual {
-        min-height: 180px; max-height: 360px; overflow: auto; border: 1px solid var(--border); border-radius: 8px;
-        padding: 0.65rem 0.75rem; background: #fff; font-size: 0.875rem; line-height: 1.5;
+        min-height: 140px;
+        max-height: 280px;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 0.45rem 0.55rem;
+        background: #fff;
+        font-size: 0.75rem;
+        line-height: 1.45;
     }
-    .bc-html-visual:empty:before { content: attr(data-placeholder); color: var(--text-muted); }
+    .bc-html-visual:empty:before { content: attr(data-placeholder); color: var(--text-muted); font-size: 0.6875rem; }
     .bc-html-source {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8125rem;
-        min-height: 180px; max-height: 360px; overflow: auto; resize: vertical;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.6875rem;
+        min-height: 140px;
+        max-height: 280px;
+        overflow: auto;
+        resize: vertical;
     }
-    .bc-email-tools { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+    .bc-email-tools { display: flex; gap: 0.35rem; margin-bottom: 0.35rem; flex-wrap: wrap; }
     .bc-tool-btn {
-        display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid var(--border);
-        background: #fff; border-radius: 8px; padding: 0.35rem 0.65rem; font-size: 0.8125rem;
-        font-weight: 600; cursor: pointer; color: var(--text-primary); font-family: inherit;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        border: 1px solid var(--border);
+        background: #fff;
+        border-radius: 5px;
+        padding: 0.2rem 0.45rem;
+        margin: 0.35rem 0;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        cursor: pointer;
+        color: var(--text-primary);
+        font-family: inherit;
+        text-decoration: none;
     }
-    .bc-tool-btn svg { width: 14px; height: 14px; }
+    .bc-tool-btn svg { width: 12px; height: 12px; }
     .bc-tool-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
-    .bc-attach-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.5rem; }
+    .bc-attach-chips { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 0.35rem; }
     .bc-attach-chips:empty { display: none; }
     .bc-attach-chip {
-        display: inline-flex; align-items: center; gap: 0.35rem; max-width: 100%;
-        border: 1px solid var(--border); background: #fff; border-radius: 999px;
-        padding: 0.2rem 0.55rem; font-size: 0.75rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        max-width: 100%;
+        border: 1px solid var(--border);
+        background: #fff;
+        border-radius: 999px;
+        padding: 0.1rem 0.4rem;
+        font-size: 0.625rem;
     }
-    .bc-attach-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
-    .bc-attach-chip button { border: none; background: transparent; color: #b91c1c; cursor: pointer; font-size: 0.9rem; }
-    .bc-detail-attachments { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.75rem; }
+    .bc-attach-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+    .bc-attach-chip button { border: none; background: transparent; color: #b91c1c; cursor: pointer; font-size: 0.8rem; }
+    .bc-detail-attachments { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.45rem; }
     .bc-detail-attach {
-        display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid var(--border);
-        background: #fff; border-radius: 8px; padding: 0.35rem 0.55rem; font-size: 0.75rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        border: 1px solid var(--border);
+        background: #fff;
+        border-radius: 5px;
+        padding: 0.2rem 0.4rem;
+        font-size: 0.625rem;
     }
-    .bc-detail-results-head { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+    .bc-detail-results-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.45rem;
+        flex-wrap: wrap;
+    }
     .bc-detail-results-head .bc-review-title { margin: 0; }
-    .bc-detail-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .bc-detail-actions { display: flex; gap: 0.35rem; flex-wrap: wrap; align-items: center; margin: 0.25rem 0; }
+
+    /* Modal */
     .bc-modal-overlay {
-        position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); z-index: 1200;
-        display: flex; align-items: center; justify-content: center; padding: 1rem;
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.4);
+        z-index: 1200;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.75rem;
     }
     .bc-modal-overlay[hidden] { display: none; }
     .bc-modal {
-        width: min(960px, 100%); max-height: calc(100vh - 2rem); overflow: auto;
-        background: #fff; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18);
+        width: min(880px, 100%);
+        max-height: calc(100vh - 1.5rem);
+        overflow: auto;
+        background: #fff;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
     }
     .bc-modal-header, .bc-modal-footer {
-        display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
-        padding: 1rem 1.25rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.6rem 0.85rem;
     }
     .bc-modal-header { border-bottom: 1px solid var(--border); }
     .bc-modal-footer { border-top: 1px solid var(--border); justify-content: flex-end; }
-    .bc-modal-title { margin: 0; font-size: 1.05rem; }
+    .bc-modal-title { margin: 0; font-size: 0.8125rem; font-weight: 600; }
     .bc-modal-close {
-        border: 0; background: none; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; color: var(--text-secondary);
-        display: inline-flex; align-items: center; justify-content: center;
+        border: 0;
+        background: none;
+        width: 26px;
+        height: 26px;
+        border-radius: 5px;
+        cursor: pointer;
+        color: var(--text-secondary);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
     }
-    .bc-modal-close svg { width: 18px; height: 18px; }
+    .bc-modal-close svg { width: 15px; height: 15px; }
     .bc-modal-close:hover { background: var(--bg-primary); color: var(--text-primary); }
-    .bc-modal-body { padding: 1.15rem 1.25rem; }
-    .bc-row-action { border: none; background: none; color: var(--accent); cursor: pointer; font-size: 0.8125rem; font-weight: 600; padding: 0; font-family: inherit; }
+    .bc-modal-body { padding: 0.65rem 0.85rem; }
+    .bc-row-action {
+        border: none;
+        background: none;
+        color: var(--accent);
+        cursor: pointer;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        padding: 0;
+        font-family: inherit;
+    }
     .bc-row-action:hover { text-decoration: underline; }
     .bc-html-visual img { max-width: 100%; height: auto; }
-    .bc-type-card.is-disabled { opacity: 0.5; pointer-events: none; }
+    .bc-type-card.is-disabled { opacity: 0.45; pointer-events: none; }
+
+    /* Flash alerts in page */
+    .bc-page > .flash-alert {
+        padding: 0.45rem 0.65rem;
+        font-size: 0.75rem;
+        margin-bottom: 0.6rem;
+        border-radius: 6px;
+    }
+
     @media (max-width: 900px) {
         .bc-recip-layout, .bc-detail-body, .bc-stats, .bc-type-row { grid-template-columns: 1fr; }
+        .bc-stepper { grid-template-columns: repeat(2, 1fr); }
+        .bc-step-item:nth-child(2) { border-right: none; }
+        .bc-step-item:nth-child(1), .bc-step-item:nth-child(2) { border-bottom: 1px solid var(--border); }
         .bc-pager-inner { justify-content: center; }
-        .bc-header { flex-direction: column; }
+        .bc-top { flex-direction: column; align-items: stretch; }
+        .bc-stats { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 520px) {
+        .bc-step-label { display: none; }
+        .bc-stepper { grid-template-columns: repeat(4, 1fr); }
+        .bc-step-item { border-bottom: none !important; border-right: 1px solid var(--border); }
+        .bc-step-item:last-child { border-right: none; }
     }
 </style>
 @endpush
@@ -1013,11 +1492,36 @@
         return ({ sending: 'Sending', sent: 'Sent', partial: 'Partial', failed: 'Failed', delivered: 'Delivered', undelivered: 'Undelivered', pending: 'Pending' })[status] || status;
     }
 
+    const STEP_LABELS = ['Setup', 'Recipients', 'Compose', 'Review'];
+
+    function updateContextNav() {
+        const nav = el('bcContextNav');
+        const title = el('bcContextTitle');
+        const topActions = el('bcTopActions');
+        if (!nav || !title) return;
+
+        if (state.view === 'list') {
+            nav.hidden = true;
+            if (topActions) topActions.hidden = false;
+            return;
+        }
+
+        nav.hidden = false;
+        if (topActions) topActions.hidden = true;
+
+        if (state.view === 'wizard') {
+            title.textContent = `New broadcast · ${STEP_LABELS[state.step - 1] || 'Setup'}`;
+        } else if (state.view === 'detail') {
+            title.textContent = state.current?.name || 'Broadcast details';
+        }
+    }
+
     function showView(name) {
         state.view = name;
         el('viewList').hidden = name !== 'list';
         el('viewWizard').hidden = name !== 'wizard';
         el('viewDetail').hidden = name !== 'detail';
+        updateContextNav();
         if (name !== 'detail' && state.poll) {
             clearInterval(state.poll);
             state.poll = null;
@@ -1030,10 +1534,16 @@
 
     function setStep(step) {
         state.step = step;
-        document.querySelectorAll('.bc-step').forEach((btn) => btn.classList.toggle('active', Number(btn.dataset.step) === step));
+        document.querySelectorAll('.bc-step-item').forEach((btn) => {
+            const n = Number(btn.dataset.step);
+            btn.classList.toggle('active', n === step);
+            btn.classList.toggle('done', n < step);
+            btn.setAttribute('aria-selected', n === step ? 'true' : 'false');
+        });
         document.querySelectorAll('.bc-panel').forEach((panel) => { panel.hidden = Number(panel.dataset.panel) !== step; });
         el('btnBack').hidden = step === 1;
-        el('btnNext').textContent = step === 4 ? 'Send broadcast' : 'Continue';
+        el('btnNext').textContent = step === 4 ? 'Send' : 'Continue';
+        updateContextNav();
         if (step === 2) searchRecipients();
         if (step === 3) updateCompose();
         if (step === 4) renderReview();
@@ -1300,7 +1810,7 @@
             alert(err.message);
         } finally {
             el('btnNext').disabled = false;
-            el('btnNext').textContent = 'Send broadcast';
+            el('btnNext').textContent = 'Send';
         }
     }
 
@@ -1493,7 +2003,10 @@
 
     el('btnNew').addEventListener('click', () => { resetWizard(); showView('wizard'); });
     el('btnCancel').addEventListener('click', () => showView('list'));
-    el('btnBackList').addEventListener('click', () => { showView('list'); loadList(); });
+    el('btnContextBack')?.addEventListener('click', () => {
+        if (state.view === 'detail') loadList();
+        showView('list');
+    });
     el('btnBack').addEventListener('click', () => setStep(Math.max(1, state.step - 1)));
     el('btnNext').addEventListener('click', () => {
         if (state.step === 4) { sendBroadcast(); return; }
@@ -1501,7 +2014,7 @@
         if (error) { alert(error); return; }
         setStep(state.step + 1);
     });
-    document.querySelectorAll('.bc-step').forEach((btn) => {
+    document.querySelectorAll('.bc-step-item').forEach((btn) => {
         btn.addEventListener('click', () => {
             const next = Number(btn.dataset.step);
             if (next > state.step) {
