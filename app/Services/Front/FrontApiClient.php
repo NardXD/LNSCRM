@@ -91,9 +91,9 @@ class FrontApiClient
      */
     public function listInboxConversations(string $inboxId, array $statuses = ['archived', 'assigned', 'unassigned']): \Generator
     {
-        yield from $this->paginate(
+        yield from $this->paginateConversations(
             '/inboxes/'.rawurlencode($inboxId).'/conversations',
-            $this->conversationQuery($statuses)
+            $statuses
         );
     }
 
@@ -103,10 +103,23 @@ class FrontApiClient
      */
     public function listTaggedConversations(string $tagId, array $statuses = ['archived', 'assigned', 'unassigned']): \Generator
     {
-        yield from $this->paginate(
+        yield from $this->paginateConversations(
             '/tags/'.rawurlencode($tagId).'/conversations',
-            $this->conversationQuery($statuses)
+            $statuses
         );
+    }
+
+    /**
+     * @param  list<string>  $statuses
+     * @return \Generator<int, array<string, mixed>>
+     */
+    private function paginateConversations(string $path, array $statuses): \Generator
+    {
+        try {
+            yield from $this->paginate($path, $this->conversationQuery($statuses));
+        } catch (RuntimeException $e) {
+            yield from $this->paginate($path, ['limit' => 100]);
+        }
     }
 
     /**
@@ -120,8 +133,8 @@ class FrontApiClient
 
         while ($url !== null) {
             $response = $firstRequest
-                ? Http::timeout(60)->withToken($this->token)->acceptJson()->get($url, $query)
-                : Http::timeout(60)->withToken($this->token)->acceptJson()->get($url);
+                ? Http::timeout(120)->withToken($this->token)->acceptJson()->get($url, $query)
+                : Http::timeout(120)->withToken($this->token)->acceptJson()->get($url);
 
             $firstRequest = false;
             $this->assertSuccessful($response);

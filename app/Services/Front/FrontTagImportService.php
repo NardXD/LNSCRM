@@ -45,29 +45,28 @@ class FrontTagImportService
         }
 
         $manualMap = $options['inbox_map'] ?? [];
+        $frontInboxFilter = $options['front_inbox_id'] ?? null;
+
+        if ($manualMap !== [] || $frontInboxFilter) {
+            $inboxMap = $this->resolveInboxMap([], $sharedInboxes, $manualMap, $frontInboxFilter);
+            if ($inboxMap === []) {
+                throw new RuntimeException('None of the selected Front inbox mappings matched a local shared inbox.');
+            }
+
+            return $this->importFromApiViaInboxes($company, $client, $sharedInboxes, $inboxMap, $options);
+        }
+
         $inboxListingError = null;
 
         try {
             $frontInboxes = $client->listInboxes();
-            $inboxMap = $this->resolveInboxMap(
-                $frontInboxes,
-                $sharedInboxes,
-                $manualMap,
-                $options['front_inbox_id'] ?? null
-            );
+            $inboxMap = $this->resolveInboxMap($frontInboxes, $sharedInboxes, [], null);
 
             if ($inboxMap !== []) {
                 return $this->importFromApiViaInboxes($company, $client, $sharedInboxes, $inboxMap, $options);
             }
-
-            if ($manualMap !== []) {
-                throw new RuntimeException('None of the selected Front inbox mappings matched a local shared inbox.');
-            }
         } catch (\Throwable $e) {
             $inboxListingError = $e->getMessage();
-            if ($manualMap !== []) {
-                throw $e;
-            }
         }
 
         $stats = $this->importFromApiViaTags($company, $client, $sharedInboxes, $options);
@@ -103,15 +102,25 @@ class FrontTagImportService
             }
 
             $statuses = $options['statuses'] ?? ['archived', 'assigned', 'unassigned'];
-            foreach ($client->listInboxConversations($frontInboxId, $statuses) as $frontConversation) {
-                $this->importConversationTags(
-                    $company,
-                    $sharedInbox,
-                    $frontConversation,
-                    $options,
-                    $stats
-                );
+
+            try {
+                foreach ($client->listInboxConversations($frontInboxId, $statuses) as $frontConversation) {
+                    $this->importConversationTags(
+                        $company,
+                        $sharedInbox,
+                        $frontConversation,
+                        $options,
+                        $stats
+                    );
+                }
+            } catch (\Throwable $e) {
+                $stats['inbox_errors'] = $stats['inbox_errors'] ?? [];
+                $stats['inbox_errors'][] = $frontInboxId.': '.$e->getMessage();
             }
+        }
+
+        if (! empty($stats['inbox_errors']) && (int) ($stats['conversations_matched'] ?? 0) === 0) {
+            throw new RuntimeException(implode(' ', $stats['inbox_errors']));
         }
 
         return $stats;

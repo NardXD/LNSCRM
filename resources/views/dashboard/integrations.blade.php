@@ -288,6 +288,59 @@
         color: var(--text-secondary);
     }
 
+    .front-import-loading {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 1rem;
+        padding: 0.875rem 1rem;
+        background: var(--bg-primary);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+    }
+
+    .front-import-loading[hidden] {
+        display: none !important;
+    }
+
+    .front-import-loading-bar {
+        flex: 1;
+        height: 6px;
+        background: #e5e7eb;
+        border-radius: 999px;
+        overflow: hidden;
+    }
+
+    .front-import-loading-bar > span {
+        display: block;
+        height: 100%;
+        width: 35%;
+        background: linear-gradient(90deg, #5f61e6, #818cf8);
+        border-radius: 999px;
+        animation: frontImportIndeterminate 1.2s ease-in-out infinite;
+    }
+
+    @keyframes frontImportIndeterminate {
+        0% { transform: translateX(-120%); }
+        100% { transform: translateX(320%); }
+    }
+
+    .front-import-spinner {
+        width: 18px;
+        height: 18px;
+        border: 2px solid #dbeafe;
+        border-top-color: #5f61e6;
+        border-radius: 50%;
+        animation: frontImportSpin 0.8s linear infinite;
+        flex-shrink: 0;
+    }
+
+    @keyframes frontImportSpin {
+        to { transform: rotate(360deg); }
+    }
+
     .integration-status {
         padding: 0.25rem 0.75rem;
         border-radius: 100px;
@@ -1439,6 +1492,13 @@
                         <button type="button" class="btn-secondary" id="front-dry-run-btn" onclick="handleFrontImport(true)">Preview (dry run)</button>
                         <button type="button" class="btn-primary" id="front-import-btn" onclick="handleFrontImport(false)">Run import</button>
                     </div>
+                    <div id="front-import-loading" class="front-import-loading" hidden>
+                        <div class="front-import-spinner" aria-hidden="true"></div>
+                        <div style="flex:1;">
+                            <div id="front-import-loading-label">Processing…</div>
+                            <div class="front-import-loading-bar" aria-hidden="true"><span></span></div>
+                        </div>
+                    </div>
                     <div id="front-import-results"></div>
                 </div>
             `,
@@ -2301,6 +2361,106 @@
         return map;
     }
 
+    function collectFrontInboxEntries() {
+        const entries = [];
+        document.querySelectorAll('[data-front-inbox-id]').forEach(select => {
+            const frontId = select.getAttribute('data-front-inbox-id');
+            const sharedId = parseInt(select.value, 10);
+            const frontName = select.closest('tr')?.querySelector('td')?.textContent?.trim() || frontId;
+            if (frontId && sharedId > 0) {
+                entries.push({ frontId, sharedId, frontName });
+            }
+        });
+        return entries;
+    }
+
+    function emptyFrontImportStats() {
+        return {
+            mapped_inboxes: 0,
+            front_conversations_with_tags: 0,
+            conversations_matched: 0,
+            conversations_unmatched: 0,
+            tags_created: 0,
+            tags_existing: 0,
+            tags_applied: 0,
+            unmatched_samples: [],
+        };
+    }
+
+    function mergeFrontImportStats(target, source) {
+        if (!source) return target;
+        [
+            'mapped_inboxes',
+            'front_conversations_with_tags',
+            'conversations_matched',
+            'conversations_unmatched',
+            'tags_created',
+            'tags_existing',
+            'tags_applied',
+        ].forEach(key => {
+            target[key] = (Number(target[key]) || 0) + (Number(source[key]) || 0);
+        });
+        if (source.import_mode) target.import_mode = source.import_mode;
+        if (source.front_inbox_warning) target.front_inbox_warning = source.front_inbox_warning;
+        if (source.inbox_errors?.length) {
+            target.inbox_errors = [...(target.inbox_errors || []), ...source.inbox_errors];
+        }
+        const samples = source.unmatched_samples || [];
+        samples.forEach(sample => {
+            if ((target.unmatched_samples || []).length < 10 && !(target.unmatched_samples || []).includes(sample)) {
+                target.unmatched_samples = [...(target.unmatched_samples || []), sample];
+            }
+        });
+        return target;
+    }
+
+    function setFrontImportLoading(isLoading, message = 'Processing…') {
+        const loading = document.getElementById('front-import-loading');
+        const label = document.getElementById('front-import-loading-label');
+        const dryRunBtn = document.getElementById('front-dry-run-btn');
+        const importBtn = document.getElementById('front-import-btn');
+        [dryRunBtn, importBtn].forEach(btn => { if (btn) btn.disabled = !!isLoading; });
+        if (label) label.textContent = message;
+        if (loading) loading.hidden = !isLoading;
+    }
+
+    async function parseFrontImportResponse(response) {
+        const text = await response.text();
+        let data = {};
+        if (text) {
+            try {
+                data = JSON.parse(text);
+            } catch (error) {
+                throw new Error(`Server returned HTTP ${response.status} with a non-JSON response. ${text.slice(0, 240)}`);
+            }
+        }
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `Request failed with HTTP ${response.status}.`);
+        }
+        return data;
+    }
+
+    async function runFrontImportRequest(dryRun, inboxMap, frontInboxId, persistResults = true) {
+        const response = await fetch('/api/integrations/front/import-tags', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+            },
+            body: JSON.stringify({
+                dry_run: dryRun,
+                include_private: !!document.getElementById('front-include-private')?.checked,
+                inbox_map: inboxMap,
+                front_inbox_id: frontInboxId || null,
+                persist_results: persistResults,
+            })
+        });
+
+        return parseFrontImportResponse(response);
+    }
+
     async function loadFrontImportPanel(existingIntegration = null) {
         const panel = document.getElementById('front-import-panel');
         const mappingWrap = document.getElementById('front-mapping-wrap');
@@ -2486,7 +2646,7 @@
         const apiToken = document.getElementById('front-api-token')?.value?.trim() || '';
 
         if (!hasExisting && !apiToken) {
-            alert('Save your Front API token first.');
+            showFrontTokenError('Save your Front API token first.');
             return;
         }
 
@@ -2495,42 +2655,48 @@
             if (!saved) return;
         }
 
-        const dryRunBtn = document.getElementById('front-dry-run-btn');
-        const importBtn = document.getElementById('front-import-btn');
-        [dryRunBtn, importBtn].forEach(btn => { if (btn) btn.disabled = true; });
+        const entries = collectFrontInboxEntries();
+        const aggregated = emptyFrontImportStats();
+        const actionLabel = dryRun ? 'Previewing' : 'Importing';
+
+        setFrontImportLoading(true, `${actionLabel}…`);
+        document.getElementById('front-import-results')?.replaceChildren();
 
         try {
-            const response = await fetch('/api/integrations/front/import-tags', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
-                },
-                body: JSON.stringify({
-                    dry_run: dryRun,
-                    include_private: !!document.getElementById('front-include-private')?.checked,
-                    inbox_map: collectFrontInboxMap(),
-                })
-            });
-            const data = await response.json();
-
-            if (!response.ok) {
-                renderFrontImportError(data.error || 'Front tag import failed.');
-                return;
+            if (entries.length === 0) {
+                setFrontImportLoading(true, `${actionLabel} tags across all shared inboxes…`);
+                const data = await runFrontImportRequest(dryRun, {}, null);
+                mergeFrontImportStats(aggregated, data.stats || {});
+            } else {
+                for (let index = 0; index < entries.length; index++) {
+                    const entry = entries[index];
+                    setFrontImportLoading(
+                        true,
+                        `${actionLabel} ${entry.frontName} (${index + 1} of ${entries.length})…`
+                    );
+                    const data = await runFrontImportRequest(
+                        dryRun,
+                        { [entry.frontId]: entry.sharedId },
+                        entry.frontId,
+                        index === entries.length - 1
+                    );
+                    mergeFrontImportStats(aggregated, data.stats || {});
+                }
             }
 
-            renderFrontImportResults(data.stats, dryRun, data.last_import_at || null);
+            const finishedAt = new Date().toISOString();
+            renderFrontImportResults(aggregated, dryRun, finishedAt);
             window.existingIntegration = {
                 ...(window.existingIntegration || {}),
-                last_import_stats: data.stats,
+                last_import_stats: aggregated,
                 last_import_dry_run: dryRun,
-                last_import_at: data.last_import_at || null,
+                last_import_at: finishedAt,
             };
         } catch (error) {
-            console.error('Error:', error);
-            renderFrontImportError('Front tag import failed. Please try again.');
+            console.error('Front import error:', error);
+            renderFrontImportError(error.message || 'Front tag import failed. Please try again.');
         } finally {
-            [dryRunBtn, importBtn].forEach(btn => { if (btn) btn.disabled = false; });
+            setFrontImportLoading(false);
         }
     }
 

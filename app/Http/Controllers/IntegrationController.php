@@ -1806,14 +1806,21 @@ class IntegrationController extends Controller
             'dry_run' => ['sometimes', 'boolean'],
             'include_private' => ['sometimes', 'boolean'],
             'inbox_map' => ['sometimes', 'array'],
+            'front_inbox_id' => ['nullable', 'string', 'max:120'],
             'shared_inbox_id' => ['nullable', 'integer'],
+            'persist_results' => ['sometimes', 'boolean'],
         ]);
 
         $options = [
             'dry_run' => (bool) ($validated['dry_run'] ?? false),
             'include_private' => (bool) ($validated['include_private'] ?? false),
-            'inbox_map' => $validated['inbox_map'] ?? [],
+            'inbox_map' => collect($validated['inbox_map'] ?? [])
+                ->mapWithKeys(fn ($sharedId, $frontId) => [trim((string) $frontId) => (int) $sharedId])
+                ->filter(fn ($sharedId, $frontId) => $frontId !== '' && $sharedId > 0)
+                ->all(),
+            'front_inbox_id' => isset($validated['front_inbox_id']) ? trim((string) $validated['front_inbox_id']) : null,
             'shared_inbox_id' => isset($validated['shared_inbox_id']) ? (int) $validated['shared_inbox_id'] : null,
+            'persist_results' => (bool) ($validated['persist_results'] ?? true),
         ];
 
         try {
@@ -1823,17 +1830,11 @@ class IntegrationController extends Controller
             return response()->json(['error' => $e->getMessage()], 422);
         }
 
-        if (! $options['dry_run']) {
+        if ($options['persist_results']) {
             $integration->forceFill([
                 'last_import_stats' => $stats,
                 'last_import_at' => now(),
-                'last_import_dry_run' => false,
-            ])->save();
-        } else {
-            $integration->forceFill([
-                'last_import_stats' => $stats,
-                'last_import_at' => now(),
-                'last_import_dry_run' => true,
+                'last_import_dry_run' => (bool) $options['dry_run'],
             ])->save();
         }
 
@@ -1841,7 +1842,9 @@ class IntegrationController extends Controller
             'message' => $options['dry_run'] ? 'Dry run completed.' : 'Front tag import completed.',
             'dry_run' => $options['dry_run'],
             'stats' => $stats,
-            'last_import_at' => $integration->last_import_at?->toIso8601String(),
+            'last_import_at' => $options['persist_results']
+                ? $integration->last_import_at?->toIso8601String()
+                : now()->toIso8601String(),
         ]);
     }
 
