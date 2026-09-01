@@ -100,11 +100,11 @@
                 <form id="leadForm" class="leads-form" novalidate>
                     <input type="hidden" id="leadId">
                     <div class="lead-form-tabs" role="tablist" aria-label="Lead form sections">
-                        <button type="button" class="lead-form-tab active" role="tab" id="leadTabPrimary" data-lead-tab="primary" aria-selected="true">Primary lead info</button>
-                        <button type="button" class="lead-form-tab" role="tab" id="leadTabAlternate" data-lead-tab="alternate" aria-selected="false">Alternate lead info</button>
-                        <button type="button" class="lead-form-tab" role="tab" id="leadTabSource" data-lead-tab="source" aria-selected="false">How did you hear about us?</button>
-                        <button type="button" class="lead-form-tab" role="tab" id="leadTabMatching" data-lead-tab="matching" aria-selected="false">Channel matching</button>
-                        <button type="button" class="lead-form-tab" role="tab" id="leadTabNotes" data-lead-tab="notes" aria-selected="false">Labels and notes</button>
+                        <button type="button" class="lead-form-tab active" role="tab" id="leadTabPrimary" data-lead-tab="primary" aria-selected="true" title="Primary lead info">Primary</button>
+                        <button type="button" class="lead-form-tab" role="tab" id="leadTabAlternate" data-lead-tab="alternate" aria-selected="false" title="Alternate lead info">Alternate</button>
+                        <button type="button" class="lead-form-tab" role="tab" id="leadTabSource" data-lead-tab="source" aria-selected="false" title="How did you hear about us?">Source</button>
+                        <button type="button" class="lead-form-tab" role="tab" id="leadTabMatching" data-lead-tab="matching" aria-selected="false" title="Channel matching">Matching</button>
+                        <button type="button" class="lead-form-tab" role="tab" id="leadTabNotes" data-lead-tab="notes" aria-selected="false" title="Labels and notes">Labels</button>
                     </div>
 
                     <section class="lead-form-panel active" data-lead-panel="primary" role="tabpanel" aria-labelledby="leadTabPrimary">
@@ -960,8 +960,8 @@
     color: var(--text-primary);
 }
 .lead-form-tabs {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 0;
     margin: 0 0 0.65rem;
     position: sticky;
@@ -974,13 +974,13 @@
     overflow: hidden;
 }
 .lead-form-tab {
-    flex: 1 1 auto;
+    min-width: 0;
     border: none;
     border-right: 1px solid var(--border);
     background: var(--bg-primary);
     color: var(--text-secondary);
     border-radius: 0;
-    padding: 0.4rem 0.45rem;
+    padding: 0.45rem 0.35rem;
     font-size: 0.625rem;
     font-weight: 600;
     cursor: pointer;
@@ -988,6 +988,9 @@
     text-align: center;
     line-height: 1.25;
     margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .lead-form-tab:last-child { border-right: none; }
 .lead-form-tab.active { background: #fff; color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
@@ -1077,8 +1080,6 @@
         @media (max-width: 700px) {
             .leads-rule-extra-card, .leads-rule-extra-card.is-action { grid-template-columns: 1fr; }
             .leads-rule-create-keywords { grid-template-columns: 1fr; }
-            .lead-form-tab { flex: 1 1 100%; border-right: none; border-bottom: 1px solid var(--border); }
-            .lead-form-tab:last-child { border-bottom: none; }
         }
 @media (max-width: 860px) {
     .leads-modal-grid { grid-template-columns: 1fr; }
