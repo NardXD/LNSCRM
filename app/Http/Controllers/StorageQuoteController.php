@@ -6,6 +6,7 @@ use App\Mail\StorageQuoteMail;
 use App\Models\Lead;
 use App\Services\CompanyOutboundMailService;
 use App\Services\LeadQuoteMapper;
+use App\Services\Quote\QuotationBuilderEmailTemplateService;
 use App\Services\Quote\QuoteDocumentData;
 use App\Services\StoreganiseService;
 use App\Support\Facilities;
@@ -119,8 +120,13 @@ class StorageQuoteController extends Controller
         $mailbox = $mailService->quotationMailbox((int) $user->company_id);
 
         $pdf = Pdf::loadView('quotes.quote-pdf', ['data' => $data])->output();
-        $subject = 'Your storage quote from '.$data['facility_label'];
-        $html = view('emails.storage-quote', ['data' => $data])->render();
+        $emailTemplate = app(QuotationBuilderEmailTemplateService::class)->renderForQuote(
+            (int) $user->company_id,
+            $data,
+            $user->company->name ?? 'Company'
+        );
+        $subject = $emailTemplate['subject'];
+        $html = $emailTemplate['body'];
 
         try {
             if ($mailbox) {
@@ -145,7 +151,7 @@ class StorageQuoteController extends Controller
                     ], 400);
                 }
 
-                Mail::to($email)->send(new StorageQuoteMail($data, $pdf, $from['email']));
+                Mail::to($email)->send(new StorageQuoteMail($subject, $html, $pdf, $from['email']));
             }
         } catch (\Throwable $e) {
             report($e);

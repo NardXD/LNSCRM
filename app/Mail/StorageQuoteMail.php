@@ -14,11 +14,9 @@ class StorageQuoteMail extends Mailable
 {
     use Queueable, SerializesModels;
 
-    /**
-     * @param  array<string, mixed>  $data
-     */
     public function __construct(
-        public array $data,
+        public string $subjectLine,
+        public string $htmlBody,
         public string $pdfContents,
         public string $fromEmail,
     ) {}
@@ -27,15 +25,14 @@ class StorageQuoteMail extends Mailable
     {
         return new Envelope(
             from: new Address($this->fromEmail, 'Loc & Stor 24/7'),
-            subject: 'Your storage quote from '.$this->data['facility_label'],
+            subject: $this->subjectLine,
         );
     }
 
     public function content(): Content
     {
         return new Content(
-            view: 'emails.storage-quote',
-            with: ['data' => $this->data],
+            htmlString: $this->htmlBody,
         );
     }
 

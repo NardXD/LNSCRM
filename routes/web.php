@@ -816,6 +816,9 @@ Route::middleware(['auth', 'company.active'])->group(function () {
     })->name('billing-plan');
 
     Route::get('/quotation-builder', [QuotationController::class, 'index'])->middleware('permission:view_quotation_builder')->name('quotation-builder');
+    Route::get('/quotation-builder/email-template', [QuotationController::class, 'emailTemplatePage'])
+        ->middleware('permission:view_quotation_builder_email_template')
+        ->name('quotation-builder.email-template');
     Route::get('/quotation-builder/microsoft-365-mail', [IntegrationController::class, 'microsoft365MailPage'])
         ->middleware('permission:view_quotation_builder_microsoft_365_mail')
         ->name('quotation-builder.microsoft-365-mail');
@@ -850,6 +853,16 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::delete('/microsoft-365-mail', [IntegrationController::class, 'deleteMicrosoft365MailIntegration'])
             ->middleware('permission:view_quotation_builder_microsoft_365_mail')
             ->name('api.quotation-builder.microsoft-365-mail.delete');
+
+        Route::get('/email-template', [QuotationController::class, 'getEmailTemplate'])
+            ->middleware('permission:view_quotation_builder_email_template')
+            ->name('api.quotation-builder.email-template.get');
+        Route::post('/email-template', [QuotationController::class, 'storeEmailTemplate'])
+            ->middleware('permission:view_quotation_builder_email_template')
+            ->name('api.quotation-builder.email-template.store');
+        Route::post('/email-template/reset', [QuotationController::class, 'resetEmailTemplate'])
+            ->middleware('permission:view_quotation_builder_email_template')
+            ->name('api.quotation-builder.email-template.reset');
     });
 
     // Contracts & E-Sign Routes

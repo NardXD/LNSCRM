@@ -112,7 +112,7 @@ class SidebarHelper
             [
                 'route' => 'quotation-builder',
                 'permission' => 'view_quotation_builder',
-                'permission_any' => ['view_quotation_builder', 'view_quotation_builder_microsoft_365_mail'],
+                'permission_any' => ['view_quotation_builder', 'view_quotation_builder_email_template', 'view_quotation_builder_microsoft_365_mail'],
                 'module_slug' => 'quotation-builder',
                 'label' => 'Quotation Builder',
                 'icon' => 'file-text',

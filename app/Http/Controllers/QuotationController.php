@@ -12,6 +12,7 @@ use App\Models\Quotation;
 use App\Models\QuotationItem;
 use App\Models\QuotationStatusHistory;
 use App\Services\CompanyOutboundMailService;
+use App\Services\Quote\QuotationBuilderEmailTemplateService;
 use App\Services\StoreganiseService;
 use App\Support\Facilities;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -29,6 +30,61 @@ class QuotationController extends Controller
     public function index()
     {
         return view('dashboard.quotation-builder');
+    }
+
+    public function emailTemplatePage()
+    {
+        $companyName = Auth::user()->company?->name;
+        $service = app(QuotationBuilderEmailTemplateService::class);
+
+        return view('dashboard.quotation-builder-email-template', [
+            'placeholders' => QuotationBuilderEmailTemplateService::placeholders(),
+            'previewContext' => $service->samplePreviewContext($companyName),
+        ]);
+    }
+
+    public function getEmailTemplate(): JsonResponse
+    {
+        $companyId = (int) Auth::user()->company_id;
+        $service = app(QuotationBuilderEmailTemplateService::class);
+
+        return response()->json([
+            'template' => $service->getTemplate($companyId),
+            'defaults' => [
+                'subject' => QuotationBuilderEmailTemplateService::defaultSubject(),
+                'body' => QuotationBuilderEmailTemplateService::defaultBody(),
+            ],
+            'placeholders' => QuotationBuilderEmailTemplateService::placeholders(),
+        ]);
+    }
+
+    public function storeEmailTemplate(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'subject' => ['required', 'string', 'max:500'],
+            'body' => ['required', 'string', 'max:50000'],
+        ]);
+
+        $companyId = (int) Auth::user()->company_id;
+        $service = app(QuotationBuilderEmailTemplateService::class);
+        $template = $service->saveTemplate($companyId, $validated['subject'], $validated['body']);
+
+        return response()->json([
+            'message' => 'Email template saved.',
+            'template' => $template,
+        ]);
+    }
+
+    public function resetEmailTemplate(): JsonResponse
+    {
+        $companyId = (int) Auth::user()->company_id;
+        $service = app(QuotationBuilderEmailTemplateService::class);
+        $template = $service->resetTemplate($companyId);
+
+        return response()->json([
+            'message' => 'Email template reset to default.',
+            'template' => $template,
+        ]);
     }
 
     /**

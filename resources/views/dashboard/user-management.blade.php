@@ -3702,6 +3702,7 @@
                         }
                     } else if (moduleName === 'Quotation Builder') {
                         const quotationSubCategories = {
+                            'Email Template': ['view_quotation_builder_email_template'],
                             'Microsoft 365 Mail': ['view_quotation_builder_microsoft_365_mail'],
                         };
 

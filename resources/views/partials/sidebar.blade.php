@@ -127,8 +127,9 @@
                     @elseif($item['route'] === 'quotation-builder')
                         @php
                             $hasQuotationBuilder = in_array('view_quotation_builder', $userPermissions ?? []);
+                            $hasQuotationEmailTemplate = in_array('view_quotation_builder_email_template', $userPermissions ?? []);
                             $hasQuotationM365Mail = in_array('view_quotation_builder_microsoft_365_mail', $userPermissions ?? []);
-                            $showQuotationMenu = $hasQuotationBuilder || $hasQuotationM365Mail;
+                            $showQuotationMenu = $hasQuotationBuilder || $hasQuotationEmailTemplate || $hasQuotationM365Mail;
                         @endphp
                         @if($showQuotationMenu)
                         <div class="nav-item-parent {{ request()->routeIs('quotation-builder') || request()->routeIs('quotation-builder.*') ? 'active' : '' }}">
@@ -146,7 +147,7 @@
                             </div>
                             <div class="nav-submenu" id="quotationBuilderSubmenu" style="display: {{ request()->routeIs('quotation-builder') || request()->routeIs('quotation-builder.*') ? 'block' : 'none' }};">
                                 @if($hasQuotationBuilder)
-                                <a href="{{ route('quotation-builder') }}" class="nav-subitem {{ request()->routeIs('quotation-builder') && !request()->routeIs('quotation-builder.microsoft-365-mail') && !request()->routeIs('quotation-builder.leads.quote') ? 'active' : '' }}">
+                                <a href="{{ route('quotation-builder') }}" class="nav-subitem {{ request()->routeIs('quotation-builder') && !request()->routeIs('quotation-builder.microsoft-365-mail') && !request()->routeIs('quotation-builder.email-template') && !request()->routeIs('quotation-builder.leads.quote') ? 'active' : '' }}">
                                     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                         <path d="M12 19l7-7 3 3-7 7-3-3z"/>
                                         <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
@@ -154,6 +155,15 @@
                                         <circle cx="11" cy="11" r="2"/>
                                     </svg>
                                     <span class="nav-text">Leads &amp; quotes</span>
+                                </a>
+                                @endif
+                                @if($hasQuotationEmailTemplate)
+                                <a href="{{ route('quotation-builder.email-template') }}" class="nav-subitem {{ request()->routeIs('quotation-builder.email-template') ? 'active' : '' }}">
+                                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                                        <polyline points="22,6 12,13 2,6"/>
+                                    </svg>
+                                    <span class="nav-text">Email template</span>
                                 </a>
                                 @endif
                                 @if($hasQuotationM365Mail)

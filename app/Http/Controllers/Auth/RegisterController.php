@@ -569,6 +569,13 @@ class RegisterController extends Controller
                 'description' => 'Access to configure Microsoft 365 mail for quotation builder',
                 'category' => 'quotation-builder',
             ],
+            'quotation-builder-email-template' => [
+                'name' => 'view_quotation_builder_email_template',
+                'slug' => 'view_quotation_builder_email_template',
+                'display_name' => 'Email Template',
+                'description' => 'Access to configure the quotation builder email template',
+                'category' => 'quotation-builder',
+            ],
             'calendar' => [
                 'name' => 'view_calendar',
                 'slug' => 'view_calendar',

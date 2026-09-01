@@ -704,6 +704,18 @@ class UserManagementController extends Controller
                     'category' => 'quotation-builder',
                 ]
             );
+            Permission::firstOrCreate(
+                [
+                    'slug' => 'view_quotation_builder_email_template',
+                    'company_id' => $user->company_id,
+                ],
+                [
+                    'name' => 'view_quotation_builder_email_template',
+                    'display_name' => 'Email Template',
+                    'description' => 'Access to configure the quotation builder email template',
+                    'category' => 'quotation-builder',
+                ]
+            );
         }
 
         $permissionsQuery = Permission::query();
@@ -810,6 +822,7 @@ class UserManagementController extends Controller
             'Integrations' => ['view_integrations', 'module_slug' => 'integrations'],
             'Quotation Builder' => [
                 'view_quotation_builder',
+                'view_quotation_builder_email_template',
                 'view_quotation_builder_microsoft_365_mail',
                 'module_slug' => 'quotation-builder',
             ],
