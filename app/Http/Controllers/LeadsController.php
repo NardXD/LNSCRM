@@ -17,6 +17,7 @@ use App\Models\LeadLabel;
 use App\Models\LeadNote;
 use App\Models\LeadRule;
 use App\Models\LeadStatus;
+use App\Models\StoreganiseIntegration;
 use App\Models\SharedInbox;
 use App\Models\User;
 use App\Services\ContactConversationHistoryService;
@@ -28,6 +29,8 @@ use App\Services\LeadFollowUpDayService;
 use App\Services\LeadInboxAttachService;
 use App\Services\LeadReportService;
 use App\Services\LeadRuleEngine;
+use App\Services\LeadStoreganiseService;
+use App\Services\StoreganiseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -49,10 +52,16 @@ class LeadsController extends Controller
 
     public function index(): View
     {
+        $companyId = (int) Auth::user()->company_id;
+
         return view('dashboard.leads', [
             'canManageLeadRules' => Auth::user()?->hasPermission('create_lead_rules') ?? false,
             'leadFormOptions' => Lead::formOptions(),
-            'leadFollowUpConfig' => $this->followUpDays->configForCompany((int) Auth::user()->company_id),
+            'leadFollowUpConfig' => $this->followUpDays->configForCompany($companyId),
+            'storeganiseConnected' => StoreganiseIntegration::query()
+                ->where('company_id', $companyId)
+                ->where('is_active', true)
+                ->exists(),
         ]);
     }
 
@@ -411,6 +420,135 @@ class LeadsController extends Controller
             'success' => true,
             'message' => 'Lead deleted.',
         ]);
+    }
+
+    public function storeganiseStatus(Request $request, Lead $lead): JsonResponse
+    {
+        $lead = $this->leadForUser($lead);
+        $validated = $request->validate([
+            'site_id' => ['required', 'string', 'max:128'],
+        ]);
+
+        $service = new LeadStoreganiseService((int) $lead->company_id);
+        if (! $service->isConfigured()) {
+            return response()->json(['error' => 'Storeganise is not connected.'], 400);
+        }
+
+        return response()->json([
+            'success' => true,
+            ...$service->resolveAction($lead, $validated['site_id']),
+        ]);
+    }
+
+    public function storeganiseDuplicates(Lead $lead): JsonResponse
+    {
+        $lead = $this->leadForUser($lead);
+        $service = new LeadStoreganiseService((int) $lead->company_id);
+
+        if (! $service->isConfigured()) {
+            return response()->json(['error' => 'Storeganise is not connected.'], 400);
+        }
+
+        return response()->json([
+            'success' => true,
+            'duplicates' => $service->findDuplicates($lead),
+        ]);
+    }
+
+    public function pushToStoreganise(Request $request, Lead $lead): JsonResponse
+    {
+        $lead = $this->leadForUser($lead);
+        $validated = $request->validate([
+            'site_id' => ['required', 'string', 'max:128'],
+            'link_user_id' => ['nullable', 'string', 'max:128'],
+        ]);
+
+        $service = new LeadStoreganiseService((int) $lead->company_id);
+        $result = $service->pushLead(
+            $lead,
+            $validated['site_id'],
+            $validated['link_user_id'] ?? null,
+        );
+
+        if (! ($result['success'] ?? false)) {
+            return response()->json([
+                'success' => false,
+                'error' => $result['error'] ?? 'Failed to push lead to Storeganise.',
+            ], 422);
+        }
+
+        $siteName = $this->storeganiseSiteName((int) $lead->company_id, (string) ($result['site_id'] ?? ''));
+        $linked = (bool) ($result['linked_existing'] ?? false);
+        $summary = $linked
+            ? 'Linked lead to existing Storeganise user at '.($siteName ?: 'selected facility').'.'
+            : 'Pushed lead to Storeganise as a user at '.($siteName ?: 'selected facility').'.';
+
+        $this->leadActivity->record($lead, LeadActivity::STOREGANISE_PUSH, $summary, [
+            'site_id' => $result['site_id'] ?? null,
+            'site_name' => $siteName,
+            'user_id' => $result['user_id'] ?? null,
+            'linked_existing' => $linked,
+        ]);
+
+        $lead->refresh();
+        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
+
+        return response()->json([
+            'success' => true,
+            'message' => $summary,
+            'data' => $this->serializeWithInbox($lead),
+        ]);
+    }
+
+    public function updateStoreganise(Request $request, Lead $lead): JsonResponse
+    {
+        $lead = $this->leadForUser($lead);
+        $validated = $request->validate([
+            'site_id' => ['required', 'string', 'max:128'],
+        ]);
+
+        $service = new LeadStoreganiseService((int) $lead->company_id);
+        $result = $service->updateLead($lead, $validated['site_id']);
+
+        if (! ($result['success'] ?? false)) {
+            return response()->json([
+                'success' => false,
+                'error' => $result['error'] ?? 'Failed to update lead in Storeganise.',
+            ], 422);
+        }
+
+        $siteName = $this->storeganiseSiteName((int) $lead->company_id, (string) ($result['site_id'] ?? ''));
+        $summary = 'Updated Storeganise user at '.($siteName ?: 'selected facility').'.';
+
+        $this->leadActivity->record($lead, LeadActivity::STOREGANISE_UPDATE, $summary, [
+            'site_id' => $result['site_id'] ?? null,
+            'site_name' => $siteName,
+            'user_id' => $result['user_id'] ?? null,
+        ]);
+
+        $lead->refresh();
+        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
+
+        return response()->json([
+            'success' => true,
+            'message' => $summary,
+            'data' => $this->serializeWithInbox($lead),
+        ]);
+    }
+
+    protected function storeganiseSiteName(int $companyId, string $siteId): ?string
+    {
+        if ($siteId === '') {
+            return null;
+        }
+
+        foreach ((new StoreganiseService($companyId))->listSites() as $site) {
+            if ($site['id'] === $siteId) {
+                return $site['name'];
+            }
+        }
+
+        return null;
     }
 
     public function destroyIdentity(Lead $lead, LeadIdentity $leadIdentity): JsonResponse
@@ -1072,6 +1210,9 @@ class LeadsController extends Controller
             'business_industry_other' => $lead->business_industry_other,
             'storage_reason' => $lead->storage_reason,
             'storage_reason_other' => $lead->storage_reason_other,
+            'storeganise_site_id' => $lead->storeganise_site_id,
+            'storeganise_user_id' => $lead->storeganise_user_id,
+            'storeganise_pushed_at' => $lead->storeganise_pushed_at?->toIso8601String(),
             'assigned_to' => $lead->assigned_to,
             'assigned_user' => $lead->assignedUser ? [
                 'id' => $lead->assignedUser->id,
@@ -1203,6 +1344,7 @@ class LeadsController extends Controller
             'storage_reason_other' => $reason === 'Other'
                 ? $this->nullableString($request->input('storage_reason_other'))
                 : null,
+            'storeganise_site_id' => $this->nullableString($request->input('storeganise_site_id'), 128),
         ];
     }
 

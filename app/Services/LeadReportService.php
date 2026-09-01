@@ -1145,6 +1145,8 @@ class LeadReportService
             LeadActivity::INBOX_DETACHED => 'Inbox detached',
             LeadActivity::FOLLOW_UP_DAY => 'Follow-up day',
             LeadActivity::TEMPLATE_SENT => 'Template sent',
+            LeadActivity::STOREGANISE_PUSH => 'Pushed to Storeganise',
+            LeadActivity::STOREGANISE_UPDATE => 'Updated in Storeganise',
             default => str_replace('_', ' ', ucfirst($action)),
         };
     }

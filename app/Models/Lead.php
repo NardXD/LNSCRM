@@ -123,12 +123,16 @@ class Lead extends Model
         'scheduled_status_at',
         'scheduled_status',
         'scheduled_status_from',
+        'storeganise_site_id',
+        'storeganise_user_id',
+        'storeganise_pushed_at',
     ];
 
     protected $casts = [
         'reopen_at' => 'datetime',
         'scheduled_status_at' => 'datetime',
         'date_of_birth' => 'date',
+        'storeganise_pushed_at' => 'datetime',
     ];
 
     public function clearScheduledStatusChange(): void

@@ -88,13 +88,23 @@
                 <span class="leads-spinner" aria-hidden="true"></span>
                 <span id="leadModalBusyText">Saving…</span>
             </div>
-            <div class="modal-header">
+            <div class="modal-header lead-modal-header">
                 <div class="lead-modal-heading">
                     <h3 id="leadModalTitle">New Lead</h3>
                     <p id="leadModalAdded" class="lead-modal-added" hidden></p>
                     <div id="leadModalChannelLinks" class="lead-modal-channel-links" hidden aria-label="Messaging channels"></div>
                 </div>
-                <button type="button" class="modal-close-btn" id="closeLeadModal">&times;</button>
+                <button type="button" class="modal-close-btn lead-modal-close" id="closeLeadModal">&times;</button>
+                <div id="leadModalHeaderMeta" class="lead-modal-header-meta" hidden>
+                    <div class="lead-modal-meta-block lead-modal-heading-labels" id="leadModalLabelsWrap" hidden>
+                        <span class="lead-modal-meta-kicker">Labels</span>
+                        <div id="leadModalLabels" class="lead-modal-labels"></div>
+                    </div>
+                    <div class="lead-modal-meta-block lead-modal-header-facility" id="leadModalStoreganiseWrap" hidden>
+                        <span class="lead-modal-meta-kicker">Storeganise</span>
+                        <span id="leadModalStoreganise" class="lead-modal-facility"></span>
+                    </div>
+                </div>
             </div>
             <div class="leads-modal-grid">
                 <form id="leadForm" class="leads-form" novalidate>
@@ -287,6 +297,19 @@
                         <div class="form-group" id="leadStorageReasonOtherWrap" hidden>
                             <label for="leadStorageReasonOther">Other reason</label>
                             <input type="text" id="leadStorageReasonOther" maxlength="255" placeholder="Enter reason">
+                        </div>
+                        <div class="lead-storeganise-block" id="leadStoreganiseBlock" hidden>
+                            <h4>Storeganise</h4>
+                            <p class="form-hint" style="margin-top:0">Push this lead to Storeganise as a customer user at the selected facility. A primary email is required.</p>
+                            <div class="form-group">
+                                <label for="leadStoreganiseSite">Facility</label>
+                                <select id="leadStoreganiseSite">
+                                    <option value="">Select a facility…</option>
+                                </select>
+                            </div>
+                            <div class="lead-storeganise-actions">
+                                <button type="button" class="btn btn-secondary btn-sm" id="syncLeadStoreganiseBtn" hidden>Push to Storeganise</button>
+                            </div>
                         </div>
                     </section>
 
@@ -920,13 +943,23 @@
 .modal-overlay.open { display: flex; }
 #leadActivityModal { z-index: 1100; }
 .leads-modal { position: relative; background: var(--bg-card); border-radius: 8px; width: min(1040px, 96vw); max-height: 92vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14); }
-.modal-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 0.65rem 0.85rem; border-bottom: 1px solid var(--border); gap: 0.5rem; }
-.lead-modal-heading { min-width: 0; }
+.modal-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 0.65rem 0.85rem; border-bottom: 1px solid var(--border); gap: 0.65rem; }
+.lead-modal-header { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.9fr); align-items: start; gap: 0.35rem 0.65rem; }
+.lead-modal-heading { grid-column: 1; grid-row: 1; min-width: 0; }
+.lead-modal-close { grid-column: 2; grid-row: 1; justify-self: end; align-self: start; }
+.lead-modal-header-meta { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.9fr); gap: 0.35rem 0.65rem; margin-top: 0.15rem; }
 .lead-modal-heading h3 { margin: 0; font-size: 0.875rem; font-weight: 700; }
 .lead-modal-added { margin: 0.15rem 0 0; font-size: 0.6875rem; color: var(--text-secondary); font-weight: 500; }
+.lead-modal-meta-block { display: flex; flex-direction: column; gap: 0.2rem; max-width: 100%; min-width: 0; }
+.lead-modal-meta-kicker { font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); font-weight: 600; white-space: nowrap; }
+.lead-modal-labels { display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; }
+.lead-modal-labels .lead-label-chip { font-size: 0.625rem; padding: 0.12rem 0.4rem; }
+.lead-modal-facility { font-size: 0.6875rem; font-weight: 600; color: var(--text-secondary); line-height: 1.35; word-break: break-word; }
+.lead-modal-heading-labels { grid-column: 1; align-items: flex-start; }
+.lead-modal-header-facility { grid-column: 2; align-items: flex-end; text-align: right; }
 .lead-modal-channel-links { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.35rem; }
 .lead-modal-channel-links .lead-source { margin-top: 0; }
-.modal-close-btn { background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--text-muted); line-height: 1; width: 26px; height: 26px; border-radius: 5px; }
+.modal-close-btn { background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--text-muted); line-height: 1; width: 26px; height: 26px; border-radius: 5px; flex-shrink: 0; }
 .modal-close-btn:hover { background: var(--bg-primary); color: var(--text-primary); }
 .leads-modal-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.9fr); min-height: 0; overflow: hidden; }
 .leads-form { padding: 0.75rem 0.85rem; overflow-y: auto; max-height: calc(92vh - 52px); }
@@ -1081,7 +1114,22 @@
             .leads-rule-extra-card, .leads-rule-extra-card.is-action { grid-template-columns: 1fr; }
             .leads-rule-create-keywords { grid-template-columns: 1fr; }
         }
+    .lead-storeganise-block {
+        margin-top: 1.25rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
+    }
+    .lead-storeganise-block h4 {
+        margin: 0 0 0.5rem;
+        font-size: 0.95rem;
+    }
+    #leadStoreganiseStatus.is-success { color: #059669; }
+    #leadStoreganiseStatus.is-error { color: #dc2626; }
+    .lead-storeganise-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
 @media (max-width: 860px) {
+    .lead-modal-header { grid-template-columns: 1fr auto; }
+    .lead-modal-header-meta { grid-template-columns: 1fr auto; }
+    .lead-modal-header-facility { grid-column: 2; }
     .leads-modal-grid { grid-template-columns: 1fr; }
     .leads-history { border-left: 0; border-top: 1px solid var(--border); }
     .form-row, .form-row-3, .identity-row { grid-template-columns: 1fr; }
@@ -1097,7 +1145,8 @@
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
     const LEAD_OPTIONS = @json($leadFormOptions);
     const LEAD_FOLLOW_UP = @json($leadFollowUpConfig ?? []);
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '' };
+    const STOREGANISE_CONNECTED = @json(!empty($storeganiseConnected));
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -1140,6 +1189,35 @@
         else if (days != null) age = days + ' days';
         el.textContent = age ? `Added ${added} · ${age}` : `Added ${added}`;
         el.hidden = false;
+    }
+    function renderLeadModalHeaderMeta(lead = null) {
+        const metaRow = document.getElementById('leadModalHeaderMeta');
+        const labelsWrap = document.getElementById('leadModalLabelsWrap');
+        const labelsEl = document.getElementById('leadModalLabels');
+        const facilityWrap = document.getElementById('leadModalStoreganiseWrap');
+        const facilityEl = document.getElementById('leadModalStoreganise');
+        if (!metaRow || !labelsWrap || !labelsEl || !facilityWrap || !facilityEl) return;
+
+        const labels = state.labels || lead?.labels || [];
+        const hasLabels = labels.length > 0;
+        labelsWrap.hidden = !hasLabels;
+        labelsEl.innerHTML = hasLabels ? labelChips(labels) : '';
+
+        let facilityLabel = '';
+        if (STOREGANISE_CONNECTED && (state.editingId || lead?.id)) {
+            const siteId = document.getElementById('leadStoreganiseSite')?.value
+                || lead?.storeganise_site_id
+                || '';
+            if (siteId) {
+                const site = state.storeganiseSites.find(s => String(s.id) === String(siteId));
+                facilityLabel = site ? storeganiseSiteLabel(site) : siteId;
+            }
+        }
+        const hasFacility = facilityLabel !== '';
+        facilityWrap.hidden = !hasFacility;
+        facilityEl.textContent = facilityLabel;
+
+        metaRow.hidden = !hasLabels && !hasFacility;
     }
     function statusName(slug) {
         const key = String(slug || '');
@@ -1423,6 +1501,7 @@
         if (!state.labels.length) {
             list.innerHTML = '<span class="lead-note-empty">No labels yet.</span>';
             renderLabelSuggestions();
+            renderLeadModalHeaderMeta();
             return;
         }
         list.innerHTML = state.labels.map(label => `
@@ -1432,6 +1511,7 @@
             </span>
         `).join('');
         renderLabelSuggestions();
+        renderLeadModalHeaderMeta();
     }
     function renderNotes(notes) {
         state.notes = Array.isArray(notes) ? notes : [];
@@ -1475,6 +1555,19 @@
         if (meta.label) lines.push('Label: ' + meta.label);
         if (meta.value) lines.push((meta.type || 'Value') + ': ' + meta.value);
         if (meta.source) lines.push('Source: ' + meta.source);
+        if (meta.site_name) lines.push('Facility: ' + meta.site_name);
+        if (meta.user_id) lines.push('Storeganise user: ' + meta.user_id);
+        if (meta.linked_existing) lines.push('Linked to existing Storeganise user.');
+        if (Array.isArray(meta.duplicates) && meta.duplicates.length) {
+            meta.duplicates.forEach((dup) => {
+                const bits = [dup.name, dup.email, dup.phone].filter(Boolean).join(' · ');
+                const matches = Array.isArray(dup.match_values) ? dup.match_values.join(', ') : '';
+                lines.push('Possible duplicate: ' + (bits || dup.id || 'User') + (matches ? ' (' + matches + ')' : ''));
+            });
+        }
+        if (Array.isArray(meta.match_values) && meta.match_values.length) {
+            lines.push('Matched on: ' + meta.match_values.join(', '));
+        }
         lines.push('By ' + (item.actor || 'System'));
         lines.push(formatAt(item.created_at));
         return lines;
@@ -2069,6 +2162,170 @@
         document.getElementById('leadInboxResults').innerHTML = '';
         renderAttachedInboxEmails();
         renderActivities([]);
+        renderLeadModalHeaderMeta(null);
+        renderStoreganiseBlock(null);
+    }
+
+    function storeganiseSiteLabel(site) {
+        const name = String(site?.name || '').trim();
+        const code = String(site?.code || '').trim();
+        if (name && code && name.toLowerCase() !== code.toLowerCase()) {
+            return `${name} (${code})`;
+        }
+        return name || code || String(site?.id || 'Facility');
+    }
+
+    async function loadStoreganiseSites() {
+        if (!STOREGANISE_CONNECTED || state.storeganiseSitesLoaded) {
+            return state.storeganiseSites;
+        }
+        const statusEl = document.getElementById('leadStoreganiseStatus');
+        try {
+            const res = await fetch('/api/integrations/storeganise/sites', {
+                credentials: 'same-origin',
+                headers: headers(),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && Array.isArray(data.sites)) {
+                state.storeganiseSites = data.sites;
+                state.storeganiseSitesLoaded = true;
+                return state.storeganiseSites;
+            }
+            if (statusEl) {
+                statusEl.hidden = false;
+                statusEl.className = 'form-hint is-error';
+                statusEl.textContent = data.error || 'Could not load Storeganise facilities. Refresh the page or check the integration.';
+            }
+        } catch (error) {
+            console.error('Failed to load Storeganise facilities', error);
+            if (statusEl) {
+                statusEl.hidden = false;
+                statusEl.className = 'form-hint is-error';
+                statusEl.textContent = 'Could not load Storeganise facilities.';
+            }
+        }
+        return state.storeganiseSites;
+    }
+
+    function renderStoreganiseSiteOptions(selectedId) {
+        const select = document.getElementById('leadStoreganiseSite');
+        if (!select) return;
+        const options = ['<option value="">Select a facility…</option>'];
+        state.storeganiseSites.forEach((site) => {
+            const selected = String(site.id) === String(selectedId || '') ? ' selected' : '';
+            options.push(`<option value="${esc(site.id)}"${selected}>${esc(storeganiseSiteLabel(site))}</option>`);
+        });
+        select.innerHTML = options.join('');
+    }
+
+    function renderStoreganiseActionButton() {
+        const btn = document.getElementById('syncLeadStoreganiseBtn');
+        const siteId = document.getElementById('leadStoreganiseSite')?.value || '';
+        if (!btn) return;
+        if (!siteId || !state.storeganiseAction) {
+            btn.hidden = true;
+            return;
+        }
+        btn.hidden = false;
+        btn.disabled = false;
+        btn.textContent = state.storeganiseAction === 'update' ? 'Update in Storeganise' : 'Push to Storeganise';
+    }
+
+    async function refreshStoreganiseAction(leadId, siteId) {
+        state.storeganiseAction = null;
+        renderStoreganiseActionButton();
+        if (!STOREGANISE_CONNECTED || !leadId || !siteId) {
+            renderLeadModalHeaderMeta();
+            return;
+        }
+        try {
+            const q = new URLSearchParams({ site_id: siteId });
+            const res = await fetch(`${api}/${leadId}/storeganise/status?${q.toString()}`, {
+                credentials: 'same-origin',
+                headers: headers(),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && (data.action === 'push' || data.action === 'update')) {
+                state.storeganiseAction = data.action;
+            }
+        } catch (error) {
+            console.error('Failed to resolve Storeganise action', error);
+        }
+        renderStoreganiseActionButton();
+        renderLeadModalHeaderMeta();
+    }
+
+    async function renderStoreganiseBlock(lead) {
+        const block = document.getElementById('leadStoreganiseBlock');
+        if (!block) return;
+        if (!STOREGANISE_CONNECTED) {
+            block.hidden = true;
+            renderLeadModalHeaderMeta(lead);
+            return;
+        }
+        block.hidden = !lead?.id;
+        if (!lead?.id) {
+            state.storeganiseAction = null;
+            renderStoreganiseActionButton();
+            renderLeadModalHeaderMeta(null);
+            return;
+        }
+        await loadStoreganiseSites();
+        const selectedSite = lead.storeganise_site_id || document.getElementById('leadStoreganiseSite')?.value || '';
+        renderStoreganiseSiteOptions(selectedSite);
+        await refreshStoreganiseAction(lead.id, selectedSite || document.getElementById('leadStoreganiseSite')?.value || '');
+        renderLeadModalHeaderMeta(lead);
+    }
+
+    async function submitStoreganiseAction(mode) {
+        const siteId = document.getElementById('leadStoreganiseSite')?.value || '';
+        const btn = document.getElementById('syncLeadStoreganiseBtn');
+        if (!document.getElementById('leadId').value) {
+            alert('Save this lead before syncing to Storeganise.');
+            return;
+        }
+        if (!siteId) {
+            alert('Select a facility first.');
+            return;
+        }
+        const busyLabel = mode === 'update' ? 'Updating…' : 'Pushing…';
+        setBusy(btn, true, busyLabel);
+        try {
+            const saved = await persistLeadForm({ reloadList: false, useOverlay: false });
+            if (!saved?.id) {
+                return;
+            }
+            const leadId = saved.id;
+            const endpoint = mode === 'update' ? 'update' : 'push';
+            const res = await fetch(`${api}/${leadId}/storeganise/${endpoint}`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: headers(true),
+                body: JSON.stringify({ site_id: siteId }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                alert(data.error || data.message || `Failed to ${mode === 'update' ? 'update' : 'push'} lead in Storeganise.`);
+                await refreshStoreganiseAction(leadId, siteId);
+                return;
+            }
+            if (data.data) {
+                fillForm(data.data);
+                renderStoreganiseBlock(data.data);
+                renderActivities(data.data);
+            }
+            alert(data.message || `Lead ${mode === 'update' ? 'updated in' : 'pushed to'} Storeganise.`);
+        } catch (error) {
+            console.error(error);
+            alert(`Failed to ${mode === 'update' ? 'update' : 'push'} lead in Storeganise.`);
+        } finally {
+            setBusy(btn, false);
+        }
+    }
+
+    async function syncLeadToStoreganise() {
+        const mode = state.storeganiseAction === 'update' ? 'update' : 'push';
+        await submitStoreganiseAction(mode);
     }
 
     function fillForm(lead) {
@@ -2127,6 +2384,7 @@
         if (activityModal.classList.contains('open')) {
             loadActivityPage(1).catch(() => {});
         }
+        renderStoreganiseBlock(lead);
     }
 
     async function loadHistory(id) {
@@ -2332,6 +2590,13 @@
     document.getElementById('newLeadBtn').addEventListener('click', () => { resetForm(); openModal(); });
     document.getElementById('closeLeadModal').addEventListener('click', closeModal);
     document.getElementById('cancelLeadBtn').addEventListener('click', closeModal);
+    document.getElementById('syncLeadStoreganiseBtn')?.addEventListener('click', () => { syncLeadToStoreganise(); });
+    document.getElementById('leadStoreganiseSite')?.addEventListener('change', () => {
+        const leadId = document.getElementById('leadId')?.value || '';
+        const siteId = document.getElementById('leadStoreganiseSite')?.value || '';
+        refreshStoreganiseAction(leadId, siteId);
+        renderLeadModalHeaderMeta();
+    });
     document.getElementById('leadActivityTrigger').addEventListener('click', openActivityModal);
     document.getElementById('closeLeadActivityModal').addEventListener('click', closeActivityModal);
     document.getElementById('leadActivityPrev').addEventListener('click', () => {
@@ -2818,17 +3083,8 @@
         }
     });
 
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        errorEl.hidden = true;
-        if (!form.checkValidity()) {
-            const invalid = form.querySelector(':invalid');
-            showLeadTabForElement(invalid);
-            invalid?.focus();
-            form.reportValidity();
-            return;
-        }
-        const payload = {
+    function collectLeadFormPayload() {
+        return {
             title: val('leadTitle') || null,
             first_name: val('leadFirstName'),
             last_name: val('leadLastName'),
@@ -2860,16 +3116,32 @@
             business_industry_other: val('leadBusinessIndustryOther') || null,
             storage_reason: val('leadStorageReason') || null,
             storage_reason_other: val('leadStorageReasonOther') || null,
+            storeganise_site_id: document.getElementById('leadStoreganiseSite')?.value || null,
             assigned_to: document.getElementById('leadAssignedTo').value || null,
             facebook_name: document.getElementById('leadFacebook').value.trim() || null,
             instagram_username: document.getElementById('leadInstagram').value.trim() || null,
             inbox_conversation_ids: state.pendingInboxConversations.map(c => c.id),
         };
+    }
+
+    async function persistLeadForm(options = {}) {
+        const { reloadList = true, useOverlay = true } = options;
+        errorEl.hidden = true;
+        if (!form.checkValidity()) {
+            const invalid = form.querySelector(':invalid');
+            showLeadTabForElement(invalid);
+            invalid?.focus();
+            form.reportValidity();
+            return null;
+        }
+        const payload = collectLeadFormPayload();
         const id = document.getElementById('leadId').value;
         const saveBtn = document.getElementById('saveLeadBtn');
         const busyLabel = id ? 'Saving…' : 'Adding…';
-        setBusy(saveBtn, true, busyLabel);
-        setOverlay('leadModalBusy', true, busyLabel);
+        if (useOverlay) {
+            setBusy(saveBtn, true, busyLabel);
+            setOverlay('leadModalBusy', true, busyLabel);
+        }
         try {
             const res = await fetch(id ? api + '/' + id : api, {
                 method: id ? 'PUT' : 'POST',
@@ -2883,20 +3155,31 @@
                 throw new Error(firstError || data.message || 'Could not save lead.');
             }
             upsertLeadRow(data.data);
-            await loadLeads();
+            if (reloadList) {
+                await loadLeads();
+            }
             fillForm(data.data);
             if (data.data?.id) {
                 const url = new URL(window.location.href);
                 url.searchParams.set('lead', data.data.id);
                 history.replaceState(null, '', url);
             }
+            return data.data;
         } catch (err) {
             errorEl.hidden = false;
             errorEl.textContent = err.message;
+            return null;
         } finally {
-            setOverlay('leadModalBusy', false);
-            setBusy(saveBtn, false);
+            if (useOverlay) {
+                setOverlay('leadModalBusy', false);
+                setBusy(saveBtn, false);
+            }
         }
+    }
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        await persistLeadForm();
     });
 
     document.getElementById('deleteLeadBtn').addEventListener('click', async () => {

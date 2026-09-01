@@ -6,6 +6,7 @@ use App\Models\Company;
 use App\Models\GmailIntegration;
 use App\Models\OpenAIIntegration;
 use App\Models\StripeIntegration;
+use App\Models\StoreganiseIntegration;
 use App\Models\TwilioFlexIntegration;
 use App\Models\TwilioIntegration;
 use App\Models\User;
@@ -14,6 +15,7 @@ use App\Models\FacebookIntegration;
 use App\Models\WhatsAppIntegration;
 use App\Models\WiseIntegration;
 use App\Services\FacebookGraphMessagingService;
+use App\Services\StoreganiseService;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
 use App\Services\TwilioIntegrationValidator;
@@ -1417,6 +1419,163 @@ class IntegrationController extends Controller
         }
 
         return response()->json(['message' => 'Wise integration deleted successfully']);
+    }
+
+    /**
+     * Get Storeganise integration for the current company.
+     */
+    public function getStoreganiseIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $integration = StoreganiseIntegration::where('company_id', $company->id)->first();
+
+        if ($integration) {
+            return response()->json([
+                'integration' => [
+                    'id' => $integration->id,
+                    'company_id' => $integration->company_id,
+                    'business_code' => $integration->business_code,
+                    'api_key' => $integration->api_key ? '***hidden***' : null,
+                    'webhook_url' => $integration->webhookUrl(),
+                    'is_active' => $integration->is_active,
+                    'created_at' => $integration->created_at,
+                    'updated_at' => $integration->updated_at,
+                ],
+                'status' => ($integration->is_active && $integration->api_key) ? 'connected' : 'disconnected',
+            ]);
+        }
+
+        return response()->json([
+            'integration' => null,
+            'status' => 'disconnected',
+        ]);
+    }
+
+    /**
+     * Store or update Storeganise integration for the current company.
+     */
+    public function storeStoreganiseIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $existingIntegration = StoreganiseIntegration::where('company_id', $company->id)->first();
+        $apiKey = $request->input('api_key');
+        $businessCode = strtolower(trim((string) $request->input('business_code', $existingIntegration?->business_code ?? '')));
+
+        $validator = Validator::make($request->all(), [
+            'business_code' => [$existingIntegration ? 'nullable' : 'required', 'string', 'max:64', 'regex:/^[a-z0-9-]+$/'],
+            'api_key' => [($existingIntegration && empty($apiKey)) ? 'nullable' : 'required', 'string'],
+        ], [
+            'business_code.regex' => 'Business code must contain only lowercase letters, numbers, and hyphens.',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        if ($businessCode === '') {
+            return response()->json(['errors' => ['business_code' => ['Business code is required.']]], 422);
+        }
+
+        $plainApiKey = ! empty($apiKey) ? (string) $apiKey : null;
+        if (! $plainApiKey && $existingIntegration?->api_key) {
+            try {
+                $plainApiKey = Crypt::decryptString($existingIntegration->api_key);
+            } catch (\Exception $e) {
+                return response()->json(['errors' => ['api_key' => ['Stored API key could not be read. Please enter it again.']]], 422);
+            }
+        }
+
+        if (! $plainApiKey) {
+            return response()->json(['errors' => ['api_key' => ['API key is required for new integrations.']]], 422);
+        }
+
+        $storeganise = new StoreganiseService(null, $businessCode, $plainApiKey);
+        $validation = $storeganise->validateCredentials();
+        if (! $validation['valid']) {
+            return response()->json([
+                'error' => $validation['error'] ?? 'Storeganise credentials could not be verified.',
+            ], 422);
+        }
+
+        $webhookKey = $existingIntegration?->webhook_key ?: Str::random(40);
+
+        $integration = StoreganiseIntegration::updateOrCreate(
+            ['company_id' => $company->id],
+            [
+                'business_code' => $businessCode,
+                'api_key' => Crypt::encryptString($plainApiKey),
+                'webhook_key' => $webhookKey,
+                'is_active' => true,
+            ]
+        );
+
+        return response()->json([
+            'message' => 'Storeganise integration saved successfully',
+            'integration' => [
+                'id' => $integration->id,
+                'business_code' => $integration->business_code,
+                'webhook_url' => $integration->webhookUrl(),
+                'is_active' => $integration->is_active,
+            ],
+            'status' => 'connected',
+        ]);
+    }
+
+    /**
+     * Delete Storeganise integration for the current company.
+     */
+    public function deleteStoreganiseIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $integration = StoreganiseIntegration::where('company_id', $company->id)->first();
+
+        if ($integration) {
+            $integration->delete();
+        }
+
+        return response()->json(['message' => 'Storeganise integration deleted successfully']);
+    }
+
+    /**
+     * List Storeganise facilities (sites) for the current company.
+     */
+    public function getStoreganiseSites(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $storeganise = new StoreganiseService($company->id);
+        if (! $storeganise->isConfigured()) {
+            return response()->json(['error' => 'Storeganise is not connected.'], 400);
+        }
+
+        $sites = $storeganise->listSites();
+        if ($sites === []) {
+            return response()->json([
+                'error' => 'No facilities were returned from Storeganise. Check API permissions.',
+                'sites' => [],
+            ], 400);
+        }
+
+        return response()->json(['sites' => $sites]);
     }
 
     /**

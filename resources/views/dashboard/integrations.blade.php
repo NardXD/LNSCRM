@@ -209,6 +209,10 @@
         background: #e8f1ff;
     }
 
+    .integration-icon-wrapper.storeganise {
+        background: #eef6ff;
+    }
+
     .integration-status {
         padding: 0.25rem 0.75rem;
         border-radius: 100px;
@@ -700,6 +704,15 @@
             icon: '📧',
             status: 'disconnected',
             features: ['Outlook Calendar sync', 'Outlook Inbox / shared mail', 'Per-company OAuth credentials', 'Personal & shared mailbox connection']
+        },
+        {
+            id: 'storeganise',
+            name: 'Storeganise',
+            description: 'Connect your Storeganise self-storage platform. Sync unit rentals, sites, and storage operations with the CRM.',
+            category: 'productivity',
+            icon: '🏢',
+            status: 'disconnected',
+            features: ['Unit rental sync', 'Site management', 'Admin API access', 'Webhook notifications']
         }
     ];
 
@@ -885,6 +898,23 @@
             }
             return null;
         }
+        if (integrationId === 'storeganise') {
+            try {
+                const response = await fetch('/api/integrations/storeganise');
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (data.integration) {
+                    const integration = integrationsData.find(i => i.id === 'storeganise');
+                    if (integration) {
+                        integration.status = data.status || (data.integration.is_active ? 'connected' : 'disconnected');
+                    }
+                    return data.integration;
+                }
+            } catch (error) {
+                console.error('Error loading Storeganise integration:', error);
+            }
+            return null;
+        }
         if (integrationId === 'stripe') {
             try {
                 const response = await fetch('/api/integrations/stripe');
@@ -943,7 +973,7 @@
 
         // Load existing integration data
         let existingIntegration = null;
-        if (integrationId === 'gmail' || integrationId === 'twilio' || integrationId === 'viber' || integrationId === 'whatsapp' || integrationId === 'facebook' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'calendar' || integrationId === 'outlook') {
+        if (integrationId === 'gmail' || integrationId === 'twilio' || integrationId === 'viber' || integrationId === 'whatsapp' || integrationId === 'facebook' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'storeganise' || integrationId === 'calendar' || integrationId === 'outlook') {
             existingIntegration = await loadIntegrationStatus(integrationId);
         }
 
@@ -1071,6 +1101,19 @@
                 d.onclick = () => { if (confirm('Disconnect OpenAI?')) handleOpenAiDisconnect(); };
                 footer.insertBefore(d, actionBtn);
             }
+        } else if (integration.status === 'connected' && integrationId === 'storeganise') {
+            actionBtn.textContent = 'Save';
+            actionBtn.className = 'btn-primary';
+            actionBtn.onclick = () => handleStoreganiseSave();
+            const disconnectBtn = footer?.querySelector('.storeganise-disconnect-btn');
+            if (disconnectBtn) disconnectBtn.style.display = '';
+            if (footer && !footer.querySelector('.storeganise-disconnect-btn')) {
+                const d = document.createElement('button');
+                d.className = 'btn-secondary btn-danger storeganise-disconnect-btn';
+                d.textContent = 'Disconnect';
+                d.onclick = () => { if (confirm('Disconnect Storeganise?')) handleStoreganiseDisconnect(); };
+                footer.insertBefore(d, actionBtn);
+            }
         } else if (integration.status === 'connected' && integrationId === 'twilio') {
             actionBtn.textContent = 'Save';
             actionBtn.className = 'btn-primary';
@@ -1101,22 +1144,22 @@
             actionBtn.textContent = 'Save settings';
             actionBtn.className = 'btn-primary';
             actionBtn.onclick = () => handleCalendarOauthSave('google');
-            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .twilio-disconnect-btn, .facebook-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
+            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .storeganise-disconnect-btn, .twilio-disconnect-btn, .facebook-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
         } else if (integrationId === 'outlook') {
             actionBtn.textContent = 'Save settings';
             actionBtn.className = 'btn-primary';
             actionBtn.onclick = () => handleCalendarOauthSave('outlook');
-            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .twilio-disconnect-btn, .facebook-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
+            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .storeganise-disconnect-btn, .twilio-disconnect-btn, .facebook-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
         } else {
-            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .twilio-disconnect-btn, .facebook-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
+            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .storeganise-disconnect-btn, .twilio-disconnect-btn, .facebook-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
         }
         if (integrationId === 'calendar' || integrationId === 'outlook') {
             // Handled above - Save settings button
-        } else if (integration.status === 'connected' && integrationId !== 'wise' && integrationId !== 'gmail' && integrationId !== 'stripe' && integrationId !== 'openai' && integrationId !== 'twilio' && integrationId !== 'facebook') {
+        } else if (integration.status === 'connected' && integrationId !== 'wise' && integrationId !== 'gmail' && integrationId !== 'stripe' && integrationId !== 'openai' && integrationId !== 'storeganise' && integrationId !== 'twilio' && integrationId !== 'facebook') {
             actionBtn.textContent = 'Disconnect';
             actionBtn.className = 'btn-primary btn-danger';
             actionBtn.onclick = () => handleIntegrationAction();
-        } else if (integration.status !== 'connected' || (integrationId !== 'wise' && integrationId !== 'stripe' && integrationId !== 'openai' && integrationId !== 'twilio' && integrationId !== 'facebook')) {
+        } else if (integration.status !== 'connected' || (integrationId !== 'wise' && integrationId !== 'stripe' && integrationId !== 'openai' && integrationId !== 'storeganise' && integrationId !== 'twilio' && integrationId !== 'facebook')) {
             actionBtn.textContent = 'Connect';
             actionBtn.className = 'btn-primary';
             actionBtn.onclick = () => handleIntegrationAction();
@@ -1234,6 +1277,25 @@
                     <input type="password" class="form-input" id="openai-api-key" placeholder="${existingData && existingData.api_key ? 'Leave blank to keep current key' : 'sk-...'}">
                     <span class="form-help">Get your API key from platform.openai.com. Used by the AI Assistant.</span>
                 </div>
+            `,
+            'storeganise': `
+                <div class="form-group">
+                    <label class="form-label">Business code</label>
+                    <input type="text" class="form-input" id="storeganise-business-code" placeholder="yourbusiness" value="${(existingData && existingData.business_code) ? existingData.business_code : ''}">
+                    <span class="form-help">The subdomain from your Storeganise admin URL, e.g. <code>locnstor</code> for https://locnstor.storeganise.com — not your email address. You can also paste the full URL.</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Admin API key</label>
+                    <input type="password" class="form-input" id="storeganise-api-key" placeholder="${existingData && existingData.api_key ? 'Leave blank to keep current key' : 'Enter API key'}">
+                    <span class="form-help">Create an API key in Storeganise → Admin → Settings → Developer. Use <code>Authorization: ApiKey &lt;key&gt;</code>.</span>
+                </div>
+                ${existingData && existingData.webhook_url ? `
+                <div class="form-group">
+                    <label class="form-label">Webhook URL</label>
+                    <code style="display:block;background:var(--bg-primary);padding:0.5rem 0.65rem;border-radius:6px;font-size:0.78rem;word-break:break-all;">${existingData.webhook_url}</code>
+                    <span class="form-help">Add this URL in Storeganise Developer settings to receive move-in, move-out, and rental events.</span>
+                </div>
+                ` : ''}
             `,
             'calendar': `
                 <p class="form-help" style="margin-bottom: 1rem;">Configure Google Calendar OAuth so users can connect their calendars. Add credentials and copy the redirect URL when creating the OAuth app.</p>
@@ -1966,6 +2028,73 @@
         }
     }
 
+    async function handleStoreganiseSave() {
+        const businessCode = document.getElementById('storeganise-business-code')?.value?.trim().toLowerCase() || '';
+        const apiKey = document.getElementById('storeganise-api-key')?.value?.trim() || '';
+        const hasExisting = window.existingIntegration && window.existingIntegration.api_key;
+
+        if (!businessCode) {
+            alert('Please enter your Storeganise business code.');
+            return;
+        }
+
+        if (!apiKey && !hasExisting) {
+            alert('Please enter your Storeganise Admin API key.');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/integrations/storeganise', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                },
+                body: JSON.stringify({
+                    business_code: businessCode,
+                    api_key: apiKey || null
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                currentIntegration.status = 'connected';
+                alert('Storeganise integration saved successfully.');
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            } else {
+                alert(data.error || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Error saving. Please try again.'));
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error saving Storeganise integration. Please try again.');
+        }
+    }
+
+    async function handleStoreganiseDisconnect() {
+        try {
+            const response = await fetch('/api/integrations/storeganise', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                }
+            });
+            if (response.ok) {
+                currentIntegration.status = 'disconnected';
+                alert('Storeganise has been disconnected.');
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            } else {
+                alert('Error disconnecting. Please try again.');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error disconnecting. Please try again.');
+        }
+    }
+
     async function handleCalendarOauthSave(provider = 'google') {
         const payload = provider === 'outlook'
             ? {
@@ -2168,6 +2297,8 @@
                 }
             } else if (currentIntegration.id === 'openai') {
                 handleOpenAiSave();
+            } else if (currentIntegration.id === 'storeganise') {
+                handleStoreganiseSave();
             } else if (currentIntegration.id === 'wise') {
                 const apiToken = document.getElementById('wise-api-token')?.value || '';
                 const profileId = document.getElementById('wise-profile-id')?.value || '';
@@ -2560,6 +2691,21 @@
                 }
             } catch (error) {
                 console.error('Error loading OpenAI integration on init:', error);
+            }
+        }
+        // Load Storeganise integration
+        const storeganiseIntegration = integrationsData.find(i => i.id === 'storeganise');
+        if (storeganiseIntegration) {
+            try {
+                const response = await fetch('/api/integrations/storeganise');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.integration && data.status === 'connected') {
+                        storeganiseIntegration.status = 'connected';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading Storeganise integration on init:', error);
             }
         }
         // Load Google Calendar + Outlook OAuth status

@@ -124,6 +124,7 @@ class StoreLeadRequest extends FormRequest
             'business_industry_other' => ['nullable', 'string', 'max:255'],
             'storage_reason' => ['nullable', 'string', Rule::in(Lead::STORAGE_REASONS)],
             'storage_reason_other' => ['nullable', 'string', 'max:255'],
+            'storeganise_site_id' => ['nullable', 'string', 'max:128'],
             'notes' => ['nullable', 'string'],
             'assigned_to' => ['nullable', 'integer', 'exists:users,id'],
             'phones' => ['nullable', 'array', 'max:20'],

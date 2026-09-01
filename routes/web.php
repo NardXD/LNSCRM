@@ -207,6 +207,10 @@ Route::middleware(['auth', 'company.active'])->group(function () {
             Route::delete('/{lead}/identities/{leadIdentity}', [LeadsController::class, 'destroyIdentity'])->name('api.leads.identities.destroy');
             Route::post('/{lead}/labels', [LeadsController::class, 'attachLabel'])->name('api.leads.labels.attach');
             Route::delete('/{lead}/labels/{leadLabel}', [LeadsController::class, 'detachLabel'])->name('api.leads.labels.detach');
+            Route::post('/{lead}/storeganise/push', [LeadsController::class, 'pushToStoreganise'])->name('api.leads.storeganise.push');
+            Route::post('/{lead}/storeganise/update', [LeadsController::class, 'updateStoreganise'])->name('api.leads.storeganise.update');
+            Route::get('/{lead}/storeganise/status', [LeadsController::class, 'storeganiseStatus'])->name('api.leads.storeganise.status');
+            Route::get('/{lead}/storeganise/duplicates', [LeadsController::class, 'storeganiseDuplicates'])->name('api.leads.storeganise.duplicates');
             Route::get('/{lead}', [LeadsController::class, 'show'])->name('api.leads.show');
             Route::match(['PUT', 'PATCH'], '/{lead}', [LeadsController::class, 'update'])->name('api.leads.update');
             Route::delete('/{lead}', [LeadsController::class, 'destroy'])->name('api.leads.destroy');
@@ -801,6 +805,10 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/openai', [IntegrationController::class, 'getOpenAiIntegration'])->name('api.integrations.openai.get');
         Route::post('/openai', [IntegrationController::class, 'storeOpenAiIntegration'])->name('api.integrations.openai.store');
         Route::delete('/openai', [IntegrationController::class, 'deleteOpenAiIntegration'])->name('api.integrations.openai.delete');
+        Route::get('/storeganise', [IntegrationController::class, 'getStoreganiseIntegration'])->name('api.integrations.storeganise.get');
+        Route::get('/storeganise/sites', [IntegrationController::class, 'getStoreganiseSites'])->name('api.integrations.storeganise.sites');
+        Route::post('/storeganise', [IntegrationController::class, 'storeStoreganiseIntegration'])->name('api.integrations.storeganise.store');
+        Route::delete('/storeganise', [IntegrationController::class, 'deleteStoreganiseIntegration'])->name('api.integrations.storeganise.delete');
     });
 
     Route::get('/billing-plan', function () {
