@@ -84,6 +84,31 @@ class FrontTagImportUiTest extends TestCase
         $this->assertSame(1, $integration->last_import_stats['conversations_matched'] ?? null);
     }
 
+    public function test_front_token_is_saved_even_when_verification_fails(): void
+    {
+        [$user, $company] = array_slice($this->userWithIntegrationsPermission(), 0, 2);
+
+        Http::fake([
+            'https://api2.frontapp.com/tags*' => Http::response([
+                '_error' => ['title' => 'Unauthorized', 'message' => 'Invalid token'],
+            ], 401),
+            'https://api2.frontapp.com/inboxes*' => Http::response([
+                '_error' => ['title' => 'Unauthorized', 'message' => 'Invalid token'],
+            ], 401),
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/integrations/front', ['api_token' => 'front-secret-token'])
+            ->assertOk()
+            ->assertJsonPath('status', 'connected')
+            ->assertJsonPath('verify_warning', fn ($value) => is_string($value) && $value !== '');
+
+        $this->assertDatabaseHas('front_integrations', [
+            'company_id' => $company->id,
+            'is_active' => true,
+        ]);
+    }
+
     public function test_front_import_requires_connection(): void
     {
         [$user] = $this->userWithIntegrationsPermission();

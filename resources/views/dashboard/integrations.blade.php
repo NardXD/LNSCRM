@@ -1422,7 +1422,8 @@
                 <div class="form-group">
                     <label class="form-label">Front API token</label>
                     <input type="password" class="form-input" id="front-api-token" placeholder="${existingData && existingData.api_token ? 'Leave blank to keep current token' : 'Paste bearer token'}">
-                    <span class="form-help">Create a token in Front → Settings → Developers with scopes <code>tags:read</code>, <code>inboxes:read</code>, and <code>conversations:read</code>.</span>
+                    <span class="form-help">Create a token in Front → Settings → Developers with scopes <code>tags:read</code>, <code>conversations:read</code>, and optionally <code>inboxes:read</code>. Paste the token only — do not include <code>Bearer</code>.</span>
+                    <div id="front-token-error" class="form-help" style="color:#b91c1c;display:none;margin-top:0.5rem;"></div>
                 </div>
                 <div id="front-import-panel" class="front-import-panel" ${existingData && existingData.api_token ? '' : 'hidden'}>
                     <h4 style="font-size:0.9375rem;font-weight:600;margin:0 0 0.5rem;">Import inbox tags</h4>
@@ -2381,28 +2382,47 @@
         }
     }
 
+    function showFrontTokenError(message, tone = 'error') {
+        const el = document.getElementById('front-token-error');
+        if (!el) return;
+        if (message) {
+            el.textContent = message;
+            el.style.display = 'block';
+            el.style.color = tone === 'warning' ? '#b45309' : '#b91c1c';
+        } else {
+            el.style.display = 'none';
+            el.textContent = '';
+        }
+    }
+
     async function handleFrontSave(closeOnSuccess = true) {
         const apiToken = document.getElementById('front-api-token')?.value?.trim() || '';
         const hasExisting = window.existingIntegration && window.existingIntegration.api_token;
 
         if (!apiToken && !hasExisting) {
-            alert('Please enter your Front API token.');
+            showFrontTokenError('Please enter your Front API token.');
             return false;
         }
+
+        showFrontTokenError('');
 
         try {
             const response = await fetch('/api/integrations/front', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Accept': 'application/json',
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
                 },
                 body: JSON.stringify({ api_token: apiToken || null })
             });
-            const data = await response.json();
+            const data = await response.json().catch(() => ({}));
 
             if (!response.ok) {
-                alert(data.error || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Error saving Front token.'));
+                const message = data.error
+                    || (data.errors ? Object.values(data.errors).flat().join(', ') : '')
+                    || `Could not save Front token (HTTP ${response.status}).`;
+                showFrontTokenError(message);
                 return false;
             }
 
@@ -2414,8 +2434,14 @@
                 status: 'connected',
             };
 
-            if (closeOnSuccess) {
-                alert('Front token saved. Re-open this card to run the tag import.');
+            if (data.verify_warning) {
+                showFrontTokenError(`Token saved, but Front could not verify it yet: ${data.verify_warning}`, 'warning');
+            }
+
+            const panel = document.getElementById('front-import-panel');
+            if (panel) panel.hidden = false;
+
+            if (closeOnSuccess && !data.verify_warning) {
                 closeIntegrationModal();
                 renderIntegrations(currentCategory);
             } else {
@@ -2427,7 +2453,7 @@
             return true;
         } catch (error) {
             console.error('Error:', error);
-            alert('Error saving Front integration. Please try again.');
+            showFrontTokenError('Error saving Front integration. Please try again.');
             return false;
         }
     }

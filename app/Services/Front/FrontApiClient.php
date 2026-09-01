@@ -9,18 +9,33 @@ use RuntimeException;
 
 class FrontApiClient
 {
+    private readonly string $token;
+
+    public static function normalizeToken(string $token): string
+    {
+        $token = trim($token);
+        if (preg_match('/^Bearer\s+/i', $token)) {
+            $token = preg_replace('/^Bearer\s+/i', '', $token);
+        }
+
+        return trim($token);
+    }
+
     public function __construct(
-        private readonly string $token,
+        string $token,
         private readonly string $baseUrl = 'https://api2.frontapp.com',
     ) {
-        if (trim($this->token) === '') {
+        $token = self::normalizeToken($token);
+        $this->token = $token;
+
+        if ($this->token === '') {
             throw new RuntimeException('Front API token is required.');
         }
     }
 
     public static function fromConfig(?string $tokenOverride = null): self
     {
-        $token = trim((string) ($tokenOverride ?: config('services.front.api_token', '')));
+        $token = self::normalizeToken((string) ($tokenOverride ?: config('services.front.api_token', '')));
         if ($token === '') {
             throw new RuntimeException('Front API token is required. Set FRONT_API_TOKEN or pass --token.');
         }
@@ -30,12 +45,28 @@ class FrontApiClient
 
     public function verifyConnection(): void
     {
-        $response = Http::timeout(30)
-            ->withToken($this->token)
-            ->acceptJson()
-            ->get($this->absoluteUrl('/tags'), ['limit' => 1]);
+        $attempts = [
+            ['/tags', ['limit' => 1]],
+            ['/inboxes', ['limit' => 1]],
+        ];
 
-        $this->assertSuccessful($response);
+        $lastError = null;
+        foreach ($attempts as [$path, $query]) {
+            try {
+                $response = Http::timeout(30)
+                    ->withToken($this->token)
+                    ->acceptJson()
+                    ->get($this->absoluteUrl($path), $query);
+
+                $this->assertSuccessful($response);
+
+                return;
+            } catch (\Throwable $e) {
+                $lastError = $e->getMessage();
+            }
+        }
+
+        throw new RuntimeException($lastError ?? 'Front API token could not be verified.');
     }
 
     /**

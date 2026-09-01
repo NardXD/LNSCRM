@@ -1690,24 +1690,26 @@ class IntegrationController extends Controller
         }
 
         $existing = FrontIntegration::query()->where('company_id', $company->id)->first();
-        $apiToken = trim((string) $request->input('api_token', ''));
+        $apiToken = FrontApiClient::normalizeToken((string) $request->input('api_token', ''));
 
-        $validator = Validator::make($request->all(), [
+        $validator = Validator::make(['api_token' => $apiToken !== '' ? $apiToken : null], [
             'api_token' => [($existing && $apiToken === '') ? 'nullable' : 'required', 'string', 'min:8'],
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return response()->json([
+                'error' => collect($validator->errors())->flatten()->first() ?: 'Invalid Front API token.',
+                'errors' => $validator->errors(),
+            ], 422);
         }
 
+        $verifyWarning = null;
         $data = ['is_active' => true];
         if ($apiToken !== '') {
             try {
                 (new FrontApiClient($apiToken))->verifyConnection();
             } catch (\Throwable $e) {
-                return response()->json([
-                    'error' => 'Front API token could not be verified: '.$e->getMessage(),
-                ], 422);
+                $verifyWarning = $e->getMessage();
             }
 
             $data['api_token'] = Crypt::encryptString($apiToken);
@@ -1717,10 +1719,20 @@ class IntegrationController extends Controller
             return response()->json(['errors' => ['api_token' => ['API token is required for new integrations.']]], 422);
         }
 
-        $integration = FrontIntegration::query()->updateOrCreate(
-            ['company_id' => $company->id],
-            $data
-        );
+        try {
+            $integration = FrontIntegration::query()->updateOrCreate(
+                ['company_id' => $company->id],
+                $data
+            );
+        } catch (\Throwable $e) {
+            if (str_contains($e->getMessage(), 'front_integrations')) {
+                return response()->json([
+                    'error' => 'Front integration table is missing. Run php artisan migrate on the server.',
+                ], 500);
+            }
+
+            throw $e;
+        }
 
         return response()->json([
             'message' => 'Front integration saved successfully',
@@ -1729,6 +1741,7 @@ class IntegrationController extends Controller
                 'is_active' => $integration->is_active,
             ],
             'status' => $integration->isConnected() ? 'connected' : 'disconnected',
+            'verify_warning' => $verifyWarning,
         ]);
     }
 
