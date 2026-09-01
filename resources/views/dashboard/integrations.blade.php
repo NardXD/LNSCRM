@@ -2325,6 +2325,7 @@
                     <dt>Tags created</dt><dd>${stats.tags_created ?? 0}</dd>
                     <dt>Existing tags reused</dt><dd>${stats.tags_existing ?? 0}</dd>
                     <dt>Tag links ${dryRun ? 'would apply' : 'applied'}</dt><dd>${stats.tags_applied ?? 0}</dd>
+                    ${stats.lead_labels_applied ? `<dt>Lead labels ${dryRun ? 'would apply' : 'applied'}</dt><dd>${stats.lead_labels_applied}</dd>` : ''}
                 </dl>
                 ${samples.length ? `<ul class="front-unmatched-list">${samples.map(s => `<li>${escapeHtml(String(s))}</li>`).join('')}</ul>` : ''}
             </div>

@@ -5365,7 +5365,36 @@ select.inbox-reply-header-input {
     }
 
     function conversationTagItems(c) {
-        return conversationLead(c)?.labels || [];
+        const conv = c || state.conversation;
+        const leadLabels = conversationLead(conv)?.labels || [];
+        const inboxTags = conv?.tags || [];
+        const merged = new Map();
+
+        leadLabels.forEach(label => {
+            const key = String(label?.name || '').trim().toLowerCase();
+            if (key) {
+                merged.set(key, { ...label, source: 'lead' });
+            }
+        });
+
+        inboxTags.forEach(tag => {
+            const key = String(tag?.name || '').trim().toLowerCase();
+            if (key && !merged.has(key)) {
+                merged.set(key, { ...tag, source: 'inbox' });
+            }
+        });
+
+        return Array.from(merged.values());
+    }
+
+    function conversationLabelPillHtml(label, { removable = true } = {}) {
+        const removeBtn = removable
+            ? (label.source === 'lead'
+                ? `<button type="button" data-remove-lead-label="${label.id}" style="border:none;background:transparent;cursor:pointer;color:inherit;">×</button>`
+                : `<button type="button" data-remove-inbox-tag="${label.id}" style="border:none;background:transparent;cursor:pointer;color:inherit;">×</button>`)
+            : '';
+
+        return `<span class="inbox-pill" style="background:${label.color}22;color:${label.color}">${escapeHtml(label.name)} ${removeBtn}</span>`;
     }
 
     function leadAssignedBlock(lead, withLink = true) {
@@ -6275,25 +6304,24 @@ select.inbox-reply-header-input {
         }
 
         const tagItems = conversationTagItems(c);
-        const usingLeadLabels = !!conversationLead(c);
-        el('conversationTags').innerHTML = usingLeadLabels
-            ? (tagItems.length
-                ? tagItems.map(t =>
-                    `<span class="inbox-pill" style="background:${t.color}22;color:${t.color}">${escapeHtml(t.name)} <button type="button" data-remove-lead-label="${t.id}" style="border:none;background:transparent;cursor:pointer;color:inherit;">×</button></span>`
-                ).join('')
-                : `<span style="color:var(--inbox-muted);font-size:0.8rem;">No labels</span>`)
-            : `<span style="color:var(--inbox-muted);font-size:0.8rem;">Labels appear when this email matches a lead</span>`;
+        const hasLead = !!conversationLead(c);
+        const canManageLeadLabels = hasLead;
+        el('conversationTags').innerHTML = tagItems.length
+            ? tagItems.map(t => conversationLabelPillHtml(t, { removable: true })).join('')
+            : (canManageLeadLabels
+                ? `<span style="color:var(--inbox-muted);font-size:0.8rem;">No labels</span>`
+                : `<span style="color:var(--inbox-muted);font-size:0.8rem;">Save as a lead to add labels, or run Front import to tag this thread</span>`);
 
         const used = new Set(tagItems.map(t => Number(t.id)));
         const addSelect = el('addTagSelect');
         if (addSelect) {
-            addSelect.style.display = usingLeadLabels ? '' : 'none';
+            addSelect.style.display = canManageLeadLabels ? '' : 'none';
             addSelect.innerHTML = '<option value="">Add existing label…</option>' +
                 (state.leadLabels || []).filter(t => !used.has(Number(t.id)))
                     .map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
         }
         const leadLabelRow = el('addLeadLabelRow');
-        if (leadLabelRow) leadLabelRow.hidden = !usingLeadLabels;
+        if (leadLabelRow) leadLabelRow.hidden = !canManageLeadLabels;
         const leadLabelInput = el('addLeadLabelInput');
         if (leadLabelInput) leadLabelInput.value = '';
 
@@ -7682,6 +7710,25 @@ select.inbox-reply-header-input {
             try {
                 await api('/conversations/' + state.selectedId + '/lead-labels/' + leadBtn.dataset.removeLeadLabel + (conversationLead()?.id ? '?lead_id=' + conversationLead().id : ''), {
                     method: 'DELETE',
+                });
+                await openConversation(state.selectedId);
+                await loadConversations();
+            } catch (err) {
+                alert(err.message || 'Could not remove label.');
+            }
+            return;
+        }
+
+        const inboxBtn = e.target.closest('[data-remove-inbox-tag]');
+        if (inboxBtn && state.selectedId) {
+            try {
+                const removeId = Number(inboxBtn.dataset.removeInboxTag);
+                const tagIds = (state.conversation?.tags || [])
+                    .map(t => Number(t.id))
+                    .filter(id => id > 0 && id !== removeId);
+                await api('/conversations/' + state.selectedId + '/tags', {
+                    method: 'POST',
+                    body: { tag_ids: tagIds },
                 });
                 await openConversation(state.selectedId);
                 await loadConversations();

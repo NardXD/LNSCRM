@@ -5,7 +5,10 @@ namespace App\Services\Front;
 use App\Models\Company;
 use App\Models\InboxConversation;
 use App\Models\InboxTag;
+use App\Models\Lead;
+use App\Models\LeadLabel;
 use App\Models\SharedInbox;
+use App\Services\FlexCrmLookupService;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +17,10 @@ use RuntimeException;
 class FrontTagImportService
 {
     public const DRY_RUN_LIMIT = 100;
+
+    public function __construct(
+        private readonly FlexCrmLookupService $crmLookup,
+    ) {}
 
     /** @var array<string, string> */
     public const HIGHLIGHT_COLORS = [
@@ -753,7 +760,10 @@ class FrontTagImportService
         }
 
         $stats['conversations_matched'] = ((int) ($stats['conversations_matched'] ?? 0)) + 1;
-        $tagIds = [];
+        $lead = $this->resolveLeadForConversation($localConversation);
+        $dryRun = (bool) ($options['dry_run'] ?? false);
+        $leadLabelIds = [];
+        $inboxTagIds = [];
 
         foreach ($frontTags as $frontTag) {
             $name = trim((string) ($frontTag['name'] ?? ''));
@@ -761,45 +771,135 @@ class FrontTagImportService
                 continue;
             }
 
-            $tag = $this->ensureTag(
-                $company,
-                $name,
-                $this->mapHighlightColor($frontTag['highlight'] ?? null),
-                (bool) ($options['dry_run'] ?? false),
-                $stats
-            );
+            $color = $this->mapHighlightColor($frontTag['highlight'] ?? null);
 
-            if ($tag) {
-                $tagIds[] = (int) $tag->id;
+            if ($lead) {
+                $label = $this->ensureLeadLabel($company, $name, $color, $dryRun, $stats);
+                if ($label) {
+                    $leadLabelIds[] = (int) $label->id;
+                }
+            } else {
+                $tag = $this->ensureInboxTag($company, $name, $color, $dryRun, $stats);
+                if ($tag) {
+                    $inboxTagIds[] = (int) $tag->id;
+                }
             }
         }
 
-        if ($tagIds === []) {
+        if ($leadLabelIds === [] && $inboxTagIds === []) {
             return;
         }
 
-        if ($options['dry_run'] ?? false) {
-            $stats['tags_applied'] = ((int) ($stats['tags_applied'] ?? 0)) + count($tagIds);
+        if ($dryRun) {
+            $stats['tags_applied'] = ((int) ($stats['tags_applied'] ?? 0)) + count($leadLabelIds) + count($inboxTagIds);
+            if ($leadLabelIds !== []) {
+                $stats['lead_labels_applied'] = ((int) ($stats['lead_labels_applied'] ?? 0)) + count($leadLabelIds);
+            }
 
             return;
         }
 
-        $existing = $localConversation->tags()->pluck('inbox_tags.id')->map(fn ($id) => (int) $id)->all();
-        $merged = array_values(array_unique(array_merge($existing, $tagIds)));
-        $added = count(array_diff($merged, $existing));
+        if ($lead && $leadLabelIds !== []) {
+            $existing = $lead->labels()->pluck('lead_labels.id')->map(fn ($id) => (int) $id)->all();
+            $merged = array_values(array_unique(array_merge($existing, $leadLabelIds)));
+            $added = count(array_diff($merged, $existing));
 
-        if ($added > 0) {
-            DB::transaction(function () use ($localConversation, $merged) {
-                $localConversation->tags()->syncWithoutDetaching($merged);
-            });
-            $stats['tags_applied'] = ((int) ($stats['tags_applied'] ?? 0)) + $added;
+            if ($added > 0) {
+                DB::transaction(function () use ($lead, $merged) {
+                    $lead->labels()->syncWithoutDetaching($merged);
+                });
+                $stats['tags_applied'] = ((int) ($stats['tags_applied'] ?? 0)) + $added;
+                $stats['lead_labels_applied'] = ((int) ($stats['lead_labels_applied'] ?? 0)) + $added;
+            }
+
+            $this->crmLookup->forgetLeadIndexes((int) $company->id);
         }
+
+        if ($inboxTagIds !== []) {
+            $existing = $localConversation->tags()->pluck('inbox_tags.id')->map(fn ($id) => (int) $id)->all();
+            $merged = array_values(array_unique(array_merge($existing, $inboxTagIds)));
+            $added = count(array_diff($merged, $existing));
+
+            if ($added > 0) {
+                DB::transaction(function () use ($localConversation, $merged) {
+                    $localConversation->tags()->syncWithoutDetaching($merged);
+                });
+                $stats['tags_applied'] = ((int) ($stats['tags_applied'] ?? 0)) + $added;
+            }
+        }
+    }
+
+    private function resolveLeadForConversation(InboxConversation $conversation): ?Lead
+    {
+        if ($conversation->lead_id) {
+            $lead = Lead::query()
+                ->where('company_id', $conversation->company_id)
+                ->find($conversation->lead_id);
+            if ($lead) {
+                return $lead;
+            }
+        }
+
+        $email = strtolower(trim((string) $conversation->from_email));
+        if ($email !== '' && str_contains($email, '@')) {
+            $lead = $this->crmLookup->findLeadByEmail((int) $conversation->company_id, $email);
+            if ($lead) {
+                return $lead;
+            }
+        }
+
+        $name = trim((string) $conversation->from_name);
+        if ($name !== '') {
+            return $this->crmLookup->findLeadByName((int) $conversation->company_id, $name);
+        }
+
+        return null;
     }
 
     /**
      * @param  array<string, int|list<string>>  $stats
      */
-    private function ensureTag(Company $company, string $name, string $color, bool $dryRun, array &$stats): ?InboxTag
+    /**
+     * @param  array<string, int|list<string>>  $stats
+     */
+    private function ensureLeadLabel(Company $company, string $name, string $color, bool $dryRun, array &$stats): ?LeadLabel
+    {
+        $existing = LeadLabel::query()
+            ->where('company_id', $company->id)
+            ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+            ->first();
+
+        if ($existing) {
+            $stats['tags_existing'] = ((int) ($stats['tags_existing'] ?? 0)) + 1;
+
+            return $existing;
+        }
+
+        if ($dryRun) {
+            $stats['tags_created'] = ((int) ($stats['tags_created'] ?? 0)) + 1;
+
+            return new LeadLabel([
+                'company_id' => $company->id,
+                'name' => $name,
+                'color' => $color,
+            ]);
+        }
+
+        $label = LeadLabel::query()->create([
+            'company_id' => $company->id,
+            'name' => $name,
+            'color' => $color,
+        ]);
+
+        $stats['tags_created'] = ((int) ($stats['tags_created'] ?? 0)) + 1;
+
+        return $label;
+    }
+
+    /**
+     * @param  array<string, int|list<string>>  $stats
+     */
+    private function ensureInboxTag(Company $company, string $name, string $color, bool $dryRun, array &$stats): ?InboxTag
     {
         $existing = InboxTag::query()
             ->where('company_id', $company->id)

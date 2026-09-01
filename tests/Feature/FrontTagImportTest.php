@@ -64,6 +64,54 @@ class FrontTagImportTest extends TestCase
         $this->assertTrue($conversation->fresh()->tags->contains('id', $tag->id));
     }
 
+    public function test_imports_front_tags_as_lead_labels_when_lead_matches(): void
+    {
+        [$company, $sharedInbox, $conversation] = $this->seedInboxConversation(
+            subject: 'Storage inquiry',
+            fromEmail: 'jane@example.com'
+        );
+
+        $lead = \App\Models\Lead::query()->create([
+            'company_id' => $company->id,
+            'name' => 'Jane Customer',
+            'email' => 'jane@example.com',
+            'status' => 'new',
+        ]);
+
+        $payload = [
+            'inboxes' => [
+                [
+                    'id' => 'inb_sales',
+                    'name' => $sharedInbox->name,
+                    'conversations' => [
+                        [
+                            'subject' => 'Re: Storage inquiry',
+                            'recipient' => ['handle' => 'jane@example.com'],
+                            'tags' => [
+                                ['name' => 'VIP', 'highlight' => 'purple', 'is_private' => false],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        $path = storage_path('framework/testing/front-tags-lead.json');
+        file_put_contents($path, json_encode($payload, JSON_THROW_ON_ERROR));
+
+        $stats = app(FrontTagImportService::class)->importFromFile($company, $path, [
+            'inbox_map' => ['inb_sales' => $sharedInbox->id],
+        ]);
+
+        $this->assertSame(1, $stats['conversations_matched']);
+        $this->assertSame(1, $stats['lead_labels_applied'] ?? 0);
+
+        $label = \App\Models\LeadLabel::query()->where('company_id', $company->id)->where('name', 'VIP')->first();
+        $this->assertNotNull($label);
+        $this->assertTrue($lead->fresh()->labels->contains('id', $label->id));
+        $this->assertSame(0, $conversation->fresh()->tags()->count());
+    }
+
     public function test_dry_run_does_not_persist_tags(): void
     {
         [$company, $sharedInbox, $conversation] = $this->seedInboxConversation(
