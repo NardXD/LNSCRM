@@ -4,7 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Company;
 use App\Models\InboxConversation;
-use App\Models\InboxTag;
+use App\Models\LeadLabel;
 use App\Models\SharedInbox;
 use App\Services\Front\FrontApiClient;
 use App\Services\Front\FrontTagImportService;
@@ -57,11 +57,12 @@ class FrontTagImportTest extends TestCase
         $this->assertSame(0, $stats['conversations_unmatched']);
         $this->assertSame(1, $stats['tags_created']);
         $this->assertSame(1, $stats['tags_applied']);
+        $this->assertSame(1, $stats['lead_labels_applied'] ?? 0);
 
-        $tag = InboxTag::query()->where('company_id', $company->id)->where('name', 'Inquiry')->first();
-        $this->assertNotNull($tag);
-        $this->assertSame('#3b82f6', $tag->color);
-        $this->assertTrue($conversation->fresh()->tags->contains('id', $tag->id));
+        $label = LeadLabel::query()->where('company_id', $company->id)->where('name', 'Inquiry')->first();
+        $this->assertNotNull($label);
+        $this->assertSame('#3b82f6', $label->color);
+        $this->assertTrue($conversation->fresh()->leadLabels->contains('id', $label->id));
     }
 
     public function test_imports_front_tags_as_lead_labels_when_lead_matches(): void
@@ -106,10 +107,11 @@ class FrontTagImportTest extends TestCase
         $this->assertSame(1, $stats['conversations_matched']);
         $this->assertSame(1, $stats['lead_labels_applied'] ?? 0);
 
-        $label = \App\Models\LeadLabel::query()->where('company_id', $company->id)->where('name', 'VIP')->first();
+        $label = LeadLabel::query()->where('company_id', $company->id)->where('name', 'VIP')->first();
         $this->assertNotNull($label);
         $this->assertTrue($lead->fresh()->labels->contains('id', $label->id));
         $this->assertSame(0, $conversation->fresh()->tags()->count());
+        $this->assertSame(0, $conversation->fresh()->leadLabels()->count());
     }
 
     public function test_dry_run_does_not_persist_tags(): void
@@ -147,8 +149,59 @@ class FrontTagImportTest extends TestCase
 
         $this->assertSame(1, $stats['conversations_matched']);
         $this->assertSame(1, $stats['tags_created']);
-        $this->assertSame(0, InboxTag::query()->count());
-        $this->assertSame(0, $conversation->fresh()->tags()->count());
+        $this->assertSame(0, LeadLabel::query()->count());
+        $this->assertSame(0, $conversation->fresh()->leadLabels()->count());
+    }
+
+    public function test_conversation_label_graduates_to_lead_once_a_lead_matches(): void
+    {
+        [$company, $sharedInbox, $conversation] = $this->seedInboxConversation(
+            subject: 'Storage inquiry',
+            fromEmail: 'jane@example.com'
+        );
+
+        $payload = [
+            'inboxes' => [
+                [
+                    'id' => 'inb_sales',
+                    'name' => $sharedInbox->name,
+                    'conversations' => [
+                        [
+                            'subject' => 'Re: Storage inquiry',
+                            'recipient' => ['handle' => 'jane@example.com'],
+                            'tags' => [
+                                ['name' => 'VIP', 'highlight' => 'purple', 'is_private' => false],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        $path = storage_path('framework/testing/front-tags-graduate.json');
+        file_put_contents($path, json_encode($payload, JSON_THROW_ON_ERROR));
+
+        app(FrontTagImportService::class)->importFromFile($company, $path, [
+            'inbox_map' => ['inb_sales' => $sharedInbox->id],
+        ]);
+
+        $label = LeadLabel::query()->where('company_id', $company->id)->where('name', 'VIP')->first();
+        $this->assertNotNull($label);
+        $this->assertTrue($conversation->fresh()->leadLabels->contains('id', $label->id));
+
+        $lead = \App\Models\Lead::query()->create([
+            'company_id' => $company->id,
+            'name' => 'Jane Customer',
+            'email' => 'jane@example.com',
+            'status' => 'new',
+        ]);
+
+        app(FrontTagImportService::class)->importFromFile($company, $path, [
+            'inbox_map' => ['inb_sales' => $sharedInbox->id],
+        ]);
+
+        $this->assertTrue($lead->fresh()->labels->contains('id', $label->id));
+        $this->assertSame(0, $conversation->fresh()->leadLabels()->count());
     }
 
     public function test_imports_from_front_api_with_pagination(): void
@@ -187,7 +240,7 @@ class FrontTagImportTest extends TestCase
         );
 
         $this->assertSame(1, $stats['conversations_matched']);
-        $this->assertDatabaseHas('inbox_tags', [
+        $this->assertDatabaseHas('lead_labels', [
             'company_id' => $company->id,
             'name' => 'Hot',
             'color' => '#ef4444',

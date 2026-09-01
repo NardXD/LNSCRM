@@ -136,6 +136,16 @@ class InboxConversation extends Model
             ->withTimestamps();
     }
 
+    /**
+     * Lead labels applied directly to this conversation (e.g. via Front import)
+     * when the conversation has no matching Lead record.
+     */
+    public function leadLabels(): BelongsToMany
+    {
+        return $this->belongsToMany(LeadLabel::class, 'inbox_conversation_lead_label')
+            ->withTimestamps();
+    }
+
     public function userReads(): HasMany
     {
         return $this->hasMany(InboxConversationUserRead::class, 'inbox_conversation_id');

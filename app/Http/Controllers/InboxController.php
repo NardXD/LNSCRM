@@ -544,7 +544,7 @@ class InboxController extends Controller
             $inboxIds = collect([(int) $validated['inbox_id']]);
         }
 
-        $query = InboxConversation::with(['assignee:id,name,email', 'tags', 'inbox:id,name,type,color', 'lead.identities', 'lead.assignedUser:id,name', 'lead.labels'])
+        $query = InboxConversation::with(['assignee:id,name,email', 'tags', 'leadLabels', 'inbox:id,name,type,color', 'lead.identities', 'lead.assignedUser:id,name', 'lead.labels'])
             ->withCount('mergedConversations')
             ->notMerged()
             ->whereIn('shared_inbox_id', $inboxIds);
@@ -806,6 +806,7 @@ class InboxController extends Controller
             'scheduledReplies' => fn ($q) => $q->where('status', ScheduledInboxReply::STATUS_PENDING)->with('user:id,name,email'),
             'assignee:id,name,email',
             'tags',
+            'leadLabels',
             'mergedConversations',
             // Need full inbox (incl. outlook_mail_account_id / external_mailbox)
             // so hydrate can load the Graph account and fetch the full HTML body.
@@ -1019,10 +1020,10 @@ class InboxController extends Controller
 
                 $conversation->delete();
                 $this->recordStatusActivity($existing, $actor, $oldStatus, $oldFolder, $status, $newFolder);
-                $this->fireConversationStatusRules($existing->fresh(['tags', 'inbox']), $status);
+                $this->fireConversationStatusRules($existing->fresh(['tags', 'leadLabels', 'inbox']), $status);
 
                 return response()->json([
-                    'conversation' => $this->formatConversation($existing->fresh(['assignee', 'tags', 'inbox'])),
+                    'conversation' => $this->formatConversation($existing->fresh(['assignee', 'tags', 'leadLabels', 'inbox'])),
                 ]);
             }
 
@@ -1039,10 +1040,10 @@ class InboxController extends Controller
         }
         $conversation->save();
         $this->recordStatusActivity($conversation, $actor, $oldStatus, $oldFolder, $status, $newFolder);
-        $this->fireConversationStatusRules($conversation->fresh(['tags', 'inbox']), $status);
+        $this->fireConversationStatusRules($conversation->fresh(['tags', 'leadLabels', 'inbox']), $status);
 
         return response()->json([
-            'conversation' => $this->formatConversation($conversation->fresh(['assignee', 'tags', 'inbox'])),
+            'conversation' => $this->formatConversation($conversation->fresh(['assignee', 'tags', 'leadLabels', 'inbox'])),
         ]);
     }
 
@@ -1072,7 +1073,7 @@ class InboxController extends Controller
         );
 
         return response()->json([
-            'conversation' => $this->formatConversation($conversation->fresh(['assignee', 'tags', 'inbox'])),
+            'conversation' => $this->formatConversation($conversation->fresh(['assignee', 'tags', 'leadLabels', 'inbox'])),
         ]);
     }
 
@@ -1137,7 +1138,7 @@ class InboxController extends Controller
 
         return response()->json([
             'conversation' => $this->formatConversation(
-                $merged->fresh(['assignee', 'tags', 'inbox', 'mergedConversations'])
+                $merged->fresh(['assignee', 'tags', 'leadLabels', 'inbox', 'mergedConversations'])
             ),
         ]);
     }
@@ -1190,7 +1191,7 @@ class InboxController extends Controller
 
         return response()->json([
             'conversation' => $this->formatConversation(
-                $merged->fresh(['assignee', 'tags', 'inbox', 'mergedConversations'])
+                $merged->fresh(['assignee', 'tags', 'leadLabels', 'inbox', 'mergedConversations'])
             ),
         ]);
     }
@@ -1221,7 +1222,7 @@ class InboxController extends Controller
             $conversation->save();
         }
 
-        $fresh = $conversation->fresh(['assignee', 'tags', 'inbox']);
+        $fresh = $conversation->fresh(['assignee', 'tags', 'leadLabels', 'inbox']);
         if ($isSharedInbox) {
             $fresh->setAttribute('is_read', (bool) $validated['is_read']);
         }
@@ -1247,7 +1248,7 @@ class InboxController extends Controller
             ->all();
 
         $conversation->tags()->sync($tagIds);
-        $conversation->load('tags');
+        $conversation->load('tags', 'leadLabels');
 
         $addedIds = array_values(array_diff($tagIds, $previousIds));
         $removedIds = array_values(array_diff($previousIds, $tagIds));
@@ -1283,7 +1284,7 @@ class InboxController extends Controller
             );
         }
 
-        return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'inbox', 'assignee']))]);
+        return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'leadLabels', 'inbox', 'assignee']))]);
     }
 
     public function attachLeadLabel(Request $request, InboxConversation $conversation): JsonResponse
@@ -1336,7 +1337,7 @@ class InboxController extends Controller
         }
         $this->crmLookup->forgetLeadIndexes($companyId);
 
-        return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'inbox', 'assignee']))]);
+        return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'leadLabels', 'inbox', 'assignee']))]);
     }
 
     public function detachLeadLabel(Request $request, InboxConversation $conversation, LeadLabel $leadLabel): JsonResponse
@@ -1355,7 +1356,23 @@ class InboxController extends Controller
         $this->leadActivity->recordLabel($lead, $leadLabel->name, false);
         $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
 
-        return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'inbox', 'assignee', 'lead.identities', 'lead.assignedUser:id,name', 'lead.labels']))]);
+        return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'leadLabels', 'inbox', 'assignee', 'lead.identities', 'lead.assignedUser:id,name', 'lead.labels']))]);
+    }
+
+    /**
+     * Remove a lead label attached directly to a conversation (no matching lead),
+     * e.g. one applied by Front tag import.
+     */
+    public function detachConversationLabel(Request $request, InboxConversation $conversation, LeadLabel $leadLabel): JsonResponse
+    {
+        $this->authorizeConversation($request->user(), $conversation);
+        if ((int) $leadLabel->company_id !== (int) $conversation->company_id) {
+            abort(404);
+        }
+
+        $conversation->leadLabels()->detach($leadLabel->id);
+
+        return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'leadLabels', 'inbox', 'assignee']))]);
     }
 
     public function attachLead(Request $request, InboxConversation $conversation): JsonResponse
@@ -1373,11 +1390,22 @@ class InboxController extends Controller
         }
 
         $this->inboxAttach->attach($lead, $conversation, $request->user());
+
+        // Labels applied while this conversation had no matching lead (e.g. Front
+        // import) now graduate onto the lead itself, and no longer need to live
+        // directly on the conversation.
+        $conversationLabelIds = $conversation->leadLabels()->pluck('lead_labels.id')->map(fn ($id) => (int) $id)->all();
+        if ($conversationLabelIds !== []) {
+            $lead->labels()->syncWithoutDetaching($conversationLabelIds);
+            $conversation->leadLabels()->detach($conversationLabelIds);
+        }
+
         $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
 
         return response()->json([
             'conversation' => $this->formatConversation($conversation->fresh([
                 'tags',
+                'leadLabels',
                 'inbox',
                 'assignee',
                 'lead.identities',
@@ -1402,7 +1430,7 @@ class InboxController extends Controller
         $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
 
         return response()->json([
-            'conversation' => $this->formatConversation($conversation->fresh(['tags', 'inbox', 'assignee'])),
+            'conversation' => $this->formatConversation($conversation->fresh(['tags', 'leadLabels', 'inbox', 'assignee'])),
         ]);
     }
 
@@ -1557,6 +1585,7 @@ class InboxController extends Controller
             $conversation->load([
                 'assignee',
                 'tags',
+                'leadLabels',
                 'inbox',
                 'scheduledReplies' => fn ($q) => $q->where('status', ScheduledInboxReply::STATUS_PENDING)->with('user:id,name,email'),
             ]);
@@ -1651,6 +1680,7 @@ class InboxController extends Controller
         $conversation->load([
             'assignee',
             'tags',
+            'leadLabels',
             'inbox',
             'scheduledReplies' => fn ($q) => $q->where('status', ScheduledInboxReply::STATUS_PENDING)->with('user:id,name,email'),
         ]);
@@ -1758,7 +1788,7 @@ class InboxController extends Controller
 
         return response()->json([
             'comment' => $this->formatComment($comment),
-            'conversation' => $this->formatConversation($conversation->fresh(['assignee', 'tags', 'inbox'])),
+            'conversation' => $this->formatConversation($conversation->fresh(['assignee', 'tags', 'leadLabels', 'inbox'])),
         ], 201);
     }
 
@@ -1923,6 +1953,7 @@ class InboxController extends Controller
             $conversation->load([
                 'assignee',
                 'tags',
+                'leadLabels',
                 'inbox',
                 'scheduledReplies' => fn ($q) => $q->where('status', ScheduledInboxReply::STATUS_PENDING)->with('user:id,name,email'),
             ]);
@@ -1950,7 +1981,7 @@ class InboxController extends Controller
 
         return response()->json([
             'conversation' => $this->formatConversation(
-                $result['conversation']->fresh(['assignee', 'tags', 'inbox', 'messages']) ?? $result['conversation'],
+                $result['conversation']->fresh(['assignee', 'tags', 'leadLabels', 'inbox', 'messages']) ?? $result['conversation'],
                 true
             ),
             'message' => $this->formatMessage($result['message']),
@@ -2756,6 +2787,9 @@ class InboxController extends Controller
             ] : null,
             'tags' => $c->relationLoaded('tags')
                 ? $c->tags->map(fn ($t) => ['id' => $t->id, 'name' => $t->name, 'color' => $t->color])
+                : [],
+            'lead_labels' => $c->relationLoaded('leadLabels')
+                ? $c->leadLabels->map(fn ($l) => ['id' => $l->id, 'name' => $l->name, 'color' => $l->color])
                 : [],
             'lead' => $this->conversationLeadPayload($c),
             'merged_count' => (int) ($c->merged_conversations_count

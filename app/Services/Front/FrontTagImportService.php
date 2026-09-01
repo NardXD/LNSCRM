@@ -4,7 +4,6 @@ namespace App\Services\Front;
 
 use App\Models\Company;
 use App\Models\InboxConversation;
-use App\Models\InboxTag;
 use App\Models\Lead;
 use App\Models\LeadLabel;
 use App\Models\SharedInbox;
@@ -763,7 +762,6 @@ class FrontTagImportService
         $lead = $this->resolveLeadForConversation($localConversation);
         $dryRun = (bool) ($options['dry_run'] ?? false);
         $leadLabelIds = [];
-        $inboxTagIds = [];
 
         foreach ($frontTags as $frontTag) {
             $name = trim((string) ($frontTag['name'] ?? ''));
@@ -773,33 +771,33 @@ class FrontTagImportService
 
             $color = $this->mapHighlightColor($frontTag['highlight'] ?? null);
 
-            if ($lead) {
-                $label = $this->ensureLeadLabel($company, $name, $color, $dryRun, $stats);
-                if ($label) {
-                    $leadLabelIds[] = (int) $label->id;
-                }
-            } else {
-                $tag = $this->ensureInboxTag($company, $name, $color, $dryRun, $stats);
-                if ($tag) {
-                    $inboxTagIds[] = (int) $tag->id;
-                }
+            $label = $this->ensureLeadLabel($company, $name, $color, $dryRun, $stats);
+            if ($label) {
+                $leadLabelIds[] = (int) $label->id;
             }
         }
 
-        if ($leadLabelIds === [] && $inboxTagIds === []) {
+        if ($leadLabelIds === []) {
             return;
         }
 
         if ($dryRun) {
-            $stats['tags_applied'] = ((int) ($stats['tags_applied'] ?? 0)) + count($leadLabelIds) + count($inboxTagIds);
-            if ($leadLabelIds !== []) {
-                $stats['lead_labels_applied'] = ((int) ($stats['lead_labels_applied'] ?? 0)) + count($leadLabelIds);
-            }
+            $stats['tags_applied'] = ((int) ($stats['tags_applied'] ?? 0)) + count($leadLabelIds);
+            $stats['lead_labels_applied'] = ((int) ($stats['lead_labels_applied'] ?? 0)) + count($leadLabelIds);
 
             return;
         }
 
-        if ($lead && $leadLabelIds !== []) {
+        // A matched Lead gets the labels on the Lead record itself (visible/filterable
+        // across the CRM). Without a Lead, the labels still attach directly to the
+        // conversation so Front tags aren't lost just because no lead matched yet.
+        if ($lead) {
+            // Labels applied on an earlier run (before this conversation had a
+            // matching lead) graduate onto the lead now instead of staying stuck
+            // on the conversation.
+            $conversationLabelIds = $localConversation->leadLabels()->pluck('lead_labels.id')->map(fn ($id) => (int) $id)->all();
+            $leadLabelIds = array_values(array_unique(array_merge($leadLabelIds, $conversationLabelIds)));
+
             $existing = $lead->labels()->pluck('lead_labels.id')->map(fn ($id) => (int) $id)->all();
             $merged = array_values(array_unique(array_merge($existing, $leadLabelIds)));
             $added = count(array_diff($merged, $existing));
@@ -812,20 +810,25 @@ class FrontTagImportService
                 $stats['lead_labels_applied'] = ((int) ($stats['lead_labels_applied'] ?? 0)) + $added;
             }
 
+            if ($conversationLabelIds !== []) {
+                $localConversation->leadLabels()->detach($conversationLabelIds);
+            }
+
             $this->crmLookup->forgetLeadIndexes((int) $company->id);
+
+            return;
         }
 
-        if ($inboxTagIds !== []) {
-            $existing = $localConversation->tags()->pluck('inbox_tags.id')->map(fn ($id) => (int) $id)->all();
-            $merged = array_values(array_unique(array_merge($existing, $inboxTagIds)));
-            $added = count(array_diff($merged, $existing));
+        $existing = $localConversation->leadLabels()->pluck('lead_labels.id')->map(fn ($id) => (int) $id)->all();
+        $merged = array_values(array_unique(array_merge($existing, $leadLabelIds)));
+        $added = count(array_diff($merged, $existing));
 
-            if ($added > 0) {
-                DB::transaction(function () use ($localConversation, $merged) {
-                    $localConversation->tags()->syncWithoutDetaching($merged);
-                });
-                $stats['tags_applied'] = ((int) ($stats['tags_applied'] ?? 0)) + $added;
-            }
+        if ($added > 0) {
+            DB::transaction(function () use ($localConversation, $merged) {
+                $localConversation->leadLabels()->syncWithoutDetaching($merged);
+            });
+            $stats['tags_applied'] = ((int) ($stats['tags_applied'] ?? 0)) + $added;
+            $stats['lead_labels_applied'] = ((int) ($stats['lead_labels_applied'] ?? 0)) + $added;
         }
     }
 
@@ -894,43 +897,6 @@ class FrontTagImportService
         $stats['tags_created'] = ((int) ($stats['tags_created'] ?? 0)) + 1;
 
         return $label;
-    }
-
-    /**
-     * @param  array<string, int|list<string>>  $stats
-     */
-    private function ensureInboxTag(Company $company, string $name, string $color, bool $dryRun, array &$stats): ?InboxTag
-    {
-        $existing = InboxTag::query()
-            ->where('company_id', $company->id)
-            ->where('name', $name)
-            ->first();
-
-        if ($existing) {
-            $stats['tags_existing'] = ((int) ($stats['tags_existing'] ?? 0)) + 1;
-
-            return $existing;
-        }
-
-        if ($dryRun) {
-            $stats['tags_created'] = ((int) ($stats['tags_created'] ?? 0)) + 1;
-
-            return new InboxTag([
-                'company_id' => $company->id,
-                'name' => $name,
-                'color' => $color,
-            ]);
-        }
-
-        $tag = InboxTag::query()->create([
-            'company_id' => $company->id,
-            'name' => $name,
-            'color' => $color,
-        ]);
-
-        $stats['tags_created'] = ((int) ($stats['tags_created'] ?? 0)) + 1;
-
-        return $tag;
     }
 
     /**

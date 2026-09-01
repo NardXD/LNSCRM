@@ -5367,6 +5367,7 @@ select.inbox-reply-header-input {
     function conversationTagItems(c) {
         const conv = c || state.conversation;
         const leadLabels = conversationLead(conv)?.labels || [];
+        const conversationLabels = conv?.lead_labels || [];
         const inboxTags = conv?.tags || [];
         const merged = new Map();
 
@@ -5374,6 +5375,13 @@ select.inbox-reply-header-input {
             const key = String(label?.name || '').trim().toLowerCase();
             if (key) {
                 merged.set(key, { ...label, source: 'lead' });
+            }
+        });
+
+        conversationLabels.forEach(label => {
+            const key = String(label?.name || '').trim().toLowerCase();
+            if (key && !merged.has(key)) {
+                merged.set(key, { ...label, source: 'conversation-label' });
             }
         });
 
@@ -5388,11 +5396,16 @@ select.inbox-reply-header-input {
     }
 
     function conversationLabelPillHtml(label, { removable = true } = {}) {
-        const removeBtn = removable
-            ? (label.source === 'lead'
-                ? `<button type="button" data-remove-lead-label="${label.id}" style="border:none;background:transparent;cursor:pointer;color:inherit;">×</button>`
-                : `<button type="button" data-remove-inbox-tag="${label.id}" style="border:none;background:transparent;cursor:pointer;color:inherit;">×</button>`)
-            : '';
+        let removeBtn = '';
+        if (removable) {
+            if (label.source === 'lead') {
+                removeBtn = `<button type="button" data-remove-lead-label="${label.id}" style="border:none;background:transparent;cursor:pointer;color:inherit;">×</button>`;
+            } else if (label.source === 'conversation-label') {
+                removeBtn = `<button type="button" data-remove-conversation-label="${label.id}" style="border:none;background:transparent;cursor:pointer;color:inherit;">×</button>`;
+            } else {
+                removeBtn = `<button type="button" data-remove-inbox-tag="${label.id}" style="border:none;background:transparent;cursor:pointer;color:inherit;">×</button>`;
+            }
+        }
 
         return `<span class="inbox-pill" style="background:${label.color}22;color:${label.color}">${escapeHtml(label.name)} ${removeBtn}</span>`;
     }
@@ -7709,6 +7722,20 @@ select.inbox-reply-header-input {
         if (leadBtn && state.selectedId) {
             try {
                 await api('/conversations/' + state.selectedId + '/lead-labels/' + leadBtn.dataset.removeLeadLabel + (conversationLead()?.id ? '?lead_id=' + conversationLead().id : ''), {
+                    method: 'DELETE',
+                });
+                await openConversation(state.selectedId);
+                await loadConversations();
+            } catch (err) {
+                alert(err.message || 'Could not remove label.');
+            }
+            return;
+        }
+
+        const conversationLabelBtn = e.target.closest('[data-remove-conversation-label]');
+        if (conversationLabelBtn && state.selectedId) {
+            try {
+                await api('/conversations/' + state.selectedId + '/labels/' + conversationLabelBtn.dataset.removeConversationLabel, {
                     method: 'DELETE',
                 });
                 await openConversation(state.selectedId);

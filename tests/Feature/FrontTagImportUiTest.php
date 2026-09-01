@@ -76,7 +76,7 @@ class FrontTagImportUiTest extends TestCase
             ->assertJsonPath('stats.conversations_matched', 1)
             ->assertJsonPath('stats.tags_created', 1);
 
-        $this->assertDatabaseHas('inbox_tags', [
+        $this->assertDatabaseHas('lead_labels', [
             'company_id' => $company->id,
             'name' => 'Hot',
         ]);
