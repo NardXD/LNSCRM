@@ -227,7 +227,7 @@ class FrontTagImportUiTest extends TestCase
 
         $first = $this->actingAs($user)
             ->postJson('/api/integrations/front/import-tags', [
-                'dry_run' => true,
+                'dry_run' => false,
                 'front_inbox_id' => 'inb_1',
                 'shared_inbox_id' => $sharedInbox->id,
                 'inbox_map' => ['inb_1' => $sharedInbox->id],
@@ -242,7 +242,7 @@ class FrontTagImportUiTest extends TestCase
 
         $this->actingAs($user)
             ->postJson('/api/integrations/front/import-tags', [
-                'dry_run' => true,
+                'dry_run' => false,
                 'front_inbox_id' => 'inb_1',
                 'shared_inbox_id' => $sharedInbox->id,
                 'inbox_map' => ['inb_1' => $sharedInbox->id],
@@ -252,6 +252,45 @@ class FrontTagImportUiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('has_more', false)
             ->assertJsonPath('stats.conversations_matched', 1);
+    }
+
+    public function test_dry_run_preview_is_limited_to_one_hundred_conversations(): void
+    {
+        [$user, $company, $sharedInbox] = $this->userWithIntegrationsPermission();
+
+        FrontIntegration::query()->create([
+            'company_id' => $company->id,
+            'api_token' => Crypt::encryptString('front-secret-token'),
+            'is_active' => true,
+        ]);
+
+        Http::fake([
+            'https://api2.frontapp.com/inboxes/inb_1/conversations*' => function ($request) {
+                $limit = (int) $request->data()['limit'];
+
+                return Http::response([
+                    '_results' => array_fill(0, min($limit, 100), [
+                        'subject' => 'Sample',
+                        'recipient' => ['handle' => 'sample@example.com'],
+                        'tags' => [],
+                    ]),
+                    '_pagination' => ['next' => 'https://api2.frontapp.com/inboxes/inb_1/conversations?page=2'],
+                ]);
+            },
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/integrations/front/import-tags', [
+                'dry_run' => true,
+                'front_inbox_id' => 'inb_1',
+                'shared_inbox_id' => $sharedInbox->id,
+                'inbox_map' => ['inb_1' => $sharedInbox->id],
+                'persist_results' => false,
+            ])
+            ->assertOk()
+            ->assertJsonPath('has_more', false)
+            ->assertJsonPath('stats.preview_limit', 100)
+            ->assertJsonPath('stats.conversations_scanned', 100);
     }
 
     /**

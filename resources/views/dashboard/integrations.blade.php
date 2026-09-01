@@ -2315,8 +2315,10 @@
                 <h4>${dryRun ? 'Preview results' : 'Import results'} <span style="font-weight:400;color:var(--text-secondary);">· ${when}</span></h4>
                 <p class="form-help" style="margin:0 0 0.75rem;">${escapeHtml(modeLabel)}</p>
                 ${stats.front_inbox_warning ? `<p class="form-help" style="margin:0 0 0.75rem;color:#b45309;">${escapeHtml(String(stats.front_inbox_warning))}</p>` : ''}
+                ${dryRun && stats.preview_limit ? `<p class="form-help" style="margin:0 0 0.75rem;color:#b45309;">Preview shows the first ${stats.preview_limit} Front conversations only. Run import to process all.</p>` : ''}
                 <dl>
                     <dt>Mapped inboxes</dt><dd>${stats.mapped_inboxes ?? 0}</dd>
+                    ${dryRun ? `<dt>Conversations scanned</dt><dd>${stats.conversations_scanned ?? 0}</dd>` : ''}
                     <dt>Front conversations with tags</dt><dd>${stats.front_conversations_with_tags ?? 0}</dd>
                     <dt>Matched conversations</dt><dd>${stats.conversations_matched ?? 0}</dd>
                     <dt>Unmatched conversations</dt><dd>${stats.conversations_unmatched ?? 0}</dd>
@@ -2377,6 +2379,7 @@
     function emptyFrontImportStats() {
         return {
             mapped_inboxes: 0,
+            conversations_scanned: 0,
             front_conversations_with_tags: 0,
             conversations_matched: 0,
             conversations_unmatched: 0,
@@ -2391,6 +2394,7 @@
         if (!source) return target;
         [
             'mapped_inboxes',
+            'conversations_scanned',
             'front_conversations_with_tags',
             'conversations_matched',
             'conversations_unmatched',
@@ -2401,6 +2405,8 @@
             target[key] = (Number(target[key]) || 0) + (Number(source[key]) || 0);
         });
         if (source.import_mode) target.import_mode = source.import_mode;
+        if (source.preview_limit) target.preview_limit = source.preview_limit;
+        if (source.preview_limited) target.preview_limited = source.preview_limited;
         if (source.front_inbox_warning) target.front_inbox_warning = source.front_inbox_warning;
         if (source.inbox_errors?.length) {
             target.inbox_errors = [...(target.inbox_errors || []), ...source.inbox_errors];
@@ -2470,9 +2476,22 @@
     }
 
     async function runFrontInboxImportPaged(dryRun, entry, actionLabel) {
+        const partial = emptyFrontImportStats();
+
+        if (dryRun) {
+            setFrontImportLoading(true, `${actionLabel} ${entry.frontName} (first 100)…`);
+            const data = await runFrontImportRequest(
+                dryRun,
+                { [entry.frontId]: entry.sharedId },
+                entry.frontId,
+                false
+            );
+            mergeFrontImportStats(partial, data.stats || {});
+            return partial;
+        }
+
         let pageUrl = null;
         let page = 0;
-        const partial = emptyFrontImportStats();
 
         do {
             page += 1;
@@ -2697,7 +2716,7 @@
 
         try {
             if (entries.length === 0) {
-                setFrontImportLoading(true, `${actionLabel} tags across all shared inboxes…`);
+                setFrontImportLoading(true, dryRun ? `${actionLabel} (first 100)…` : `${actionLabel} tags across all shared inboxes…`);
                 const data = await runFrontImportRequest(dryRun, {}, null);
                 mergeFrontImportStats(aggregated, data.stats || {});
             } else {

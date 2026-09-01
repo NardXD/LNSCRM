@@ -13,6 +13,8 @@ use RuntimeException;
 
 class FrontTagImportService
 {
+    public const DRY_RUN_LIMIT = 100;
+
     /** @var array<string, string> */
     public const HIGHLIGHT_COLORS = [
         'grey' => '#64748b',
@@ -47,6 +49,10 @@ class FrontTagImportService
      */
     public function importFromApi(Company $company, FrontApiClient $client, array $options = []): array
     {
+        if ($options['dry_run'] ?? false) {
+            $options['max_conversations'] = self::DRY_RUN_LIMIT;
+        }
+
         $sharedInboxes = $this->loadSharedInboxes($company, $options['shared_inbox_id'] ?? null);
         if ($sharedInboxes->isEmpty()) {
             throw new RuntimeException('No active shared inboxes found in LNSCRM. Connect Outlook mailboxes under Inbox first.');
@@ -110,9 +116,20 @@ class FrontTagImportService
             }
 
             $statuses = $options['statuses'] ?? ['archived', 'assigned', 'unassigned'];
+            $maxConversations = $options['max_conversations'] ?? null;
+            $scanned = 0;
 
             try {
                 foreach ($client->listInboxConversations($frontInboxId, $statuses) as $frontConversation) {
+                    $scanned++;
+                    $stats['conversations_scanned'] = $scanned;
+
+                    if ($maxConversations !== null && $scanned > $maxConversations) {
+                        $stats['preview_limit'] = $maxConversations;
+                        $stats['preview_limited'] = true;
+                        break 2;
+                    }
+
                     $this->importConversationTags(
                         $company,
                         $sharedInbox,
@@ -163,7 +180,9 @@ class FrontTagImportService
         }
 
         $statuses = $options['statuses'] ?? ['archived', 'assigned', 'unassigned'];
-        $page = $client->fetchInboxConversationPage($frontInboxId, $pageUrl, $statuses, 20);
+        $isDryRunPreview = ($options['dry_run'] ?? false) && $pageUrl === null;
+        $pageLimit = $isDryRunPreview ? self::DRY_RUN_LIMIT : 20;
+        $page = $client->fetchInboxConversationPage($frontInboxId, $pageUrl, $statuses, $pageLimit);
 
         $stats = $this->emptyStats();
         $stats['mapped_inboxes'] = 1;
@@ -171,6 +190,7 @@ class FrontTagImportService
         $stats['page_conversations'] = count($page['results']);
 
         foreach ($page['results'] as $frontConversation) {
+            $stats['conversations_scanned'] = ((int) ($stats['conversations_scanned'] ?? 0)) + 1;
             $this->importConversationTags(
                 $company,
                 $sharedInbox,
@@ -180,9 +200,15 @@ class FrontTagImportService
             );
         }
 
+        if ($isDryRunPreview) {
+            $stats['preview_limit'] = self::DRY_RUN_LIMIT;
+            $stats['preview_limited'] = ($page['next_page_url'] ?? null) !== null
+                || count($page['results']) >= self::DRY_RUN_LIMIT;
+        }
+
         return array_merge($stats, [
-            'has_more' => $page['next_page_url'] !== null,
-            'next_page_url' => $page['next_page_url'],
+            'has_more' => $isDryRunPreview ? false : $page['next_page_url'] !== null,
+            'next_page_url' => $isDryRunPreview ? null : $page['next_page_url'],
             'front_inbox_id' => $frontInboxId,
         ]);
     }
@@ -202,6 +228,8 @@ class FrontTagImportService
         $stats['mapped_inboxes'] = $sharedInboxes->count();
         $seenConversationIds = [];
         $statuses = $options['statuses'] ?? ['archived', 'assigned', 'unassigned'];
+        $maxConversations = $options['max_conversations'] ?? null;
+        $scanned = 0;
 
         foreach ($client->listTags() as $frontTag) {
             if (! ($options['include_private'] ?? false) && (bool) ($frontTag['is_private'] ?? false)) {
@@ -214,6 +242,15 @@ class FrontTagImportService
             }
 
             foreach ($client->listTaggedConversations($tagId, $statuses) as $frontConversation) {
+                $scanned++;
+                $stats['conversations_scanned'] = $scanned;
+
+                if ($maxConversations !== null && $scanned > $maxConversations) {
+                    $stats['preview_limit'] = $maxConversations;
+                    $stats['preview_limited'] = true;
+                    break 2;
+                }
+
                 $frontConversationId = (string) ($frontConversation['id'] ?? '');
                 if ($frontConversationId !== '' && isset($seenConversationIds[$frontConversationId])) {
                     continue;
@@ -822,6 +859,7 @@ class FrontTagImportService
     {
         return [
             'mapped_inboxes' => 0,
+            'conversations_scanned' => 0,
             'front_conversations_with_tags' => 0,
             'conversations_matched' => 0,
             'conversations_unmatched' => 0,
