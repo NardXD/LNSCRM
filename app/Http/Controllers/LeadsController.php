@@ -124,7 +124,7 @@ class LeadsController extends Controller
     {
         $companyId = (int) Auth::user()->company_id;
         $query = $this->leadReports->filteredQuery($companyId, $request)
-            ->with(['identities', 'assignedUser:id,name', 'labels'])
+            ->with(['identities', 'assignedUser:id,name', 'labels', 'inboxConversations.leadLabels'])
             ->orderByDesc('updated_at');
 
         $perPage = min(100, max(10, (int) $request->get('per_page', 20)));
@@ -261,7 +261,7 @@ class LeadsController extends Controller
             return response()->json(['message' => $e->getMessage()], $status);
         }
 
-        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
+        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'inboxConversations.leadLabels', 'leadNotes.user:id,name']);
 
         return response()->json([
             'success' => true,
@@ -359,7 +359,7 @@ class LeadsController extends Controller
             $this->leadActivity->recordNote($lead, true, note: $legacyNote);
         }
         $lead->unsetRelation('identities');
-        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
+        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'inboxConversations.leadLabels', 'leadNotes.user:id,name']);
 
         return response()->json([
             'success' => true,
@@ -371,7 +371,7 @@ class LeadsController extends Controller
     public function show(Lead $lead): JsonResponse
     {
         $lead = $this->leadForUser($lead);
-        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
+        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'inboxConversations.leadLabels', 'leadNotes.user:id,name']);
 
         return response()->json([
             'success' => true,
@@ -403,7 +403,7 @@ class LeadsController extends Controller
         $lead->syncIdentities($identities);
         $this->leadActivity->recordDiff($lead, $before);
         $lead->unsetRelation('identities');
-        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
+        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'inboxConversations.leadLabels', 'leadNotes.user:id,name']);
 
         return response()->json([
             'success' => true,
@@ -492,7 +492,7 @@ class LeadsController extends Controller
         ]);
 
         $lead->refresh();
-        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
+        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'inboxConversations.leadLabels', 'leadNotes.user:id,name']);
 
         return response()->json([
             'success' => true,
@@ -528,7 +528,7 @@ class LeadsController extends Controller
         ]);
 
         $lead->refresh();
-        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
+        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'inboxConversations.leadLabels', 'leadNotes.user:id,name']);
 
         return response()->json([
             'success' => true,
@@ -567,7 +567,7 @@ class LeadsController extends Controller
         $this->leadActivity->recordDiff($lead, $before);
         $lead->touch();
         $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
-        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
+        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'inboxConversations.leadLabels', 'leadNotes.user:id,name']);
 
         return response()->json([
             'success' => true,
@@ -1019,7 +1019,7 @@ class LeadsController extends Controller
         $lead->update(['assigned_to' => $toId]);
         $this->leadActivity->recordAssignment($lead, $fromId, $toId);
         $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
-        $lead->load(['identities', 'assignedUser:id,name', 'labels']);
+        $lead->load(['identities', 'assignedUser:id,name', 'labels', 'inboxConversations.leadLabels']);
 
         return response()->json([
             'success' => true,
@@ -1113,7 +1113,7 @@ class LeadsController extends Controller
         if (! $alreadyAttached) {
             $this->leadActivity->recordLabel($lead, $label->name, true, labelId: $label->id);
         }
-        $lead->load('labels');
+        $lead->load(['labels', 'inboxConversations.leadLabels']);
         $lead->touch();
         $this->crmLookup->forgetLeadIndexes($companyId);
 
@@ -1134,7 +1134,7 @@ class LeadsController extends Controller
 
         $lead->labels()->detach($leadLabel->id);
         $this->leadActivity->recordLabel($lead, $leadLabel->name, false);
-        $lead->load('labels');
+        $lead->load(['labels', 'inboxConversations.leadLabels']);
         $lead->touch();
         $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
 
@@ -1480,7 +1480,19 @@ class LeadsController extends Controller
             return [];
         }
 
-        return $lead->labels
+        $labels = $lead->labels;
+
+        // Labels applied to this lead's attached conversations (e.g. via Front
+        // import) show here too, the same way /inbox already merges them —
+        // matching what /inbox shows for a lead's threads.
+        if ($lead->relationLoaded('inboxConversations')) {
+            $conversationLabels = $lead->inboxConversations
+                ->filter(fn (InboxConversation $c) => $c->relationLoaded('leadLabels'))
+                ->flatMap(fn (InboxConversation $c) => $c->leadLabels);
+            $labels = $labels->concat($conversationLabels)->unique('id');
+        }
+
+        return $labels
             ->filter(fn (LeadLabel $label) => $this->followUpDays->dayFromLabelName((string) $label->name) === null)
             ->map(fn (LeadLabel $label) => $this->serializeLabel($label))
             ->values()

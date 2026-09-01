@@ -60,6 +60,9 @@ class LeadReportService
                     })
                     ->orWhereHas('labels', function ($label) use ($search) {
                         $label->where('lead_labels.name', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('inboxConversations.leadLabels', function ($label) use ($search) {
+                        $label->where('lead_labels.name', 'like', "%{$search}%");
                     });
             });
         }
@@ -86,7 +89,10 @@ class LeadReportService
         }
 
         foreach ($filters['label_ids'] as $labelId) {
-            $query->whereHas('labels', fn ($label) => $label->where('lead_labels.id', $labelId));
+            $query->where(function ($q) use ($labelId) {
+                $q->whereHas('labels', fn ($label) => $label->where('lead_labels.id', $labelId))
+                    ->orWhereHas('inboxConversations.leadLabels', fn ($label) => $label->where('lead_labels.id', $labelId));
+            });
         }
 
         $assignedTo = trim((string) ($filters['assigned_to'] ?? ''));
@@ -275,9 +281,21 @@ class LeadReportService
             ->values()
             ->all();
 
+        // Combine labels attached to the lead directly with labels still sitting on
+        // one of the lead's conversations (e.g. imported before the conversation was
+        // formally linked) so the summary matches what /leads shows.
+        $labelPairs = DB::raw('(
+            select lead_id, lead_label_id from lead_lead_label
+            union
+            select ic.lead_id, icll.lead_label_id
+            from inbox_conversation_lead_label icll
+            inner join inbox_conversations ic on ic.id = icll.inbox_conversation_id
+            where ic.lead_id is not null
+        ) as label_pairs');
+
         $byLabel = (clone $base)
-            ->join('lead_lead_label', 'leads.id', '=', 'lead_lead_label.lead_id')
-            ->join('lead_labels', 'lead_labels.id', '=', 'lead_lead_label.lead_label_id')
+            ->join($labelPairs, 'leads.id', '=', 'label_pairs.lead_id')
+            ->join('lead_labels', 'lead_labels.id', '=', 'label_pairs.lead_label_id')
             ->where('lead_labels.company_id', $companyId)
             ->select([
                 'lead_labels.id',
@@ -313,7 +331,7 @@ class LeadReportService
             ->all();
 
         $previewLeads = (clone $base)
-            ->with(['identities', 'assignedUser:id,name', 'labels'])
+            ->with(['identities', 'assignedUser:id,name', 'labels', 'inboxConversations.leadLabels'])
             ->orderByDesc('updated_at')
             ->limit(max(1, min(100, $previewLimit)))
             ->get();
@@ -361,7 +379,7 @@ class LeadReportService
             ->pluck('name', 'id')
             ->all();
 
-        $with = ['identities', 'assignedUser:id,name', 'labels'];
+        $with = ['identities', 'assignedUser:id,name', 'labels', 'inboxConversations.leadLabels'];
         if ($type === 'leads' || $type === 'activities') {
             $with['activities'] = fn ($q) => $q->with('user:id,name')->reorder('created_at')->orderBy('id');
         }
@@ -487,6 +505,26 @@ class LeadReportService
     }
 
     /**
+     * Labels on the lead itself, plus any still sitting on one of its conversations
+     * (e.g. imported before the conversation was formally attached to this lead).
+     *
+     * @return Collection<int, LeadLabel>
+     */
+    protected function mergedLabels(Lead $lead): Collection
+    {
+        $labels = $lead->labels;
+
+        if ($lead->relationLoaded('inboxConversations')) {
+            $conversationLabels = $lead->inboxConversations
+                ->filter(fn ($c) => $c->relationLoaded('leadLabels'))
+                ->flatMap(fn ($c) => $c->leadLabels);
+            $labels = $labels->concat($conversationLabels)->unique('id');
+        }
+
+        return $labels;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     protected function previewRow(Lead $lead): array
@@ -503,7 +541,7 @@ class LeadReportService
                 'id' => $lead->assignedUser->id,
                 'name' => $lead->assignedUser->name,
             ] : null,
-            'labels' => $lead->labels->map(fn (LeadLabel $label) => [
+            'labels' => $this->mergedLabels($lead)->map(fn (LeadLabel $label) => [
                 'id' => $label->id,
                 'name' => $label->name,
                 'color' => $label->color,
@@ -539,7 +577,7 @@ class LeadReportService
             ->filter()
             ->values()
             ->implode(', ');
-        $labels = $lead->labels->pluck('name')->filter()->values()->implode(', ');
+        $labels = $this->mergedLabels($lead)->pluck('name')->filter()->values()->implode(', ');
         $notes = $lead->leadNotes
             ->map(function ($note) {
                 $who = $note->user?->name ?: 'System';
