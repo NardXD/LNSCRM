@@ -86,4 +86,9 @@ return [
         'tenant' => env('MICROSOFT_TENANT_ID', 'common'),
     ],
 
+    'front' => [
+        'api_token' => env('FRONT_API_TOKEN'),
+        'base_url' => env('FRONT_API_URL', 'https://api2.frontapp.com'),
+    ],
+
 ];

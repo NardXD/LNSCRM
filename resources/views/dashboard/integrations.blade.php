@@ -213,6 +213,81 @@
         background: #eef6ff;
     }
 
+    .integration-icon-wrapper.front {
+        background: #fff4eb;
+    }
+
+    .front-import-panel {
+        margin-top: 1.25rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--border);
+    }
+
+    .front-import-results {
+        margin-top: 1rem;
+        background: var(--bg-primary);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.875rem 1rem;
+        font-size: 0.8125rem;
+    }
+
+    .front-import-results h4 {
+        margin: 0 0 0.75rem;
+        font-size: 0.875rem;
+        font-weight: 600;
+    }
+
+    .front-import-results dl {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 0.35rem 1rem;
+        margin: 0;
+    }
+
+    .front-import-results dt {
+        color: var(--text-secondary);
+    }
+
+    .front-import-results dd {
+        margin: 0;
+        font-weight: 600;
+        text-align: right;
+    }
+
+    .front-import-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 1rem;
+    }
+
+    .front-mapping-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8125rem;
+        margin-top: 0.75rem;
+    }
+
+    .front-mapping-table th,
+    .front-mapping-table td {
+        padding: 0.5rem 0.35rem;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: middle;
+    }
+
+    .front-mapping-table th {
+        color: var(--text-secondary);
+        font-weight: 600;
+    }
+
+    .front-unmatched-list {
+        margin: 0.75rem 0 0;
+        padding-left: 1.1rem;
+        color: var(--text-secondary);
+    }
+
     .integration-status {
         padding: 0.25rem 0.75rem;
         border-radius: 100px;
@@ -713,6 +788,15 @@
             icon: '🏢',
             status: 'disconnected',
             features: ['Unit rental sync', 'Site management', 'Admin API access', 'Webhook notifications']
+        },
+        {
+            id: 'front',
+            name: 'Front.com',
+            description: 'One-time import of Front conversation tags into LNSCRM shared inboxes. Connect your Front API token, map inboxes, and run the import.',
+            category: 'communication',
+            icon: '🏷️',
+            status: 'disconnected',
+            features: ['Import inbox tags', 'Inbox mapping', 'Dry-run preview', 'Import history']
         }
     ];
 
@@ -915,6 +999,26 @@
             }
             return null;
         }
+        if (integrationId === 'front') {
+            try {
+                const response = await fetch('/api/integrations/front');
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (data.integration) {
+                    const integration = integrationsData.find(i => i.id === 'front');
+                    if (integration) {
+                        integration.status = data.status || (data.integration.is_active ? 'connected' : 'disconnected');
+                    }
+                    return {
+                        ...data.integration,
+                        status: data.status ?? 'disconnected',
+                    };
+                }
+            } catch (error) {
+                console.error('Error loading Front integration:', error);
+            }
+            return null;
+        }
         if (integrationId === 'stripe') {
             try {
                 const response = await fetch('/api/integrations/stripe');
@@ -973,7 +1077,7 @@
 
         // Load existing integration data
         let existingIntegration = null;
-        if (integrationId === 'gmail' || integrationId === 'twilio' || integrationId === 'viber' || integrationId === 'whatsapp' || integrationId === 'facebook' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'storeganise' || integrationId === 'calendar' || integrationId === 'outlook') {
+        if (integrationId === 'gmail' || integrationId === 'twilio' || integrationId === 'viber' || integrationId === 'whatsapp' || integrationId === 'facebook' || integrationId === 'wise' || integrationId === 'stripe' || integrationId === 'openai' || integrationId === 'storeganise' || integrationId === 'front' || integrationId === 'calendar' || integrationId === 'outlook') {
             existingIntegration = await loadIntegrationStatus(integrationId);
         }
 
@@ -1114,6 +1218,19 @@
                 d.onclick = () => { if (confirm('Disconnect Storeganise?')) handleStoreganiseDisconnect(); };
                 footer.insertBefore(d, actionBtn);
             }
+        } else if (integration.status === 'connected' && integrationId === 'front') {
+            actionBtn.textContent = 'Save token';
+            actionBtn.className = 'btn-primary';
+            actionBtn.onclick = () => handleFrontSave(false);
+            const disconnectBtn = footer?.querySelector('.front-disconnect-btn');
+            if (disconnectBtn) disconnectBtn.style.display = '';
+            if (footer && !footer.querySelector('.front-disconnect-btn')) {
+                const d = document.createElement('button');
+                d.className = 'btn-secondary btn-danger front-disconnect-btn';
+                d.textContent = 'Disconnect';
+                d.onclick = () => { if (confirm('Disconnect Front?')) handleFrontDisconnect(); };
+                footer.insertBefore(d, actionBtn);
+            }
         } else if (integration.status === 'connected' && integrationId === 'twilio') {
             actionBtn.textContent = 'Save';
             actionBtn.className = 'btn-primary';
@@ -1144,22 +1261,22 @@
             actionBtn.textContent = 'Save settings';
             actionBtn.className = 'btn-primary';
             actionBtn.onclick = () => handleCalendarOauthSave('google');
-            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .storeganise-disconnect-btn, .twilio-disconnect-btn, .facebook-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
+            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .storeganise-disconnect-btn, .front-disconnect-btn, .twilio-disconnect-btn, .facebook-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
         } else if (integrationId === 'outlook') {
             actionBtn.textContent = 'Save settings';
             actionBtn.className = 'btn-primary';
             actionBtn.onclick = () => handleCalendarOauthSave('outlook');
-            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .storeganise-disconnect-btn, .twilio-disconnect-btn, .facebook-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
+            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .storeganise-disconnect-btn, .front-disconnect-btn, .twilio-disconnect-btn, .facebook-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
         } else {
-            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .storeganise-disconnect-btn, .twilio-disconnect-btn, .facebook-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
+            footer?.querySelectorAll('.wise-disconnect-btn, .gmail-disconnect-btn, .stripe-disconnect-btn, .openai-disconnect-btn, .storeganise-disconnect-btn, .front-disconnect-btn, .twilio-disconnect-btn, .facebook-disconnect-btn').forEach(d => { if (d) d.style.display = 'none'; });
         }
         if (integrationId === 'calendar' || integrationId === 'outlook') {
             // Handled above - Save settings button
-        } else if (integration.status === 'connected' && integrationId !== 'wise' && integrationId !== 'gmail' && integrationId !== 'stripe' && integrationId !== 'openai' && integrationId !== 'storeganise' && integrationId !== 'twilio' && integrationId !== 'facebook') {
+        } else if (integration.status === 'connected' && integrationId !== 'wise' && integrationId !== 'gmail' && integrationId !== 'stripe' && integrationId !== 'openai' && integrationId !== 'storeganise' && integrationId !== 'front' && integrationId !== 'twilio' && integrationId !== 'facebook') {
             actionBtn.textContent = 'Disconnect';
             actionBtn.className = 'btn-primary btn-danger';
             actionBtn.onclick = () => handleIntegrationAction();
-        } else if (integration.status !== 'connected' || (integrationId !== 'wise' && integrationId !== 'stripe' && integrationId !== 'openai' && integrationId !== 'storeganise' && integrationId !== 'twilio' && integrationId !== 'facebook')) {
+        } else if (integration.status !== 'connected' || (integrationId !== 'wise' && integrationId !== 'stripe' && integrationId !== 'openai' && integrationId !== 'storeganise' && integrationId !== 'front' && integrationId !== 'twilio' && integrationId !== 'facebook')) {
             actionBtn.textContent = 'Connect';
             actionBtn.className = 'btn-primary';
             actionBtn.onclick = () => handleIntegrationAction();
@@ -1179,6 +1296,10 @@
         // Show modal
         document.getElementById('integrationModal').classList.add('active');
         document.body.style.overflow = 'hidden';
+
+        if (integrationId === 'front' && integration.status === 'connected') {
+            loadFrontImportPanel(existingIntegration);
+        }
     }
 
     function getIntegrationConfig(integrationId, existingData = null) {
@@ -1296,6 +1417,29 @@
                     <span class="form-help">Add this URL in Storeganise Developer settings to receive move-in, move-out, and rental events.</span>
                 </div>
                 ` : ''}
+            `,
+            'front': `
+                <div class="form-group">
+                    <label class="form-label">Front API token</label>
+                    <input type="password" class="form-input" id="front-api-token" placeholder="${existingData && existingData.api_token ? 'Leave blank to keep current token' : 'Paste bearer token'}">
+                    <span class="form-help">Create a token in Front → Settings → Developers with scopes <code>tags:read</code>, <code>inboxes:read</code>, and <code>conversations:read</code>.</span>
+                </div>
+                <div id="front-import-panel" class="front-import-panel" ${existingData && existingData.api_token ? '' : 'hidden'}>
+                    <h4 style="font-size:0.9375rem;font-weight:600;margin:0 0 0.5rem;">Import inbox tags</h4>
+                    <p class="form-help" style="margin-bottom:0.75rem;">Sync mail into LNSCRM first (<strong>Inbox → Sync</strong> or <code>php artisan inbox:sync-mail --full</code>), then run the import below.</p>
+                    <div id="front-mapping-wrap">
+                        <span class="form-help">Loading inbox mapping…</span>
+                    </div>
+                    <label style="display:flex;align-items:center;gap:0.5rem;margin-top:0.75rem;font-size:0.8125rem;">
+                        <input type="checkbox" id="front-include-private">
+                        Include private Front tags
+                    </label>
+                    <div class="front-import-actions">
+                        <button type="button" class="btn-secondary" id="front-dry-run-btn" onclick="handleFrontImport(true)">Preview (dry run)</button>
+                        <button type="button" class="btn-primary" id="front-import-btn" onclick="handleFrontImport(false)">Run import</button>
+                    </div>
+                    <div id="front-import-results"></div>
+                </div>
             `,
             'calendar': `
                 <p class="form-help" style="margin-bottom: 1rem;">Configure Google Calendar OAuth so users can connect their calendars. Add credentials and copy the redirect URL when creating the OAuth app.</p>
@@ -2095,6 +2239,237 @@
         }
     }
 
+    function renderFrontImportResults(stats, dryRun = false, lastImportAt = null) {
+        const wrap = document.getElementById('front-import-results');
+        if (!wrap || !stats) return;
+
+        const samples = Array.isArray(stats.unmatched_samples) ? stats.unmatched_samples : [];
+        const when = lastImportAt ? new Date(lastImportAt).toLocaleString() : new Date().toLocaleString();
+
+        wrap.innerHTML = `
+            <div class="front-import-results">
+                <h4>${dryRun ? 'Preview results' : 'Import results'} <span style="font-weight:400;color:var(--text-secondary);">· ${when}</span></h4>
+                <dl>
+                    <dt>Mapped inboxes</dt><dd>${stats.mapped_inboxes ?? 0}</dd>
+                    <dt>Front conversations with tags</dt><dd>${stats.front_conversations_with_tags ?? 0}</dd>
+                    <dt>Matched conversations</dt><dd>${stats.conversations_matched ?? 0}</dd>
+                    <dt>Unmatched conversations</dt><dd>${stats.conversations_unmatched ?? 0}</dd>
+                    <dt>Tags created</dt><dd>${stats.tags_created ?? 0}</dd>
+                    <dt>Existing tags reused</dt><dd>${stats.tags_existing ?? 0}</dd>
+                    <dt>Tag links ${dryRun ? 'would apply' : 'applied'}</dt><dd>${stats.tags_applied ?? 0}</dd>
+                </dl>
+                ${samples.length ? `<ul class="front-unmatched-list">${samples.map(s => `<li>${escapeHtml(String(s))}</li>`).join('')}</ul>` : ''}
+            </div>
+        `;
+    }
+
+    function escapeHtml(value) {
+        return value
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function collectFrontInboxMap() {
+        const map = {};
+        document.querySelectorAll('[data-front-inbox-id]').forEach(select => {
+            const frontId = select.getAttribute('data-front-inbox-id');
+            const sharedId = parseInt(select.value, 10);
+            if (frontId && sharedId > 0) {
+                map[frontId] = sharedId;
+            }
+        });
+        return map;
+    }
+
+    async function loadFrontImportPanel(existingIntegration = null) {
+        const panel = document.getElementById('front-import-panel');
+        const mappingWrap = document.getElementById('front-mapping-wrap');
+        if (!panel || !mappingWrap) return;
+
+        panel.hidden = false;
+
+        if (existingIntegration?.last_import_stats) {
+            renderFrontImportResults(
+                existingIntegration.last_import_stats,
+                !!existingIntegration.last_import_dry_run,
+                existingIntegration.last_import_at || null
+            );
+        }
+
+        try {
+            const response = await fetch('/api/integrations/front/mapping');
+            const data = await response.json();
+            if (!response.ok) {
+                mappingWrap.innerHTML = `<span class="form-help" style="color:#ef4444;">${escapeHtml(data.error || 'Could not load inbox mapping.')}</span>`;
+                return;
+            }
+
+            const sharedOptions = (data.shared_inboxes || []).map(inbox => {
+                const label = inbox.email ? `${inbox.name} (${inbox.email})` : inbox.name;
+                return `<option value="${inbox.id}">${escapeHtml(label)}</option>`;
+            }).join('');
+
+            const rows = (data.rows || []).map(row => `
+                <tr>
+                    <td>${escapeHtml(row.front_name || row.front_id)}</td>
+                    <td>
+                        <select class="form-input" data-front-inbox-id="${escapeHtml(row.front_id)}" style="min-width:220px;">
+                            <option value="">— Skip —</option>
+                            ${sharedOptions}
+                        </select>
+                    </td>
+                </tr>
+            `).join('');
+
+            mappingWrap.innerHTML = rows ? `
+                <label class="form-label">Map Front inboxes to LNSCRM shared inboxes</label>
+                <table class="front-mapping-table">
+                    <thead><tr><th>Front inbox</th><th>LNSCRM shared inbox</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            ` : '<span class="form-help">No Front inboxes found.</span>';
+
+            (data.rows || []).forEach(row => {
+                const select = mappingWrap.querySelector(`[data-front-inbox-id="${row.front_id}"]`);
+                if (select && row.shared_inbox_id) {
+                    select.value = String(row.shared_inbox_id);
+                }
+            });
+        } catch (error) {
+            console.error('Error loading Front mapping:', error);
+            mappingWrap.innerHTML = '<span class="form-help" style="color:#ef4444;">Could not load inbox mapping.</span>';
+        }
+    }
+
+    async function handleFrontSave(closeOnSuccess = true) {
+        const apiToken = document.getElementById('front-api-token')?.value?.trim() || '';
+        const hasExisting = window.existingIntegration && window.existingIntegration.api_token;
+
+        if (!apiToken && !hasExisting) {
+            alert('Please enter your Front API token.');
+            return false;
+        }
+
+        try {
+            const response = await fetch('/api/integrations/front', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                },
+                body: JSON.stringify({ api_token: apiToken || null })
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                alert(data.error || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Error saving Front token.'));
+                return false;
+            }
+
+            currentIntegration.status = 'connected';
+            window.existingIntegration = {
+                ...(window.existingIntegration || {}),
+                api_token: '***hidden***',
+                is_active: true,
+                status: 'connected',
+            };
+
+            if (closeOnSuccess) {
+                alert('Front token saved. Re-open this card to run the tag import.');
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            } else {
+                const tokenInput = document.getElementById('front-api-token');
+                if (tokenInput) tokenInput.value = '';
+                await loadFrontImportPanel(window.existingIntegration);
+            }
+
+            return true;
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error saving Front integration. Please try again.');
+            return false;
+        }
+    }
+
+    async function handleFrontDisconnect() {
+        try {
+            const response = await fetch('/api/integrations/front', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                }
+            });
+            if (response.ok) {
+                currentIntegration.status = 'disconnected';
+                alert('Front has been disconnected.');
+                closeIntegrationModal();
+                renderIntegrations(currentCategory);
+            } else {
+                alert('Error disconnecting Front.');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error disconnecting Front.');
+        }
+    }
+
+    async function handleFrontImport(dryRun = false) {
+        const hasExisting = window.existingIntegration && window.existingIntegration.api_token;
+        const apiToken = document.getElementById('front-api-token')?.value?.trim() || '';
+
+        if (!hasExisting && !apiToken) {
+            alert('Save your Front API token first.');
+            return;
+        }
+
+        if (apiToken) {
+            const saved = await handleFrontSave(false);
+            if (!saved) return;
+        }
+
+        const dryRunBtn = document.getElementById('front-dry-run-btn');
+        const importBtn = document.getElementById('front-import-btn');
+        [dryRunBtn, importBtn].forEach(btn => { if (btn) btn.disabled = true; });
+
+        try {
+            const response = await fetch('/api/integrations/front/import-tags', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                },
+                body: JSON.stringify({
+                    dry_run: dryRun,
+                    include_private: !!document.getElementById('front-include-private')?.checked,
+                    inbox_map: collectFrontInboxMap(),
+                })
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                alert(data.error || 'Front tag import failed.');
+                return;
+            }
+
+            renderFrontImportResults(data.stats, dryRun, data.last_import_at || null);
+            window.existingIntegration = {
+                ...(window.existingIntegration || {}),
+                last_import_stats: data.stats,
+                last_import_dry_run: dryRun,
+                last_import_at: data.last_import_at || null,
+            };
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Front tag import failed. Please try again.');
+        } finally {
+            [dryRunBtn, importBtn].forEach(btn => { if (btn) btn.disabled = false; });
+        }
+    }
+
     async function handleCalendarOauthSave(provider = 'google') {
         const payload = provider === 'outlook'
             ? {
@@ -2299,6 +2674,8 @@
                 handleOpenAiSave();
             } else if (currentIntegration.id === 'storeganise') {
                 handleStoreganiseSave();
+            } else if (currentIntegration.id === 'front') {
+                handleFrontSave(false);
             } else if (currentIntegration.id === 'wise') {
                 const apiToken = document.getElementById('wise-api-token')?.value || '';
                 const profileId = document.getElementById('wise-profile-id')?.value || '';
@@ -2706,6 +3083,21 @@
                 }
             } catch (error) {
                 console.error('Error loading Storeganise integration on init:', error);
+            }
+        }
+        // Load Front integration
+        const frontIntegration = integrationsData.find(i => i.id === 'front');
+        if (frontIntegration) {
+            try {
+                const response = await fetch('/api/integrations/front');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.integration && data.status === 'connected') {
+                        frontIntegration.status = 'connected';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading Front integration on init:', error);
             }
         }
         // Load Google Calendar + Outlook OAuth status

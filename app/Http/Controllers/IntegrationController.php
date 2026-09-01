@@ -13,9 +13,12 @@ use App\Models\TwilioIntegration;
 use App\Models\User;
 use App\Models\ViberIntegration;
 use App\Models\FacebookIntegration;
+use App\Models\FrontIntegration;
 use App\Models\WhatsAppIntegration;
 use App\Models\WiseIntegration;
 use App\Services\FacebookGraphMessagingService;
+use App\Services\Front\FrontApiClient;
+use App\Services\Front\FrontTagImportService;
 use App\Services\OutlookMailService;
 use App\Services\StoreganiseService;
 use App\Services\TwilioCompanyService;
@@ -1652,6 +1655,164 @@ class IntegrationController extends Controller
         }
 
         return response()->json(['sites' => $sites]);
+    }
+
+    public function getFrontIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $integration = FrontIntegration::query()->where('company_id', $company->id)->first();
+        if (! $integration) {
+            return response()->json(['integration' => null, 'status' => 'disconnected']);
+        }
+
+        return response()->json([
+            'integration' => [
+                'id' => $integration->id,
+                'api_token' => $integration->api_token ? '***hidden***' : null,
+                'is_active' => $integration->is_active,
+                'last_import_at' => $integration->last_import_at?->toIso8601String(),
+                'last_import_dry_run' => $integration->last_import_dry_run,
+                'last_import_stats' => $integration->last_import_stats,
+            ],
+            'status' => $integration->isConnected() ? 'connected' : 'disconnected',
+        ]);
+    }
+
+    public function storeFrontIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $existing = FrontIntegration::query()->where('company_id', $company->id)->first();
+        $apiToken = trim((string) $request->input('api_token', ''));
+
+        $validator = Validator::make($request->all(), [
+            'api_token' => [($existing && $apiToken === '') ? 'nullable' : 'required', 'string', 'min:8'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $data = ['is_active' => true];
+        if ($apiToken !== '') {
+            $data['api_token'] = Crypt::encryptString($apiToken);
+        } elseif ($existing) {
+            $data['api_token'] = $existing->api_token;
+        } else {
+            return response()->json(['errors' => ['api_token' => ['API token is required for new integrations.']]], 422);
+        }
+
+        $integration = FrontIntegration::query()->updateOrCreate(
+            ['company_id' => $company->id],
+            $data
+        );
+
+        return response()->json([
+            'message' => 'Front integration saved successfully',
+            'integration' => [
+                'id' => $integration->id,
+                'is_active' => $integration->is_active,
+            ],
+            'status' => $integration->isConnected() ? 'connected' : 'disconnected',
+        ]);
+    }
+
+    public function deleteFrontIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        FrontIntegration::query()->where('company_id', $company->id)->delete();
+
+        return response()->json(['message' => 'Front integration deleted successfully']);
+    }
+
+    public function getFrontMappingOptions(Request $request, FrontTagImportService $importService): JsonResponse
+    {
+        $company = $this->getCompany($request);
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $integration = FrontIntegration::query()->where('company_id', $company->id)->first();
+        if (! $integration?->isConnected()) {
+            return response()->json(['error' => 'Front is not connected.'], 400);
+        }
+
+        try {
+            $client = new FrontApiClient($integration->getDecryptedApiToken());
+            $preview = $importService->mappingPreview($company, $client);
+        } catch (\Throwable $e) {
+            return response()->json(['error' => $e->getMessage()], 422);
+        }
+
+        return response()->json($preview);
+    }
+
+    public function runFrontTagImport(Request $request, FrontTagImportService $importService): JsonResponse
+    {
+        @set_time_limit(0);
+
+        $company = $this->getCompany($request);
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $integration = FrontIntegration::query()->where('company_id', $company->id)->first();
+        if (! $integration?->isConnected()) {
+            return response()->json(['error' => 'Front is not connected. Save your API token first.'], 400);
+        }
+
+        $validated = $request->validate([
+            'dry_run' => ['sometimes', 'boolean'],
+            'include_private' => ['sometimes', 'boolean'],
+            'inbox_map' => ['sometimes', 'array'],
+            'shared_inbox_id' => ['nullable', 'integer'],
+        ]);
+
+        $options = [
+            'dry_run' => (bool) ($validated['dry_run'] ?? false),
+            'include_private' => (bool) ($validated['include_private'] ?? false),
+            'inbox_map' => $validated['inbox_map'] ?? [],
+            'shared_inbox_id' => isset($validated['shared_inbox_id']) ? (int) $validated['shared_inbox_id'] : null,
+        ];
+
+        try {
+            $client = new FrontApiClient($integration->getDecryptedApiToken());
+            $stats = $importService->importFromApi($company, $client, $options);
+        } catch (\Throwable $e) {
+            return response()->json(['error' => $e->getMessage()], 422);
+        }
+
+        if (! $options['dry_run']) {
+            $integration->forceFill([
+                'last_import_stats' => $stats,
+                'last_import_at' => now(),
+                'last_import_dry_run' => false,
+            ])->save();
+        } else {
+            $integration->forceFill([
+                'last_import_stats' => $stats,
+                'last_import_at' => now(),
+                'last_import_dry_run' => true,
+            ])->save();
+        }
+
+        return response()->json([
+            'message' => $options['dry_run'] ? 'Dry run completed.' : 'Front tag import completed.',
+            'dry_run' => $options['dry_run'],
+            'stats' => $stats,
+            'last_import_at' => $integration->last_import_at?->toIso8601String(),
+        ]);
     }
 
     /**

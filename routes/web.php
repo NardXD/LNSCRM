@@ -809,6 +809,11 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/storeganise/sites', [IntegrationController::class, 'getStoreganiseSites'])->name('api.integrations.storeganise.sites');
         Route::post('/storeganise', [IntegrationController::class, 'storeStoreganiseIntegration'])->name('api.integrations.storeganise.store');
         Route::delete('/storeganise', [IntegrationController::class, 'deleteStoreganiseIntegration'])->name('api.integrations.storeganise.delete');
+        Route::get('/front', [IntegrationController::class, 'getFrontIntegration'])->name('api.integrations.front.get');
+        Route::post('/front', [IntegrationController::class, 'storeFrontIntegration'])->name('api.integrations.front.store');
+        Route::delete('/front', [IntegrationController::class, 'deleteFrontIntegration'])->name('api.integrations.front.delete');
+        Route::get('/front/mapping', [IntegrationController::class, 'getFrontMappingOptions'])->name('api.integrations.front.mapping');
+        Route::post('/front/import-tags', [IntegrationController::class, 'runFrontTagImport'])->name('api.integrations.front.import-tags');
     });
 
     Route::get('/billing-plan', function () {
