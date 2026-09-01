@@ -69,6 +69,8 @@ class FrontTagImportUiTest extends TestCase
             ->postJson('/api/integrations/front/import-tags', [
                 'dry_run' => false,
                 'inbox_map' => ['inb_1' => $sharedInbox->id],
+                'front_inbox_id' => 'inb_1',
+                'shared_inbox_id' => $sharedInbox->id,
             ])
             ->assertOk()
             ->assertJsonPath('stats.conversations_matched', 1)
@@ -185,6 +187,70 @@ class FrontTagImportUiTest extends TestCase
             ->postJson('/api/integrations/front/import-tags', ['dry_run' => true])
             ->assertOk()
             ->assertJsonPath('stats.import_mode', 'tags')
+            ->assertJsonPath('stats.conversations_matched', 1);
+    }
+
+    public function test_paged_inbox_import_follows_front_pagination(): void
+    {
+        [$user, $company, $sharedInbox] = $this->userWithIntegrationsPermission();
+        $this->seedConversation($company, $sharedInbox, 'Page one', 'one@example.com');
+        $this->seedConversation($company, $sharedInbox, 'Page two', 'two@example.com');
+
+        FrontIntegration::query()->create([
+            'company_id' => $company->id,
+            'api_token' => Crypt::encryptString('front-secret-token'),
+            'is_active' => true,
+        ]);
+
+        Http::fake([
+            'https://api2.frontapp.com/inboxes/inb_1/conversations*' => Http::sequence()
+                ->push([
+                    '_results' => [
+                        [
+                            'subject' => 'Page one',
+                            'recipient' => ['handle' => 'one@example.com'],
+                            'tags' => [['name' => 'Hot', 'highlight' => 'red', 'is_private' => false]],
+                        ],
+                    ],
+                    '_pagination' => ['next' => 'https://api2.frontapp.com/inboxes/inb_1/conversations?page=2'],
+                ])
+                ->push([
+                    '_results' => [
+                        [
+                            'subject' => 'Page two',
+                            'recipient' => ['handle' => 'two@example.com'],
+                            'tags' => [['name' => 'Warm', 'highlight' => 'orange', 'is_private' => false]],
+                        ],
+                    ],
+                ]),
+        ]);
+
+        $first = $this->actingAs($user)
+            ->postJson('/api/integrations/front/import-tags', [
+                'dry_run' => true,
+                'front_inbox_id' => 'inb_1',
+                'shared_inbox_id' => $sharedInbox->id,
+                'inbox_map' => ['inb_1' => $sharedInbox->id],
+                'persist_results' => false,
+            ])
+            ->assertOk()
+            ->assertJsonPath('has_more', true)
+            ->assertJsonPath('stats.conversations_matched', 1);
+
+        $nextUrl = $first->json('next_page_url');
+        $this->assertNotEmpty($nextUrl);
+
+        $this->actingAs($user)
+            ->postJson('/api/integrations/front/import-tags', [
+                'dry_run' => true,
+                'front_inbox_id' => 'inb_1',
+                'shared_inbox_id' => $sharedInbox->id,
+                'inbox_map' => ['inb_1' => $sharedInbox->id],
+                'page_url' => $nextUrl,
+                'persist_results' => false,
+            ])
+            ->assertOk()
+            ->assertJsonPath('has_more', false)
             ->assertJsonPath('stats.conversations_matched', 1);
     }
 

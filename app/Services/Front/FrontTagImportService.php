@@ -27,6 +27,14 @@ class FrontTagImportService
     ];
 
     /**
+     * @var array<int, array{
+     *     by_external: array<string, InboxConversation>,
+     *     by_email_subject: array<string, list<InboxConversation>>
+     * }>
+     */
+    private array $conversationLookupCache = [];
+
+    /**
      * @param  array{
      *     dry_run?: bool,
      *     include_private?: bool,
@@ -124,6 +132,59 @@ class FrontTagImportService
         }
 
         return $stats;
+    }
+
+    /**
+     * Import one page of conversations from a mapped Front inbox (for UI batching).
+     *
+     * @param  array{
+     *     dry_run?: bool,
+     *     include_private?: bool,
+     *     statuses?: list<string>,
+     * }  $options
+     * @return array<string, mixed>
+     */
+    public function importInboxPageBatch(
+        Company $company,
+        FrontApiClient $client,
+        string $frontInboxId,
+        int $sharedInboxId,
+        array $options = [],
+        ?string $pageUrl = null,
+    ): array {
+        $sharedInboxes = $this->loadSharedInboxes($company, $sharedInboxId);
+        $sharedInbox = $sharedInboxes->first();
+        if (! $sharedInbox) {
+            throw new RuntimeException("Shared inbox {$sharedInboxId} not found.");
+        }
+
+        if (! isset($this->conversationLookupCache[$sharedInbox->id])) {
+            $this->warmConversationLookup($sharedInbox);
+        }
+
+        $statuses = $options['statuses'] ?? ['archived', 'assigned', 'unassigned'];
+        $page = $client->fetchInboxConversationPage($frontInboxId, $pageUrl, $statuses, 20);
+
+        $stats = $this->emptyStats();
+        $stats['mapped_inboxes'] = 1;
+        $stats['import_mode'] = 'inboxes';
+        $stats['page_conversations'] = count($page['results']);
+
+        foreach ($page['results'] as $frontConversation) {
+            $this->importConversationTags(
+                $company,
+                $sharedInbox,
+                $frontConversation,
+                $options,
+                $stats
+            );
+        }
+
+        return array_merge($stats, [
+            'has_more' => $page['next_page_url'] !== null,
+            'next_page_url' => $page['next_page_url'],
+            'front_inbox_id' => $frontInboxId,
+        ]);
     }
 
     /**
@@ -418,6 +479,10 @@ class FrontTagImportService
      */
     public function matchConversation(SharedInbox $sharedInbox, array $frontConversation): ?InboxConversation
     {
+        if (isset($this->conversationLookupCache[$sharedInbox->id])) {
+            return $this->matchConversationFromCache($sharedInbox->id, $frontConversation);
+        }
+
         $externalIds = collect($frontConversation['metadata']['external_conversation_ids'] ?? [])
             ->filter(fn ($id) => is_string($id) && trim($id) !== '')
             ->values()
@@ -482,6 +547,114 @@ class FrontTagImportService
         }
 
         return null;
+    }
+
+    private function warmConversationLookup(SharedInbox $sharedInbox): void
+    {
+        $conversations = InboxConversation::query()
+            ->where('company_id', $sharedInbox->company_id)
+            ->where('shared_inbox_id', $sharedInbox->id)
+            ->whereNull('merged_into_id')
+            ->orderByDesc('last_message_at')
+            ->get(['id', 'external_conversation_id', 'from_email', 'subject', 'last_message_at']);
+
+        $byExternal = [];
+        $byEmailSubject = [];
+
+        foreach ($conversations as $conversation) {
+            $externalId = trim((string) $conversation->external_conversation_id);
+            if ($externalId !== '' && ! isset($byExternal[$externalId])) {
+                $byExternal[$externalId] = $conversation;
+            }
+
+            $email = strtolower(trim((string) $conversation->from_email));
+            $subject = $this->normalizeSubject((string) $conversation->subject);
+            if ($email === '' && $subject === '') {
+                continue;
+            }
+
+            $key = $email.'|'.$subject;
+            if (! isset($byEmailSubject[$key])) {
+                $byEmailSubject[$key] = [];
+            }
+            $byEmailSubject[$key][] = $conversation;
+        }
+
+        $this->conversationLookupCache[$sharedInbox->id] = [
+            'by_external' => $byExternal,
+            'by_email_subject' => $byEmailSubject,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $frontConversation
+     */
+    private function matchConversationFromCache(int $sharedInboxId, array $frontConversation): ?InboxConversation
+    {
+        $cache = $this->conversationLookupCache[$sharedInboxId];
+
+        foreach ($frontConversation['metadata']['external_conversation_ids'] ?? [] as $externalId) {
+            if (! is_string($externalId)) {
+                continue;
+            }
+            $externalId = trim($externalId);
+            if ($externalId !== '' && isset($cache['by_external'][$externalId])) {
+                return $cache['by_external'][$externalId];
+            }
+        }
+
+        $recipient = strtolower(trim((string) ($frontConversation['recipient']['handle'] ?? '')));
+        $subject = $this->normalizeSubject((string) ($frontConversation['subject'] ?? ''));
+
+        $candidates = $this->lookupCachedCandidates($cache['by_email_subject'], $recipient, $subject);
+        if ($candidates === []) {
+            return null;
+        }
+
+        if (count($candidates) === 1) {
+            return $candidates[0];
+        }
+
+        $updatedAt = $this->frontTimestamp($frontConversation['updated_at'] ?? null);
+        if ($updatedAt) {
+            usort($candidates, fn (InboxConversation $a, InboxConversation $b) => abs(
+                ($a->last_message_at?->getTimestamp() ?? 0) - $updatedAt->getTimestamp()
+            ) <=> abs(
+                ($b->last_message_at?->getTimestamp() ?? 0) - $updatedAt->getTimestamp()
+            ));
+
+            return $candidates[0];
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, list<InboxConversation>>  $byEmailSubject
+     * @return list<InboxConversation>
+     */
+    private function lookupCachedCandidates(array $byEmailSubject, string $recipient, string $subject): array
+    {
+        $keys = [];
+        if ($recipient !== '' && $subject !== '') {
+            $keys[] = $recipient.'|'.$subject;
+        }
+        if ($recipient !== '' && $subject === '') {
+            foreach (array_keys($byEmailSubject) as $key) {
+                if (str_starts_with($key, $recipient.'|')) {
+                    $keys[] = $key;
+                }
+            }
+        }
+
+        $candidates = [];
+        foreach ($keys as $key) {
+            foreach ($byEmailSubject[$key] ?? [] as $conversation) {
+                $candidates[] = $conversation;
+            }
+        }
+
+        return $candidates;
     }
 
     public function mapHighlightColor(?string $highlight): string

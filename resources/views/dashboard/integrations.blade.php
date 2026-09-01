@@ -2440,7 +2440,21 @@
         return data;
     }
 
-    async function runFrontImportRequest(dryRun, inboxMap, frontInboxId, persistResults = true) {
+    async function runFrontImportRequest(dryRun, inboxMap, frontInboxId, persistResults = true, pageUrl = null, resultStats = null) {
+        const payload = {
+            dry_run: dryRun,
+            include_private: !!document.getElementById('front-include-private')?.checked,
+            inbox_map: inboxMap,
+            front_inbox_id: frontInboxId || null,
+            persist_results: persistResults,
+        };
+        if (pageUrl) {
+            payload.page_url = pageUrl;
+        }
+        if (resultStats) {
+            payload.result_stats = resultStats;
+        }
+
         const response = await fetch('/api/integrations/front/import-tags', {
             method: 'POST',
             headers: {
@@ -2449,16 +2463,35 @@
                 'X-Requested-With': 'XMLHttpRequest',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
             },
-            body: JSON.stringify({
-                dry_run: dryRun,
-                include_private: !!document.getElementById('front-include-private')?.checked,
-                inbox_map: inboxMap,
-                front_inbox_id: frontInboxId || null,
-                persist_results: persistResults,
-            })
+            body: JSON.stringify(payload)
         });
 
         return parseFrontImportResponse(response);
+    }
+
+    async function runFrontInboxImportPaged(dryRun, entry, actionLabel) {
+        let pageUrl = null;
+        let page = 0;
+        const partial = emptyFrontImportStats();
+
+        do {
+            page += 1;
+            setFrontImportLoading(
+                true,
+                `${actionLabel} ${entry.frontName} – page ${page}…`
+            );
+            const data = await runFrontImportRequest(
+                dryRun,
+                { [entry.frontId]: entry.sharedId },
+                entry.frontId,
+                false,
+                pageUrl
+            );
+            mergeFrontImportStats(partial, data.stats || {});
+            pageUrl = data.has_more && data.next_page_url ? data.next_page_url : null;
+        } while (pageUrl);
+
+        return partial;
     }
 
     async function loadFrontImportPanel(existingIntegration = null) {
@@ -2674,14 +2707,11 @@
                         true,
                         `${actionLabel} ${entry.frontName} (${index + 1} of ${entries.length})…`
                     );
-                    const data = await runFrontImportRequest(
-                        dryRun,
-                        { [entry.frontId]: entry.sharedId },
-                        entry.frontId,
-                        index === entries.length - 1
-                    );
-                    mergeFrontImportStats(aggregated, data.stats || {});
+                    const inboxStats = await runFrontInboxImportPaged(dryRun, entry, actionLabel);
+                    mergeFrontImportStats(aggregated, inboxStats);
                 }
+
+                await runFrontImportRequest(dryRun, {}, null, true, null, aggregated);
             }
 
             const finishedAt = new Date().toISOString();

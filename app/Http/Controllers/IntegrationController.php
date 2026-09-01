@@ -1808,7 +1808,9 @@ class IntegrationController extends Controller
             'inbox_map' => ['sometimes', 'array'],
             'front_inbox_id' => ['nullable', 'string', 'max:120'],
             'shared_inbox_id' => ['nullable', 'integer'],
+            'page_url' => ['nullable', 'string', 'max:2048'],
             'persist_results' => ['sometimes', 'boolean'],
+            'result_stats' => ['sometimes', 'array'],
         ]);
 
         $options = [
@@ -1823,9 +1825,54 @@ class IntegrationController extends Controller
             'persist_results' => (bool) ($validated['persist_results'] ?? true),
         ];
 
+        $pageUrl = isset($validated['page_url']) ? trim((string) $validated['page_url']) : null;
+        if ($pageUrl === '') {
+            $pageUrl = null;
+        }
+
+        $resultStats = $validated['result_stats'] ?? null;
+
+        if ($resultStats !== null && $options['front_inbox_id'] === null && $pageUrl === null) {
+            if ($options['persist_results']) {
+                $integration->forceFill([
+                    'last_import_stats' => $resultStats,
+                    'last_import_at' => now(),
+                    'last_import_dry_run' => (bool) $options['dry_run'],
+                ])->save();
+            }
+
+            return response()->json([
+                'message' => $options['dry_run'] ? 'Dry run completed.' : 'Front tag import completed.',
+                'dry_run' => $options['dry_run'],
+                'stats' => $resultStats,
+                'last_import_at' => $integration->last_import_at?->toIso8601String(),
+            ]);
+        }
+
         try {
             $client = new FrontApiClient($token);
-            $stats = $importService->importFromApi($company, $client, $options);
+
+            if ($options['front_inbox_id']) {
+                $sharedInboxId = $options['shared_inbox_id']
+                    ?: ($options['inbox_map'][$options['front_inbox_id']] ?? null);
+
+                if (! $sharedInboxId) {
+                    return response()->json([
+                        'error' => 'Select a LNSCRM shared inbox for this Front inbox before importing.',
+                    ], 422);
+                }
+
+                $stats = $importService->importInboxPageBatch(
+                    $company,
+                    $client,
+                    $options['front_inbox_id'],
+                    (int) $sharedInboxId,
+                    $options,
+                    $pageUrl
+                );
+            } else {
+                $stats = $importService->importFromApi($company, $client, $options);
+            }
         } catch (\Throwable $e) {
             return response()->json(['error' => $e->getMessage()], 422);
         }
@@ -1842,6 +1889,8 @@ class IntegrationController extends Controller
             'message' => $options['dry_run'] ? 'Dry run completed.' : 'Front tag import completed.',
             'dry_run' => $options['dry_run'],
             'stats' => $stats,
+            'has_more' => (bool) ($stats['has_more'] ?? false),
+            'next_page_url' => $stats['next_page_url'] ?? null,
             'last_import_at' => $options['persist_results']
                 ? $integration->last_import_at?->toIso8601String()
                 : now()->toIso8601String(),

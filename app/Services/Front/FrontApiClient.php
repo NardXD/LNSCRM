@@ -111,15 +111,89 @@ class FrontApiClient
 
     /**
      * @param  list<string>  $statuses
+     * @return array{results: list<array<string, mixed>>, next_page_url: string|null}
+     */
+    public function fetchConversationPage(string $path, ?string $pageUrl = null, array $statuses = ['archived', 'assigned', 'unassigned'], int $limit = 20): array
+    {
+        if ($pageUrl) {
+            $response = Http::timeout(45)
+                ->withToken($this->token)
+                ->acceptJson()
+                ->get($pageUrl);
+        } else {
+            $response = $this->requestConversationPage($path, $this->conversationQuery($statuses, $limit));
+            if (! $response->successful()) {
+                $response = $this->requestConversationPage($path, ['limit' => $limit]);
+            }
+        }
+
+        $this->assertSuccessful($response);
+
+        $payload = $response->json();
+        if (! is_array($payload)) {
+            throw new RuntimeException('Front API returned an unexpected response.');
+        }
+
+        $results = [];
+        foreach ($payload['_results'] ?? [] as $item) {
+            if (is_array($item)) {
+                $results[] = $item;
+            }
+        }
+
+        $next = $payload['_pagination']['next'] ?? null;
+
+        return [
+            'results' => $results,
+            'next_page_url' => is_string($next) && $next !== '' ? $next : null,
+        ];
+    }
+
+    public function fetchInboxConversationPage(string $inboxId, ?string $pageUrl = null, array $statuses = ['archived', 'assigned', 'unassigned'], int $limit = 20): array
+    {
+        return $this->fetchConversationPage(
+            '/inboxes/'.rawurlencode($inboxId).'/conversations',
+            $pageUrl,
+            $statuses,
+            $limit
+        );
+    }
+
+    public function fetchTaggedConversationPage(string $tagId, ?string $pageUrl = null, array $statuses = ['archived', 'assigned', 'unassigned'], int $limit = 20): array
+    {
+        return $this->fetchConversationPage(
+            '/tags/'.rawurlencode($tagId).'/conversations',
+            $pageUrl,
+            $statuses,
+            $limit
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $query
+     */
+    private function requestConversationPage(string $path, array $query): Response
+    {
+        return Http::timeout(45)
+            ->withToken($this->token)
+            ->acceptJson()
+            ->get($this->absoluteUrl($path), $query);
+    }
+
+    /**
+     * @param  list<string>  $statuses
      * @return \Generator<int, array<string, mixed>>
      */
     private function paginateConversations(string $path, array $statuses): \Generator
     {
-        try {
-            yield from $this->paginate($path, $this->conversationQuery($statuses));
-        } catch (RuntimeException $e) {
-            yield from $this->paginate($path, ['limit' => 100]);
-        }
+        $pageUrl = null;
+        do {
+            $page = $this->fetchConversationPage($path, $pageUrl, $statuses, 100);
+            foreach ($page['results'] as $item) {
+                yield $item;
+            }
+            $pageUrl = $page['next_page_url'];
+        } while ($pageUrl);
     }
 
     /**
@@ -160,10 +234,10 @@ class FrontApiClient
      * @param  list<string>  $statuses
      * @return array<string, mixed>
      */
-    private function conversationQuery(array $statuses): array
+    private function conversationQuery(array $statuses, int $limit = 100): array
     {
         return [
-            'limit' => 100,
+            'limit' => max(1, min($limit, 100)),
             'q' => json_encode(['statuses' => array_values($statuses)], JSON_THROW_ON_ERROR),
         ];
     }
