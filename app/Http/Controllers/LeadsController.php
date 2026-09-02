@@ -1482,7 +1482,6 @@ class LeadsController extends Controller
         }
 
         return $lead->labels
-            ->filter(fn (LeadLabel $label) => $this->followUpDays->dayFromLabelName((string) $label->name) === null)
             ->map(fn (LeadLabel $label) => $this->serializeLabel($label))
             ->values()
             ->all();
