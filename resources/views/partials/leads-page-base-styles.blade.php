@@ -322,10 +322,6 @@
         background: #f1f5f9; color: #334155;
     }
 
-    .lead-label-chip--front {
-        border: 1px dashed currentColor;
-    }
-
     .lead-label-chip button,
     .qb-label-chip button {
         background: none;

@@ -124,7 +124,7 @@ class LeadsController extends Controller
     {
         $companyId = (int) Auth::user()->company_id;
         $query = $this->leadReports->filteredQuery($companyId, $request)
-            ->with(['identities', 'assignedUser:id,name', 'labels', 'inboxConversations.leadLabels'])
+            ->with(['identities', 'assignedUser:id,name', 'labels'])
             ->orderByDesc('updated_at');
 
         $perPage = min(100, max(10, (int) $request->get('per_page', 20)));
@@ -731,7 +731,7 @@ class LeadsController extends Controller
         $conversation = $this->inboxAttach->conversationForLead($lead, (int) $validated['conversation_id']);
         $result = $this->inboxAttach->attach($lead, $conversation, $request->user());
         $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
-        $lead->load(['labels', 'inboxConversations.leadLabels']);
+        $lead->load('labels');
 
         return response()->json([
             'success' => true,
@@ -1233,7 +1233,6 @@ class LeadsController extends Controller
             'facebook_name' => $lead->identities->firstWhere('type', LeadIdentity::TYPE_FACEBOOK)?->value,
             'instagram_username' => $lead->identities->firstWhere('type', LeadIdentity::TYPE_INSTAGRAM)?->value,
             'labels' => $this->serializeLeadLabels($lead),
-            'front_labels' => $this->serializeFrontLabels($lead),
             'notes' => $lead->relationLoaded('leadNotes')
                 ? $lead->leadNotes->map(fn (LeadNote $note) => $this->serializeNote($note))->values()->all()
                 : [],
@@ -1483,29 +1482,6 @@ class LeadsController extends Controller
         }
 
         return $lead->labels
-            ->filter(fn (LeadLabel $label) => $this->followUpDays->dayFromLabelName((string) $label->name) === null)
-            ->map(fn (LeadLabel $label) => $this->serializeLabel($label))
-            ->values()
-            ->all();
-    }
-
-    /**
-     * Front.com labels still sitting on this lead's attached inbox conversations
-     * (e.g. via Front import) that haven't graduated onto the lead's own labels yet.
-     *
-     * @return list<array{id: int, name: string, color: string}>
-     */
-    protected function serializeFrontLabels(Lead $lead): array
-    {
-        if (! $lead->relationLoaded('inboxConversations')) {
-            return [];
-        }
-
-        return $lead->inboxConversations
-            ->flatMap(fn (InboxConversation $conversation) => $conversation->relationLoaded('leadLabels')
-                ? $conversation->leadLabels
-                : collect())
-            ->unique('id')
             ->filter(fn (LeadLabel $label) => $this->followUpDays->dayFromLabelName((string) $label->name) === null)
             ->map(fn (LeadLabel $label) => $this->serializeLabel($label))
             ->values()

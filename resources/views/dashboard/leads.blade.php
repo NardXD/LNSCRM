@@ -1058,7 +1058,7 @@
         const facilityEl = document.getElementById('leadModalStoreganise');
         if (!metaRow || !labelsWrap || !labelsEl || !facilityWrap || !facilityEl) return;
 
-        const labels = mergedLeadLabels();
+        const labels = state.labels || [];
         const hasLabels = labels.length > 0;
         labelsWrap.hidden = !hasLabels;
         labelsEl.innerHTML = hasLabels ? labelChips(labels) : '';
@@ -1212,37 +1212,8 @@
     function labelChips(labels) {
         return (labels || []).map(label => {
             const color = label.color || '#4338ca';
-            const fromFront = label.source === 'front';
-            const cls = fromFront ? 'inbox-pill lead-label-chip--front' : 'inbox-pill';
-            const title = fromFront ? ' title="Imported from Front.com — not yet saved on this lead"' : '';
-            return `<span class="${cls}" style="background:${color}22;color:${color}"${title}>${esc(label.name)}</span>`;
+            return `<span class="inbox-pill" style="background:${color}22;color:${color}">${esc(label.name)}</span>`;
         }).join(' ') || '<span class="lead-meta">—</span>';
-    }
-    function mergedLabelsForLead(lead) {
-        const merged = new Map();
-        (lead?.labels || []).forEach(label => {
-            const key = String(label?.name || '').trim().toLowerCase();
-            if (key) merged.set(key, { ...label, source: 'lead' });
-        });
-        (lead?.front_labels || []).forEach(label => {
-            const key = String(label?.name || '').trim().toLowerCase();
-            if (key && !merged.has(key)) merged.set(key, { ...label, source: 'front' });
-        });
-        return Array.from(merged.values());
-    }
-    function mergedLeadLabels() {
-        const merged = new Map();
-        (state.labels || []).forEach(label => {
-            const key = String(label?.name || '').trim().toLowerCase();
-            if (key) merged.set(key, { ...label, source: 'lead' });
-        });
-        (state.attachedInboxConversations || []).forEach(conversation => {
-            (conversation.lead_labels || []).forEach(label => {
-                const key = String(label?.name || '').trim().toLowerCase();
-                if (key && !merged.has(key)) merged.set(key, { ...label, source: 'front' });
-            });
-        });
-        return Array.from(merged.values());
     }
     function spinnerHtml() {
         return '<span class="leads-spinner" aria-hidden="true"></span>';
@@ -1279,7 +1250,7 @@
                 </td>
                 <td class="lead-meta">${esc((lead.phones || []).map(p => p.value).join(', ') || '—')}</td>
                 <td class="lead-meta">${esc((lead.emails || []).map(e => e.value).join(', ') || '—')}</td>
-                <td>${labelChips(mergedLabelsForLead(lead))}</td>
+                <td>${labelChips(lead.labels)}</td>
                 <td>
                     <select class="lead-assign" data-id="${lead.id}" aria-label="Assign lead">
                         ${assigneeOptions(lead.assigned_to, lead.assigned_user)}
