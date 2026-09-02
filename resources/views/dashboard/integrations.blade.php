@@ -1513,6 +1513,7 @@
                     <div class="front-import-actions">
                         <button type="button" class="btn-secondary" id="front-dry-run-btn" onclick="handleFrontImport(true)">Preview (dry run)</button>
                         <button type="button" class="btn-primary" id="front-import-btn" onclick="handleFrontImport(false)">Run import</button>
+                        <button type="button" class="btn-secondary" id="front-reset-progress-btn" onclick="handleFrontResetProgress()" title="Forget which conversations were already synced and any in-progress resume point, so the next run rescans everything.">Reset sync progress</button>
                     </div>
                     <div id="front-import-loading" class="front-import-loading" hidden>
                         <div class="front-import-spinner" aria-hidden="true"></div>
@@ -2341,6 +2342,7 @@
                 <dl>
                     <dt>Mapped inboxes</dt><dd>${stats.mapped_inboxes ?? 0}</dd>
                     ${dryRun ? `<dt>Conversations scanned</dt><dd>${stats.conversations_scanned ?? 0}</dd>` : ''}
+                    ${!dryRun && stats.conversations_already_synced ? `<dt>Already synced (skipped)</dt><dd>${stats.conversations_already_synced}</dd>` : ''}
                     <dt>Front conversations with tags</dt><dd>${stats.front_conversations_with_tags ?? 0}</dd>
                     <dt>Matched conversations</dt><dd>${stats.conversations_matched ?? 0}</dd>
                     <dt>Unmatched conversations</dt><dd>${stats.conversations_unmatched ?? 0}</dd>
@@ -2403,6 +2405,7 @@
         return {
             mapped_inboxes: 0,
             conversations_scanned: 0,
+            conversations_already_synced: 0,
             front_conversations_with_tags: 0,
             conversations_matched: 0,
             conversations_unmatched: 0,
@@ -2418,6 +2421,7 @@
         [
             'mapped_inboxes',
             'conversations_scanned',
+            'conversations_already_synced',
             'front_conversations_with_tags',
             'conversations_matched',
             'conversations_unmatched',
@@ -2526,6 +2530,7 @@
 
         let pageUrl = null;
         let page = 0;
+        let resumeNote = '';
 
         do {
             page += 1;
@@ -2536,7 +2541,7 @@
             const currentPercent = basePercent + (nextPercent - basePercent) * withinInboxFraction;
             setFrontImportLoading(
                 true,
-                `${actionLabel} ${entry.frontName} – page ${page}…`,
+                `${actionLabel} ${entry.frontName} – page ${page}${resumeNote}…`,
                 currentPercent
             );
             const data = await runFrontImportRequest(
@@ -2547,6 +2552,11 @@
                 pageUrl
             );
             mergeFrontImportStats(partial, data.stats || {});
+            // A previously interrupted run for this inbox resumes here instead of
+            // restarting at page 1 — surface that so a slow-looking first page makes sense.
+            if (data.stats?.resumed_from) {
+                resumeNote = ` (resuming after ${data.stats.resumed_from} already done)`;
+            }
             pageUrl = data.has_more && data.next_page_url ? data.next_page_url : null;
         } while (pageUrl);
 
@@ -2741,6 +2751,35 @@
         } catch (error) {
             console.error('Error:', error);
             alert('Error disconnecting Front.');
+        }
+    }
+
+    async function handleFrontResetProgress() {
+        if (!confirm('Reset Front sync progress? The next run will rescan every conversation from the start instead of resuming or skipping ones already synced.')) {
+            return;
+        }
+
+        const btn = document.getElementById('front-reset-progress-btn');
+        if (btn) btn.disabled = true;
+
+        try {
+            const response = await fetch('/api/integrations/front/import-progress', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                }
+            });
+            if (response.ok) {
+                document.getElementById('front-import-results')?.replaceChildren();
+            } else {
+                alert('Error resetting Front sync progress.');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error resetting Front sync progress.');
+        } finally {
+            if (btn) btn.disabled = false;
         }
     }
 

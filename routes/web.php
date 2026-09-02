@@ -815,6 +815,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::delete('/front', [IntegrationController::class, 'deleteFrontIntegration'])->name('api.integrations.front.delete');
         Route::get('/front/mapping', [IntegrationController::class, 'getFrontMappingOptions'])->name('api.integrations.front.mapping');
         Route::post('/front/import-tags', [IntegrationController::class, 'runFrontTagImport'])->name('api.integrations.front.import-tags');
+        Route::delete('/front/import-progress', [IntegrationController::class, 'resetFrontImportProgress'])->name('api.integrations.front.reset-progress');
     });
 
     Route::get('/billing-plan', function () {

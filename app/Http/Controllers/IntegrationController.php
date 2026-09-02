@@ -1751,7 +1751,7 @@ class IntegrationController extends Controller
         ]);
     }
 
-    public function deleteFrontIntegration(Request $request): JsonResponse
+    public function deleteFrontIntegration(Request $request, FrontTagImportService $importService): JsonResponse
     {
         $company = $this->getCompany($request);
         if (! $company) {
@@ -1759,8 +1759,25 @@ class IntegrationController extends Controller
         }
 
         FrontIntegration::query()->where('company_id', $company->id)->delete();
+        $importService->resetProgress($company);
 
         return response()->json(['message' => 'Front integration deleted successfully']);
+    }
+
+    /**
+     * Discard saved per-inbox resume cursors and already-synced markers, so the next
+     * import run treats every Front conversation as new again.
+     */
+    public function resetFrontImportProgress(Request $request, FrontTagImportService $importService): JsonResponse
+    {
+        $company = $this->getCompany($request);
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $importService->resetProgress($company);
+
+        return response()->json(['message' => 'Front sync progress has been reset.']);
     }
 
     public function getFrontMappingOptions(Request $request, FrontTagImportService $importService): JsonResponse

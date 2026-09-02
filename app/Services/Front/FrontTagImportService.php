@@ -3,6 +3,8 @@
 namespace App\Services\Front;
 
 use App\Models\Company;
+use App\Models\FrontInboxImportProgress;
+use App\Models\FrontSyncedConversation;
 use App\Models\InboxConversation;
 use App\Models\Lead;
 use App\Models\LeadLabel;
@@ -185,8 +187,28 @@ class FrontTagImportService
             $this->warmConversationLookup($sharedInbox);
         }
 
+        $dryRun = (bool) ($options['dry_run'] ?? false);
+        $isDryRunPreview = $dryRun && $pageUrl === null;
+
+        // A real (non-preview) run that starts without an explicit page — i.e. the
+        // first request the UI makes for this inbox this click — resumes from
+        // wherever a previous, interrupted run for this inbox left off instead of
+        // always restarting at page 1.
+        $progress = null;
+        $resumedFrom = 0;
+        if (! $dryRun && $pageUrl === null) {
+            $progress = FrontInboxImportProgress::query()
+                ->where('company_id', $company->id)
+                ->where('front_inbox_id', $frontInboxId)
+                ->first();
+
+            if ($progress?->next_page_url) {
+                $pageUrl = $progress->next_page_url;
+                $resumedFrom = (int) $progress->conversations_done;
+            }
+        }
+
         $statuses = $options['statuses'] ?? ['archived', 'assigned', 'unassigned'];
-        $isDryRunPreview = ($options['dry_run'] ?? false) && $pageUrl === null;
         $pageLimit = $isDryRunPreview ? self::DRY_RUN_LIMIT : 20;
         $page = $client->fetchInboxConversationPage($frontInboxId, $pageUrl, $statuses, $pageLimit);
 
@@ -194,6 +216,9 @@ class FrontTagImportService
         $stats['mapped_inboxes'] = 1;
         $stats['import_mode'] = 'inboxes';
         $stats['page_conversations'] = count($page['results']);
+        if ($resumedFrom > 0) {
+            $stats['resumed_from'] = $resumedFrom;
+        }
 
         foreach ($page['results'] as $frontConversation) {
             $stats['conversations_scanned'] = ((int) ($stats['conversations_scanned'] ?? 0)) + 1;
@@ -212,11 +237,42 @@ class FrontTagImportService
                 || count($page['results']) >= self::DRY_RUN_LIMIT;
         }
 
+        $hasMore = $isDryRunPreview ? false : $page['next_page_url'] !== null;
+
+        if (! $dryRun) {
+            if ($hasMore) {
+                FrontInboxImportProgress::query()->updateOrCreate(
+                    ['company_id' => $company->id, 'front_inbox_id' => $frontInboxId],
+                    [
+                        'shared_inbox_id' => $sharedInboxId,
+                        'next_page_url' => $page['next_page_url'],
+                        'conversations_done' => $resumedFrom + count($page['results']),
+                    ]
+                );
+            } else {
+                // Pagination for this inbox finished — nothing left to resume from.
+                FrontInboxImportProgress::query()
+                    ->where('company_id', $company->id)
+                    ->where('front_inbox_id', $frontInboxId)
+                    ->delete();
+            }
+        }
+
         return array_merge($stats, [
-            'has_more' => $isDryRunPreview ? false : $page['next_page_url'] !== null,
+            'has_more' => $hasMore,
             'next_page_url' => $isDryRunPreview ? null : $page['next_page_url'],
             'front_inbox_id' => $frontInboxId,
         ]);
+    }
+
+    /**
+     * Discard saved per-inbox resume cursors and the already-synced markers for a
+     * company, so the next import run treats every Front conversation as new again.
+     */
+    public function resetProgress(Company $company): void
+    {
+        FrontInboxImportProgress::query()->where('company_id', $company->id)->delete();
+        FrontSyncedConversation::query()->where('company_id', $company->id)->delete();
     }
 
     /**
@@ -729,19 +785,32 @@ class FrontTagImportService
         array $options,
         array &$stats
     ): void {
+        $dryRun = (bool) ($options['dry_run'] ?? false);
+        $frontConversationId = (string) ($frontConversation['id'] ?? '');
+        $frontUpdatedAt = $this->frontTimestamp($frontConversation['updated_at'] ?? null);
+
+        // A dry run always re-evaluates everything (it's a preview, not a resumable
+        // job), but a real run skips conversations it already fully processed and
+        // that Front hasn't reported a newer update_at for since.
+        if (! $dryRun && $this->alreadySynced($company, $frontConversationId, $frontUpdatedAt)) {
+            $stats['conversations_already_synced'] = ((int) ($stats['conversations_already_synced'] ?? 0)) + 1;
+
+            return;
+        }
+
         $frontTags = collect($frontConversation['tags'] ?? [])
             ->filter(fn ($tag) => is_array($tag))
             ->values();
-
-        if ($frontTags->isEmpty()) {
-            return;
-        }
 
         if (! ($options['include_private'] ?? false)) {
             $frontTags = $frontTags->reject(fn (array $tag) => (bool) ($tag['is_private'] ?? false));
         }
 
         if ($frontTags->isEmpty()) {
+            if (! $dryRun) {
+                $this->markSynced($company, $frontConversationId, $frontUpdatedAt);
+            }
+
             return;
         }
 
@@ -755,12 +824,17 @@ class FrontTagImportService
                 $this->conversationLabel($frontConversation)
             );
 
+            // Not marked synced: once mail sync brings this conversation in locally,
+            // a later import run needs to be able to match and tag it.
             return;
+        }
+
+        if (! $dryRun) {
+            $this->markSynced($company, $frontConversationId, $frontUpdatedAt);
         }
 
         $stats['conversations_matched'] = ((int) ($stats['conversations_matched'] ?? 0)) + 1;
         $lead = $this->resolveLeadForConversation($localConversation);
-        $dryRun = (bool) ($options['dry_run'] ?? false);
         $leadLabelIds = [];
 
         foreach ($frontTags as $frontTag) {
@@ -830,6 +904,45 @@ class FrontTagImportService
             $stats['tags_applied'] = ((int) ($stats['tags_applied'] ?? 0)) + $added;
             $stats['lead_labels_applied'] = ((int) ($stats['lead_labels_applied'] ?? 0)) + $added;
         }
+    }
+
+    /**
+     * True when this Front conversation was already fully evaluated in a previous
+     * run and Front hasn't reported activity on it since (no updated_at on either
+     * side counts as "trust the existing record" rather than always re-scanning).
+     */
+    private function alreadySynced(Company $company, string $frontConversationId, ?Carbon $frontUpdatedAt): bool
+    {
+        if ($frontConversationId === '') {
+            return false;
+        }
+
+        $record = FrontSyncedConversation::query()
+            ->where('company_id', $company->id)
+            ->where('front_conversation_id', $frontConversationId)
+            ->first();
+
+        if (! $record) {
+            return false;
+        }
+
+        if (! $frontUpdatedAt || ! $record->front_updated_at) {
+            return true;
+        }
+
+        return $record->front_updated_at->gte($frontUpdatedAt);
+    }
+
+    private function markSynced(Company $company, string $frontConversationId, ?Carbon $frontUpdatedAt): void
+    {
+        if ($frontConversationId === '') {
+            return;
+        }
+
+        FrontSyncedConversation::query()->updateOrCreate(
+            ['company_id' => $company->id, 'front_conversation_id' => $frontConversationId],
+            ['front_updated_at' => $frontUpdatedAt]
+        );
     }
 
     private function resolveLeadForConversation(InboxConversation $conversation): ?Lead
@@ -926,6 +1039,7 @@ class FrontTagImportService
         return [
             'mapped_inboxes' => 0,
             'conversations_scanned' => 0,
+            'conversations_already_synced' => 0,
             'front_conversations_with_tags' => 0,
             'conversations_matched' => 0,
             'conversations_unmatched' => 0,
