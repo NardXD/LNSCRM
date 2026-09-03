@@ -29,6 +29,7 @@ use App\Services\LeadActivityService;
 use App\Services\LeadAutoCreateService;
 use App\Services\LeadInboxAttachService;
 use App\Services\LeadRuleEngine;
+use App\Services\MessageContactExtractor;
 use App\Services\OutlookMailService;
 use App\Support\EmailQuotedHistory;
 use Illuminate\Http\JsonResponse;
@@ -58,7 +59,8 @@ class InboxController extends Controller
         protected InboxThreadMergeService $threadMerge,
         protected LeadInboxAttachService $inboxAttach,
         protected InboxReplyService $replyService,
-        protected InboxReopenService $reopenService
+        protected InboxReopenService $reopenService,
+        protected MessageContactExtractor $messageContacts
     ) {}
 
     public function index(): View
@@ -2792,6 +2794,11 @@ class InboxController extends Controller
 
         if ($withMessages && $c->relationLoaded('messages')) {
             $data['messages'] = $c->messages->map(fn ($m) => $this->formatMessage($m));
+            $extracted = $this->extractContactDetails($c->messages);
+            $data['extracted_name'] = $extracted['names'][0] ?? null;
+            $data['extracted_names'] = $extracted['names'];
+            $data['extracted_phones'] = $extracted['phones'];
+            $data['extracted_emails'] = $extracted['emails'];
         }
 
         if ($withMessages && $c->relationLoaded('comments')) {
@@ -2832,6 +2839,39 @@ class InboxController extends Controller
         }
 
         return EmailQuotedHistory::snippet($html, $text);
+    }
+
+    /**
+     * Pull name/phone/email out of the message bodies (e.g. a lead-gen form
+     * notification listing "Name:", "Phone number:", "Email" as its own lines).
+     *
+     * @param  Collection<int, InboxMessage>  $messages
+     * @return array{phones: list<string>, emails: list<string>, names: list<string>}
+     */
+    private function extractContactDetails(Collection $messages): array
+    {
+        $inbound = $messages
+            ->filter(fn (InboxMessage $m) => strtolower((string) $m->direction) !== 'outbound')
+            ->sortBy([['sent_at', 'asc'], ['id', 'asc']]);
+
+        $texts = ($inbound->isNotEmpty() ? $inbound : $messages)
+            ->map(function (InboxMessage $m) {
+                $text = (string) ($m->body_text ?: '');
+                if (trim($text) === '') {
+                    $text = EmailQuotedHistory::plainFromHtml((string) ($m->body_html ?? ''));
+                }
+
+                return EmailQuotedHistory::stripPlain($text);
+            })
+            ->filter(fn ($text) => trim($text) !== '')
+            ->values()
+            ->all();
+
+        if ($texts === []) {
+            return ['phones' => [], 'emails' => [], 'names' => []];
+        }
+
+        return $this->messageContacts->fromTexts($texts);
     }
 
     /**

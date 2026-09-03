@@ -6651,9 +6651,12 @@ select.inbox-reply-header-input {
         const body = el('inboxContactHistoryBody') || root;
         if (!body || !c) return;
 
-        const email = extractContactEmail(c.from_email);
-        const name = String(c.from_name || '').trim();
-        const phone = String(c.phone || c.from_phone || '').trim();
+        const extractedName = String(c.extracted_name || (c.extracted_names || [])[0] || '').trim();
+        const extractedPhones = c.extracted_phones || [];
+        const extractedEmails = c.extracted_emails || [];
+        const email = extractedEmails[0] || extractContactEmail(c.from_email);
+        const name = extractedName || String(c.from_name || '').trim();
+        const phone = extractedPhones[0] || String(c.phone || c.from_phone || '').trim();
         const canSaveLead = root?.dataset.canSaveLead !== '0';
         const opts = {
             email,
@@ -6664,6 +6667,10 @@ select.inbox-reply-header-input {
             limit: 60,
             source: 'inbox',
             canSaveLead,
+            extracted_name: extractedName,
+            extracted_names: c.extracted_names || [],
+            extracted_phones: extractedPhones,
+            extracted_emails: extractedEmails,
             onSaved: async () => {
                 if (state.selectedId) {
                     await openConversation(state.selectedId);
