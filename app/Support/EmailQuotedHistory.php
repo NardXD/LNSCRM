@@ -54,7 +54,10 @@ class EmailQuotedHistory
 
         $html = preg_replace('#<(style|script)\b[^>]*>.*?</\1>#is', ' ', $html) ?? $html;
         $html = preg_replace('#<(br|hr)\s*/?>#i', "\n", $html) ?? $html;
-        $html = preg_replace('#</(p|div|tr|h[1-6]|li|blockquote|table|section)>#i', "\n", $html) ?? $html;
+        // Table cells sit side by side with no whitespace between their closing/opening
+        // tags (e.g. "<td>Email</td><td>a@b.com</td>"), so without this a label and its
+        // value fuse into one word ("Emaila@b.com") once tags are stripped below.
+        $html = preg_replace('#</(p|div|tr|td|th|h[1-6]|li|blockquote|table|section)>#i', "\n", $html) ?? $html;
 
         return trim(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
     }

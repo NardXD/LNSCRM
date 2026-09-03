@@ -2856,10 +2856,14 @@ class InboxController extends Controller
 
         $texts = ($inbound->isNotEmpty() ? $inbound : $messages)
             ->map(function (InboxMessage $m) {
-                $text = (string) ($m->body_text ?: '');
-                if (trim($text) === '') {
-                    $text = EmailQuotedHistory::plainFromHtml((string) ($m->body_html ?? ''));
-                }
+                // body_text is often built with a bare strip_tags() during Outlook sync,
+                // which fuses adjacent table cells/divs with no separating whitespace
+                // (e.g. a "Name:" / "value" pair in neighboring <td>s reads as one word).
+                // Re-deriving from body_html keeps label/value pairs on their own line.
+                $html = (string) ($m->body_html ?? '');
+                $text = trim($html) !== ''
+                    ? EmailQuotedHistory::plainFromHtml($html)
+                    : (string) ($m->body_text ?: '');
 
                 return EmailQuotedHistory::stripPlain($text);
             })

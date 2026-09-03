@@ -10,6 +10,7 @@ use App\Models\LeadRule;
 use App\Models\LeadStatus;
 use App\Models\User;
 use App\Notifications\LeadRuleNotification;
+use App\Support\EmailQuotedHistory;
 use Illuminate\Support\Facades\Log;
 
 class LeadRuleEngine
@@ -469,7 +470,16 @@ class LeadRuleEngine
             ->orderByDesc('id')
             ->first();
 
-        return trim((string) ($message?->body_text ?: $conversation->snippet ?: ''));
+        // body_text is often built with a bare strip_tags() during Outlook sync, which
+        // fuses adjacent table cells/divs with no separating whitespace (e.g. a "Name:"
+        // label and its value in neighboring <td>s read as one word). Re-deriving from
+        // body_html keeps label/value pairs on their own line for keyword matching.
+        $html = (string) ($message?->body_html ?? '');
+        $text = trim($html) !== ''
+            ? EmailQuotedHistory::plainFromHtml($html)
+            : (string) ($message?->body_text ?: '');
+
+        return trim($text !== '' ? $text : (string) ($conversation->snippet ?: ''));
     }
 
     private function compare(string $haystack, string $compare, string $operator): bool

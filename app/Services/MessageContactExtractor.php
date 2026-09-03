@@ -244,7 +244,9 @@ class MessageContactExtractor
      */
     protected function emailsIn(string $text): array
     {
-        if (! preg_match_all('/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i', $text, $matches)) {
+        // TLD is capped at 24 chars so a missing space after the address (fused HTML
+        // like "...@yahoo.comWhat city...") can't swallow the next word into the match.
+        if (! preg_match_all('/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,24}/i', $text, $matches)) {
             return [];
         }
 
