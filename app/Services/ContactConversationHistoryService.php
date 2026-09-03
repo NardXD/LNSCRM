@@ -124,7 +124,10 @@ class ContactConversationHistoryService
         if ($name && empty($lookup['phone_contact'])) {
             $lookup['phone_contact'] = ['name' => $name];
         }
-        if ($name && empty($lookup['display_name'])) {
+        // FlexCrmLookupService::lookup() falls back to the phone number itself when no
+        // lead/client/phone-contact name is on file — don't let that fallback win over a
+        // real name we just extracted from the message body.
+        if ($name && (empty($lookup['display_name']) || $lookup['display_name'] === $normalizedPhone)) {
             $lookup['display_name'] = $name;
         }
 
