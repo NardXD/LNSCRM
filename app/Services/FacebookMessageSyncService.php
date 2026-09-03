@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\FacebookConversation;
+use App\Models\FacebookConversationUserRead;
 use App\Models\FacebookIntegration;
 use App\Models\FacebookMessage;
 use Carbon\Carbon;
@@ -691,6 +692,11 @@ class FacebookMessageSyncService
         if ($countAsUnread && $direction === 'inbound') {
             $conversation->unread_count = (int) $conversation->unread_count + 1;
             $conversation->save();
+
+            FacebookConversationUserRead::query()
+                ->where('facebook_conversation_id', $conversation->id)
+                ->where('is_read', true)
+                ->update(['is_read' => false]);
         }
 
         return $conversation;

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Company;
 use App\Models\FacebookConversation;
+use App\Models\FacebookConversationUserRead;
 use App\Models\FacebookIntegration;
 use App\Models\FacebookMessage;
 use App\Models\MessageTemplate;
@@ -99,16 +100,27 @@ class FacebookController extends Controller
         $user = Auth::user();
         $q = trim((string) $request->query('q', ''));
         $channel = trim((string) $request->query('channel', ''));
+        $readFilter = trim((string) $request->query('read', ''));
         $limit = min(max((int) $request->query('limit', 40), 1), 100);
         $beforeId = (int) $request->query('before_id', 0);
 
         $query = FacebookConversation::query()
             ->where('company_id', $user->company_id)
+            ->leftJoin('facebook_conversation_user_reads as ur', function ($join) use ($user) {
+                $join->on('ur.facebook_conversation_id', '=', 'facebook_conversations.id')
+                    ->where('ur.user_id', '=', $user->id);
+            })
+            ->select('facebook_conversations.*')
+            ->selectRaw('COALESCE(ur.is_read, 0) as user_is_read')
             ->orderByDesc('last_message_at')
-            ->orderByDesc('id');
+            ->orderByDesc('facebook_conversations.id');
 
         if (in_array($channel, ['messenger', 'instagram'], true)) {
             $query->where('channel', $channel);
+        }
+
+        if (in_array($readFilter, ['read', 'unread'], true)) {
+            $query->whereRaw('COALESCE(ur.is_read, 0) = ?', [$readFilter === 'read' ? 1 : 0]);
         }
 
         if ($q !== '') {
@@ -140,7 +152,11 @@ class FacebookController extends Controller
         }
 
         return response()->json([
-            'data' => $rows->map(fn (FacebookConversation $c) => $this->formatConversation($c))->values(),
+            'data' => $rows->map(function (FacebookConversation $c) {
+                $c->setAttribute('is_read', (bool) $c->getAttribute('user_is_read'));
+
+                return $this->formatConversation($c);
+            })->values(),
             'has_more' => $hasMore,
         ]);
     }
@@ -178,6 +194,7 @@ class FacebookController extends Controller
 
         $limit = min(max((int) $request->query('limit', 40), 1), 100);
         $beforeId = (int) $request->query('before_id', 0);
+        $isPoll = $request->boolean('poll');
 
         if ($beforeId <= 0) {
             $this->importGraphThread($conversation);
@@ -215,9 +232,28 @@ class FacebookController extends Controller
             $conversation->update(['unread_count' => 0]);
             $this->markConversationNotificationsRead($conversation);
             $extracted = $this->messageContacts->applyToConversation($conversation);
+
+            if (! $isPoll) {
+                $readRow = FacebookConversationUserRead::firstOrNew([
+                    'facebook_conversation_id' => $conversation->id,
+                    'user_id' => Auth::id(),
+                ]);
+                $wasUnread = ! $readRow->exists || ! $readRow->is_read || ! $readRow->last_read_at;
+                $readRow->is_read = true;
+                if ($wasUnread) {
+                    $readRow->last_read_at = now();
+                }
+                $readRow->save();
+            }
         }
 
         $fresh = $conversation->fresh();
+        $fresh->setAttribute('is_read', ($beforeId <= 0 && ! $isPoll)
+            ? true
+            : (bool) FacebookConversationUserRead::query()
+                ->where('facebook_conversation_id', $conversation->id)
+                ->where('user_id', Auth::id())
+                ->value('is_read'));
         $payload = $this->formatConversation($fresh);
         if ($beforeId <= 0 && ! ($payload['lead'] ?? null)) {
             $index = $this->crmLookup->assignedLeadIndex((int) $fresh->company_id);
@@ -249,6 +285,32 @@ class FacebookController extends Controller
             ]),
             'data' => $messages,
             'has_more' => $hasMore,
+        ]);
+    }
+
+    public function updateRead(Request $request, FacebookConversation $conversation): JsonResponse
+    {
+        $this->assertCompanyConversation($conversation);
+        $validated = $request->validate([
+            'is_read' => ['required', 'boolean'],
+        ]);
+
+        FacebookConversationUserRead::updateOrCreate(
+            [
+                'facebook_conversation_id' => $conversation->id,
+                'user_id' => Auth::id(),
+            ],
+            [
+                'is_read' => (bool) $validated['is_read'],
+                'last_read_at' => $validated['is_read'] ? now() : null,
+            ]
+        );
+
+        $fresh = $conversation->fresh();
+        $fresh->setAttribute('is_read', (bool) $validated['is_read']);
+
+        return response()->json([
+            'conversation' => $this->formatConversation($fresh),
         ]);
     }
 
@@ -785,6 +847,7 @@ class FacebookController extends Controller
 
         if ($direction === 'inbound') {
             $conversation->unread_count = (int) $conversation->unread_count + 1;
+            $this->resetConversationReadState($conversation);
         }
         $this->touchConversation($conversation, $record);
 
@@ -926,6 +989,7 @@ class FacebookController extends Controller
         ]);
 
         $conversation->unread_count = (int) $conversation->unread_count + 1;
+        $this->resetConversationReadState($conversation);
         $this->touchConversation($conversation, $record);
         $extracted = $this->messageContacts->applyToConversation($conversation);
         $this->notifyUnread($conversation, $record);
@@ -1070,6 +1134,14 @@ class FacebookController extends Controller
             str_starts_with($mime, 'audio/') => 'audio',
             default => 'file',
         };
+    }
+
+    protected function resetConversationReadState(FacebookConversation $conversation): void
+    {
+        FacebookConversationUserRead::query()
+            ->where('facebook_conversation_id', $conversation->id)
+            ->where('is_read', true)
+            ->update(['is_read' => false]);
     }
 
     protected function notifyUnread(FacebookConversation $conversation, FacebookMessage $message): void
@@ -1250,7 +1322,7 @@ class FacebookController extends Controller
                 $builder->where('last_message_at', '<', $before->last_message_at)
                     ->orWhere(function ($inner) use ($before) {
                         $inner->where('last_message_at', $before->last_message_at)
-                            ->where('id', '<', $before->id);
+                            ->where('facebook_conversations.id', '<', $before->id);
                     })
                     ->orWhereNull('last_message_at');
             });
@@ -1258,7 +1330,7 @@ class FacebookController extends Controller
             return;
         }
 
-        $query->whereNull('last_message_at')->where('id', '<', $before->id);
+        $query->whereNull('last_message_at')->where('facebook_conversations.id', '<', $before->id);
     }
 
     protected function constrainMessagesBefore(Builder $query, FacebookMessage $before): void
@@ -1293,7 +1365,7 @@ class FacebookController extends Controller
             'name' => $c->name ?: ($c->channel === 'instagram' ? 'Instagram User' : 'Messenger User'),
             'username' => $c->username,
             'profile_pic' => $c->profile_pic,
-            'unread_count' => (int) $c->unread_count,
+            'is_read' => (bool) $c->is_read,
             'last_message_preview' => $c->last_message_preview,
             'last_message_at' => $c->last_message_at?->toIso8601String(),
             'lead' => $this->crmLookup->matchAssignedLead(

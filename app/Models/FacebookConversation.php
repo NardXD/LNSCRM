@@ -44,4 +44,9 @@ class FacebookConversation extends Model
     {
         return $this->hasMany(FacebookMessage::class);
     }
+
+    public function userReads(): HasMany
+    {
+        return $this->hasMany(FacebookConversationUserRead::class, 'facebook_conversation_id');
+    }
 }

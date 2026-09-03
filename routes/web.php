@@ -550,6 +550,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/conversations', [FacebookController::class, 'conversations'])->name('api.facebook.conversations');
         Route::get('/conversations/{conversation}/messages', [FacebookController::class, 'messages'])->name('api.facebook.messages');
         Route::post('/conversations/{conversation}/messages', [FacebookController::class, 'sendMessage'])->name('api.facebook.messages.store');
+        Route::patch('/conversations/{conversation}/read', [FacebookController::class, 'updateRead'])->name('api.facebook.conversations.read');
         Route::post('/media', [FacebookController::class, 'uploadMedia'])->name('api.facebook.media.store');
         Route::post('/sync', [FacebookController::class, 'syncHistory'])->name('api.facebook.sync');
         Route::get('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->index($request, 'facebook'))->name('api.facebook.templates.index');

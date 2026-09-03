@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\FacebookConversation;
+use App\Models\FacebookConversationUserRead;
 use App\Models\SmsConversation;
 use App\Models\User;
 use App\Models\ViberConversation;
@@ -74,9 +75,7 @@ class NotificationController extends Controller
         }
 
         if ($user->hasPermission('view_facebook') && $companyId) {
-            $counts['facebook'] = (int) FacebookConversation::query()
-                ->where('company_id', $companyId)
-                ->sum('unread_count');
+            $counts['facebook'] = $this->facebookUnreadCount($user, $companyId);
         }
 
         if ($user->hasPermission('view_sms') && $companyId) {
@@ -302,6 +301,22 @@ class NotificationController extends Controller
         }
 
         return $total;
+    }
+
+    /**
+     * Per-agent unread conversation count — a conversation only counts as read
+     * for this user once they have their own read row for it.
+     */
+    private function facebookUnreadCount(User $user, int $companyId): int
+    {
+        return FacebookConversation::query()
+            ->where('facebook_conversations.company_id', $companyId)
+            ->leftJoin('facebook_conversation_user_reads as ur', function ($join) use ($user) {
+                $join->on('ur.facebook_conversation_id', '=', 'facebook_conversations.id')
+                    ->where('ur.user_id', '=', $user->id);
+            })
+            ->whereRaw('COALESCE(ur.is_read, 0) = 0')
+            ->count();
     }
 
     /**

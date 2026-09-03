@@ -42,6 +42,11 @@
                 <button type="button" class="fb-chip" data-channel="messenger">Messenger</button>
                 <button type="button" class="fb-chip" data-channel="instagram">Instagram</button>
             </div>
+            <div class="fb-filters fb-read-filters">
+                <button type="button" class="fb-chip active" data-read="">All</button>
+                <button type="button" class="fb-chip" data-read="unread">Unread</button>
+                <button type="button" class="fb-chip" data-read="read">Read</button>
+            </div>
             <div class="fb-search">
                 <input type="search" id="fbSearch" placeholder="Search conversations…" autocomplete="off">
             </div>
@@ -71,6 +76,9 @@
                         <h3 id="fbHeaderName">Customer</h3>
                         <span id="fbHeaderStatus">Messenger</span>
                     </div>
+                    <button type="button" class="fb-icon-btn" id="fbMarkUnreadBtn" title="Mark as unread">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+                    </button>
                 </header>
 
                 <div class="fb-messages" id="fbMessages">
@@ -229,10 +237,9 @@
 .fb-thread-preview { color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
 .fb-channel-tag { display: inline-block; margin-top: 0.15rem; font-size: 0.64rem; font-weight: 600; color: var(--fb-accent); text-transform: uppercase; letter-spacing: 0.02em; }
 .fb-channel-tag.instagram { color: #c13584; }
-.fb-badge {
-    display: inline-flex; min-width: 1.05rem; height: 1.05rem; padding: 0 0.3rem;
-    align-items: center; justify-content: center; border-radius: 999px;
-    background: var(--fb-accent); color: #fff; font-size: 0.64rem; font-weight: 700; flex-shrink: 0;
+.fb-unread-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--fb-accent); flex-shrink: 0;
 }
 .fb-list-hint { text-align: center; padding: 0.7rem; font-size: 0.72rem; color: var(--text-secondary); }
 .fb-avatar {
@@ -452,6 +459,7 @@
     let activeId = null;
     let activeHistoryOpts = null;
     let channelFilter = '';
+    let readFilter = '';
     let pollTimer = null;
     let searchTimer = null;
     let uploadKind = 'file';
@@ -628,14 +636,21 @@
         return nodes[nodes.length - 1] || null;
     }
 
+    function visibleConversations() {
+        if (readFilter === 'unread') return conversations.filter(c => !c.is_read);
+        if (readFilter === 'read') return conversations.filter(c => c.is_read);
+        return conversations;
+    }
+
     function renderThreads() {
-        if (!conversations.length) {
-            els.list.innerHTML = `<div class="fb-list-hint">No conversations yet.</div>`;
+        const visible = visibleConversations();
+        if (!visible.length) {
+            els.list.innerHTML = `<div class="fb-list-hint">${readFilter ? 'No ' + readFilter + ' conversations.' : 'No conversations yet.'}</div>`;
             return;
         }
 
-        els.list.innerHTML = conversations.map(c => `
-            <div class="fb-thread ${c.id === activeId ? 'active' : ''} ${c.unread_count ? 'unread' : ''}" data-id="${c.id}">
+        els.list.innerHTML = visible.map(c => `
+            <div class="fb-thread ${c.id === activeId ? 'active' : ''} ${!c.is_read ? 'unread' : ''}" data-id="${c.id}">
                 <div class="fb-avatar" style="${c.profile_pic ? `background-image:url('${escapeHtml(c.profile_pic)}')` : ''}">${c.profile_pic ? '' : initials(c.name)}</div>
                 <div class="fb-thread-body">
                     <div class="fb-thread-top">
@@ -646,7 +661,7 @@
                     ${assignedLeadLine(c)}
                     <span class="fb-channel-tag ${c.channel === 'instagram' ? 'instagram' : ''}">${channelLabel(c.channel)}</span>
                 </div>
-                ${c.unread_count ? `<span class="fb-badge">${c.unread_count}</span>` : ''}
+                ${!c.is_read ? `<span class="fb-unread-dot" aria-hidden="true"></span>` : ''}
             </div>
         `).join('') + (convHasMore ? `<div class="fb-list-hint" id="fbListMore">Scroll for older chats</div>` : '');
 
@@ -805,6 +820,7 @@
         const q = (els.search.value || '').trim();
         if (q) params.set('q', q);
         if (channelFilter) params.set('channel', channelFilter);
+        if (readFilter) params.set('read', readFilter);
         if (append && conversations.length) {
             params.set('before_id', String(conversations[conversations.length - 1].id));
         }
@@ -869,7 +885,7 @@
     function rememberConversation(conv) {
         if (!conv || conv.id == null) return null;
         const id = Number(conv.id);
-        const next = { ...conv, unread_count: 0 };
+        const next = { ...conv, is_read: true };
         const idx = conversations.findIndex(c => Number(c.id) === id);
         if (idx >= 0) {
             conversations[idx] = { ...conversations[idx], ...next };
@@ -896,7 +912,7 @@
         }
 
         activeId = id;
-        conv.unread_count = 0;
+        conv.is_read = true;
         els.empty.style.display = 'none';
         els.chat.style.display = 'flex';
         els.headerName.textContent = conv.name || (channelLabel(conv.channel) + ' User');
@@ -926,8 +942,8 @@
 
         if (data.conversation) {
             const idx = conversations.findIndex(c => c.id === id);
-            if (idx >= 0) conversations[idx] = { ...conversations[idx], ...data.conversation, unread_count: 0 };
-            Object.assign(conv, conversations[idx] || data.conversation, { unread_count: 0 });
+            if (idx >= 0) conversations[idx] = { ...conversations[idx], ...data.conversation, is_read: true };
+            Object.assign(conv, conversations[idx] || data.conversation, { is_read: true });
             els.headerName.textContent = conv.name || (channelLabel(conv.channel) + ' User');
             els.headerStatus.textContent = channelLabel(conv.channel) + (conv.username ? ' · @' + conv.username : '') + assignedLeadSuffix(conv);
             setAvatar(els.headerAvatar, conv.name, conv.profile_pic);
@@ -980,7 +996,7 @@
 
     async function pollActiveMessages() {
         if (!activeId || loadOlderInProgress) return;
-        const data = await api(`/conversations/${activeId}/messages?limit=${PAGE_SIZE}`);
+        const data = await api(`/conversations/${activeId}/messages?limit=${PAGE_SIZE}&poll=1`);
         const incoming = data.data || [];
         const newer = incoming.filter(m => !messageIds.has(m.id));
         if (newer.length) {
@@ -1165,6 +1181,22 @@
         els.sidebar.classList.remove('hidden-mobile');
         els.main.classList.add('hidden-mobile');
     });
+    document.getElementById('fbMarkUnreadBtn').addEventListener('click', async () => {
+        if (!activeId) return;
+        try {
+            await api(`/conversations/${activeId}/read`, {
+                method: 'PATCH',
+                body: JSON.stringify({ is_read: false }),
+            });
+        } catch (e) {
+            return;
+        }
+        const idx = conversations.findIndex(c => Number(c.id) === activeId);
+        if (idx >= 0) conversations[idx] = { ...conversations[idx], is_read: false };
+        renderThreads();
+        window.updateHeaderNotificationsBadge?.();
+        window.updateSidebarUnreadBadges?.();
+    });
     els.search.addEventListener('input', () => {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => loadConversations().catch(console.error), 250);
@@ -1180,11 +1212,19 @@
         els.text.style.height = 'auto';
         els.text.style.height = Math.min(els.text.scrollHeight, 110) + 'px';
     });
-    document.querySelectorAll('.fb-chip').forEach(chip => {
+    document.querySelectorAll('.fb-filters:not(.fb-read-filters) .fb-chip').forEach(chip => {
         chip.addEventListener('click', () => {
-            document.querySelectorAll('.fb-chip').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('.fb-filters:not(.fb-read-filters) .fb-chip').forEach(c => c.classList.remove('active'));
             chip.classList.add('active');
             channelFilter = chip.dataset.channel || '';
+            loadConversations().catch(console.error);
+        });
+    });
+    document.querySelectorAll('.fb-read-filters .fb-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            document.querySelectorAll('.fb-read-filters .fb-chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            readFilter = chip.dataset.read || '';
             loadConversations().catch(console.error);
         });
     });

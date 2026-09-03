@@ -1,0 +1,31 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('facebook_conversation_user_reads', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('facebook_conversation_id')->constrained('facebook_conversations', 'id', 'fcur_conversation_fk')->cascadeOnDelete();
+            $table->foreignId('user_id')->constrained(indexName: 'fcur_user_fk')->cascadeOnDelete();
+
+            // When null, the user is considered unread.
+            $table->timestamp('last_read_at')->nullable();
+            $table->boolean('is_read')->default(false);
+
+            $table->timestamps();
+
+            $table->unique(['facebook_conversation_id', 'user_id'], 'fcur_conv_user_unique');
+            $table->index(['user_id', 'is_read'], 'fcur_user_read_idx');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('facebook_conversation_user_reads');
+    }
+};
