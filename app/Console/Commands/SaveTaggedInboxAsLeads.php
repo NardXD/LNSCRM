@@ -27,6 +27,7 @@ class SaveTaggedInboxAsLeads extends Command
         {--user= : ID of the user leads/activity should be attributed to (no mailbox membership required — this is a trusted backend job). Defaults to the --shared-inbox\'s creator when omitted.}
         {--company= : Restrict to one company ID (defaults to the --shared-inbox\'s or --user\'s company)}
         {--source=Inbox tag import : Value stored in the lead\'s "source" field}
+        {--limit= : Max conversations to process, oldest first (default: no limit — processes every match)}
         {--dry-run : Preview matches without creating or attaching anything}';
 
     protected $description = 'Save every inbox conversation carrying a given tag as a CRM lead, using the same name/phone/email extraction and duplicate rules as the "Save as lead" button.';
@@ -94,7 +95,7 @@ class SaveTaggedInboxAsLeads extends Command
             return self::FAILURE;
         }
 
-        $conversations = InboxConversation::query()
+        $baseQuery = InboxConversation::query()
             ->where('company_id', $companyId)
             ->whereNull('merged_into_id')
             ->whereNull('lead_id')
@@ -106,21 +107,29 @@ class SaveTaggedInboxAsLeads extends Command
                 if ($leadLabel) {
                     $q->orWhereHas('leadLabels', fn ($l) => $l->where('lead_labels.id', $leadLabel->id));
                 }
-            })
-            ->with(['messages', 'inbox.account'])
-            ->orderBy('id')
-            ->get();
+            });
 
-        if ($conversations->isEmpty()) {
+        $totalMatched = (clone $baseQuery)->count();
+
+        if ($totalMatched === 0) {
             $this->info("No conversations labeled \"{$tagName}\" without a lead already attached.");
 
             return self::SUCCESS;
         }
 
+        $limit = $this->option('limit') !== null ? max(0, (int) $this->option('limit')) : null;
+
+        $conversations = $baseQuery
+            ->with(['messages', 'inbox.account'])
+            ->orderBy('id')
+            ->when($limit, fn ($q) => $q->limit($limit))
+            ->get();
+
         $this->info(sprintf(
-            '%d conversation(s) tagged "%s" with no lead yet.%s',
-            $conversations->count(),
+            '%d conversation(s) tagged "%s" with no lead yet%s.%s',
+            $totalMatched,
             $tagName,
+            $limit && $limit < $totalMatched ? ", processing the first {$limit} (oldest)" : '',
             $dryRun ? ' (dry run — nothing will be saved)' : ''
         ));
 
