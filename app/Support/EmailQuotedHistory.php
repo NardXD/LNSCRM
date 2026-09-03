@@ -58,8 +58,15 @@ class EmailQuotedHistory
         // tags (e.g. "<td>Email</td><td>a@b.com</td>"), so without this a label and its
         // value fuse into one word ("Emaila@b.com") once tags are stripped below.
         $html = preg_replace('#</(p|div|tr|td|th|h[1-6]|li|blockquote|table|section)>#i', "\n", $html) ?? $html;
+        // Any tag we didn't already turn into a line break (span/font/a/b/... — email
+        // builders lay out label/value pairs as sibling inline tags with no text-node
+        // space between them) still needs *some* separator, or a bare strip_tags() would
+        // fuse "Email" directly onto the address that follows it.
+        $html = preg_replace('/<[^>]+>/', ' ', $html) ?? $html;
 
-        return trim(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $decoded = html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        return trim(preg_replace('/[ \t]+/', ' ', $decoded) ?? $decoded);
     }
 
     private static function collapseWhitespace(string $text): string
