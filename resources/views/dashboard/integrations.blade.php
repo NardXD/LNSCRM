@@ -1707,7 +1707,7 @@
                 <div class="form-group">
                     <label class="form-label">Page Access Token (required for Instagram)</label>
                     <input type="password" class="form-input" id="facebook-page-access-token" value="" placeholder="${existingData && existingData.has_page_access_token ? '•••••••• (leave blank to keep)' : 'EAAB… long-lived Page token'}">
-                    <span class="form-help">Must be a <strong>Page</strong> token (not User) that does not expire. In <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener">Graph API Explorer</a> get a User token with <code>pages_messaging</code>, <code>pages_manage_metadata</code>, and <code>pages_read_engagement</code>, then switch the token dropdown to your Page. Explorer tokens expire in 1–2 hours.</span>
+                    <span class="form-help">Must be a <strong>Page</strong> token (not User) that does not expire. In <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener">Graph API Explorer</a> get a User token with <code>pages_messaging</code>, <code>pages_manage_metadata</code>, <code>pages_read_engagement</code>, <code>instagram_basic</code>, and <code>instagram_manage_messages</code>, then switch the token dropdown to your Page. Missing the two <code>instagram_*</code> scopes is the most common reason Instagram DMs never arrive even though Messenger works fine. Explorer tokens expire in 1–2 hours.</span>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Meta App Secret (recommended)</label>
@@ -1768,9 +1768,10 @@
                 <div class="integration-setup-tips" style="margin-top:1rem;padding:0.85rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);font-size:0.82rem;line-height:1.5;">
                     <strong style="display:block;margin-bottom:0.5rem;color:var(--text-primary);">Instagram Direct</strong>
                     <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
-                        <li>Save this form with a <strong>Page Access Token</strong> (and Instagram account ID).</li>
-                        <li>In <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">Meta for Developers</a> open your app → <strong>Messenger → Instagram settings</strong>.</li>
-                        <li>Set Callback URL to the Webhook URL above and Verify Token to the token above. Subscribe to <code>messages</code>.</li>
+                        <li>In <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">Meta for Developers</a> → your app → <strong>App Review → Permissions and Features</strong>, confirm <code>instagram_basic</code> and <code>instagram_manage_messages</code> show Advanced Access (not just Standard). Without this, Meta will not deliver Instagram DMs to any token, even a correctly scoped one.</li>
+                        <li>Save this form with a <strong>Page Access Token</strong> that includes those two scopes (see above). The Instagram account ID field should fill in automatically after saving — if it stays blank, the token is missing a scope or the Page has no linked Instagram professional account.</li>
+                        <li>In Meta for Developers open your app → <strong>Messenger → Instagram settings</strong>.</li>
+                        <li>Set Callback URL to the Webhook URL above and Verify Token to the token above. Subscribe to <code>messages</code> under the <strong>Instagram</strong> tab specifically — this is separate from the Page's <code>messages</code> subscription.</li>
                         <li>In Instagram: Settings → Messages and story replies → Message controls → allow <strong>Connected tools</strong>.</li>
                         <li>The webhook URL must be public HTTPS. Then DMs to @${existingData && existingData.instagram_username ? existingData.instagram_username : 'yourpage'} appear in <a href="${TWILIO_SETUP.facebookChatUrl}">Facebook &amp; Instagram</a>.</li>
                     </ol>

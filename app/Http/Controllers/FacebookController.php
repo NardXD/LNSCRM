@@ -705,6 +705,18 @@ class FacebookController extends Controller
 
                 // Messenger inbound still arrives via Twilio; only capture Page Inbox echoes.
                 if ($channel === 'messenger' && ! $isEcho) {
+                    if ($igId === '' && ! empty($event['message'])) {
+                        $cacheKey = 'facebook-missing-ig-id-warned-'.$integration->id;
+                        if (! Cache::has($cacheKey)) {
+                            Cache::put($cacheKey, true, now()->addHour());
+                            Log::warning('Dropped a Page-object messaging event with no Instagram Business Account ID on file; if this is an Instagram DM it cannot be classified and will be lost.', [
+                                'integration_id' => $integration->id,
+                                'entry_id' => $entryId,
+                                'recipient_id' => $recipientId,
+                            ]);
+                        }
+                    }
+
                     continue;
                 }
 

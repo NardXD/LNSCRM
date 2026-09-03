@@ -613,6 +613,12 @@ class IntegrationController extends Controller
                 if (! $instagramUsername && ! empty($ig['username'])) {
                     $instagramUsername = (string) $ig['username'];
                 }
+                if (! $instagramSender) {
+                    Log::warning('Facebook Page token did not return a linked Instagram Business Account; the token likely lacks instagram_basic/instagram_manage_messages permission.', [
+                        'company_id' => $company->id,
+                        'page_id' => $pageId,
+                    ]);
+                }
             } catch (\Throwable $e) {
                 if ($request->filled('page_access_token')) {
                     $graph = app(FacebookGraphMessagingService::class);
@@ -625,6 +631,12 @@ class IntegrationController extends Controller
 
                     return response()->json(['error' => $message], 422);
                 }
+
+                Log::warning('Facebook Page info lookup failed while re-saving an existing integration.', [
+                    'company_id' => $company->id,
+                    'page_id' => $pageId,
+                    'error' => $e->getMessage(),
+                ]);
             }
         }
 
