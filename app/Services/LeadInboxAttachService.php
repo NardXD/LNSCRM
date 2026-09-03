@@ -81,12 +81,17 @@ class LeadInboxAttachService
     }
 
     /**
+     * @param  bool  $requireMembership  Set false for trusted backend/admin tooling (e.g. console
+     *                                   commands) that attaches on behalf of a user who isn't
+     *                                   necessarily a member of the shared mailbox. The UI path
+     *                                   always leaves this true so users can't link email threads
+     *                                   they don't have visibility into.
      * @return array{conversation: array<string, mixed>, previous_lead_id: ?int}
      */
-    public function attach(Lead $lead, InboxConversation $conversation, User $user): array
+    public function attach(Lead $lead, InboxConversation $conversation, User $user, bool $requireMembership = true): array
     {
         $conversation = $conversation->mergeRoot();
-        $this->assertCanAttach($user, $conversation, $lead);
+        $this->assertCanAttach($user, $conversation, $lead, $requireMembership);
 
         $previousLeadId = $conversation->lead_id ? (int) $conversation->lead_id : null;
         if ($previousLeadId && $previousLeadId !== (int) $lead->id) {
@@ -205,12 +210,14 @@ class LeadInboxAttachService
         return $conversation->mergeRoot();
     }
 
-    private function assertCanAttach(User $user, InboxConversation $conversation, Lead $lead): void
+    private function assertCanAttach(User $user, InboxConversation $conversation, Lead $lead, bool $requireMembership = true): void
     {
         if ((int) $conversation->company_id !== (int) $lead->company_id) {
             abort(404);
         }
-        $this->assertInboxAccess($user, $conversation);
+        if ($requireMembership) {
+            $this->assertInboxAccess($user, $conversation);
+        }
         $inbox = $conversation->inbox;
         if (! $inbox || $inbox->type !== SharedInbox::TYPE_SHARED) {
             abort(422, 'Only shared mailbox emails can be attached to a lead.');

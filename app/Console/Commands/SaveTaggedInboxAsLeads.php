@@ -9,6 +9,7 @@ use App\Models\Lead;
 use App\Models\LeadIdentity;
 use App\Models\LeadLabel;
 use App\Models\LeadStatus;
+use App\Models\SharedInbox;
 use App\Models\User;
 use App\Services\LeadActivityService;
 use App\Services\LeadInboxAttachService;
@@ -22,8 +23,9 @@ class SaveTaggedInboxAsLeads extends Command
 {
     protected $signature = 'inbox:tag-to-leads
         {tag : Inbox tag name to match, e.g. "Inquiry"}
-        {--user= : ID of the user to run this as — controls which shared mailboxes can be attached, and who leads/activity are attributed to}
-        {--company= : Restrict to one company ID (defaults to the --user\'s company)}
+        {--shared-inbox= : Restrict to one shared inbox, by ID or name}
+        {--user= : ID of the user leads/activity should be attributed to (no mailbox membership required — this is a trusted backend job). Defaults to the --shared-inbox\'s creator when omitted.}
+        {--company= : Restrict to one company ID (defaults to the --shared-inbox\'s or --user\'s company)}
         {--source=Inbox tag import : Value stored in the lead\'s "source" field}
         {--dry-run : Preview matches without creating or attaching anything}';
 
@@ -40,21 +42,36 @@ class SaveTaggedInboxAsLeads extends Command
 
     public function handle(): int
     {
-        $userId = (int) $this->option('user');
-        if ($userId < 1) {
-            $this->error('Pass --user=<id> — the user this should run as (their mailbox membership controls which emails can be attached to leads, and activity/leads are attributed to them).');
+        $companyOption = $this->option('company') ? (int) $this->option('company') : null;
+        $sharedInboxOption = trim((string) $this->option('shared-inbox'));
 
-            return self::FAILURE;
+        $sharedInbox = null;
+        if ($sharedInboxOption !== '') {
+            $sharedInbox = $this->resolveSharedInbox($sharedInboxOption, $companyOption);
+            if (! $sharedInbox) {
+                $this->error("No shared inbox matching \"{$sharedInboxOption}\"".($companyOption ? " for company #{$companyOption}." : '.'));
+
+                return self::FAILURE;
+            }
         }
 
-        $user = User::find($userId);
-        if (! $user) {
+        $userId = (int) $this->option('user');
+        $user = $userId > 0 ? User::find($userId) : null;
+        if ($userId > 0 && ! $user) {
             $this->error("No user with id {$userId}.");
 
             return self::FAILURE;
         }
+        if (! $user && $sharedInbox) {
+            $user = $sharedInbox->creator;
+        }
+        if (! $user) {
+            $this->error('Pass --user=<id> to attribute the created leads/activity to someone (or pass --shared-inbox= so it can default to that mailbox\'s creator).');
 
-        $companyId = (int) ($this->option('company') ?: $user->company_id);
+            return self::FAILURE;
+        }
+
+        $companyId = $companyOption ?: (int) ($sharedInbox->company_id ?? $user->company_id);
         $tagName = trim((string) $this->argument('tag'));
         $dryRun = (bool) $this->option('dry-run');
         $source = trim((string) $this->option('source')) ?: 'Inbox tag import';
@@ -81,6 +98,7 @@ class SaveTaggedInboxAsLeads extends Command
             ->where('company_id', $companyId)
             ->whereNull('merged_into_id')
             ->whereNull('lead_id')
+            ->when($sharedInbox, fn ($q) => $q->where('shared_inbox_id', $sharedInbox->id))
             ->where(function ($q) use ($inboxTag, $leadLabel) {
                 if ($inboxTag) {
                     $q->orWhereHas('tags', fn ($t) => $t->where('inbox_tags.id', $inboxTag->id));
@@ -154,7 +172,11 @@ class SaveTaggedInboxAsLeads extends Command
             }
 
             try {
-                $this->inboxAttach->attach($lead, $conversation, $user);
+                // requireMembership: false — this runs from the server as a trusted backend
+                // job, not through the UI, so --user doesn't need to be a member of the
+                // shared inbox the "Inquiry" emails live in. It's still only used to
+                // attribute the created lead/activity records to someone.
+                $this->inboxAttach->attach($lead, $conversation, $user, requireMembership: false);
                 $this->line("  {$label}: {$name} → lead #{$lead->id} (attached).");
             } catch (Throwable $e) {
                 $this->line("  {$label}: {$name} → lead #{$lead->id}, but could not attach the email — {$e->getMessage()}");
@@ -166,6 +188,20 @@ class SaveTaggedInboxAsLeads extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    private function resolveSharedInbox(string $value, ?int $companyId): ?SharedInbox
+    {
+        $query = SharedInbox::query()->when($companyId, fn ($q) => $q->where('company_id', $companyId));
+
+        if (ctype_digit($value)) {
+            $byId = (clone $query)->find((int) $value);
+            if ($byId) {
+                return $byId;
+            }
+        }
+
+        return (clone $query)->whereRaw('LOWER(name) = ?', [strtolower($value)])->first();
     }
 
     /**
