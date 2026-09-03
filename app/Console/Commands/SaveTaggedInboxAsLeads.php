@@ -7,6 +7,7 @@ use App\Models\InboxMessage;
 use App\Models\InboxTag;
 use App\Models\Lead;
 use App\Models\LeadIdentity;
+use App\Models\LeadLabel;
 use App\Models\LeadStatus;
 use App\Models\User;
 use App\Services\LeadActivityService;
@@ -58,13 +59,20 @@ class SaveTaggedInboxAsLeads extends Command
         $dryRun = (bool) $this->option('dry-run');
         $source = trim((string) $this->option('source')) ?: 'Inbox tag import';
 
-        $tag = InboxTag::query()
+        // The inbox page renders a conversation's pills from two different sources —
+        // plain InboxTag rows and LeadLabel rows (the latter is what Front-imported
+        // labels use) — so a label typed in the UI could live in either table.
+        $inboxTag = InboxTag::query()
+            ->where('company_id', $companyId)
+            ->whereRaw('LOWER(name) = ?', [strtolower($tagName)])
+            ->first();
+        $leadLabel = LeadLabel::query()
             ->where('company_id', $companyId)
             ->whereRaw('LOWER(name) = ?', [strtolower($tagName)])
             ->first();
 
-        if (! $tag) {
-            $this->error("No inbox tag named \"{$tagName}\" for company #{$companyId}.");
+        if (! $inboxTag && ! $leadLabel) {
+            $this->error("No inbox tag or lead label named \"{$tagName}\" for company #{$companyId}.");
 
             return self::FAILURE;
         }
@@ -73,13 +81,20 @@ class SaveTaggedInboxAsLeads extends Command
             ->where('company_id', $companyId)
             ->whereNull('merged_into_id')
             ->whereNull('lead_id')
-            ->whereHas('tags', fn ($q) => $q->where('inbox_tags.id', $tag->id))
+            ->where(function ($q) use ($inboxTag, $leadLabel) {
+                if ($inboxTag) {
+                    $q->orWhereHas('tags', fn ($t) => $t->where('inbox_tags.id', $inboxTag->id));
+                }
+                if ($leadLabel) {
+                    $q->orWhereHas('leadLabels', fn ($l) => $l->where('lead_labels.id', $leadLabel->id));
+                }
+            })
             ->with(['messages', 'inbox.account'])
             ->orderBy('id')
             ->get();
 
         if ($conversations->isEmpty()) {
-            $this->info("No conversations tagged \"{$tagName}\" without a lead already attached.");
+            $this->info("No conversations labeled \"{$tagName}\" without a lead already attached.");
 
             return self::SUCCESS;
         }
