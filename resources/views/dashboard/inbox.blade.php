@@ -5778,6 +5778,10 @@
             }
         }
         renderThread();
+        const draftMsg = [...(data.conversation?.messages || [])].reverse().find(m => m.is_draft);
+        if (draftMsg && state.composerCanReply) {
+            openDraftReplyModal(draftMsg);
+        }
         window.updateHeaderNotificationsBadge?.();
     }
 
