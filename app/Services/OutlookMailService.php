@@ -1079,6 +1079,157 @@ class OutlookMailService
     }
 
     /**
+     * Save (create or update) a draft reply in the Outlook Drafts folder without sending it.
+     *
+     * @param  array{
+     *     body: string,
+     *     to: string,
+     *     cc?: ?string,
+     *     attachments?: array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>,
+     *     reply_to_message_id: string,
+     *     draft_message_id?: ?string,
+     * }  $payload
+     * @return array{id: string}|null
+     */
+    public function saveDraftReply(SharedInbox $inbox, array $payload): ?array
+    {
+        $account = $inbox->account;
+        if (! $account) {
+            return null;
+        }
+
+        $account = $this->refreshTokenIfNeeded($account);
+        $mailboxPath = $this->mailboxPath($inbox);
+
+        $replyToId = (string) ($payload['reply_to_message_id'] ?? '');
+        if ($replyToId === '' || str_starts_with($replyToId, 'local-')) {
+            return null;
+        }
+
+        $draftId = (string) ($payload['draft_message_id'] ?? '');
+        $existingBody = '';
+
+        if ($draftId !== '') {
+            $existingResp = Http::withToken($account->access_token)
+                ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}", ['$select' => 'id,body,isDraft']);
+            if ($existingResp->successful() && ($existingResp->json('isDraft') ?? true)) {
+                $existingBody = (string) ($existingResp->json('body.content') ?? '');
+            } else {
+                $draftId = '';
+            }
+        }
+
+        if ($draftId === '') {
+            $createResp = Http::withToken($account->access_token)
+                ->timeout(60)
+                ->post(self::GRAPH_BASE."/{$mailboxPath}/messages/{$replyToId}/createReply", []);
+
+            if (! $createResp->successful()) {
+                Log::warning('Outlook create draft reply failed', [
+                    'status' => $createResp->status(),
+                    'body' => mb_substr($createResp->body(), 0, 500),
+                ]);
+
+                return null;
+            }
+
+            $draftId = (string) $createResp->json('id');
+            $existingBody = (string) ($createResp->json('body.content') ?? '');
+            if ($draftId === '') {
+                return null;
+            }
+        }
+
+        $toList = array_values(array_filter(array_map('trim', explode(',', (string) $payload['to']))));
+        $ccList = array_values(array_filter(array_map('trim', explode(',', (string) ($payload['cc'] ?? '')))));
+
+        $update = [
+            'body' => [
+                'contentType' => 'HTML',
+                'content' => $this->mergeDraftBody($existingBody, (string) $payload['body']),
+            ],
+            'toRecipients' => array_map(fn ($email) => ['emailAddress' => ['address' => $email]], $toList),
+            'ccRecipients' => array_map(fn ($email) => ['emailAddress' => ['address' => $email]], $ccList),
+        ];
+
+        $patchResp = Http::withToken($account->access_token)
+            ->timeout(60)
+            ->patch(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}", $update);
+
+        if (! $patchResp->successful()) {
+            Log::warning('Outlook update draft reply failed', [
+                'status' => $patchResp->status(),
+                'body' => mb_substr($patchResp->body(), 0, 500),
+            ]);
+
+            return null;
+        }
+
+        // Replace attachments wholesale so repeated draft saves don't pile up duplicates.
+        $existingAttachments = Http::withToken($account->access_token)
+            ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}/attachments", ['$select' => 'id']);
+        if ($existingAttachments->successful()) {
+            foreach ($existingAttachments->json('value') ?? [] as $existingAttachment) {
+                $attachmentId = $existingAttachment['id'] ?? null;
+                if ($attachmentId) {
+                    Http::withToken($account->access_token)
+                        ->delete(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}/attachments/{$attachmentId}");
+                }
+            }
+        }
+
+        foreach ($payload['attachments'] ?? [] as $attachment) {
+            $name = trim((string) ($attachment['name'] ?? ''));
+            $bytes = (string) ($attachment['contentBytes'] ?? '');
+            if ($name === '' || $bytes === '') {
+                continue;
+            }
+            $item = [
+                '@odata.type' => '#microsoft.graph.fileAttachment',
+                'name' => $name,
+                'contentType' => (string) ($attachment['contentType'] ?? 'application/octet-stream'),
+                'contentBytes' => $bytes,
+            ];
+            if (! empty($attachment['isInline']) && ! empty($attachment['contentId'])) {
+                $item['isInline'] = true;
+                $item['contentId'] = (string) $attachment['contentId'];
+            }
+            Http::withToken($account->access_token)
+                ->timeout(60)
+                ->post(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}/attachments", $item);
+        }
+
+        $select = 'id,conversationId,subject,bodyPreview,from,toRecipients,ccRecipients,replyTo,receivedDateTime,sentDateTime,lastModifiedDateTime,isRead,isDraft,body';
+        $finalResp = Http::withToken($account->access_token)
+            ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}", ['$select' => $select]);
+
+        if ($finalResp->successful()) {
+            $this->upsertMessage($inbox, $finalResp->json() ?: [], 'drafts', 'drafts', 'outbound');
+        }
+
+        return ['id' => $draftId];
+    }
+
+    /**
+     * Insert freshly-typed reply content ahead of the quoted history Graph
+     * pre-fills a createReply draft with, so drafts read like a normal reply.
+     */
+    private function mergeDraftBody(string $existingHtml, string $newContent): string
+    {
+        if ($existingHtml === '') {
+            return $newContent;
+        }
+
+        if (preg_match('/<body[^>]*>/i', $existingHtml, $m, PREG_OFFSET_CAPTURE)) {
+            $insertAt = $m[0][1] + strlen($m[0][0]);
+
+            return substr($existingHtml, 0, $insertAt).$newContent.substr($existingHtml, $insertAt);
+        }
+
+        return $newContent.$existingHtml;
+    }
+
+    /**
      * @param  array<int, mixed>  $recipients
      */
     private function graphRecipientAddresses(array $recipients): string

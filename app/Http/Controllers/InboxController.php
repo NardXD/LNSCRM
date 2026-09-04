@@ -1462,66 +1462,12 @@ class InboxController extends Controller
         }
 
         $lastInbound = $conversation->messages()->where('direction', 'inbound')->orderByDesc('sent_at')->first();
-        $source = $lastInbound ?: $conversation->messages()->orderByDesc('sent_at')->first();
-        $mailboxEmail = strtolower(trim((string) ($inbox->email ?: $inbox->account->email ?: '')));
-        $requestedTo = $this->normalizeRecipientEmails($validated['to'] ?? null);
-        $requestedCc = $this->normalizeRecipientEmails($validated['cc'] ?? null);
-        $honorRecipients = $request->exists('to') || $request->exists('cc');
-        $sourceReplyTo = $this->normalizeRecipientEmails($source?->reply_to_emails);
-        $sourceFrom = $this->normalizeRecipientEmails($source?->from_email);
-        $defaultTo = $sourceReplyTo->isNotEmpty()
-            ? $sourceReplyTo
-            : ($sourceFrom->isNotEmpty()
-                ? $sourceFrom
-                : $this->normalizeRecipientEmails($conversation->from_email));
 
-        if ($honorRecipients) {
-            $toEmails = $requestedTo;
-            $ccEmails = $requestedCc->reject(fn ($email) => $toEmails->contains($email))->values();
-        } else {
-            $toEmails = $requestedTo->isNotEmpty()
-                ? $requestedTo
-                : $defaultTo;
-            $ccEmails = $requestedCc;
-
-            if ($request->boolean('reply_all') && $source) {
-                $others = collect()
-                    ->merge($sourceReplyTo)
-                    ->merge($sourceFrom)
-                    ->merge($this->normalizeRecipientEmails($source->to_emails))
-                    ->merge($this->normalizeRecipientEmails($source->cc_emails))
-                    ->filter()
-                    ->unique()
-                    ->reject(fn ($email) => $email === $mailboxEmail)
-                    ->values();
-                if ($others->isNotEmpty()) {
-                    $toEmails = collect([$others->shift()]);
-                    $ccEmails = $others->merge($ccEmails)->unique()->values();
-                }
-            }
+        $targets = $this->resolveReplyRecipients($request, $conversation, $inbox, $validated);
+        if ($targets instanceof JsonResponse) {
+            return $targets;
         }
-
-        $toEmails = $toEmails
-            ->reject(fn ($email) => $email === '')
-            ->unique()
-            ->values();
-        $ccEmails = $ccEmails
-            ->reject(fn ($email) => $email === '' || $toEmails->contains($email))
-            ->unique()
-            ->values();
-
-        if ($toEmails->isEmpty()) {
-            return response()->json(['message' => 'No recipient found.'], 422);
-        }
-
-        foreach ($toEmails->merge($ccEmails) as $email) {
-            if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                return response()->json(['message' => "Invalid recipient: {$email}"], 422);
-            }
-        }
-
-        $to = $toEmails->implode(', ');
-        $cc = $ccEmails->isNotEmpty() ? $ccEmails->implode(', ') : null;
+        ['to' => $to, 'cc' => $cc] = $targets;
 
         $attachments = $this->normalizeAttachments($validated['attachments'] ?? []);
         if ($attachments === false) {
@@ -1628,6 +1574,161 @@ class InboxController extends Controller
             'conversation' => $this->formatConversation($result['conversation']),
             'archived' => $archive,
         ]);
+    }
+
+    public function saveDraft(Request $request, InboxConversation $conversation): JsonResponse
+    {
+        $this->authorizeConversation($request->user(), $conversation);
+        $validated = $request->validate([
+            'body' => ['required', 'string', 'max:5000000'],
+            'to' => ['nullable', 'string', 'max:2000'],
+            'cc' => ['nullable', 'string', 'max:2000'],
+            'inbox_id' => ['nullable', 'integer'],
+            'draft_message_id' => ['nullable', 'string', 'max:512'],
+            'attachments' => ['nullable', 'array', 'max:10'],
+            'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
+            'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
+            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:5000000'],
+            'attachments.*.isInline' => ['nullable', 'boolean'],
+            'attachments.*.contentId' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        $inbox = $conversation->inbox;
+        if (! empty($validated['inbox_id']) && (int) $validated['inbox_id'] !== (int) $inbox?->id) {
+            $requestedInbox = $this->accessibleInboxes($request->user())
+                ->where('id', $validated['inbox_id'])
+                ->with('account')
+                ->first();
+            if (! $requestedInbox) {
+                return response()->json(['message' => 'From inbox not found.'], 404);
+            }
+            $inbox = $requestedInbox;
+        }
+        if (! $inbox?->account) {
+            return response()->json(['message' => 'This inbox is not connected to Outlook.'], 422);
+        }
+
+        $lastInbound = $conversation->messages()->where('direction', 'inbound')->orderByDesc('sent_at')->first();
+        if (! $lastInbound || ! $lastInbound->external_message_id || str_starts_with($lastInbound->external_message_id, 'local-')) {
+            return response()->json(['message' => 'No Outlook message to reply to yet.'], 422);
+        }
+
+        $targets = $this->resolveReplyRecipients($request, $conversation, $inbox, $validated);
+        if ($targets instanceof JsonResponse) {
+            return $targets;
+        }
+        ['to' => $to, 'cc' => $cc] = $targets;
+
+        $attachments = $this->normalizeAttachments($validated['attachments'] ?? []);
+        if ($attachments === false) {
+            return response()->json(['message' => 'Attachments are too large. Keep each file under 3 MB.'], 422);
+        }
+
+        $prepared = $this->prepareTemplateContent((string) $validated['body'], $attachments);
+        if (count($prepared['attachments']) > 10) {
+            return response()->json(['message' => 'Too many attachments. Use up to 5 files plus a few inline images.'], 422);
+        }
+
+        $result = $this->mailService->saveDraftReply($inbox, [
+            'body' => $prepared['body'],
+            'to' => $to,
+            'cc' => $cc,
+            'attachments' => $prepared['attachments'],
+            'reply_to_message_id' => $lastInbound->external_message_id,
+            'draft_message_id' => $validated['draft_message_id'] ?? null,
+        ]);
+
+        if (! $result) {
+            return response()->json(['message' => 'Failed to save draft to Outlook.'], 502);
+        }
+
+        $this->recordActivity(
+            $conversation,
+            $request->user(),
+            'draft_saved',
+            $request->user()->name.' saved a draft reply',
+            ['draft_message_id' => $result['id']]
+        );
+
+        return response()->json([
+            'draft_message_id' => $result['id'],
+            'conversation' => $this->formatConversation($conversation->fresh(['assignee', 'tags', 'leadLabels', 'inbox']) ?? $conversation),
+        ]);
+    }
+
+    /**
+     * @param  array{body: string, to?: ?string, cc?: ?string, reply_all?: mixed}  $validated
+     * @return array{to: string, cc: ?string}|JsonResponse
+     */
+    private function resolveReplyRecipients(
+        Request $request,
+        InboxConversation $conversation,
+        SharedInbox $inbox,
+        array $validated
+    ): array|JsonResponse {
+        $lastInbound = $conversation->messages()->where('direction', 'inbound')->orderByDesc('sent_at')->first();
+        $source = $lastInbound ?: $conversation->messages()->orderByDesc('sent_at')->first();
+        $mailboxEmail = strtolower(trim((string) ($inbox->email ?: $inbox->account->email ?: '')));
+        $requestedTo = $this->normalizeRecipientEmails($validated['to'] ?? null);
+        $requestedCc = $this->normalizeRecipientEmails($validated['cc'] ?? null);
+        $honorRecipients = $request->exists('to') || $request->exists('cc');
+        $sourceReplyTo = $this->normalizeRecipientEmails($source?->reply_to_emails);
+        $sourceFrom = $this->normalizeRecipientEmails($source?->from_email);
+        $defaultTo = $sourceReplyTo->isNotEmpty()
+            ? $sourceReplyTo
+            : ($sourceFrom->isNotEmpty()
+                ? $sourceFrom
+                : $this->normalizeRecipientEmails($conversation->from_email));
+
+        if ($honorRecipients) {
+            $toEmails = $requestedTo;
+            $ccEmails = $requestedCc->reject(fn ($email) => $toEmails->contains($email))->values();
+        } else {
+            $toEmails = $requestedTo->isNotEmpty()
+                ? $requestedTo
+                : $defaultTo;
+            $ccEmails = $requestedCc;
+
+            if ($request->boolean('reply_all') && $source) {
+                $others = collect()
+                    ->merge($sourceReplyTo)
+                    ->merge($sourceFrom)
+                    ->merge($this->normalizeRecipientEmails($source->to_emails))
+                    ->merge($this->normalizeRecipientEmails($source->cc_emails))
+                    ->filter()
+                    ->unique()
+                    ->reject(fn ($email) => $email === $mailboxEmail)
+                    ->values();
+                if ($others->isNotEmpty()) {
+                    $toEmails = collect([$others->shift()]);
+                    $ccEmails = $others->merge($ccEmails)->unique()->values();
+                }
+            }
+        }
+
+        $toEmails = $toEmails
+            ->reject(fn ($email) => $email === '')
+            ->unique()
+            ->values();
+        $ccEmails = $ccEmails
+            ->reject(fn ($email) => $email === '' || $toEmails->contains($email))
+            ->unique()
+            ->values();
+
+        if ($toEmails->isEmpty()) {
+            return response()->json(['message' => 'No recipient found.'], 422);
+        }
+
+        foreach ($toEmails->merge($ccEmails) as $email) {
+            if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return response()->json(['message' => "Invalid recipient: {$email}"], 422);
+            }
+        }
+
+        return [
+            'to' => $toEmails->implode(', '),
+            'cc' => $ccEmails->isNotEmpty() ? $ccEmails->implode(', ') : null,
+        ];
     }
 
     public function cancelScheduledReply(

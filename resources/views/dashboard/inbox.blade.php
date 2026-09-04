@@ -276,6 +276,7 @@
                                     <button type="button" data-send-mode="send">Send reply</button>
                                     <button type="button" data-send-mode="archive">Send and archive</button>
                                     <button type="button" data-send-mode="later">Send later…</button>
+                                    <button type="button" data-send-mode="draft">Save as draft</button>
                                     <div class="inbox-send-later" id="sendLaterFields" hidden>
                                         Send at
                                         <input type="datetime-local" id="sendLaterAt">
@@ -2926,6 +2927,7 @@ select.inbox-reply-header-input {
         expandedMessageIds: {},
         replyAll: false,
         replyCcEmails: [],
+        replyDraftId: null,
         editingTemplateId: null,
         templateSearch: '',
         templateListPage: 1,
@@ -5755,6 +5757,7 @@ select.inbox-reply-header-input {
         state.commentAttachments = [];
         state.replyCcEmails = [];
         state.replyAll = false;
+        state.replyDraftId = null;
         if (el('replyTo')) el('replyTo').value = '';
         if (el('replyCc')) el('replyCc').value = '';
         state.expandedMessageIds = {};
@@ -6097,6 +6100,7 @@ select.inbox-reply-header-input {
     function startReplyFromMessage(message, replyAll) {
         if (!state.composerCanReply) return;
         state.replyAll = !!replyAll;
+        state.replyDraftId = null;
         populateReplyHeaders(message, { replyAll: !!replyAll, force: true });
         setComposerMode('reply');
         el('replyBody')?.focus();
@@ -7844,6 +7848,8 @@ select.inbox-reply-header-input {
         closeThreadPops();
         if (mode === 'archive') {
             await sendReply({ archive: true });
+        } else if (mode === 'draft') {
+            await saveReplyDraft();
         } else {
             await sendReply({});
         }
@@ -7894,6 +7900,7 @@ select.inbox-reply-header-input {
             state.replyAttachments = [];
             state.replyCcEmails = [];
             state.replyAll = false;
+            state.replyDraftId = null;
             if (el('replyTo')) el('replyTo').value = '';
             if (el('replyCc')) el('replyCc').value = '';
             renderAttachChips('reply');
@@ -7916,6 +7923,44 @@ select.inbox-reply-header-input {
             }
 
             await openConversation(data.conversation?.id || state.selectedId);
+            await loadConversations();
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            el('btnSendReply').disabled = false;
+            if (el('btnSendReplyMenu')) el('btnSendReplyMenu').disabled = false;
+        }
+    }
+
+    async function saveReplyDraft() {
+        if (!state.selectedId) return;
+        const html = getComposerHtml('reply');
+        if (isComposerEmpty('reply')) return alert('Write a reply first.');
+        const to = (el('replyTo')?.value || '').trim();
+        const cc = (el('replyCc')?.value || '').trim();
+        const inboxId = Number(el('replyFrom')?.value || 0);
+        if (!to) return alert('Add at least one To recipient.');
+        el('btnSendReply').disabled = true;
+        el('btnSendReplyMenu') && (el('btnSendReplyMenu').disabled = true);
+        const hint = el('composerHint');
+        const hintPrevText = hint ? hint.textContent : '';
+        try {
+            const payload = { body: html, to, cc: cc || null };
+            if (inboxId) payload.inbox_id = inboxId;
+            if (state.replyDraftId) payload.draft_message_id = state.replyDraftId;
+            const prepared = prepareEmailSendPayload(payload.body, state.replyAttachments);
+            payload.body = prepared.body;
+            payload.attachments = prepared.attachments;
+            const data = await api('/conversations/' + state.selectedId + '/save-draft', { method: 'POST', body: payload });
+            state.replyDraftId = data.draft_message_id || state.replyDraftId;
+            if (hint) {
+                hint.textContent = 'Draft saved to Outlook';
+                setTimeout(() => {
+                    if (state.composerMode === 'reply' && hint.textContent === 'Draft saved to Outlook') {
+                        hint.textContent = hintPrevText || 'Reply via Outlook';
+                    }
+                }, 2500);
+            }
             await loadConversations();
         } catch (err) {
             alert(err.message);
