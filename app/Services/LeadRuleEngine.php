@@ -3,10 +3,12 @@
 namespace App\Services;
 
 use App\Models\InboxConversation;
+use App\Models\InboxTemplate;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\LeadLabel;
 use App\Models\LeadRule;
+use App\Models\LeadScheduledEmail;
 use App\Models\LeadStatus;
 use App\Models\User;
 use App\Notifications\LeadRuleNotification;
@@ -58,7 +60,8 @@ class LeadRuleEngine
 
     public function __construct(
         protected LeadActivityService $leadActivity,
-        protected FlexCrmLookupService $crmLookup
+        protected FlexCrmLookupService $crmLookup,
+        protected LeadChannelMessageService $channelMessages
     ) {}
 
     /**
@@ -165,7 +168,7 @@ class LeadRuleEngine
                 if (! $this->matches($lead, $channel, $rule->conditions ?? [], $context)) {
                     continue;
                 }
-                $lead = $this->runActions($lead, $rule->actions ?? [], $channel, $context, $companyId);
+                $lead = $this->runActions($lead, $rule->actions ?? [], $channel, $context, $companyId, $rule);
                 LeadRule::whereKey($rule->id)->update(['last_applied_at' => now()]);
                 if ($rule->stop_processing) {
                     break;
@@ -327,7 +330,7 @@ class LeadRuleEngine
      * @param  array<int, array{type?: string, value?: mixed}>  $actions
      * @param  array{company_id?: int, contact_name?: ?string, phone?: ?string, email?: ?string, facebook_name?: ?string, instagram_username?: ?string}  $context
      */
-    public function runActions(?Lead $lead, array $actions, string $channel = '', array $context = [], int $companyId = 0): ?Lead
+    public function runActions(?Lead $lead, array $actions, string $channel = '', array $context = [], int $companyId = 0, ?LeadRule $rule = null): ?Lead
     {
         $ordered = [];
         foreach ($actions as $action) {
@@ -358,6 +361,7 @@ class LeadRuleEngine
                     'notify_assignee' => $this->notifyAssignee($lead),
                     'reopen_after_days' => $this->scheduleReopen($lead, $value),
                     'unsnooze' => $this->unsnooze($lead),
+                    'send_email' => $this->sendEmail($lead, $value, $rule),
                     default => null,
                 };
             } catch (\Throwable $e) {
@@ -710,5 +714,75 @@ class LeadRuleEngine
             'Rule notification: '.$lead->name.' needs your attention.',
             $lead->source
         ));
+    }
+
+    private function sendEmail(Lead $lead, mixed $value, ?LeadRule $rule): void
+    {
+        $templateId = (int) (is_array($value) ? ($value['template_id'] ?? 0) : 0);
+        if ($templateId < 1) {
+            return;
+        }
+
+        $template = InboxTemplate::query()
+            ->where('company_id', $lead->company_id)
+            ->whereKey($templateId)
+            ->first();
+        if (! $template) {
+            return;
+        }
+
+        $days = (int) ($value['days'] ?? 0);
+        if ($days > 365) {
+            $days = 365;
+        }
+        $mailboxId = (int) ($value['mailbox_id'] ?? 0) ?: null;
+
+        $actor = ($rule?->created_by ? User::find($rule->created_by) : null) ?? $lead->assignedUser;
+        if (! $actor) {
+            Log::warning('Lead rule could not send email: no sender available', [
+                'lead_id' => $lead->id,
+                'rule_id' => $rule?->id,
+            ]);
+
+            return;
+        }
+
+        if ($days < 1) {
+            try {
+                $this->channelMessages->send($lead, $actor, 'inbox', $templateId, null, null, $mailboxId, null);
+            } catch (\Throwable $e) {
+                Log::warning('Lead rule could not send email immediately', [
+                    'lead_id' => $lead->id,
+                    'template_id' => $templateId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            return;
+        }
+
+        $sendAt = now()->addDays($days);
+        LeadScheduledEmail::create([
+            'company_id' => $lead->company_id,
+            'lead_id' => $lead->id,
+            'lead_rule_id' => $rule?->id,
+            'inbox_template_id' => $templateId,
+            'shared_inbox_id' => $mailboxId,
+            'user_id' => $actor->id,
+            'send_at' => $sendAt,
+            'status' => LeadScheduledEmail::STATUS_PENDING,
+        ]);
+
+        $this->leadActivity->record(
+            $lead,
+            LeadActivity::TEMPLATE_SCHEDULED,
+            'Email "'.$template->name.'" will be sent in '.$days.' '.($days === 1 ? 'day' : 'days').' ('.$sendAt->toFormattedDateString().')',
+            [
+                'source' => 'send_email',
+                'template_id' => $templateId,
+                'days' => $days,
+                'send_at' => $sendAt->toIso8601String(),
+            ]
+        );
     }
 }

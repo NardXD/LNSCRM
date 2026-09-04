@@ -10,6 +10,7 @@ use App\Http\Requests\UpdateLeadRequest;
 use App\Models\Company;
 use App\Models\FacebookConversation;
 use App\Models\InboxConversation;
+use App\Models\InboxTemplate;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\LeadIdentity;
@@ -621,6 +622,17 @@ class LeadsController extends Controller
                         'name' => $inbox->name,
                         'email' => $inbox->email,
                         'type' => $inbox->type,
+                    ])
+                    ->values()
+                    ->all(),
+                'email_templates' => InboxTemplate::query()
+                    ->where('company_id', $companyId)
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'subject'])
+                    ->map(fn (InboxTemplate $template) => [
+                        'id' => $template->id,
+                        'name' => $template->name,
+                        'subject' => $template->subject,
                     ])
                     ->values()
                     ->all(),
@@ -1652,7 +1664,7 @@ class LeadsController extends Controller
             'conditions.*.operator' => ['required', 'in:contains,equals,starts_with,in,does_not_have,not_equals'],
             'conditions.*.value' => ['nullable'],
             'actions' => [$required, 'array', 'min:1'],
-            'actions.*.type' => ['required', 'in:create_lead,assign,add_label,set_status,set_status_after_days,notify_assignee,reopen_after_days,unsnooze'],
+            'actions.*.type' => ['required', 'in:create_lead,assign,add_label,set_status,set_status_after_days,notify_assignee,reopen_after_days,unsnooze,send_email'],
             'actions.*.value' => ['nullable'],
         ]);
 
@@ -1765,6 +1777,21 @@ class LeadsController extends Controller
                 $days = (int) $action['value'];
                 if ($days < 1 || $days > 365) {
                     abort(response()->json(['message' => 'Choose how many days before reopen (1–365).'], 422));
+                }
+            }
+            if ($type === 'send_email') {
+                $payload = $action['value'] ?? null;
+                $templateId = (int) (is_array($payload) ? ($payload['template_id'] ?? 0) : 0);
+                $days = (int) (is_array($payload) ? ($payload['days'] ?? 0) : 0);
+                $mailboxId = is_array($payload) ? ($payload['mailbox_id'] ?? null) : null;
+                if ($templateId < 1 || ! InboxTemplate::where('company_id', Auth::user()->company_id)->whereKey($templateId)->exists()) {
+                    abort(response()->json(['message' => 'Choose a valid email template.'], 422));
+                }
+                if ($days < 0 || $days > 365) {
+                    abort(response()->json(['message' => 'Choose how many days to wait before sending (0–365).'], 422));
+                }
+                if ($mailboxId !== null && ! SharedInbox::where('company_id', Auth::user()->company_id)->whereKey((int) $mailboxId)->exists()) {
+                    abort(response()->json(['message' => 'Choose a mailbox you can send from.'], 422));
                 }
             }
             if ($type === 'create_lead' && is_array($action['value'] ?? null)) {

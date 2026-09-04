@@ -26,6 +26,7 @@ class LeadActivity extends Model
     public const FOLLOW_UP_DAY = 'follow_up_day';
     public const STATUS_SCHEDULED = 'status_scheduled';
     public const TEMPLATE_SENT = 'template_sent';
+    public const TEMPLATE_SCHEDULED = 'template_scheduled';
     public const STOREGANISE_PUSH = 'storeganise_push';
     public const STOREGANISE_UPDATE = 'storeganise_update';
 

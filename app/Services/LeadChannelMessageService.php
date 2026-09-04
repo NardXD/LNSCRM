@@ -9,6 +9,7 @@ use App\Models\InboxConversation;
 use App\Models\InboxTemplate;
 use App\Models\Lead;
 use App\Models\LeadActivity;
+use App\Models\LeadScheduledEmail;
 use App\Models\MessageTemplate;
 use App\Models\SharedInbox;
 use App\Models\SmsConversation;
@@ -20,6 +21,7 @@ use App\Models\ViberMessage;
 use App\Models\WhatsAppConversation;
 use App\Models\WhatsAppIntegration;
 use App\Models\WhatsAppMessage;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class LeadChannelMessageService
@@ -773,5 +775,63 @@ class LeadChannelMessageService
     protected function looksLikeHtml(string $body): bool
     {
         return (bool) preg_match('/<\s*[a-zA-Z][^>]*>/', $body);
+    }
+
+    /**
+     * @return array{sent: int, failed: int}
+     */
+    public function processDueScheduledEmails(int $limit = 50): array
+    {
+        $sent = 0;
+        $failed = 0;
+
+        LeadScheduledEmail::query()
+            ->where('status', LeadScheduledEmail::STATUS_SENDING)
+            ->where('updated_at', '<', now()->subMinutes(10))
+            ->update(['status' => LeadScheduledEmail::STATUS_PENDING, 'error_message' => null]);
+
+        $due = LeadScheduledEmail::query()
+            ->where('status', LeadScheduledEmail::STATUS_PENDING)
+            ->where('send_at', '<=', now())
+            ->orderBy('send_at')
+            ->orderBy('id')
+            ->limit(max(1, $limit))
+            ->get();
+
+        foreach ($due as $scheduled) {
+            $claimed = LeadScheduledEmail::query()
+                ->whereKey($scheduled->id)
+                ->where('status', LeadScheduledEmail::STATUS_PENDING)
+                ->update(['status' => LeadScheduledEmail::STATUS_SENDING]);
+            if ($claimed < 1) {
+                continue;
+            }
+
+            $fresh = $scheduled->fresh(['lead', 'user']);
+            if (! $fresh || ! $fresh->lead || ! $fresh->user) {
+                $scheduled->update([
+                    'status' => LeadScheduledEmail::STATUS_FAILED,
+                    'error_message' => 'Lead or sender missing.',
+                ]);
+                $failed++;
+
+                continue;
+            }
+
+            try {
+                $this->send($fresh->lead, $fresh->user, 'inbox', $fresh->inbox_template_id, null, null, $fresh->shared_inbox_id, null);
+                $fresh->update(['status' => LeadScheduledEmail::STATUS_SENT, 'error_message' => null]);
+                $sent++;
+            } catch (\Throwable $e) {
+                $fresh->update(['status' => LeadScheduledEmail::STATUS_FAILED, 'error_message' => $e->getMessage()]);
+                $failed++;
+                Log::warning('Scheduled lead email failed', [
+                    'scheduled_id' => $fresh->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return ['sent' => $sent, 'failed' => $failed];
     }
 }

@@ -910,6 +910,10 @@
 .leads-rule-extra-card.is-action.is-create-lead { grid-template-columns: minmax(0, 1fr) auto; }
 .leads-rule-extra-card.is-action.is-create-lead [data-rule-action-value] { display: none; }
 .leads-rule-extra-card.is-action.is-delayed-status { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.7fr) minmax(0, 1fr) auto; }
+.leads-rule-extra-card.is-action.is-send-email { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 0.85fr) minmax(0, 1.1fr) auto; }
+.leads-rule-send-email { display: contents; }
+.leads-rule-send-email-days { display: flex; align-items: center; gap: 0.3rem; min-width: 0; padding: 0.4rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); font-size: 0.82rem; color: var(--text-secondary); white-space: nowrap; }
+.leads-rule-send-email-days input[data-rule-action-days] { width: 3.4rem; flex: none; border: none; padding: 0; background: transparent; }
 .leads-rule-delayed-help { grid-column: 1 / -1; margin: 0; font-size: 0.72rem; color: var(--text-muted); }
 .leads-rule-extra-card.is-action.is-rr-selected { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
 .leads-rule-rr-users { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.3rem; }
@@ -973,7 +977,7 @@
     const STOREGANISE_CONNECTED = @json(!empty($storeganiseConnected));
     const CAN_VIEW_QUOTATION_BUILDER = @json(!empty($canViewQuotationBuilder));
     const LEAD_QUOTE_URL_BASE = @json(url('/quotation-builder/leads'));
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', savedLeadStoreganiseSiteId: null, storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], emailTemplates: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', savedLeadStoreganiseSiteId: null, storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -3306,6 +3310,7 @@
         state.rulesTotal = Number(pag.total) || 0;
         if (data.meta && typeof data.meta.can_manage === 'boolean') state.canManageRules = data.meta.can_manage;
         state.inboxes = Array.isArray(data.meta?.inboxes) ? data.meta.inboxes : [];
+        state.emailTemplates = Array.isArray(data.meta?.email_templates) ? data.meta.email_templates : [];
         renderRuleInboxPicker();
         if (!document.getElementById('leadRuleListView')?.hidden) showRuleList();
     }
@@ -3459,6 +3464,7 @@
             ['reopen_after_days', 'Reopen after days'],
             ['unsnooze', 'Unsnooze lead'],
             ['notify_assignee', 'Notify assignee'],
+            ['send_email', 'Send email'],
         ].map(([value, label]) =>
             `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`
         ).join('');
@@ -3500,7 +3506,50 @@
             ).join('');
             return opts + (days.includes(Number(selectedDay)) ? '' : `<option value="${esc(selectedDay)}" selected>${esc(selectedDay)} days</option>`);
         }
+        if (type === 'send_email') {
+            const templates = state.emailTemplates || [];
+            const current = String(selected || '');
+            const opts = templates.map(t =>
+                `<option value="${t.id}" ${current === String(t.id) ? 'selected' : ''}>${esc(t.name)}</option>`
+            ).join('');
+            return opts || '<option value="">No email templates yet</option>';
+        }
         return '<option value="">—</option>';
+    }
+    function sendEmailTemplateId(value) {
+        if (value && typeof value === 'object' && !Array.isArray(value) && value.template_id != null) {
+            return String(value.template_id);
+        }
+        return '';
+    }
+    function sendEmailDays(value) {
+        if (value && typeof value === 'object' && !Array.isArray(value) && value.days != null && value.days !== '') {
+            return String(value.days);
+        }
+        return '0';
+    }
+    function sendEmailMailboxId(value) {
+        if (value && typeof value === 'object' && !Array.isArray(value) && value.mailbox_id != null && value.mailbox_id !== '') {
+            return String(value.mailbox_id);
+        }
+        return '';
+    }
+    function sendEmailExtraHtml(preset = {}) {
+        const days = sendEmailDays(preset.value);
+        const mailboxId = sendEmailMailboxId(preset.value);
+        const mailboxes = state.inboxes || [];
+        const mailboxOpts = `<option value="">Default mailbox</option>` + mailboxes.map(m =>
+            `<option value="${m.id}" ${String(mailboxId) === String(m.id) ? 'selected' : ''}>${esc(inboxDisplayName(m))}</option>`
+        ).join('');
+        return `
+            <div class="leads-rule-send-email" data-send-email-fields>
+                <label class="leads-rule-send-email-days" title="Days after the trigger to send this email (0 = immediately)">
+                    <input type="number" data-rule-action-days min="0" max="365" step="1" value="${esc(days)}" placeholder="0">
+                    <span>days</span>
+                </label>
+                <select data-rule-action-mailbox>${mailboxOpts}</select>
+            </div>
+        `;
     }
     function triggerLabelOptions(selected = '') {
         const labels = state.companyLabels || [];
@@ -3661,6 +3710,7 @@
         if (!row) return;
         row.classList.toggle('is-create-lead', type === 'create_lead');
         row.classList.toggle('is-delayed-status', type === 'set_status_after_days');
+        row.classList.toggle('is-send-email', type === 'send_email');
         const valueSel = row.querySelector('[data-rule-action-value]');
         const needsValue = actionNeedsValue(type);
         if (valueSel) {
@@ -3672,7 +3722,7 @@
                 if (type === 'reopen_after_days' || type === 'set_status_after_days') fallback = '3';
                 const selected = type === 'set_status_after_days'
                     ? delayedStatusDays(preset.value)
-                    : (assignMode(preset.value) || fallback);
+                    : (type === 'send_email' ? sendEmailTemplateId(preset.value) : (assignMode(preset.value) || fallback));
                 valueSel.innerHTML = actionValueOptions(type, selected || fallback);
             }
         }
@@ -3680,12 +3730,17 @@
         row.querySelector('.leads-rule-create-help')?.remove();
         row.querySelector('[data-rule-action-status]')?.remove();
         row.querySelector('.leads-rule-delayed-help')?.remove();
+        row.querySelector('[data-send-email-fields]')?.remove();
         if (type === 'create_lead') {
             row.insertAdjacentHTML('beforeend', createLeadKeywordsHtml(preset));
         }
         if (type === 'set_status_after_days') {
             valueSel?.insertAdjacentHTML('afterend', delayedStatusSelectHtml(delayedStatusSlug(preset.value)));
             row.insertAdjacentHTML('beforeend', '<p class="leads-rule-delayed-help">The countdown starts when this rule’s trigger happens, for example the date the status changed to Qualified.</p>');
+        }
+        if (type === 'send_email') {
+            valueSel?.insertAdjacentHTML('afterend', sendEmailExtraHtml(preset));
+            row.insertAdjacentHTML('beforeend', '<p class="leads-rule-delayed-help">Sends the chosen template by email, either immediately or after a delay measured from when this rule’s trigger happens.</p>');
         }
         syncAssignTeammatePicker(row, preset);
     }
@@ -3699,8 +3754,11 @@
         if (!defaultValue && (type === 'reopen_after_days' || type === 'set_status_after_days')) {
             defaultValue = delayedStatusDays(preset.value);
         }
+        if (!defaultValue && type === 'send_email') {
+            defaultValue = sendEmailTemplateId(preset.value);
+        }
         const row = document.createElement('div');
-        row.className = 'leads-rule-extra-card is-action' + (type === 'create_lead' ? ' is-create-lead' : '') + (type === 'set_status_after_days' ? ' is-delayed-status' : '');
+        row.className = 'leads-rule-extra-card is-action' + (type === 'create_lead' ? ' is-create-lead' : '') + (type === 'set_status_after_days' ? ' is-delayed-status' : '') + (type === 'send_email' ? ' is-send-email' : '');
         row.innerHTML = `
             <select data-rule-action-type>${actionTypeOptions(type)}</select>
             <select data-rule-action-value ${needsValue ? '' : 'disabled hidden'}>${actionValueOptions(type, defaultValue)}</select>
@@ -3828,6 +3886,18 @@
                     .map(cb => Number(cb.value))
                     .filter(id => id > 0);
                 actions.push({ type, value: { mode: '__round_robin_selected__', user_ids: userIds } });
+                return;
+            }
+            if (type === 'send_email') {
+                const mailboxVal = row.querySelector('[data-rule-action-mailbox]')?.value || '';
+                actions.push({
+                    type,
+                    value: {
+                        template_id: Number(valueSel?.value || 0),
+                        days: Number(row.querySelector('[data-rule-action-days]')?.value || 0),
+                        mailbox_id: mailboxVal ? Number(mailboxVal) : null,
+                    },
+                });
                 return;
             }
             actions.push({ type, value: valueSel && !valueSel.disabled ? (valueSel.value || null) : null });
@@ -4156,6 +4226,16 @@
                 const days = Number(action.value);
                 if (!Number.isFinite(days) || days < 1 || days > 365) {
                     return alert('Choose how many days before reopen (1–365).');
+                }
+            }
+            if (action.type === 'send_email') {
+                const templateId = Number(action.value?.template_id);
+                const days = Number(action.value?.days);
+                if (!Number.isFinite(templateId) || templateId < 1) {
+                    return alert('Choose an email template.');
+                }
+                if (!Number.isFinite(days) || days < 0 || days > 365) {
+                    return alert('Choose how many days to wait before sending (0–365).');
                 }
             }
         }
