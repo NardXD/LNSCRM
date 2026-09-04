@@ -65,6 +65,27 @@ class OpenAiContextService
     }
 
     /**
+     * Pull an email address or phone number out of a user's message, for targeted conversation lookup.
+     *
+     * @return array{type: 'email'|'phone', value: string}|null
+     */
+    public static function extractSearchIdentifier(string $message): ?array
+    {
+        if (preg_match('/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', $message, $matches)) {
+            return ['type' => 'email', 'value' => $matches[0]];
+        }
+
+        if (preg_match('/\+?\d[\d\s().-]{6,}\d/', $message, $matches)) {
+            $digits = preg_replace('/\D/', '', $matches[0]);
+            if (strlen($digits) >= 7) {
+                return ['type' => 'phone', 'value' => $digits];
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Infer context type from user message keywords. Returns context_type or null if no match.
      */
     public static function inferContextTypeFromMessage(string $message): ?string
@@ -94,8 +115,10 @@ class OpenAiContextService
 
     /**
      * Load CRM context data for the given type and company, scoped to what the user is allowed to see.
+     * When the user's message names a specific email or phone number, the relevant channel will search
+     * for that conversation (with its actual message content) instead of listing recent conversations.
      */
-    public function getContextForCompany(int $companyId, ?string $contextType, User $user, Company $company): string
+    public function getContextForCompany(int $companyId, ?string $contextType, User $user, Company $company, string $message = ''): string
     {
         if ($contextType !== null && ! self::isAuthorized($contextType, $user, $company)) {
             return "=== ACCESS DENIED ===\n".
@@ -105,11 +128,11 @@ class OpenAiContextService
 
         return match ($contextType) {
             'leads' => $this->getLeadsContext($companyId),
-            'shared-inbox' => $this->getSharedInboxContext($companyId, $user),
-            'viber' => $this->getViberContext($companyId),
-            'whatsapp' => $this->getWhatsAppContext($companyId),
+            'shared-inbox' => $this->getSharedInboxContext($companyId, $user, $message),
+            'viber' => $this->getViberContext($companyId, $message),
+            'whatsapp' => $this->getWhatsAppContext($companyId, $message),
             'facebook' => $this->getFacebookContext($companyId),
-            'sms' => $this->getSmsContext($companyId),
+            'sms' => $this->getSmsContext($companyId, $message),
             'broadcast' => $this->getBroadcastContext($companyId),
             'knowledge-base' => $this->getKnowledgeBaseContext($companyId),
             default => $this->getGeneralContext($companyId, $user, $company),
@@ -168,7 +191,7 @@ class OpenAiContextService
      * Shared inbox data scoped to only the inboxes this user can access (personal/broadcast inboxes
      * they own, or shared inboxes they're a member of) — mirrors SharedInbox::userCanAccess().
      */
-    private function getSharedInboxContext(int $companyId, User $user): string
+    private function getSharedInboxContext(int $companyId, User $user, string $message = ''): string
     {
         $accessibleInboxes = SharedInbox::where('company_id', $companyId)
             ->withCount('conversations')
@@ -183,6 +206,11 @@ class OpenAiContextService
         }
 
         $accessibleIds = $accessibleInboxes->pluck('id');
+
+        $identifier = self::extractSearchIdentifier($message);
+        if ($identifier !== null && $identifier['type'] === 'email') {
+            return $this->searchSharedInboxByEmail($companyId, $accessibleIds, $identifier['value']);
+        }
 
         $inboxes = $accessibleInboxes->map(fn ($i) => [
             'name' => $i->name,
@@ -239,8 +267,85 @@ class OpenAiContextService
         return implode("\n", $lines);
     }
 
-    private function getViberContext(int $companyId): string
+    /**
+     * Find shared-inbox conversation(s) involving a specific email address, with actual message
+     * content — used when the user asks about a named person/email rather than a general summary.
+     *
+     * @param  \Illuminate\Support\Collection<int, int>  $accessibleInboxIds
+     */
+    private function searchSharedInboxByEmail(int $companyId, $accessibleInboxIds, string $email): string
     {
+        $conversations = InboxConversation::where('company_id', $companyId)
+            ->whereIn('shared_inbox_id', $accessibleInboxIds)
+            ->notMerged()
+            ->with(['inbox:id,name', 'assignee:id,name'])
+            ->where(function ($query) use ($email) {
+                $query->where('from_email', $email)
+                    ->orWhereHas('messages', function ($messageQuery) use ($email) {
+                        $messageQuery->where('from_email', $email)
+                            ->orWhere('to_emails', 'like', "%{$email}%")
+                            ->orWhere('cc_emails', 'like', "%{$email}%");
+                    });
+            })
+            ->orderByDesc('last_message_at')
+            ->limit(5)
+            ->get();
+
+        if ($conversations->isEmpty()) {
+            return "=== SHARED INBOX SEARCH: \"{$email}\" ===\n".
+                "No conversation from or involving {$email} was found in the shared inboxes this user can access. ".
+                'Tell the user no matching conversation was found. Do not fabricate one.';
+        }
+
+        $results = $conversations->map(function (InboxConversation $c) {
+            $messages = $c->messages()
+                ->orderByDesc('sent_at')
+                ->limit(10)
+                ->get()
+                ->map(fn ($m) => [
+                    'direction' => $m->direction,
+                    'from' => $m->from_name ?? $m->from_email,
+                    'sent_at' => $m->sent_at?->format('Y-m-d H:i'),
+                    'body' => mb_substr(strip_tags($m->body_text ?? $m->body_html ?? ''), 0, 600),
+                ])
+                ->reverse()
+                ->values();
+
+            return [
+                'inbox' => $c->inbox?->name,
+                'subject' => $c->subject,
+                'from' => $c->from_name ?? $c->from_email,
+                'status' => $c->status,
+                'assigned_to' => $c->assignee?->name,
+                'is_read' => (bool) $c->is_read,
+                'last_message_at' => $c->last_message_at?->format('Y-m-d H:i'),
+                'messages' => $messages->toArray(),
+            ];
+        });
+
+        $lines = [
+            "=== SHARED INBOX SEARCH: \"{$email}\" ===",
+            'Matching conversation(s) with full message content:',
+            json_encode($results->toArray(), JSON_PRETTY_PRINT),
+        ];
+
+        return implode("\n", $lines);
+    }
+
+    private function getViberContext(int $companyId, string $message = ''): string
+    {
+        $identifier = self::extractSearchIdentifier($message);
+        if ($identifier !== null && $identifier['type'] === 'phone') {
+            return $this->searchConversationByPhone(
+                'VIBER',
+                $identifier['value'],
+                ViberConversation::where('company_id', $companyId)
+                    ->where('phone', 'like', "%{$identifier['value']}%")
+                    ->first(),
+                'text'
+            );
+        }
+
         $conversations = ViberConversation::where('company_id', $companyId)
             ->latest('last_message_at')
             ->limit(20)
@@ -269,8 +374,23 @@ class OpenAiContextService
         return implode("\n", $lines);
     }
 
-    private function getWhatsAppContext(int $companyId): string
+    private function getWhatsAppContext(int $companyId, string $message = ''): string
     {
+        $identifier = self::extractSearchIdentifier($message);
+        if ($identifier !== null && $identifier['type'] === 'phone') {
+            return $this->searchConversationByPhone(
+                'WHATSAPP',
+                $identifier['value'],
+                WhatsAppConversation::where('company_id', $companyId)
+                    ->where(function ($query) use ($identifier) {
+                        $query->where('phone', 'like', "%{$identifier['value']}%")
+                            ->orWhere('wa_id', 'like', "%{$identifier['value']}%");
+                    })
+                    ->first(),
+                'text'
+            );
+        }
+
         $conversations = WhatsAppConversation::where('company_id', $companyId)
             ->latest('last_message_at')
             ->limit(20)
@@ -295,6 +415,47 @@ class OpenAiContextService
             '',
             'Recent conversations:',
             json_encode($conversations->toArray(), JSON_PRETTY_PRINT),
+        ];
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Build a search-result block for a Viber/WhatsApp/SMS conversation matched by phone number,
+     * including its actual message content — shared by getViberContext/getWhatsAppContext/getSmsContext.
+     */
+    private function searchConversationByPhone(string $label, string $phone, mixed $conversation, string $textField): string
+    {
+        if ($conversation === null) {
+            return "=== {$label} SEARCH: \"{$phone}\" ===\n".
+                "No {$label} conversation was found for that phone number. ".
+                'Tell the user no matching conversation was found. Do not fabricate one.';
+        }
+
+        $messages = $conversation->messages()
+            ->orderByDesc('sent_at')
+            ->limit(15)
+            ->get()
+            ->map(fn ($m) => [
+                'direction' => $m->direction,
+                'sent_at' => $m->sent_at?->format('Y-m-d H:i'),
+                'text' => mb_substr((string) ($m->{$textField} ?? ''), 0, 600),
+            ])
+            ->reverse()
+            ->values();
+
+        $result = [
+            'name' => $conversation->name ?? $conversation->profile_name ?? null,
+            'phone' => $conversation->phone ?? $conversation->peer_phone ?? null,
+            'unread_count' => $conversation->unread_count,
+            'last_message_at' => $conversation->last_message_at?->format('Y-m-d H:i'),
+            'messages' => $messages->toArray(),
+        ];
+
+        $lines = [
+            "=== {$label} SEARCH: \"{$phone}\" ===",
+            'Matching conversation with full message content:',
+            json_encode($result, JSON_PRETTY_PRINT),
         ];
 
         return implode("\n", $lines);
@@ -335,8 +496,20 @@ class OpenAiContextService
         return implode("\n", $lines);
     }
 
-    private function getSmsContext(int $companyId): string
+    private function getSmsContext(int $companyId, string $message = ''): string
     {
+        $identifier = self::extractSearchIdentifier($message);
+        if ($identifier !== null && $identifier['type'] === 'phone') {
+            return $this->searchConversationByPhone(
+                'SMS',
+                $identifier['value'],
+                SmsConversation::where('company_id', $companyId)
+                    ->where('peer_phone', 'like', "%{$identifier['value']}%")
+                    ->first(),
+                'body'
+            );
+        }
+
         $conversations = SmsConversation::where('company_id', $companyId)
             ->latest('last_message_at')
             ->limit(20)

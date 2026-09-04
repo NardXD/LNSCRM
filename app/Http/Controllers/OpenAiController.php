@@ -91,10 +91,11 @@ class OpenAiController extends Controller
         $contextType = $request->input('context_type');
         $dataSource = $request->input('data_source', 'database');
 
+        $lastUserMessage = collect($messages)->lastWhere('role', 'user');
+        $userContent = (string) ($lastUserMessage['content'] ?? '');
+
         // Infer context from keywords if not explicitly selected (Database mode only)
         if ($dataSource === 'database' && ! $contextType) {
-            $lastUserMessage = collect($messages)->lastWhere('role', 'user');
-            $userContent = $lastUserMessage['content'] ?? '';
             $contextType = OpenAiContextService::inferContextTypeFromMessage($userContent);
         }
 
@@ -102,7 +103,7 @@ class OpenAiController extends Controller
         $systemContent = 'You are an AI assistant for a CRM system focused on leads and omnichannel messaging. Help users manage leads, shared inboxes, Viber, WhatsApp, Facebook/Instagram, SMS conversations, broadcast messaging campaigns, and the knowledge base. Be concise and professional.';
         if ($dataSource === 'database' && $contextType) {
             $contextService = new OpenAiContextService;
-            $crmData = $contextService->getContextForCompany($company->id, $contextType, $request->user(), $company);
+            $crmData = $contextService->getContextForCompany($company->id, $contextType, $request->user(), $company, $userContent);
             $systemContent .= "\n\n--- ACTUAL CRM DATA FROM USER'S DATABASE (use this to generate accurate summaries) ---\n\n".$crmData;
         }
         $systemMessage = [
