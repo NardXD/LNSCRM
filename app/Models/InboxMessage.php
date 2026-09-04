@@ -12,6 +12,7 @@ class InboxMessage extends Model
         'source_conversation_id',
         'external_message_id',
         'direction',
+        'is_draft',
         'from_name',
         'from_email',
         'to_emails',
@@ -28,6 +29,7 @@ class InboxMessage extends Model
     protected $casts = [
         'attachments' => 'array',
         'is_read' => 'boolean',
+        'is_draft' => 'boolean',
         'sent_at' => 'datetime',
     ];
 

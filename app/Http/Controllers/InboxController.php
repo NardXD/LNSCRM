@@ -1438,6 +1438,7 @@ class InboxController extends Controller
             'reply_all' => ['nullable', 'boolean'],
             'archive' => ['nullable', 'boolean'],
             'send_at' => ['nullable', 'date', 'after:now'],
+            'draft_message_id' => ['nullable', 'string', 'max:512'],
             'attachments' => ['nullable', 'array', 'max:10'],
             'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
@@ -1549,6 +1550,23 @@ class InboxController extends Controller
             return response()->json(['message' => $e->getMessage()], 502);
         }
 
+        $draftMessageId = (string) ($validated['draft_message_id'] ?? '');
+        if ($draftMessageId !== '' && ! str_starts_with($draftMessageId, 'local-')) {
+            $this->mailService->deleteDraftMessage($inbox, $draftMessageId);
+
+            $staleDraft = InboxMessage::where('external_message_id', $draftMessageId)
+                ->where('is_draft', true)
+                ->first();
+            if ($staleDraft) {
+                $staleDraftConversation = $staleDraft->conversation;
+                $staleDraft->delete();
+                if ($staleDraftConversation) {
+                    $staleDraftConversation->message_count = $staleDraftConversation->messages()->count();
+                    $staleDraftConversation->save();
+                }
+            }
+        }
+
         $this->recordActivity(
             $conversation,
             $request->user(),
@@ -1629,6 +1647,14 @@ class InboxController extends Controller
             return response()->json(['message' => 'Too many attachments. Use up to 5 files plus a few inline images.'], 422);
         }
 
+        Log::info('InboxController::saveDraft calling saveDraftReply', [
+            'conversation_id' => $conversation->id,
+            'inbox_id' => $inbox->id,
+            'reply_to_message_id' => $lastInbound->external_message_id,
+            'has_draft_message_id' => ! empty($validated['draft_message_id']),
+            'attachment_count' => count($prepared['attachments']),
+        ]);
+
         $result = $this->mailService->saveDraftReply($inbox, [
             'body' => $prepared['body'],
             'to' => $to,
@@ -1637,6 +1663,8 @@ class InboxController extends Controller
             'reply_to_message_id' => $lastInbound->external_message_id,
             'draft_message_id' => $validated['draft_message_id'] ?? null,
         ]);
+
+        Log::info('InboxController::saveDraft result', ['result' => $result]);
 
         if (! $result) {
             return response()->json(['message' => 'Failed to save draft to Outlook.'], 502);
@@ -3168,7 +3196,9 @@ class InboxController extends Controller
 
         return [
             'id' => $m->id,
+            'external_message_id' => $m->external_message_id,
             'direction' => $m->direction,
+            'is_draft' => (bool) $m->is_draft,
             'from_name' => $m->from_name,
             'from_email' => $m->from_email,
             'to_emails' => $m->to_emails,

@@ -3494,6 +3494,24 @@
         el('replyBody')?.focus();
     }
 
+    function openDraftReplyModal(message) {
+        if (!message || !state.composerCanReply) return;
+        state.replyAll = false;
+        state.replyDraftId = (message.external_message_id && !String(message.external_message_id).startsWith('local-'))
+            ? message.external_message_id
+            : null;
+        const titleEl = el('replyModalTitle');
+        if (titleEl) titleEl.textContent = 'Edit draft';
+        hideMentionPopup('reply');
+        openModal('modalReply');
+        fillReplyFromSelect();
+        if (el('replyTo')) el('replyTo').value = parseEmailList(message.to || message.to_emails).join(', ');
+        if (el('replyCc')) el('replyCc').value = parseEmailList(message.cc || message.cc_emails).join(', ');
+        setComposerHtml('reply', message.body_html || '');
+        el('composerHint').textContent = 'Send draft via Outlook';
+        el('replyBody')?.focus();
+    }
+
     function getComposerHtml(kind) {
         return sanitizeHtml(getComposerEl(kind)?.innerHTML || '');
     }
@@ -6065,10 +6083,15 @@
         return '<span class="inbox-msg-clip" title="Has attachments"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></span>';
     }
 
+    function editIconHtml() {
+        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+    }
+
     function emailCardHtml(m, expanded) {
         const name = m.from_name || m.from_email || 'Unknown';
         const email = m.from_email || '';
         const preview = messagePreviewText(m);
+        const isDraft = !!m.is_draft;
         const toList = parseEmailList(m.to || m.to_emails);
         const ccList = parseEmailList(m.cc || m.cc_emails);
         const replyToList = parseEmailList(m.reply_to || m.reply_to_emails);
@@ -6083,12 +6106,12 @@
             replyToList.length ? `<div><strong>Reply-To</strong> ${escapeHtml(replyToList.join(', '))}</div>` : '',
         ].join('');
         return `
-            <div class="inbox-msg ${m.direction} ${expanded ? 'is-expanded' : ''}" data-msg-id="${escapeHtml(String(m.id))}">
+            <div class="inbox-msg ${m.direction} ${expanded ? 'is-expanded' : ''} ${isDraft ? 'scheduled' : ''}" data-msg-id="${escapeHtml(String(m.id))}">
                 <div class="inbox-msg-row">
                     <span class="inbox-avatar" style="background:${avatarHue(email || name)}">${escapeHtml(initials(name))}</span>
                     <div class="inbox-msg-summary">
                         <span class="inbox-msg-from">${escapeHtml(name)}</span>
-                        ${email ? `<span class="inbox-msg-email">${escapeHtml(email)}</span>` : ''}
+                        ${isDraft ? '<span class="inbox-msg-email">Draft</span>' : (email ? `<span class="inbox-msg-email">${escapeHtml(email)}</span>` : '')}
                         <span class="inbox-msg-preview">${escapeHtml(preview)}</span>
                     </div>
                     <div class="inbox-msg-meta">
@@ -6096,9 +6119,15 @@
                         ${(m.attachments || []).length ? clipIconHtml() : ''}
                         <span class="inbox-msg-time" title="${escapeHtml(m.sent_at ? formatAbsoluteTime(m.sent_at) : '')}">${escapeHtml(formatThreadTime(m.sent_at))}</span>
                         <div class="inbox-msg-head-actions">
-                            <button type="button" data-reply-msg="${escapeHtml(String(m.id))}" title="Reply all">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
-                            </button>
+                            ${isDraft ? `
+                                <button type="button" data-edit-draft="${escapeHtml(String(m.id))}" title="Continue editing draft">
+                                    ${editIconHtml()}
+                                </button>
+                            ` : `
+                                <button type="button" data-reply-msg="${escapeHtml(String(m.id))}" title="Reply all">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+                                </button>
+                            `}
                         </div>
                     </div>
                 </div>
@@ -6106,6 +6135,12 @@
                     ${recipients ? `<div class="inbox-msg-recipients">${recipients}</div>` : ''}
                     <div class="inbox-msg-body" data-email-body="${escapeHtml(String(m.id))}"></div>
                     ${attachments ? `<div class="inbox-msg-attachments">${attachments}</div>` : ''}
+                    ${isDraft ? `
+                        <div class="inbox-scheduled-actions">
+                            <span class="inbox-composer-hint">This draft hasn't been sent yet.</span>
+                            <button type="button" class="inbox-btn primary" data-edit-draft="${escapeHtml(String(m.id))}">Continue editing</button>
+                        </div>
+                    ` : ''}
                 </div>
             </div>`;
     }
@@ -7574,6 +7609,14 @@
             if (msg) startReplyFromMessage(msg, true);
             return;
         }
+        const editDraftBtn = e.target.closest('[data-edit-draft]');
+        if (editDraftBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const msg = (state.conversation?.messages || []).find(m => String(m.id) === String(editDraftBtn.dataset.editDraft));
+            if (msg) openDraftReplyModal(msg);
+            return;
+        }
         if (e.target.closest('a, button')) return;
         if (e.target.closest('.inbox-msg-expanded')) return;
         const row = e.target.closest('.inbox-msg-row');
@@ -7843,6 +7886,7 @@
             if (inboxId) payload.inbox_id = inboxId;
             if (archive) payload.archive = true;
             if (sendAt) payload.send_at = sendAt;
+            if (state.replyDraftId) payload.draft_message_id = state.replyDraftId;
             const prepared = prepareEmailSendPayload(payload.body, state.replyAttachments);
             payload.body = prepared.body;
             payload.attachments = prepared.attachments;

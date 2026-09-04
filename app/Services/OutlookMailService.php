@@ -480,6 +480,9 @@ class OutlookMailService
                 if ($existing->reply_to_emails === null && array_key_exists('replyTo', $msg)) {
                     $existing->reply_to_emails = $this->graphRecipientAddresses($msg['replyTo'] ?? []) ?: '';
                 }
+                if (array_key_exists('isDraft', $msg)) {
+                    $existing->is_draft = (bool) $msg['isDraft'];
+                }
                 if ($existing->isDirty()) {
                     $existing->save();
                 }
@@ -537,6 +540,7 @@ class OutlookMailService
                 'source_conversation_id' => $sourceConversationId,
                 'external_message_id' => $externalMessageId,
                 'direction' => ($msg['isDraft'] ?? false) ? 'outbound' : $direction,
+                'is_draft' => (bool) ($msg['isDraft'] ?? false),
                 'from_name' => $fromName,
                 'from_email' => $fromEmail,
                 'to_emails' => $toEmails ?: null,
@@ -1104,11 +1108,20 @@ class OutlookMailService
         }
 
         try {
-            return $this->performSaveDraftReply($inbox, $account, $replyToId, $payload);
+            $result = $this->performSaveDraftReply($inbox, $account, $replyToId, $payload);
+            Log::info('OutlookMailService::saveDraftReply finished', [
+                'inbox_id' => $inbox->id,
+                'result' => $result,
+            ]);
+
+            return $result;
         } catch (\Throwable $e) {
             Log::warning('Outlook save draft reply failed', [
                 'inbox_id' => $inbox->id,
+                'exception_class' => get_class($e),
                 'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
             ]);
 
             return null;
@@ -1123,6 +1136,13 @@ class OutlookMailService
     {
         $account = $this->refreshTokenIfNeeded($account);
         $mailboxPath = $this->mailboxPath($inbox);
+
+        Log::info('OutlookMailService::performSaveDraftReply starting', [
+            'inbox_id' => $inbox->id,
+            'mailbox_path' => $mailboxPath,
+            'reply_to_message_id' => $replyToId,
+            'requested_draft_message_id' => $payload['draft_message_id'] ?? null,
+        ]);
 
         $draftId = (string) ($payload['draft_message_id'] ?? '');
         $existingBody = '';
@@ -1144,6 +1164,11 @@ class OutlookMailService
                 ->timeout(20)
                 ->post(self::GRAPH_BASE."/{$mailboxPath}/messages/{$replyToId}/createReply", []);
 
+            Log::info('OutlookMailService createReply response', [
+                'status' => $createResp->status(),
+                'successful' => $createResp->successful(),
+            ]);
+
             if (! $createResp->successful()) {
                 Log::warning('Outlook create draft reply failed', [
                     'status' => $createResp->status(),
@@ -1157,6 +1182,10 @@ class OutlookMailService
             $existingBody = (string) ($createResp->json('body.content') ?? '');
             $isNewDraft = true;
             if ($draftId === '') {
+                Log::warning('Outlook create draft reply returned no id', [
+                    'body' => mb_substr($createResp->body(), 0, 500),
+                ]);
+
                 return null;
             }
         }
@@ -1176,6 +1205,11 @@ class OutlookMailService
         $patchResp = Http::withToken($account->access_token)
             ->timeout(20)
             ->patch(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}", $update);
+
+        Log::info('OutlookMailService patch draft response', [
+            'status' => $patchResp->status(),
+            'successful' => $patchResp->successful(),
+        ]);
 
         if (! $patchResp->successful()) {
             Log::warning('Outlook update draft reply failed', [
@@ -1231,6 +1265,39 @@ class OutlookMailService
         $this->upsertMessage($inbox, $patchResp->json() ?: [], 'drafts', 'drafts', 'outbound');
 
         return ['id' => $draftId];
+    }
+
+    /**
+     * Best-effort cleanup of an Outlook draft once its content has actually
+     * been sent through a different action (e.g. the reply/send flow).
+     */
+    public function deleteDraftMessage(SharedInbox $inbox, string $draftId): void
+    {
+        $account = $inbox->account;
+        if (! $account || $draftId === '' || str_starts_with($draftId, 'local-')) {
+            return;
+        }
+
+        try {
+            $account = $this->refreshTokenIfNeeded($account);
+            $mailboxPath = $this->mailboxPath($inbox);
+
+            $response = Http::withToken($account->access_token)
+                ->timeout(15)
+                ->delete(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}");
+
+            if (! $response->successful() && $response->status() !== 404) {
+                Log::warning('Outlook draft cleanup failed', [
+                    'inbox_id' => $inbox->id,
+                    'status' => $response->status(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Outlook draft cleanup threw', [
+                'inbox_id' => $inbox->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
