@@ -4653,6 +4653,27 @@
         return data || {};
     }
 
+    // A bare "Request failed (5xx)" (no parseable JSON body) means something in
+    // front of the app — a proxy/gateway, not our own code — cut the request short
+    // (502/503/504, or Cloudflare's 524/522/etc). Same for a fetch()-level network
+    // failure. Both are transient and safe to retry for an idempotent GET/POST like
+    // a sync page; a real backend error always comes back with a JSON `message` and
+    // is never retried here.
+    function isTransientApiError(err) {
+        return /^Request failed \(5\d\d\)$/.test(err?.message || '') || /fetch/i.test(err?.message || '');
+    }
+
+    async function apiRetryTransient(path, options = {}, attempts = 3) {
+        for (let attempt = 1; ; attempt++) {
+            try {
+                return await api(path, options);
+            } catch (err) {
+                if (attempt >= attempts || !isTransientApiError(err)) throw err;
+                await new Promise(r => setTimeout(r, 1000 * attempt));
+            }
+        }
+    }
+
     function initials(name) {
         return (name || '?').split(/\s+/).slice(0, 2).map(s => s[0]?.toUpperCase() || '').join('');
     }
@@ -7158,7 +7179,7 @@
                     setSyncProgress(0, 1, `Checking ${inbox.name} for new mail…`, 0, 0);
                 }
             } else {
-                const totals = await api('/sync-totals', {
+                const totals = await apiRetryTransient('/sync-totals', {
                     method: 'POST',
                     body: { inbox_id: inbox.id },
                 });
@@ -7237,7 +7258,7 @@
                 let guard = 0;
 
                 do {
-                    const result = await api('/sync', {
+                    const result = await apiRetryTransient('/sync', {
                         method: 'POST',
                         body: {
                             all: false,

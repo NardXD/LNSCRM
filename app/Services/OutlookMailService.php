@@ -36,8 +36,30 @@ class OutlookMailService
      */
     private const FOLDER_COUNT_RETRIES = 1;
 
-    /** Per-attempt timeout for the (lightweight, metadata-only) folder count request. */
-    private const FOLDER_COUNT_TIMEOUT = 20;
+    /**
+     * Per-attempt timeout for the (lightweight, metadata-only) folder count
+     * request. Kept small — this host's actual front-end proxy timeout is opaque
+     * to us (managed hosting, not configurable from the app), so every outbound
+     * call in the sync path budgets for a strict ~30s worst case end to end rather
+     * than assuming a generous one.
+     */
+    private const FOLDER_COUNT_TIMEOUT = 8;
+
+    /**
+     * Messages fetched per Graph page. Smaller than Graph's max (Graph accepts up
+     * to 999 via a header, was previously requested at 100 here) trades more round
+     * trips for a much faster individual response — the actual fix for a request
+     * getting cut by a proxy/gateway in front of PHP with its own read timeout
+     * (seen tighter than expected in practice; a shorter per-call timeout alone
+     * only fails faster, it doesn't make Graph itself answer sooner).
+     */
+    private const PAGE_SIZE = 25;
+
+    /** Timeout for a single Graph messages-page fetch. See PAGE_SIZE for why this is small. */
+    private const PAGE_FETCH_TIMEOUT = 15;
+
+    /** Timeout for the Microsoft OAuth token-refresh call — normally near-instant. */
+    private const TOKEN_REFRESH_TIMEOUT = 8;
 
     /** @var array<string, array{graph: string, status: string, direction: string}> */
     public const FOLDERS = [
@@ -79,7 +101,7 @@ class OutlookMailService
             // login endpoint could block a sync request indefinitely instead of
             // failing fast, one of the ways a request ends up killed by a proxy/edge
             // timeout (524) rather than returning a response we control.
-            $response = Http::asForm()->timeout(20)->post(
+            $response = Http::asForm()->timeout(self::TOKEN_REFRESH_TIMEOUT)->post(
                 "https://login.microsoftonline.com/{$tenant}/oauth2/v2.0/token",
                 [
                     'client_id' => $creds['client_id'],
@@ -405,12 +427,13 @@ class OutlookMailService
         $account = $this->refreshTokenIfNeeded($account);
 
         // Kept comfortably under a proxy/edge timeout (e.g. Cloudflare's ~100s
-        // default) so a slow Graph response ends in a page we can report as
-        // 'failed' (and resume later) rather than the connection being killed by
-        // the edge first, which would surface as a bare 524 the caller can't act on.
+        // default, or a tighter one on whatever sits between it and PHP) so a slow
+        // Graph response ends in a page we can report as 'failed' (and resume
+        // later) rather than the connection being killed upstream of us, which
+        // surfaces as a bare 524/504 the caller can't act on.
         $request = Http::withToken($account->access_token)
-            ->timeout(45)
-            ->withHeaders(['Prefer' => 'odata.maxpagesize=100']);
+            ->timeout(self::PAGE_FETCH_TIMEOUT)
+            ->withHeaders(['Prefer' => 'odata.maxpagesize='.self::PAGE_SIZE]);
 
         if ($nextLink) {
             if (! str_starts_with($nextLink, self::GRAPH_BASE.'/')) {
@@ -422,7 +445,7 @@ class OutlookMailService
             $response = $nextLink
                 ? $request->get($nextLink)
                 : $request->get(self::GRAPH_BASE."/{$mailboxPath}/mailFolders/{$meta['graph']}/messages", [
-                    '$top' => 100,
+                    '$top' => self::PAGE_SIZE,
                     '$orderby' => $orderField.' desc',
                     '$select' => $select,
                 ]);
@@ -470,9 +493,9 @@ class OutlookMailService
         $next = $payload['@odata.nextLink'] ?? null;
         $next = is_string($next) && $next !== '' ? $next : null;
 
-        if (! $next && count($batch) >= 100) {
+        if (! $next && count($batch) >= self::PAGE_SIZE) {
             $next = self::GRAPH_BASE."/{$mailboxPath}/mailFolders/{$meta['graph']}/messages?".http_build_query([
-                '$top' => 100,
+                '$top' => self::PAGE_SIZE,
                 '$skip' => $fetchedSoFar + count($batch),
                 '$orderby' => $orderField.' desc',
                 '$select' => $select,

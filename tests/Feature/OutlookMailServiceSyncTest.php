@@ -61,10 +61,10 @@ class OutlookMailServiceSyncTest extends TestCase
     {
         $inbox = $this->makeInbox();
 
-        // A full (100-item) page so the service synthesizes a next link and keeps
-        // paging — a short page would look like "reached the end" on its own,
-        // never even attempting the second (failing) request this test is about.
-        $page1 = ['value' => array_map(fn ($i) => $this->messageStub('m'.$i), range(1, 100))];
+        // A full (PAGE_SIZE-item) page so the service synthesizes a next link and
+        // keeps paging — a short page would look like "reached the end" on its
+        // own, never even attempting the second (failing) request this test is about.
+        $page1 = ['value' => array_map(fn ($i) => $this->messageStub('m'.$i), range(1, 25))];
 
         Http::fake([
             'graph.microsoft.com/v1.0/me/mailFolders/inbox/messages*' => Http::sequence()
@@ -78,8 +78,8 @@ class OutlookMailServiceSyncTest extends TestCase
 
         $imported = $service->syncInbox($inbox, 'inbox');
 
-        $this->assertSame(100, $imported);
-        $this->assertSame(100, InboxMessage::count());
+        $this->assertSame(25, $imported);
+        $this->assertSame(25, InboxMessage::count());
 
         $inbox->refresh();
         $state = $inbox->folder_sync_state['inbox'] ?? null;
