@@ -26,10 +26,18 @@ class OutlookMailService
     private const MAX_BACKFILL_PAGES_PER_RUN = 200;
 
     /**
-     * Retries for a transient (5xx/429) per-folder Graph count lookup in
-     * getMailboxMessageTotals() before giving up on that folder for this call.
+     * Retry rounds for a transient (5xx/429/timeout) per-folder Graph count lookup
+     * in getMailboxMessageTotals() before giving up on that folder for this call.
+     * Rounds run concurrently across folders (Http::pool), so worst case is roughly
+     * (1 + this) x FOLDER_COUNT_TIMEOUT, not multiplied by the folder count — this
+     * endpoint is called synchronously from the browser and must stay well under a
+     * proxy/edge timeout (e.g. Cloudflare's ~100s default, past which the caller
+     * gets a bare 524 instead of any response we control).
      */
-    private const FOLDER_COUNT_RETRIES = 2;
+    private const FOLDER_COUNT_RETRIES = 1;
+
+    /** Per-attempt timeout for the (lightweight, metadata-only) folder count request. */
+    private const FOLDER_COUNT_TIMEOUT = 20;
 
     /** @var array<string, array{graph: string, status: string, direction: string}> */
     public const FOLDERS = [
@@ -66,16 +74,29 @@ class OutlookMailService
         $creds = $this->getMailCredentials($account->company_id);
         $tenant = $this->oauthSettings->getMicrosoftTenant($account->company_id);
 
-        $response = Http::asForm()->post(
-            "https://login.microsoftonline.com/{$tenant}/oauth2/v2.0/token",
-            [
-                'client_id' => $creds['client_id'],
-                'client_secret' => $creds['client_secret'],
-                'refresh_token' => $account->refresh_token,
-                'grant_type' => 'refresh_token',
-                'scope' => 'openid profile email User.Read Mail.ReadWrite Mail.Send Mail.ReadWrite.Shared offline_access',
-            ]
-        );
+        try {
+            // Explicit timeout — this had none, so a hung connection to Microsoft's
+            // login endpoint could block a sync request indefinitely instead of
+            // failing fast, one of the ways a request ends up killed by a proxy/edge
+            // timeout (524) rather than returning a response we control.
+            $response = Http::asForm()->timeout(20)->post(
+                "https://login.microsoftonline.com/{$tenant}/oauth2/v2.0/token",
+                [
+                    'client_id' => $creds['client_id'],
+                    'client_secret' => $creds['client_secret'],
+                    'refresh_token' => $account->refresh_token,
+                    'grant_type' => 'refresh_token',
+                    'scope' => 'openid profile email User.Read Mail.ReadWrite Mail.Send Mail.ReadWrite.Shared offline_access',
+                ]
+            );
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            Log::warning('Outlook mail token refresh timed out', [
+                'account_id' => $account->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return $account;
+        }
 
         if (! $response->successful()) {
             Log::warning('Outlook mail token refresh failed', [
@@ -276,41 +297,53 @@ class OutlookMailService
         $account = $this->refreshTokenIfNeeded($account);
         $mailboxPath = $this->mailboxPath($inbox->loadMissing('account'));
 
-        $foldersFailed = [];
-
         foreach (self::FOLDERS as $folder => $meta) {
-            $localCount = (int) InboxMessage::query()
+            $foldersSynced[$folder] = (int) InboxMessage::query()
                 ->whereHas('conversation', function ($q) use ($inbox, $folder) {
                     $q->where('shared_inbox_id', $inbox->id)
                         ->where('folder', $folder);
                 })
                 ->count();
+            $alreadySynced += $foldersSynced[$folder];
+        }
 
-            $foldersSynced[$folder] = $localCount;
-            $alreadySynced += $localCount;
-
-            $response = null;
-            for ($attempt = 0; $attempt <= self::FOLDER_COUNT_RETRIES; $attempt++) {
-                if ($attempt > 0) {
-                    usleep(300_000 * $attempt);
-                }
-
-                $response = Http::withToken($account->access_token)
-                    ->timeout(30)
-                    ->get(self::GRAPH_BASE."/{$mailboxPath}/mailFolders/{$meta['graph']}", [
+        // Fetch every folder's Graph count concurrently instead of one request at a
+        // time — this endpoint is called synchronously from the browser, and 5
+        // sequential requests (each with its own retry) can easily add up past the
+        // ~100s edge/proxy timeout, surfacing as a 524 to the user with no useful
+        // error. A short bounded retry round for whichever folders failed keeps the
+        // worst case at roughly 2x one request's timeout, not 5x (or 15x with retries).
+        $pending = array_keys(self::FOLDERS);
+        $responses = [];
+        for ($round = 0; $round <= self::FOLDER_COUNT_RETRIES && $pending !== []; $round++) {
+            $batch = Http::pool(fn ($pool) => collect($pending)->map(
+                fn ($folder) => $pool->as($folder)
+                    ->withToken($account->access_token)
+                    ->timeout(self::FOLDER_COUNT_TIMEOUT)
+                    ->get(self::GRAPH_BASE."/{$mailboxPath}/mailFolders/".self::FOLDERS[$folder]['graph'], [
                         '$select' => 'totalItemCount,unreadItemCount,displayName',
-                    ]);
+                    ])
+            )->all());
 
-                if ($response->successful()) {
-                    break;
+            $pending = [];
+            foreach ($batch as $folder => $response) {
+                if ($response instanceof \Throwable || ! $response->successful()) {
+                    $pending[] = $folder;
+
+                    continue;
                 }
+                $responses[$folder] = $response;
             }
+        }
 
-            if (! $response || ! $response->successful()) {
+        $foldersFailed = [];
+
+        foreach (self::FOLDERS as $folder => $meta) {
+            $response = $responses[$folder] ?? null;
+            if (! $response) {
                 Log::warning('Outlook folder count failed', [
                     'inbox_id' => $inbox->id,
                     'folder' => $folder,
-                    'status' => $response?->status(),
                     'retries' => self::FOLDER_COUNT_RETRIES,
                 ]);
                 // Count is unknown, not zero — a caller that treats "remaining: 0" as
@@ -325,7 +358,7 @@ class OutlookMailService
             $folders[$folder] = $graphCount;
             $graphTotal += $graphCount;
 
-            $folderRemaining = max(0, $graphCount - $localCount);
+            $folderRemaining = max(0, $graphCount - $foldersSynced[$folder]);
             $foldersRemaining[$folder] = $folderRemaining;
             $remaining += $folderRemaining;
         }
@@ -371,21 +404,37 @@ class OutlookMailService
 
         $account = $this->refreshTokenIfNeeded($account);
 
+        // Kept comfortably under a proxy/edge timeout (e.g. Cloudflare's ~100s
+        // default) so a slow Graph response ends in a page we can report as
+        // 'failed' (and resume later) rather than the connection being killed by
+        // the edge first, which would surface as a bare 524 the caller can't act on.
         $request = Http::withToken($account->access_token)
-            ->timeout(90)
+            ->timeout(45)
             ->withHeaders(['Prefer' => 'odata.maxpagesize=100']);
 
         if ($nextLink) {
             if (! str_starts_with($nextLink, self::GRAPH_BASE.'/')) {
-                return ['imported' => 0, 'fetched' => 0, 'skipped' => 0, 'next_link' => null, 'done' => true];
+                return ['imported' => 0, 'fetched' => 0, 'skipped' => 0, 'next_link' => null, 'done' => true, 'failed' => false];
             }
-            $response = $request->get($nextLink);
-        } else {
-            $response = $request->get(self::GRAPH_BASE."/{$mailboxPath}/mailFolders/{$meta['graph']}/messages", [
-                '$top' => 100,
-                '$orderby' => $orderField.' desc',
-                '$select' => $select,
+        }
+
+        try {
+            $response = $nextLink
+                ? $request->get($nextLink)
+                : $request->get(self::GRAPH_BASE."/{$mailboxPath}/mailFolders/{$meta['graph']}/messages", [
+                    '$top' => 100,
+                    '$orderby' => $orderField.' desc',
+                    '$select' => $select,
+                ]);
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            Log::warning('Outlook mail folder page sync timed out', [
+                'inbox_id' => $inbox->id,
+                'folder' => $folder,
+                'error' => $e->getMessage(),
+                'fetched_so_far' => $fetchedSoFar,
             ]);
+
+            return ['imported' => 0, 'fetched' => 0, 'skipped' => 0, 'next_link' => $nextLink, 'done' => true, 'failed' => true];
         }
 
         if (! $response->successful()) {

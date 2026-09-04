@@ -131,4 +131,58 @@ class OutlookMailServiceSyncTest extends TestCase
         $this->assertTrue($stateAfter['backfill_done'], 'A completed folder must stay marked backfill-complete.');
         $this->assertNull($stateAfter['next_link']);
     }
+
+    public function test_mailbox_totals_fetches_folder_counts_concurrently(): void
+    {
+        $inbox = $this->makeInbox();
+
+        Http::fake([
+            'graph.microsoft.com/v1.0/me/mailFolders/inbox*' => Http::response(['totalItemCount' => 10], 200),
+            'graph.microsoft.com/v1.0/me/mailFolders/drafts*' => Http::response(['totalItemCount' => 2], 200),
+            'graph.microsoft.com/v1.0/me/mailFolders/sentitems*' => Http::response(['totalItemCount' => 5], 200),
+            'graph.microsoft.com/v1.0/me/mailFolders/deleteditems*' => Http::response(['totalItemCount' => 1], 200),
+            'graph.microsoft.com/v1.0/me/mailFolders/junkemail*' => Http::response(['totalItemCount' => 0], 200),
+        ]);
+
+        /** @var OutlookMailService $service */
+        $service = app(OutlookMailService::class);
+
+        $totals = $service->getMailboxMessageTotals($inbox);
+
+        $this->assertSame(18, $totals['graph_total']);
+        $this->assertSame(18, $totals['remaining']);
+        $this->assertSame([], $totals['folders_failed']);
+        $this->assertSame(10, $totals['folders']['inbox']);
+
+        // Every folder's count is fetched in its own pooled request rather than one
+        // request per folder waited on in turn.
+        Http::assertSentCount(5);
+    }
+
+    public function test_mailbox_totals_reports_a_persistently_failing_folder_without_blocking_the_others(): void
+    {
+        $inbox = $this->makeInbox();
+
+        Http::fake([
+            // Drafts fails every attempt (both the initial round and the retry round).
+            'graph.microsoft.com/v1.0/me/mailFolders/drafts*' => Http::response('server error', 500),
+            'graph.microsoft.com/v1.0/me/mailFolders/*' => Http::response(['totalItemCount' => 7], 200),
+        ]);
+
+        /** @var OutlookMailService $service */
+        $service = app(OutlookMailService::class);
+
+        $totals = $service->getMailboxMessageTotals($inbox);
+
+        $this->assertSame(['drafts'], $totals['folders_failed']);
+        // The failing folder must not be silently counted as "0 remaining" — the
+        // other four folders' real counts still come through untouched.
+        $this->assertSame(0, $totals['folders']['drafts']);
+        $this->assertSame(7, $totals['folders']['inbox']);
+        $this->assertSame(28, $totals['graph_total']);
+
+        // One initial round (5 requests) + one retry round for just the failing
+        // folder (1 request) = 6 total, not 5 x (1 + retries) = 15.
+        Http::assertSentCount(6);
+    }
 }
