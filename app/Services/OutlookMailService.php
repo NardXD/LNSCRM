@@ -1126,9 +1126,11 @@ class OutlookMailService
 
         $draftId = (string) ($payload['draft_message_id'] ?? '');
         $existingBody = '';
+        $isNewDraft = false;
 
         if ($draftId !== '') {
             $existingResp = Http::withToken($account->access_token)
+                ->timeout(15)
                 ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}", ['$select' => 'id,body,isDraft']);
             if ($existingResp->successful() && ($existingResp->json('isDraft') ?? true)) {
                 $existingBody = (string) ($existingResp->json('body.content') ?? '');
@@ -1139,7 +1141,7 @@ class OutlookMailService
 
         if ($draftId === '') {
             $createResp = Http::withToken($account->access_token)
-                ->timeout(60)
+                ->timeout(20)
                 ->post(self::GRAPH_BASE."/{$mailboxPath}/messages/{$replyToId}/createReply", []);
 
             if (! $createResp->successful()) {
@@ -1153,6 +1155,7 @@ class OutlookMailService
 
             $draftId = (string) $createResp->json('id');
             $existingBody = (string) ($createResp->json('body.content') ?? '');
+            $isNewDraft = true;
             if ($draftId === '') {
                 return null;
             }
@@ -1171,7 +1174,7 @@ class OutlookMailService
         ];
 
         $patchResp = Http::withToken($account->access_token)
-            ->timeout(60)
+            ->timeout(20)
             ->patch(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}", $update);
 
         if (! $patchResp->successful()) {
@@ -1183,15 +1186,21 @@ class OutlookMailService
             return null;
         }
 
-        // Replace attachments wholesale so repeated draft saves don't pile up duplicates.
-        $existingAttachments = Http::withToken($account->access_token)
-            ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}/attachments", ['$select' => 'id']);
-        if ($existingAttachments->successful()) {
-            foreach ($existingAttachments->json('value') ?? [] as $existingAttachment) {
-                $attachmentId = $existingAttachment['id'] ?? null;
-                if ($attachmentId) {
-                    Http::withToken($account->access_token)
-                        ->delete(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}/attachments/{$attachmentId}");
+        // A freshly created draft has no attachments yet — only reconcile
+        // (list + delete) when reusing a draft from an earlier save, so the
+        // common case skips two round trips.
+        if (! $isNewDraft) {
+            $existingAttachments = Http::withToken($account->access_token)
+                ->timeout(15)
+                ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}/attachments", ['$select' => 'id']);
+            if ($existingAttachments->successful()) {
+                foreach ($existingAttachments->json('value') ?? [] as $existingAttachment) {
+                    $attachmentId = $existingAttachment['id'] ?? null;
+                    if ($attachmentId) {
+                        Http::withToken($account->access_token)
+                            ->timeout(15)
+                            ->delete(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}/attachments/{$attachmentId}");
+                    }
                 }
             }
         }
@@ -1213,17 +1222,13 @@ class OutlookMailService
                 $item['contentId'] = (string) $attachment['contentId'];
             }
             Http::withToken($account->access_token)
-                ->timeout(60)
+                ->timeout(30)
                 ->post(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}/attachments", $item);
         }
 
-        $select = 'id,conversationId,subject,bodyPreview,from,toRecipients,ccRecipients,replyTo,receivedDateTime,sentDateTime,lastModifiedDateTime,isRead,isDraft,body';
-        $finalResp = Http::withToken($account->access_token)
-            ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}", ['$select' => $select]);
-
-        if ($finalResp->successful()) {
-            $this->upsertMessage($inbox, $finalResp->json() ?: [], 'drafts', 'drafts', 'outbound');
-        }
+        // PATCH already returns the fully updated message — reuse it instead
+        // of an extra GET round trip.
+        $this->upsertMessage($inbox, $patchResp->json() ?: [], 'drafts', 'drafts', 'outbound');
 
         return ['id' => $draftId];
     }

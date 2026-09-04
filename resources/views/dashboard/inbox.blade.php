@@ -2632,6 +2632,10 @@
     width: min(1200px, 92vw);
     max-width: 92vw;
 }
+.inbox-modal#modalReply {
+    width: min(880px, 94vw);
+    max-width: 94vw;
+}
 .inbox-modal h3 { margin: 0; }
 .inbox-modal-help { margin: 0; color: var(--inbox-muted); font-size: 0.84rem; }
 .inbox-modal label { display: grid; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; color: #374151; }
