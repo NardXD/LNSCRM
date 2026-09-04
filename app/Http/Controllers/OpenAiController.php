@@ -91,7 +91,7 @@ class OpenAiController extends Controller
         $contextType = $request->input('context_type');
         $dataSource = $request->input('data_source', 'database');
 
-        $lastUserMessage = collect($messages)->lastWhere('role', 'user');
+        $lastUserMessage = collect($messages)->where('role', 'user')->last();
         $userContent = (string) ($lastUserMessage['content'] ?? '');
 
         // Infer context from keywords if not explicitly selected (Database mode only)
