@@ -227,65 +227,6 @@
                             <button type="button" class="inbox-btn primary" id="btnSendComment">Add comment</button>
                         </div>
                     </div>
-
-                    <div id="replyComposerPanel" hidden>
-                        <div class="inbox-reply-headers">
-                            <div class="inbox-reply-header-row">
-                                <label for="replyFrom">From</label>
-                                <select id="replyFrom" class="inbox-reply-header-input" aria-label="From"></select>
-                            </div>
-                            <div class="inbox-reply-header-row">
-                                <label for="replyTo">To</label>
-                                <input type="text" id="replyTo" class="inbox-reply-header-input" placeholder="name@company.com, other@company.com" autocomplete="off">
-                            </div>
-                            <div class="inbox-reply-header-row">
-                                <label for="replyCc">Cc</label>
-                                <input type="text" id="replyCc" class="inbox-reply-header-input" placeholder="optional" autocomplete="off">
-                            </div>
-                        </div>
-                        <div class="inbox-composer-row">
-                            <div class="inbox-mention-popup" id="replyMentionPopup" hidden></div>
-                            <div id="replyBody" class="inbox-composer-editor" contenteditable="true" data-placeholder="Write a reply… Type @ to mention teammates." role="textbox" aria-multiline="true"></div>
-                            <div class="inbox-composer-icons">
-                                <button type="button" class="inbox-composer-icon" id="btnReplyAttach" title="Attach files">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-                                </button>
-                                <input type="file" id="replyAttachInput" multiple hidden>
-                                <button type="button" class="inbox-composer-icon" id="btnReplyMention" title="Mention teammate">@</button>
-                                <div class="inbox-template-picker" data-template-picker="reply">
-                                    <button type="button" class="inbox-composer-icon" data-template-picker-toggle title="Insert template">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-                                    </button>
-                                    <div class="inbox-template-picker-menu" hidden>
-                                        <div class="inbox-template-picker-head">Insert template</div>
-                                        <input type="search" class="inbox-tool-search" data-template-picker-search placeholder="Search templates…" autocomplete="off">
-                                        <div class="inbox-template-picker-list" data-template-picker-list></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="inbox-attach-chips" id="replyAttachChips"></div>
-                        <div class="inbox-composer-bar">
-                            <span class="inbox-composer-hint" id="composerHint">Reply via Outlook</span>
-                            <div class="inbox-send-group inbox-pop" id="sendReplyPop">
-                                <button type="button" class="inbox-send-main" id="btnSendReply">Send reply</button>
-                                <button type="button" class="inbox-send-caret" id="btnSendReplyMenu" title="More send options" aria-haspopup="menu" aria-label="More send options">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
-                                </button>
-                                <div class="inbox-pop-menu inbox-send-menu" id="sendReplyMenu" hidden>
-                                    <button type="button" data-send-mode="send">Send reply</button>
-                                    <button type="button" data-send-mode="archive">Send and archive</button>
-                                    <button type="button" data-send-mode="later">Send later…</button>
-                                    <button type="button" data-send-mode="draft">Save as draft</button>
-                                    <div class="inbox-send-later" id="sendLaterFields" hidden>
-                                        Send at
-                                        <input type="datetime-local" id="sendLaterAt">
-                                        <button type="button" class="inbox-btn primary" id="btnConfirmSendLater">Schedule send</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                     </div>
                 </div>
             </div>
@@ -395,6 +336,62 @@
                         Send at
                         <input type="datetime-local" id="composeSendLaterAt">
                         <button type="button" class="inbox-btn primary" id="btnConfirmComposeSendLater">Schedule send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="inbox-modal inbox-modal-wide" id="modalReply" style="display:none;">
+        <h3 id="replyModalTitle">Reply</h3>
+        <p class="inbox-modal-help">Email reply via Outlook.</p>
+        <label>From
+            <select id="replyFrom" class="form-input" aria-label="From"></select>
+        </label>
+        <label>To
+            <input type="text" id="replyTo" class="form-input" placeholder="name@company.com, other@company.com" autocomplete="off">
+        </label>
+        <label>Cc
+            <input type="text" id="replyCc" class="form-input" placeholder="optional" autocomplete="off">
+        </label>
+        <div class="inbox-composer-tools">
+            <button type="button" class="inbox-composer-tool" id="btnReplyAttach" title="Attach files">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                Attach
+            </button>
+            <input type="file" id="replyAttachInput" multiple hidden>
+            <button type="button" class="inbox-composer-tool" id="btnReplyMention" title="Mention teammate">@ Mention</button>
+            <div class="inbox-template-picker" data-template-picker="reply">
+                <button type="button" class="inbox-composer-tool" data-template-picker-toggle title="Insert template">Template…</button>
+                <div class="inbox-template-picker-menu" hidden>
+                    <div class="inbox-template-picker-head">Insert template</div>
+                    <input type="search" class="inbox-tool-search" data-template-picker-search placeholder="Search templates…" autocomplete="off">
+                    <div class="inbox-template-picker-list" data-template-picker-list></div>
+                </div>
+            </div>
+        </div>
+        <div class="inbox-attach-chips" id="replyAttachChips"></div>
+        <div class="inbox-mention-popup" id="replyMentionPopup" hidden></div>
+        <label>Message
+            <div id="replyBody" class="inbox-composer-editor form-input" contenteditable="true" data-placeholder="Write a reply… Type @ to mention teammates." role="textbox" aria-multiline="true"></div>
+        </label>
+        <div class="inbox-modal-actions">
+            <span class="inbox-composer-hint" id="composerHint">Reply via Outlook</span>
+            <button type="button" class="inbox-btn ghost" data-close-modal>Cancel</button>
+            <div class="inbox-send-group inbox-pop" id="sendReplyPop">
+                <button type="button" class="inbox-send-main" id="btnSendReply">Send reply</button>
+                <button type="button" class="inbox-send-caret" id="btnSendReplyMenu" title="More send options" aria-haspopup="menu" aria-label="More send options">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="inbox-pop-menu inbox-send-menu" id="sendReplyMenu" hidden>
+                    <button type="button" data-send-mode="send">Send reply</button>
+                    <button type="button" data-send-mode="archive">Send and archive</button>
+                    <button type="button" data-send-mode="later">Send later…</button>
+                    <button type="button" data-send-mode="draft">Save as draft</button>
+                    <div class="inbox-send-later" id="sendLaterFields" hidden>
+                        Send at
+                        <input type="datetime-local" id="sendLaterAt">
+                        <button type="button" class="inbox-btn primary" id="btnConfirmSendLater">Schedule send</button>
                     </div>
                 </div>
             </div>
@@ -1771,45 +1768,6 @@
 }
 .inbox-msg:not(.is-expanded) .inbox-msg-head-actions { display: none; }
 .inbox-msg.is-expanded .inbox-msg-preview { display: none; }
-.inbox-composer.is-reply .inbox-composer-card {
-    border-color: #c7d7fb;
-    box-shadow: 0 0 0 3px rgba(47, 111, 237, 0.08);
-}
-.inbox-reply-headers {
-    display: grid;
-    gap: 0;
-    padding: 0.2rem 0.65rem 0.1rem;
-    border-bottom: 1px solid #eef0f3;
-}
-.inbox-reply-header-row {
-    display: grid;
-    grid-template-columns: 2.75rem minmax(0, 1fr);
-    align-items: center;
-    gap: 0.45rem;
-    border-bottom: 1px solid #f3f4f6;
-}
-.inbox-reply-header-row:last-child { border-bottom: none; }
-.inbox-reply-header-row label {
-    margin: 0;
-    font-size: 0.74rem;
-    font-weight: 650;
-    color: #9ca3af;
-}
-.inbox-reply-header-input {
-    width: 100%;
-    min-width: 0;
-    border: none;
-    background: transparent;
-    font-size: 0.82rem;
-    color: var(--inbox-text);
-    padding: 0.38rem 0;
-    outline: none;
-}
-.inbox-reply-header-input:focus { color: var(--inbox-text); }
-select.inbox-reply-header-input {
-    cursor: pointer;
-    padding-right: 1.1rem;
-}
 .inbox-msg-meta {
     display: flex;
     align-items: center;
@@ -1874,8 +1832,6 @@ select.inbox-reply-header-input {
     resize: none;
 }
 .inbox-composer.is-expanded .inbox-composer-editor { max-height: 220px; min-height: 88px; }
-.inbox-composer.is-reply .inbox-composer-editor,
-.inbox-composer.is-expanded.is-reply .inbox-composer-editor { min-height: 110px; max-height: 240px; }
 .inbox-composer-icons {
     display: flex;
     align-items: center;
@@ -1891,7 +1847,7 @@ select.inbox-reply-header-input {
 }
 .inbox-composer-icon:hover { background: #f3f4f6; color: var(--inbox-text); }
 .inbox-composer-icon svg { width: 16px; height: 16px; }
-.inbox-composer:not(.is-expanded):not(.is-reply) .inbox-composer-bar { display: none; }
+.inbox-composer:not(.is-expanded) .inbox-composer-bar { display: none; }
 .inbox-composer .inbox-composer-bar { padding: 0 0.55rem 0.45rem; margin-top: 0.15rem; }
 .inbox-composer .inbox-mention-popup {
     left: 0.5rem;
@@ -2495,6 +2451,7 @@ select.inbox-reply-header-input {
 .inbox-mention-email { font-size: 0.72rem; color: var(--inbox-muted); }
 .inbox-composer-bar { display: flex; justify-content: space-between; align-items: center; margin-top: 0.55rem; gap: 0.75rem; }
 .inbox-composer-hint { font-size: 0.75rem; color: var(--inbox-muted); }
+.inbox-modal-actions .inbox-composer-hint { margin-right: auto; align-self: center; }
 .inbox-send-group {
     --inbox-send-bg: var(--inbox-accent, #2f6fed);
     position: relative;
@@ -3510,29 +3467,27 @@ select.inbox-reply-header-input {
         return { body: preparedBody, attachments };
     }
 
-    function setComposerMode(mode) {
-        const next = mode === 'reply' ? 'reply' : 'comment';
-        if (next === 'reply' && !state.composerCanReply) return;
-        state.composerMode = next;
+    function setComposerMode() {
+        state.composerMode = 'comment';
         document.querySelectorAll('[data-composer-mode]').forEach(btn => {
-            btn.classList.toggle('is-active', btn.dataset.composerMode === next);
+            btn.classList.toggle('is-active', btn.dataset.composerMode === 'comment');
         });
-        const commentPanel = el('commentComposerPanel');
-        const replyPanel = el('replyComposerPanel');
-        const composer = el('composerArea');
-        if (commentPanel) commentPanel.hidden = next !== 'comment';
-        if (replyPanel) replyPanel.hidden = next !== 'reply';
-        composer?.classList.toggle('is-reply', next === 'reply');
-        if (next === 'reply') {
-            composer?.classList.add('is-expanded');
-            state.composerExpanded = true;
-        }
         hideMentionPopup('comment');
+    }
+
+    function openReplyModal(message = null, opts = {}) {
+        if (!state.composerCanReply) return;
+        const replyAll = !!opts.replyAll;
+        const force = !!opts.force;
+        state.replyAll = replyAll;
+        if (force) state.replyDraftId = null;
+        const titleEl = el('replyModalTitle');
+        if (titleEl) titleEl.textContent = replyAll ? 'Reply all' : 'Reply';
         hideMentionPopup('reply');
-        if (next === 'reply') {
-            populateReplyHeaders();
-            applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
-        }
+        openModal('modalReply');
+        populateReplyHeaders(message, { replyAll, force });
+        applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
+        el('replyBody')?.focus();
     }
 
     function getComposerHtml(kind) {
@@ -4671,9 +4626,9 @@ select.inbox-reply-header-input {
             ...options,
             body: options.body ? JSON.stringify(options.body) : undefined,
         });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.message || 'Request failed');
-        return data;
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error((data && data.message) || `Request failed (${res.status})`);
+        return data || {};
     }
 
     function initials(name) {
@@ -4767,7 +4722,7 @@ select.inbox-reply-header-input {
 
     function openModal(id) {
         el('modalBackdrop').style.display = 'flex';
-        ['modalCompose','modalInbox','modalTemplateList','modalTemplate','modalSignatureList','modalSignature','modalRule','modalMembers','modalMerge','modalAdvancedSearch'].forEach(m => {
+        ['modalCompose','modalReply','modalInbox','modalTemplateList','modalTemplate','modalSignatureList','modalSignature','modalRule','modalMembers','modalMerge','modalAdvancedSearch'].forEach(m => {
             const node = el(m);
             if (node) node.style.display = m === id ? 'grid' : 'none';
         });
@@ -5752,6 +5707,7 @@ select.inbox-reply-header-input {
     }
 
     async function openConversation(id) {
+        if (el('modalReply')?.style.display === 'grid') closeModal();
         state.selectedId = id;
         state.replyAttachments = [];
         state.commentAttachments = [];
@@ -6098,12 +6054,7 @@ select.inbox-reply-header-input {
     }
 
     function startReplyFromMessage(message, replyAll) {
-        if (!state.composerCanReply) return;
-        state.replyAll = !!replyAll;
-        state.replyDraftId = null;
-        populateReplyHeaders(message, { replyAll: !!replyAll, force: true });
-        setComposerMode('reply');
-        el('replyBody')?.focus();
+        openReplyModal(message, { replyAll: !!replyAll, force: true });
     }
 
     function clipIconHtml() {
@@ -6291,17 +6242,13 @@ select.inbox-reply-header-input {
         const canReply = folder === 'inbox' || folder === 'sent' || folder === 'drafts';
         state.composerCanReply = canReply;
         el('composerArea').style.display = '';
-        el('composerArea').classList.toggle('is-expanded', !!state.composerExpanded || state.composerMode === 'reply');
+        el('composerArea').classList.toggle('is-expanded', !!state.composerExpanded);
         const replyModeBtn = el('btnModeReply');
         if (replyModeBtn) {
             replyModeBtn.disabled = !canReply;
             replyModeBtn.title = canReply ? 'Email reply via Outlook' : 'Reply unavailable in this folder';
         }
-        if (!canReply && state.composerMode === 'reply') {
-            setComposerMode('comment');
-        } else {
-            setComposerMode(state.composerMode || 'comment');
-        }
+        setComposerMode();
         if (!state.replyAll) {
             el('composerHint').textContent = folder === 'drafts' ? 'Send draft via Outlook' : 'Reply via Outlook';
         }
@@ -7906,6 +7853,7 @@ select.inbox-reply-header-input {
             renderAttachChips('reply');
             hideMentionPopup('reply');
             el('composerHint').textContent = 'Reply via Outlook';
+            if (el('modalReply')?.style.display === 'grid') closeModal();
 
             if (data.scheduled) {
                 await openConversation(data.conversation?.id || state.selectedId);
@@ -7956,7 +7904,7 @@ select.inbox-reply-header-input {
             if (hint) {
                 hint.textContent = 'Draft saved to Outlook';
                 setTimeout(() => {
-                    if (state.composerMode === 'reply' && hint.textContent === 'Draft saved to Outlook') {
+                    if (el('modalReply')?.style.display === 'grid' && hint.textContent === 'Draft saved to Outlook') {
                         hint.textContent = hintPrevText || 'Reply via Outlook';
                     }
                 }, 2500);
@@ -7970,9 +7918,8 @@ select.inbox-reply-header-input {
         }
     }
 
-    document.querySelectorAll('[data-composer-mode]').forEach(btn => {
-        btn.addEventListener('click', () => setComposerMode(btn.dataset.composerMode));
-    });
+    el('btnModeComment')?.addEventListener('click', () => setComposerMode());
+    el('btnModeReply')?.addEventListener('click', () => openReplyModal());
 
     el('btnOpenTemplateList')?.addEventListener('click', openTemplateListModal);
     el('btnCloseTemplateList')?.addEventListener('click', closeModal);
@@ -8625,7 +8572,7 @@ select.inbox-reply-header-input {
     bindHtmlLinkHover(el('commentBody'));
     bindHtmlLinkHover(el('replyBody'));
     bindHtmlLinkHover(el('composeBody'));
-    setComposerMode('comment');
+    setComposerMode();
     window.addEventListener('resize', syncOpenTemplatePickerPosition);
     document.addEventListener('scroll', syncOpenTemplatePickerPosition, true);
     document.addEventListener('click', (e) => {

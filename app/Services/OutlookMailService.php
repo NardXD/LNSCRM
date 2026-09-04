@@ -1098,13 +1098,31 @@ class OutlookMailService
             return null;
         }
 
-        $account = $this->refreshTokenIfNeeded($account);
-        $mailboxPath = $this->mailboxPath($inbox);
-
         $replyToId = (string) ($payload['reply_to_message_id'] ?? '');
         if ($replyToId === '' || str_starts_with($replyToId, 'local-')) {
             return null;
         }
+
+        try {
+            return $this->performSaveDraftReply($inbox, $account, $replyToId, $payload);
+        } catch (\Throwable $e) {
+            Log::warning('Outlook save draft reply failed', [
+                'inbox_id' => $inbox->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array{id: string}|null
+     */
+    private function performSaveDraftReply(SharedInbox $inbox, OutlookMailAccount $account, string $replyToId, array $payload): ?array
+    {
+        $account = $this->refreshTokenIfNeeded($account);
+        $mailboxPath = $this->mailboxPath($inbox);
 
         $draftId = (string) ($payload['draft_message_id'] ?? '');
         $existingBody = '';
