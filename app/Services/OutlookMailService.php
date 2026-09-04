@@ -4,12 +4,14 @@ namespace App\Services;
 
 use App\Models\InboxConversation;
 use App\Models\InboxConversationUserRead;
+use App\Models\InboxMailFolder;
 use App\Models\InboxMessage;
 use App\Models\OutlookMailAccount;
 use App\Models\SharedInbox;
 use App\Notifications\InboxMessageNotification;
 use App\Support\EmailQuotedHistory;
 use Carbon\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -17,14 +19,31 @@ class OutlookMailService
 {
     private const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 
-    /** @var array<string, array{graph: string, status: string, direction: string}> */
+    /**
+     * Defaults for the handful of well-known folders that carry special CRM meaning.
+     * Every other folder Graph reports (custom folders, nested subfolders, and any
+     * other well-known folder) is still discovered and synced — see discoverFolders() —
+     * just without one of these special status/direction defaults.
+     *
+     * @var array<string, array{graph: string, status: string, direction: string}>
+     */
     public const FOLDERS = [
         'inbox' => ['graph' => 'inbox', 'status' => 'open', 'direction' => 'inbound'],
         'drafts' => ['graph' => 'drafts', 'status' => 'drafts', 'direction' => 'outbound'],
         'sent' => ['graph' => 'sentitems', 'status' => 'sent', 'direction' => 'outbound'],
         'trash' => ['graph' => 'deleteditems', 'status' => 'trashed', 'direction' => 'inbound'],
         'spam' => ['graph' => 'junkemail', 'status' => 'spam', 'direction' => 'inbound'],
+        'archive' => ['graph' => 'archive', 'status' => 'open', 'direction' => 'inbound'],
     ];
+
+    /**
+     * Graph wellKnownName values that are diagnostic/transient, not real correspondence —
+     * never synced even though discoverFolders() would otherwise pick them up.
+     */
+    private const SKIP_WELL_KNOWN = ['outbox', 'syncissues', 'deletedsearchresults', 'conversationhistory'];
+
+    /** Max folders / discovery-loop iterations, guarding against pathological mailboxes. */
+    private const MAX_DISCOVERED_FOLDERS = 500;
 
     public function __construct(
         protected CalendarOauthSettingsService $oauthSettings,
@@ -102,19 +121,31 @@ class OutlookMailService
         $account = $this->refreshTokenIfNeeded($account);
         $imported = 0;
 
-        $folders = self::FOLDERS;
+        $folders = $this->discoverFolders($inbox);
+        if ($folders->isEmpty()) {
+            // Discovery couldn't reach Graph at all — e.g. a transient error on a
+            // brand-new inbox that has never been discovered before. Fall back to the
+            // well-known folders directly rather than skipping the sync entirely.
+            $folders = collect(self::FOLDERS)->map(fn ($meta) => (object) [
+                'graph_folder_id' => $meta['graph'],
+                'status_default' => $meta['status'],
+                'direction_default' => $meta['direction'],
+            ]);
+        }
         if ($onlyFolder !== null) {
-            if (! isset($folders[$onlyFolder])) {
-                return 0;
-            }
-            $folders = [$onlyFolder => $folders[$onlyFolder]];
+            $folders = $folders->has($onlyFolder) ? $folders->only([$onlyFolder]) : collect();
         }
 
-        foreach ($folders as $folder => $meta) {
+        foreach ($folders as $localKey => $folderRow) {
+            $meta = [
+                'graph' => $folderRow->graph_folder_id,
+                'status' => $folderRow->status_default,
+                'direction' => $folderRow->direction_default,
+            ];
             $nextLink = null;
             $fetched = 0;
             do {
-                $page = $this->syncFolderPage($inbox, $account, $folder, $meta, $nextLink, $fetched);
+                $page = $this->syncFolderPage($inbox, $account, $localKey, $meta, $nextLink, $fetched);
                 $imported += $page['imported'];
                 $fetched += $page['fetched'];
                 $nextLink = $page['next_link'];
@@ -126,6 +157,157 @@ class OutlookMailService
         $inbox->save();
 
         return $imported;
+    }
+
+    /**
+     * Discover every mail folder in this mailbox — well-known folders, custom
+     * top-level folders, and nested subfolders — and cache the result in
+     * inbox_mail_folders. Skips a small denylist of diagnostic/transient system
+     * folders (see SKIP_WELL_KNOWN). Returns the cached rows keyed by local_key.
+     *
+     * @return Collection<string, InboxMailFolder>
+     */
+    public function discoverFolders(SharedInbox $inbox, bool $forceRefresh = false): Collection
+    {
+        $cached = InboxMailFolder::where('shared_inbox_id', $inbox->id)->get()->keyBy('local_key');
+
+        // Re-discover at most once an hour on the automatic path (the --full cron runs
+        // every 15 minutes) so newly created custom folders surface on their own —
+        // without this, a mailbox discovered once would never be re-crawled by syncInbox().
+        if (! $forceRefresh && $cached->isNotEmpty()) {
+            $oldest = $cached->pluck('last_synced_at')->filter()->min();
+            if ($oldest && $oldest->gt(now()->subHour())) {
+                return $cached;
+            }
+        }
+
+        $account = $inbox->account;
+        if (! $account || ! $account->is_active) {
+            return $cached;
+        }
+
+        $account = $this->refreshTokenIfNeeded($account);
+        $mailboxPath = $this->mailboxPath($inbox);
+
+        // Graph's wellKnownName for each folder we already give special CRM meaning to.
+        $wellKnownLocalKeys = [];
+        foreach (self::FOLDERS as $localKey => $meta) {
+            $wellKnownLocalKeys[$meta['graph']] = $localKey;
+        }
+
+        $byGraphId = [];
+        $queue = [null]; // null = mailbox root
+        $visited = [];
+        $hadErrors = false;
+        $guard = 0;
+
+        while ($queue !== [] && count($byGraphId) < self::MAX_DISCOVERED_FOLDERS && $guard < self::MAX_DISCOVERED_FOLDERS * 2) {
+            $guard++;
+            $parentId = array_shift($queue);
+            if ($parentId !== null) {
+                if (isset($visited[$parentId])) {
+                    continue;
+                }
+                $visited[$parentId] = true;
+            }
+
+            $url = $parentId === null
+                ? self::GRAPH_BASE."/{$mailboxPath}/mailFolders"
+                : self::GRAPH_BASE."/{$mailboxPath}/mailFolders/{$parentId}/childFolders";
+
+            $nextUrl = $url.'?'.http_build_query([
+                '$top' => 250,
+                '$select' => 'id,displayName,parentFolderId,childFolderCount,totalItemCount,wellKnownName',
+            ]);
+
+            while ($nextUrl && count($byGraphId) < self::MAX_DISCOVERED_FOLDERS) {
+                $response = Http::withToken($account->access_token)->timeout(30)->get($nextUrl);
+                if (! $response->successful()) {
+                    Log::warning('Outlook mail folder discovery failed', [
+                        'inbox_id' => $inbox->id,
+                        'parent_id' => $parentId,
+                        'status' => $response->status(),
+                    ]);
+                    $hadErrors = true;
+
+                    break;
+                }
+
+                $payload = $response->json() ?: [];
+                $batch = $payload['value'] ?? [];
+                foreach ($batch as $f) {
+                    $graphId = (string) ($f['id'] ?? '');
+                    if ($graphId === '' || isset($byGraphId[$graphId])) {
+                        continue;
+                    }
+
+                    $wellKnown = strtolower((string) ($f['wellKnownName'] ?? ''));
+                    if (in_array($wellKnown, self::SKIP_WELL_KNOWN, true)) {
+                        continue;
+                    }
+
+                    $byGraphId[$graphId] = $f;
+                    if ((int) ($f['childFolderCount'] ?? 0) > 0) {
+                        $queue[] = $graphId;
+                    }
+                }
+
+                $next = $payload['@odata.nextLink'] ?? null;
+                $nextUrl = is_string($next) && $next !== '' ? $next : null;
+            }
+        }
+
+        if ($byGraphId === []) {
+            // Discovery failed outright (token/permission issue) — keep whatever was cached.
+            return $cached;
+        }
+
+        $localKeyByGraphId = [];
+        foreach ($byGraphId as $graphId => $f) {
+            $wellKnown = strtolower((string) ($f['wellKnownName'] ?? ''));
+            $localKeyByGraphId[$graphId] = $wellKnownLocalKeys[$wellKnown]
+                ?? $cached->firstWhere('graph_folder_id', $graphId)?->local_key
+                ?? ('cf_'.substr(md5($graphId), 0, 12));
+        }
+
+        $seenLocalKeys = [];
+        foreach ($byGraphId as $graphId => $f) {
+            $localKey = $localKeyByGraphId[$graphId];
+            $meta = self::FOLDERS[$localKey] ?? ['status' => 'open', 'direction' => 'inbound'];
+            $parentGraphId = (string) ($f['parentFolderId'] ?? '');
+
+            // Guard the (shared_inbox_id, graph_folder_id) unique index against the rare
+            // case where this folder's computed local_key changed since the last crawl.
+            $staleRow = $cached->firstWhere('graph_folder_id', $graphId);
+            if ($staleRow && $staleRow->local_key !== $localKey) {
+                $staleRow->delete();
+            }
+
+            InboxMailFolder::updateOrCreate(
+                ['shared_inbox_id' => $inbox->id, 'local_key' => $localKey],
+                [
+                    'graph_folder_id' => $graphId,
+                    'display_name' => (string) ($f['displayName'] ?? $localKey),
+                    'parent_local_key' => $localKeyByGraphId[$parentGraphId] ?? null,
+                    'well_known_name' => ($f['wellKnownName'] ?? null) ?: null,
+                    'status_default' => $meta['status'],
+                    'direction_default' => $meta['direction'],
+                    'graph_total_count' => (int) ($f['totalItemCount'] ?? 0),
+                    'last_synced_at' => now(),
+                ]
+            );
+            $seenLocalKeys[] = $localKey;
+        }
+
+        // Only prune folders Graph no longer reports when the crawl completed cleanly —
+        // a partial/errored crawl must not look like folders were deleted.
+        if (! $hadErrors) {
+            InboxMailFolder::where('shared_inbox_id', $inbox->id)
+                ->whereNotIn('local_key', $seenLocalKeys)
+                ->delete();
+        }
+
+        return InboxMailFolder::where('shared_inbox_id', $inbox->id)->get()->keyBy('local_key');
     }
 
     /**
@@ -150,6 +332,14 @@ class OutlookMailService
         $account = $this->refreshTokenIfNeeded($account);
         $imported = 0;
 
+        // Cheap path: resolve Inbox/Sent from the folder cache without a full discovery
+        // crawl, falling back to the well-known folder name for a brand-new inbox that
+        // has never been discovered yet (Graph accepts well-known names as folder ids).
+        $cachedFolders = InboxMailFolder::where('shared_inbox_id', $inbox->id)
+            ->whereIn('local_key', ['inbox', 'sent'])
+            ->get()
+            ->keyBy('local_key');
+
         // Same probe targets as the /inbox auto-sync (quiet + recentOnly).
         $probes = [
             'inbox' => 2,
@@ -157,11 +347,14 @@ class OutlookMailService
         ];
 
         foreach ($probes as $folder => $maxPages) {
-            if (! isset(self::FOLDERS[$folder])) {
+            $folderRow = $cachedFolders->get($folder);
+            $meta = $folderRow
+                ? ['graph' => $folderRow->graph_folder_id, 'status' => $folderRow->status_default, 'direction' => $folderRow->direction_default]
+                : (self::FOLDERS[$folder] ?? null);
+            if (! $meta) {
                 continue;
             }
 
-            $meta = self::FOLDERS[$folder];
             $nextLink = null;
             $fetched = 0;
 
@@ -201,18 +394,13 @@ class OutlookMailService
      *   remaining: int,
      *   folders: array<string, int>,
      *   folders_synced: array<string, int>,
-     *   folders_remaining: array<string, int>
+     *   folders_remaining: array<string, int>,
+     *   folder_labels: array<string, string>
      * }
      */
     public function getMailboxMessageTotals(SharedInbox $inbox): array
     {
         $account = $inbox->account;
-        $folders = array_fill_keys(array_keys(self::FOLDERS), 0);
-        $foldersSynced = array_fill_keys(array_keys(self::FOLDERS), 0);
-        $foldersRemaining = array_fill_keys(array_keys(self::FOLDERS), 0);
-        $graphTotal = 0;
-        $alreadySynced = 0;
-        $remaining = 0;
 
         if (! $account || ! $account->is_active || ! $this->assertAccountMatchesInbox($inbox, $account)) {
             return [
@@ -220,50 +408,45 @@ class OutlookMailService
                 'graph_total' => 0,
                 'already_synced' => 0,
                 'remaining' => 0,
-                'folders' => $folders,
-                'folders_synced' => $foldersSynced,
-                'folders_remaining' => $foldersRemaining,
+                'folders' => [],
+                'folders_synced' => [],
+                'folders_remaining' => [],
+                'folder_labels' => [],
             ];
         }
 
         $account = $this->refreshTokenIfNeeded($account);
-        $mailboxPath = $this->mailboxPath($inbox->loadMissing('account'));
 
-        foreach (self::FOLDERS as $folder => $meta) {
+        // Discovery itself fetches totalItemCount for every folder in the crawl, so
+        // folder-level Graph counts come for free — no extra per-folder API calls needed.
+        $discovered = $this->discoverFolders($inbox, forceRefresh: true);
+
+        $folders = [];
+        $foldersSynced = [];
+        $foldersRemaining = [];
+        $folderLabels = [];
+        $graphTotal = 0;
+        $alreadySynced = 0;
+        $remaining = 0;
+
+        foreach ($discovered as $localKey => $folderRow) {
             $localCount = (int) InboxMessage::query()
-                ->whereHas('conversation', function ($q) use ($inbox, $folder) {
+                ->whereHas('conversation', function ($q) use ($inbox, $localKey) {
                     $q->where('shared_inbox_id', $inbox->id)
-                        ->where('folder', $folder);
+                        ->where('folder', $localKey);
                 })
                 ->count();
 
-            $foldersSynced[$folder] = $localCount;
+            $foldersSynced[$localKey] = $localCount;
             $alreadySynced += $localCount;
+            $folderLabels[$localKey] = $folderRow->display_name;
 
-            $response = Http::withToken($account->access_token)
-                ->timeout(30)
-                ->get(self::GRAPH_BASE."/{$mailboxPath}/mailFolders/{$meta['graph']}", [
-                    '$select' => 'totalItemCount,unreadItemCount,displayName',
-                ]);
-
-            if (! $response->successful()) {
-                Log::warning('Outlook folder count failed', [
-                    'inbox_id' => $inbox->id,
-                    'folder' => $folder,
-                    'status' => $response->status(),
-                ]);
-                // Fall back to treating unsynced as unknown; don't block other folders.
-                $foldersRemaining[$folder] = 0;
-
-                continue;
-            }
-
-            $graphCount = (int) ($response->json('totalItemCount') ?? 0);
-            $folders[$folder] = $graphCount;
+            $graphCount = (int) $folderRow->graph_total_count;
+            $folders[$localKey] = $graphCount;
             $graphTotal += $graphCount;
 
             $folderRemaining = max(0, $graphCount - $localCount);
-            $foldersRemaining[$folder] = $folderRemaining;
+            $foldersRemaining[$localKey] = $folderRemaining;
             $remaining += $folderRemaining;
         }
 
@@ -275,6 +458,7 @@ class OutlookMailService
             'folders' => $folders,
             'folders_synced' => $foldersSynced,
             'folders_remaining' => $foldersRemaining,
+            'folder_labels' => $folderLabels,
         ];
     }
 
@@ -673,7 +857,8 @@ class OutlookMailService
 
         $account = $this->refreshTokenIfNeeded($account);
         $mailboxPath = $this->mailboxPath($inbox);
-        $destination = self::FOLDERS[$folder]['graph'];
+        $folderRow = InboxMailFolder::where('shared_inbox_id', $inbox->id)->where('local_key', $folder)->first();
+        $destination = $folderRow?->graph_folder_id ?? self::FOLDERS[$folder]['graph'];
 
         $messageIds = $conversation->messages()
             ->whereNotNull('external_message_id')

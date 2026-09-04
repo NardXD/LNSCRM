@@ -10,6 +10,7 @@ use App\Models\InboxTag;
 use App\Models\InboxTemplate;
 use App\Models\InboxUserSetting;
 use App\Models\InboxConversationUserRead;
+use App\Models\InboxMailFolder;
 use App\Models\Lead;
 use App\Models\LeadLabel;
 use App\Models\OutlookMailAccount;
@@ -98,6 +99,24 @@ class InboxController extends Controller
             $this->mailService->repairInboxBinding($inbox);
         }
 
+        $inboxIds = $this->accessibleInboxes($user)->pluck('id');
+
+        // One grouped query for every raw-mail-folder count across every accessible
+        // inbox (Drafts/Sent/Trash/Spam/Archive/custom folders) instead of a fixed
+        // withCount() column per folder — this is what makes newly-discovered custom
+        // folders show a count without any code change.
+        $folderCounts = [];
+        if ($inboxIds->isNotEmpty()) {
+            InboxConversation::notMerged()
+                ->whereIn('shared_inbox_id', $inboxIds)
+                ->selectRaw('shared_inbox_id, folder, count(*) as c')
+                ->groupBy('shared_inbox_id', 'folder')
+                ->get()
+                ->each(function ($row) use (&$folderCounts) {
+                    $folderCounts[$row->shared_inbox_id][$row->folder] = (int) $row->c;
+                });
+        }
+
         $inboxes = $this->accessibleInboxes($user)
             ->withCount([
                 'conversations as open_count' => fn ($q) => $q->notMerged()->where('folder', 'inbox')->where('status', 'open'),
@@ -123,18 +142,12 @@ class InboxController extends Controller
                     ->where(fn ($q) => $q->whereNull('reopen_at')->orWhere('reopen_at', '<=', now())),
                 'conversations as snoozed_count' => fn ($q) => $q->notMerged()->where('folder', 'inbox')->where('status', 'archived')
                     ->whereNotNull('reopen_at')->where('reopen_at', '>', now()),
-                'conversations as drafts_count' => fn ($q) => $q->notMerged()->where('folder', 'drafts'),
-                'conversations as sent_count' => fn ($q) => $q->notMerged()->where('folder', 'sent'),
-                'conversations as trash_count' => fn ($q) => $q->notMerged()->where('folder', 'trash'),
-                'conversations as spam_count' => fn ($q) => $q->notMerged()->where('folder', 'spam'),
             ])
-            ->with(['members:id,name,email', 'account'])
+            ->with(['members:id,name,email', 'account', 'mailFolders'])
             ->orderByRaw("CASE WHEN type = 'personal' THEN 0 ELSE 1 END")
             ->orderBy('name')
             ->get()
-            ->map(fn (SharedInbox $inbox) => $this->formatInbox($inbox));
-
-        $inboxIds = $this->accessibleInboxes($user)->pluck('id');
+            ->map(fn (SharedInbox $inbox) => $this->formatInbox($inbox, $folderCounts[$inbox->id] ?? []));
 
         $tags = InboxTag::where('company_id', $companyId)
             ->withCount([
@@ -520,14 +533,16 @@ class InboxController extends Controller
         $user = $request->user();
         $validated = $request->validate([
             'inbox_id' => ['nullable', 'integer'],
-            'view' => ['nullable', 'string', 'in:open,assigned_to_me,unassigned,archived,snoozed,drafts,sent,trash,spam,all'],
+            'view' => ['nullable', 'string', 'in:open,assigned_to_me,unassigned,archived,snoozed,drafts,sent,trash,spam,archive,all'],
             'tag_id' => ['nullable', 'integer'],
             'search' => ['nullable', 'string', 'max:200'],
             'from' => ['nullable', 'string', 'max:255'],
             'to' => ['nullable', 'string', 'max:255'],
             'subject' => ['nullable', 'string', 'max:255'],
             'body' => ['nullable', 'string', 'max:500'],
-            'folder' => ['nullable', 'string', 'in:any,inbox,drafts,sent,trash,spam'],
+            // Any local folder key is valid here (well-known or a discovered custom folder) —
+            // 'any' is the sentinel for "no folder/status lock" handled below.
+            'folder' => ['nullable', 'string', 'max:64'],
             'assigned_to' => ['nullable', 'integer'],
             'is_read' => ['nullable', 'in:0,1,true,false'],
             'date_from' => ['nullable', 'date'],
@@ -594,6 +609,8 @@ class InboxController extends Controller
             $query->where('folder', 'trash');
         } elseif ($view === 'spam') {
             $query->where('folder', 'spam');
+        } elseif ($view === 'archive') {
+            $query->where('folder', 'archive');
         }
 
         if (! empty($validated['tag_id'])) {
@@ -2150,6 +2167,7 @@ class InboxController extends Controller
                 'folders' => $counts['folders'],
                 'folders_remaining' => $counts['folders_remaining'],
                 'folders_synced' => $counts['folders_synced'],
+                'folder_labels' => $counts['folder_labels'] ?? [],
             ];
         }
 
@@ -2169,7 +2187,8 @@ class InboxController extends Controller
         $user = $request->user();
         $validated = $request->validate([
             'inbox_id' => ['nullable', 'integer'],
-            'folder' => ['nullable', 'string', 'in:inbox,drafts,sent,trash,spam'],
+            // Any local folder key is valid — well-known or a discovered custom folder.
+            'folder' => ['nullable', 'string', 'max:32'],
             // When true (default), sync every accessible connected inbox.
             'all' => ['nullable', 'boolean'],
             // Page-by-page mode for progress UI.
@@ -2201,7 +2220,12 @@ class InboxController extends Controller
                 return response()->json(['message' => 'Inbox not found or not connected.'], 404);
             }
 
-            if (! isset(OutlookMailService::FOLDERS[$folder])) {
+            $folderRow = InboxMailFolder::where('shared_inbox_id', $inbox->id)->where('local_key', $folder)->first();
+            $folderMeta = $folderRow
+                ? ['graph' => $folderRow->graph_folder_id, 'status' => $folderRow->status_default, 'direction' => $folderRow->direction_default]
+                : (OutlookMailService::FOLDERS[$folder] ?? null);
+
+            if (! $folderMeta) {
                 return response()->json(['message' => 'Invalid folder.'], 422);
             }
 
@@ -2209,7 +2233,7 @@ class InboxController extends Controller
                 $inbox->fresh(['account']),
                 $inbox->account,
                 $folder,
-                OutlookMailService::FOLDERS[$folder],
+                $folderMeta,
                 $validated['next_link'] ?? null,
                 (int) ($validated['fetched_so_far'] ?? 0)
             );
@@ -2841,8 +2865,27 @@ class InboxController extends Controller
         }
     }
 
-    private function formatInbox(SharedInbox $inbox): array
+    /**
+     * @param  array<string, int>  $folderCounts  local_key => conversation count (see index())
+     */
+    private function formatInbox(SharedInbox $inbox, array $folderCounts = []): array
     {
+        // Fixed display order for the folders we give special meaning to; anything else
+        // (custom folders, nested subfolders) sorts after, alphabetically by name.
+        $wellKnownOrder = ['drafts' => 1, 'sent' => 2, 'trash' => 3, 'spam' => 4, 'archive' => 5];
+
+        $folders = $inbox->relationLoaded('mailFolders')
+            ? $inbox->mailFolders
+                ->reject(fn ($f) => $f->local_key === 'inbox')
+                ->sortBy(fn ($f) => [$wellKnownOrder[$f->local_key] ?? 100, $f->display_name])
+                ->values()
+                ->map(fn ($f) => [
+                    'key' => $f->local_key,
+                    'label' => $f->display_name,
+                    'count' => $folderCounts[$f->local_key] ?? 0,
+                ])
+            : [];
+
         return [
             'id' => $inbox->id,
             'name' => $inbox->name,
@@ -2863,10 +2906,7 @@ class InboxController extends Controller
             'unread_count' => $inbox->unread_count ?? null,
             'archived_count' => $inbox->archived_count ?? null,
             'snoozed_count' => $inbox->snoozed_count ?? null,
-            'drafts_count' => $inbox->drafts_count ?? null,
-            'sent_count' => $inbox->sent_count ?? null,
-            'trash_count' => $inbox->trash_count ?? null,
-            'spam_count' => $inbox->spam_count ?? null,
+            'folders' => $folders,
             'members' => $inbox->relationLoaded('members')
                 ? $inbox->members->map(fn ($m) => [
                     'id' => $m->id,

@@ -72,6 +72,11 @@ class SharedInbox extends Model
         return $this->hasMany(InboxRule::class);
     }
 
+    public function mailFolders(): HasMany
+    {
+        return $this->hasMany(InboxMailFolder::class);
+    }
+
     public function isPersonal(): bool
     {
         return $this->type === self::TYPE_PERSONAL;
