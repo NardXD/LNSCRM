@@ -2150,6 +2150,7 @@ class InboxController extends Controller
                 'folders' => $counts['folders'],
                 'folders_remaining' => $counts['folders_remaining'],
                 'folders_synced' => $counts['folders_synced'],
+                'folders_failed' => $counts['folders_failed'] ?? [],
             ];
         }
 
@@ -2176,10 +2177,14 @@ class InboxController extends Controller
             'paged' => ['nullable', 'boolean'],
             'next_link' => ['nullable', 'string', 'max:4000'],
             'fetched_so_far' => ['nullable', 'integer', 'min:0'],
+            // Quick newest-mail probe (auto-sync) vs. a real full/backfill walk that
+            // must not stop early just because it re-visits already-synced pages.
+            'recent_only' => ['nullable', 'boolean'],
         ]);
 
         $folder = $validated['folder'] ?? null;
         $paged = (bool) ($validated['paged'] ?? false);
+        $recentOnly = (bool) ($validated['recent_only'] ?? false);
         $syncAll = ($validated['all'] ?? true) && empty($validated['inbox_id']);
 
         // Folder-scoped sync requires a specific inbox (used by progress UI).
@@ -2211,10 +2216,15 @@ class InboxController extends Controller
                 $folder,
                 OutlookMailService::FOLDERS[$folder],
                 $validated['next_link'] ?? null,
-                (int) ($validated['fetched_so_far'] ?? 0)
+                (int) ($validated['fetched_so_far'] ?? 0),
+                $recentOnly
             );
 
-            if ($page['done']) {
+            $failed = (bool) ($page['failed'] ?? false);
+            // A transient failure (throttling, timeout, a mid-refresh token) is not
+            // "this folder is fully synced" — don't stamp last_synced_at for it, or a
+            // flaky page would make the UI believe a folder finished when it didn't.
+            if ($page['done'] && ! $failed) {
                 $inbox->last_synced_at = now();
                 $inbox->save();
             }
@@ -2225,6 +2235,7 @@ class InboxController extends Controller
                 'skipped' => $page['skipped'] ?? max(0, $page['fetched'] - $page['imported']),
                 'next_link' => $page['next_link'],
                 'done' => $page['done'],
+                'failed' => $failed,
                 'caught_up' => (bool) ($page['caught_up'] ?? false),
                 'inbox_name' => $inbox->name,
                 'folder' => $folder,

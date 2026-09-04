@@ -7167,14 +7167,19 @@
                 already = inboxMeta.already_synced ?? totals?.already_synced ?? 0;
                 const folderRemaining = inboxMeta.folders_remaining || {};
                 const folderGraph = inboxMeta.folders || {};
+                const foldersFailed = new Set(inboxMeta.folders_failed || []);
 
                 // Always probe Inbox (and Sent) newest-first even when count delta is 0 —
                 // Graph totalItemCount can match local while brand-new messages are still missing.
+                // A folder whose Graph count lookup failed (throttling, timeout) is unknown,
+                // not zero — always probe it too, or a transient error would make this pass
+                // silently skip a folder that may have plenty of unsynced mail.
                 foldersToSync = SYNC_FOLDERS
                     .map(f => {
                         const remaining = folderRemaining[f.key] || 0;
                         const graph = folderGraph[f.key] || 0;
-                        const probe = (f.key === 'inbox' || f.key === 'sent') && remaining <= 0 && graph > 0;
+                        const failed = foldersFailed.has(f.key);
+                        const probe = failed || ((f.key === 'inbox' || f.key === 'sent') && remaining <= 0 && graph > 0);
                         return {
                             ...f,
                             remaining: probe ? 100 : remaining,
@@ -7239,6 +7244,7 @@
                             paged: true,
                             inbox_id: inbox.id,
                             folder: folder.key,
+                            recent_only: recentOnly,
                             next_link: nextLink,
                             fetched_so_far: folderFetched,
                         },
@@ -7279,8 +7285,12 @@
                     }
 
                     // First page all skipped while count-delta is tiny → already have recent mail.
-                    const graphSize = folder.graph || 0;
-                    const looksIncremental = recentOnly || (graphSize > 0 && folderTarget < graphSize * 0.05);
+                    // Only short-circuit for the cheap auto-probe (recentOnly) or a synthetic
+                    // "always check newest" probe entry — NOT for a real full/backfill folder,
+                    // where a small remaining count can mean "almost caught up after an earlier
+                    // interrupted sync" rather than "nothing left," and the unsynced mail can be
+                    // further back than the very first page.
+                    const looksIncremental = recentOnly || folder.probe;
                     if (looksIncremental && synced === 0 && fetched > 0 && folderFetched === fetched) {
                         nextLink = null;
                     }

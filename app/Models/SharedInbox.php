@@ -28,11 +28,13 @@ class SharedInbox extends Model
         'external_mailbox',
         'is_active',
         'last_synced_at',
+        'folder_sync_state',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'last_synced_at' => 'datetime',
+        'folder_sync_state' => 'array',
     ];
 
     public function company(): BelongsTo

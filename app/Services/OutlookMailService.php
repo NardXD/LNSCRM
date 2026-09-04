@@ -17,6 +17,20 @@ class OutlookMailService
 {
     private const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 
+    /**
+     * Graph pages walked per folder per syncInbox() invocation while that folder's
+     * one-time backfill is still in progress — bounds a single run's wall-clock time
+     * so a large mailbox can't blow the command/request time limit; the persisted
+     * cursor lets the next scheduled run continue from here.
+     */
+    private const MAX_BACKFILL_PAGES_PER_RUN = 200;
+
+    /**
+     * Retries for a transient (5xx/429) per-folder Graph count lookup in
+     * getMailboxMessageTotals() before giving up on that folder for this call.
+     */
+    private const FOLDER_COUNT_RETRIES = 2;
+
     /** @var array<string, array{graph: string, status: string, direction: string}> */
     public const FOLDERS = [
         'inbox' => ['graph' => 'inbox', 'status' => 'open', 'direction' => 'inbound'],
@@ -110,16 +124,47 @@ class OutlookMailService
             $folders = [$onlyFolder => $folders[$onlyFolder]];
         }
 
+        // Resumable full/backfill walk: each folder remembers where it left off
+        // (Graph next_link + fetched count) until it has walked all the way to the
+        // real end of the mailbox at least once. This survives interruption — a
+        // command timeout, a token refresh failure, a Graph 5xx/429 — because the
+        // next invocation resumes from the persisted cursor instead of restarting
+        // at page 1, which would otherwise immediately re-trip the newest-first
+        // "already synced" short-circuit and never make further progress.
+        // Once a folder finishes its one-time backfill, it switches to the cheap
+        // caught-up-short-circuit mode used everywhere else.
+        $cursors = $inbox->folder_sync_state ?? [];
+
         foreach ($folders as $folder => $meta) {
-            $nextLink = null;
-            $fetched = 0;
+            $state = $cursors[$folder] ?? [];
+            $backfillDone = (bool) ($state['backfill_done'] ?? false);
+            $nextLink = $backfillDone ? null : ($state['next_link'] ?? null);
+            $fetched = $backfillDone ? 0 : (int) ($state['fetched'] ?? 0);
+
+            $pages = 0;
+            $failed = false;
             do {
-                $page = $this->syncFolderPage($inbox, $account, $folder, $meta, $nextLink, $fetched);
+                $page = $this->syncFolderPage($inbox, $account, $folder, $meta, $nextLink, $fetched, $backfillDone);
                 $imported += $page['imported'];
                 $fetched += $page['fetched'];
                 $nextLink = $page['next_link'];
+                $failed = (bool) ($page['failed'] ?? false);
                 $account = $inbox->account()->first() ?: $account;
-            } while ($nextLink);
+                $pages++;
+            } while ($nextLink && ! $failed && $pages < self::MAX_BACKFILL_PAGES_PER_RUN);
+
+            if (! $backfillDone) {
+                $reachedEnd = ! $failed && $nextLink === null;
+                $cursors[$folder] = [
+                    'next_link' => $reachedEnd ? null : $nextLink,
+                    'fetched' => $reachedEnd ? 0 : $fetched,
+                    'backfill_done' => $reachedEnd,
+                ];
+                // Persist after each folder so a timeout/crash later in this run
+                // (a different folder, a different inbox) doesn't lose this progress.
+                $inbox->folder_sync_state = $cursors;
+                $inbox->save();
+            }
         }
 
         $inbox->last_synced_at = now();
@@ -201,7 +246,8 @@ class OutlookMailService
      *   remaining: int,
      *   folders: array<string, int>,
      *   folders_synced: array<string, int>,
-     *   folders_remaining: array<string, int>
+     *   folders_remaining: array<string, int>,
+     *   folders_failed: array<int, string>
      * }
      */
     public function getMailboxMessageTotals(SharedInbox $inbox): array
@@ -223,11 +269,14 @@ class OutlookMailService
                 'folders' => $folders,
                 'folders_synced' => $foldersSynced,
                 'folders_remaining' => $foldersRemaining,
+                'folders_failed' => [],
             ];
         }
 
         $account = $this->refreshTokenIfNeeded($account);
         $mailboxPath = $this->mailboxPath($inbox->loadMissing('account'));
+
+        $foldersFailed = [];
 
         foreach (self::FOLDERS as $folder => $meta) {
             $localCount = (int) InboxMessage::query()
@@ -240,20 +289,34 @@ class OutlookMailService
             $foldersSynced[$folder] = $localCount;
             $alreadySynced += $localCount;
 
-            $response = Http::withToken($account->access_token)
-                ->timeout(30)
-                ->get(self::GRAPH_BASE."/{$mailboxPath}/mailFolders/{$meta['graph']}", [
-                    '$select' => 'totalItemCount,unreadItemCount,displayName',
-                ]);
+            $response = null;
+            for ($attempt = 0; $attempt <= self::FOLDER_COUNT_RETRIES; $attempt++) {
+                if ($attempt > 0) {
+                    usleep(300_000 * $attempt);
+                }
 
-            if (! $response->successful()) {
+                $response = Http::withToken($account->access_token)
+                    ->timeout(30)
+                    ->get(self::GRAPH_BASE."/{$mailboxPath}/mailFolders/{$meta['graph']}", [
+                        '$select' => 'totalItemCount,unreadItemCount,displayName',
+                    ]);
+
+                if ($response->successful()) {
+                    break;
+                }
+            }
+
+            if (! $response || ! $response->successful()) {
                 Log::warning('Outlook folder count failed', [
                     'inbox_id' => $inbox->id,
                     'folder' => $folder,
-                    'status' => $response->status(),
+                    'status' => $response?->status(),
+                    'retries' => self::FOLDER_COUNT_RETRIES,
                 ]);
-                // Fall back to treating unsynced as unknown; don't block other folders.
-                $foldersRemaining[$folder] = 0;
+                // Count is unknown, not zero — a caller that treats "remaining: 0" as
+                // "nothing to sync" would otherwise skip a folder over a transient
+                // Graph error. Flag it in folders_failed so callers can still probe it.
+                $foldersFailed[] = $folder;
 
                 continue;
             }
@@ -275,6 +338,7 @@ class OutlookMailService
             'folders' => $folders,
             'folders_synced' => $foldersSynced,
             'folders_remaining' => $foldersRemaining,
+            'folders_failed' => $foldersFailed,
         ];
     }
 
@@ -282,7 +346,12 @@ class OutlookMailService
      * Sync a single Graph page for a folder (used by progress UI).
      *
      * @param  array{graph: string, status: string, direction: string}  $meta
-     * @return array{imported: int, fetched: int, next_link: ?string, done: bool}
+     * @param  bool  $stopWhenCaughtUp  Short-circuit as soon as a non-first page imports
+     *   nothing (assumes everything older is already synced). Safe for a cheap recent-mail
+     *   probe; must be false for a full/backfill walk, otherwise a walk resumed after any
+     *   interruption immediately re-trips this on the pages it already re-fetched and can
+     *   never progress past that point.
+     * @return array{imported: int, fetched: int, next_link: ?string, done: bool, failed: bool}
      */
     public function syncFolderPage(
         SharedInbox $inbox,
@@ -290,7 +359,8 @@ class OutlookMailService
         string $folder,
         array $meta,
         ?string $nextLink = null,
-        int $fetchedSoFar = 0
+        int $fetchedSoFar = 0,
+        bool $stopWhenCaughtUp = true
     ): array {
         $mailboxPath = $this->mailboxPath($inbox);
         // Newest first so incremental sync picks up new mail immediately.
@@ -327,13 +397,17 @@ class OutlookMailService
                 'fetched_so_far' => $fetchedSoFar,
             ]);
 
-            return ['imported' => 0, 'fetched' => 0, 'skipped' => 0, 'next_link' => null, 'done' => true];
+            // A transient failure (throttling, timeout, a token refresh that briefly
+            // failed) is not the same as "reached the end of the mailbox" — keep the
+            // same resume point so a caller tracking a persisted cursor (syncInbox)
+            // retries from here instead of the folder being wrongly marked complete.
+            return ['imported' => 0, 'fetched' => 0, 'skipped' => 0, 'next_link' => $nextLink, 'done' => true, 'failed' => true];
         }
 
         $payload = $response->json() ?: [];
         $batch = $payload['value'] ?? [];
         if (! is_array($batch) || $batch === []) {
-            return ['imported' => 0, 'fetched' => 0, 'skipped' => 0, 'next_link' => null, 'done' => true];
+            return ['imported' => 0, 'fetched' => 0, 'skipped' => 0, 'next_link' => null, 'done' => true, 'failed' => false];
         }
 
         $imported = 0;
@@ -361,8 +435,10 @@ class OutlookMailService
         // a full page of already-synced messages means we hit the previously
         // imported window — stop instead of scanning the whole mailbox.
         // (Do not short-circuit on the first page so a cancelled initial sync can
-        // still continue into older unsynced pages.)
-        $caughtUp = $imported === 0 && count($batch) > 0 && $fetchedSoFar > 0;
+        // still continue into older unsynced pages.) Only applied when the caller
+        // opts in ($stopWhenCaughtUp) — a full/backfill walk must keep going past
+        // pages it has already visited on an earlier, interrupted attempt.
+        $caughtUp = $stopWhenCaughtUp && $imported === 0 && count($batch) > 0 && $fetchedSoFar > 0;
         if ($caughtUp) {
             $next = null;
         }
@@ -383,6 +459,7 @@ class OutlookMailService
             'skipped' => $skipped,
             'next_link' => $next,
             'done' => $next === null,
+            'failed' => false,
             'caught_up' => $caughtUp,
         ];
     }

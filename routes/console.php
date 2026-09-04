@@ -18,6 +18,13 @@ Schedule::command('inbox:process-scheduled-replies')->everyMinute();
 Schedule::command('inbox:sync-mail')
     ->everyMinute()
     ->withoutOverlapping(10);
+// Full walk (every well-known folder: Inbox/Drafts/Sent/Trash/Spam, not just the
+// Inbox+Sent probe above) so Drafts/Trash/Spam and older history actually get
+// synced in the background instead of only on a manual "Sync" click. Cheap once
+// each folder's one-time backfill finishes — see OutlookMailService::syncInbox().
+Schedule::command('inbox:sync-mail --full')
+    ->everyFifteenMinutes()
+    ->withoutOverlapping(20);
 Schedule::command('facebook:sync-messages')
     ->everyMinute()
     ->withoutOverlapping(10);
