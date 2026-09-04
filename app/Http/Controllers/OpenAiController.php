@@ -53,7 +53,7 @@ class OpenAiController extends Controller
             'messages.*.role' => ['required', 'string', 'in:user,assistant,system'],
             'messages.*.content' => ['required', 'string'],
             'model' => ['nullable', 'string'],
-            'context_type' => ['nullable', 'string', 'in:billing,project,quotation,ticket,client,time-tracking,knowledge-base,payroll'],
+            'context_type' => ['nullable', 'string', 'in:leads,shared-inbox,viber,whatsapp,facebook,sms,broadcast,knowledge-base'],
             'data_source' => ['nullable', 'string', 'in:database,openai'],
         ]);
 
@@ -99,10 +99,10 @@ class OpenAiController extends Controller
         }
 
         // Build system message with optional CRM data context
-        $systemContent = 'You are an AI assistant for a CRM system. Help users with billing, projects, quotations, tickets, clients, time tracking, knowledge base, and other business tasks. Be concise and professional.';
+        $systemContent = 'You are an AI assistant for a CRM system focused on leads and omnichannel messaging. Help users manage leads, shared inboxes, Viber, WhatsApp, Facebook/Instagram, SMS conversations, broadcast messaging campaigns, and the knowledge base. Be concise and professional.';
         if ($dataSource === 'database' && $contextType) {
             $contextService = new OpenAiContextService;
-            $crmData = $contextService->getContextForCompany($company->id, $contextType);
+            $crmData = $contextService->getContextForCompany($company->id, $contextType, $request->user(), $company);
             $systemContent .= "\n\n--- ACTUAL CRM DATA FROM USER'S DATABASE (use this to generate accurate summaries) ---\n\n".$crmData;
         }
         $systemMessage = [

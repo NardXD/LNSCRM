@@ -3,9 +3,14 @@
 @section('title', 'AI Assistant')
 
 @section('content')
+    @php
+        use App\Helpers\SidebarHelper;
+        $canSummarize = fn ($permission, $moduleSlug) => SidebarHelper::canAccessModule($userPermissions ?? [], $companyModuleSlugs ?? null, $permission, $moduleSlug);
+    @endphp
+
     <div class="page-header">
         <h1 class="page-title">AI Assistant</h1>
-        <p class="page-subtitle">Your intelligent assistant for the whole system — CRM, tickets, contacts, knowledge base, and more</p>
+        <p class="page-subtitle">Your intelligent assistant for leads, shared inboxes, Viber, WhatsApp, Facebook/Instagram, SMS, broadcast messaging, and the knowledge base</p>
     </div>
 
     <div class="openai-container">
@@ -56,12 +61,12 @@
                             </svg>
                             Translate
                         </button>
-                        <button class="quick-action-btn" onclick="useQuickAction('code')">
+                        <button class="quick-action-btn" onclick="useQuickAction('reply')">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polyline points="16 18 22 12 16 6"/>
-                                <polyline points="8 6 2 12 8 18"/>
+                                <polyline points="9 14 4 9 9 4"/>
+                                <path d="M20 20v-7a4 4 0 0 0-4-4H4"/>
                             </svg>
-                            Code Help
+                            Draft Inbox Reply
                         </button>
                     </div>
                 </div>
@@ -69,64 +74,77 @@
                 <div class="sidebar-section">
                     <h3 class="sidebar-title">Generate Summary</h3>
                     <div class="quick-actions-list">
-                        <button class="quick-action-btn" onclick="useSummaryAction('billing')">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
-                                <line x1="1" y1="10" x2="23" y2="10"/>
-                                <line x1="7" y1="4" x2="7" y2="10"/>
-                            </svg>
-                            Billing Summary
-                        </button>
-                        <button class="quick-action-btn" onclick="useSummaryAction('project')">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                                <line x1="12" y1="11" x2="12" y2="17"/>
-                                <line x1="9" y1="14" x2="15" y2="14"/>
-                            </svg>
-                            Project Summary
-                        </button>
-                        <button class="quick-action-btn" onclick="useSummaryAction('quotation')">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                                <polyline points="14 2 14 8 20 8"/>
-                                <line x1="16" y1="13" x2="8" y2="13"/>
-                                <line x1="16" y1="17" x2="8" y2="17"/>
-                                <line x1="10" y1="9" x2="8" y2="9"/>
-                            </svg>
-                            Quotation Summary
-                        </button>
-                        <button class="quick-action-btn" onclick="useSummaryAction('ticket')">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
-                                <polyline points="10 17 15 12 10 7"/>
-                                <line x1="15" y1="12" x2="3" y2="12"/>
-                            </svg>
-                            Ticket Summary
-                        </button>
-                        <button class="quick-action-btn" onclick="useSummaryAction('client')">
+                        @if($canSummarize('view_leads', 'client-management'))
+                        <button class="quick-action-btn" onclick="useSummaryAction('leads')">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
                                 <circle cx="9" cy="7" r="4"/>
                                 <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
                                 <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
                             </svg>
-                            Client Summary
+                            Leads Summary
                         </button>
-                        <button class="quick-action-btn" onclick="useSummaryAction('time-tracking')">
+                        @endif
+                        @if($canSummarize('view_inbox', 'inbox'))
+                        <button class="quick-action-btn" onclick="useSummaryAction('shared-inbox')">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <circle cx="12" cy="12" r="10"/>
-                                <polyline points="12 6 12 12 16 14"/>
+                                <path d="M22 12h-6l-2 3h-4l-2-3H2"/>
+                                <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
                             </svg>
-                            Time Tracking Summary
+                            Shared Inbox Summary
                         </button>
-                        <button class="quick-action-btn" onclick="useSummaryAction('payroll')">
+                        @endif
+                        @if($canSummarize('view_viber', 'viber'))
+                        <button class="quick-action-btn" onclick="useSummaryAction('viber')">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <rect x="2" y="4" width="20" height="16" rx="2"/>
-                                <line x1="2" y1="10" x2="22" y2="10"/>
-                                <line x1="6" y1="14" x2="10" y2="14"/>
+                                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
                             </svg>
-                            Payroll Summary
+                            Viber Summary
                         </button>
+                        @endif
+                        @if($canSummarize('view_whatsapp', 'whatsapp'))
+                        <button class="quick-action-btn" onclick="useSummaryAction('whatsapp')">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
+                            </svg>
+                            WhatsApp Summary
+                        </button>
+                        @endif
+                        @if($canSummarize('view_facebook', 'facebook'))
+                        <button class="quick-action-btn" onclick="useSummaryAction('facebook')">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/>
+                            </svg>
+                            Facebook &amp; Instagram Summary
+                        </button>
+                        @endif
+                        @if($canSummarize('view_sms', 'sms'))
+                        <button class="quick-action-btn" onclick="useSummaryAction('sms')">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                            </svg>
+                            SMS Summary
+                        </button>
+                        @endif
+                        @if($canSummarize('view_broadcast_messaging', 'broadcast-messaging'))
+                        <button class="quick-action-btn" onclick="useSummaryAction('broadcast')">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M4 11a9 9 0 0 1 9-9"/>
+                                <path d="M4 5a15 15 0 0 1 15 15"/>
+                                <circle cx="5" cy="19" r="2"/>
+                            </svg>
+                            Broadcast Summary
+                        </button>
+                        @endif
+                        @if($canSummarize('view_knowledge_base', 'knowledge-base'))
+                        <button class="quick-action-btn" onclick="useSummaryAction('knowledge-base')">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                            </svg>
+                            Knowledge Base Summary
+                        </button>
+                        @endif
                     </div>
                 </div>
 
@@ -173,37 +191,45 @@
                             </svg>
                         </div>
                         <h2>How can I help you today?</h2>
-                        <p>Ask about your CRM data, tickets, contacts, knowledge base, or any task across the system.</p>
+                        <p>Ask about your leads, shared inboxes, Viber, WhatsApp, Facebook/Instagram, SMS, broadcast campaigns, or the knowledge base.</p>
                         <div class="suggestions-grid">
-                            <button class="suggestion-card" onclick="useSummaryAction('billing')">
+                            @if($canSummarize('view_leads', 'client-management'))
+                            <button class="suggestion-card" onclick="useSummaryAction('leads')">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
-                                    <line x1="1" y1="10" x2="23" y2="10"/>
+                                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                                    <circle cx="9" cy="7" r="4"/>
                                 </svg>
-                                <span>Billing summary</span>
+                                <span>Leads summary</span>
                             </button>
-                            <button class="suggestion-card" onclick="useSummaryAction('project')">
+                            @endif
+                            @if($canSummarize('view_inbox', 'inbox'))
+                            <button class="suggestion-card" onclick="useSummaryAction('shared-inbox')">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                                    <line x1="12" y1="11" x2="12" y2="17"/>
+                                    <path d="M22 12h-6l-2 3h-4l-2-3H2"/>
+                                    <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
                                 </svg>
-                                <span>Project summary</span>
+                                <span>Shared inbox summary</span>
                             </button>
-                            <button class="suggestion-card" onclick="useSummaryAction('ticket')">
+                            @endif
+                            @if($canSummarize('view_broadcast_messaging', 'broadcast-messaging'))
+                            <button class="suggestion-card" onclick="useSummaryAction('broadcast')">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
-                                    <polyline points="10 17 15 12 10 7"/>
+                                    <path d="M4 11a9 9 0 0 1 9-9"/>
+                                    <path d="M4 5a15 15 0 0 1 15 15"/>
+                                    <circle cx="5" cy="19" r="2"/>
                                 </svg>
-                                <span>Ticket summary</span>
+                                <span>Broadcast summary</span>
                             </button>
-                            <button class="suggestion-card" onclick="useSummaryAction('quotation')">
+                            @endif
+                            @if($canSummarize('view_knowledge_base', 'knowledge-base'))
+                            <button class="suggestion-card" onclick="useSummaryAction('knowledge-base')">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                                    <polyline points="14 2 14 8 20 8"/>
-                                    <line x1="16" y1="13" x2="8" y2="13"/>
+                                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
                                 </svg>
-                                <span>Quotation summary</span>
+                                <span>Knowledge base summary</span>
                             </button>
+                            @endif
                         </div>
                     </div>
                 </div>
@@ -1320,11 +1346,17 @@
                 const errorMsg = data.error || 'Unable to get a response. Please try again.';
                 const isQuotaError = /quota|billing|exceeded|rate limit/i.test(errorMsg);
                 const isConfigError = /not configured|API key|Invalid API key/i.test(errorMsg);
+                const isModelError = /model/i.test(errorMsg) && /(not found|does not exist|invalid|access|unsupported)/i.test(errorMsg);
                 let help = '';
                 if (isQuotaError) {
                     help = '\n\nCheck your usage and billing at https://platform.openai.com/account/billing';
                 } else if (isConfigError) {
                     help = '\n\nPlease ensure your OpenAI API key is configured correctly in Integrations.';
+                } else if (isModelError) {
+                    help = '\n\nThat model isn\'t available on this account. Switching back to GPT-4o — please try sending your message again.';
+                    const modelSelect = document.getElementById('modelSelect');
+                    modelSelect.value = 'gpt-4o';
+                    updateModelInfo();
                 }
                 addMessage('assistant', 'Sorry, I encountered an error: ' + errorMsg + help);
                 conversationMessages.push({ role: 'assistant', content: errorMsg });
@@ -1458,7 +1490,7 @@
             'email': 'Write a professional email to a client about a project update',
             'summary': 'Summarize the following text:',
             'translate': 'Translate the following text to Spanish:',
-            'code': 'Write a function in JavaScript to:'
+            'reply': 'Draft a friendly, professional reply to this customer message:'
         };
         useSuggestion(prompts[action]);
     }
@@ -1466,13 +1498,14 @@
     function useSummaryAction(type) {
         pendingContextType = type;
         const prompts = {
-            'billing': 'Generate a summary of my billing data: outstanding invoices, paid amounts, and recent transactions.',
-            'project': 'Generate a summary of my projects: status, key milestones, and overall progress.',
-            'quotation': 'Generate a summary of my quotations: pending, accepted, and rejected proposals.',
-            'ticket': 'Generate a summary of my support tickets: open issues, resolution times, and priority breakdown.',
-            'client': 'Generate a summary of my clients: recent activity, key contacts, and engagement overview.',
-            'time-tracking': 'Generate a summary of time tracking: hours logged by project, task breakdown, and productivity insights.',
-            'payroll': 'Generate a summary of payroll: reports by period and status, total amounts, employee breakdown, and Wise transfer status.'
+            'leads': 'Generate a summary of my leads: status breakdown, top sources, unassigned leads, and recent activity.',
+            'shared-inbox': 'Generate a summary of my shared inboxes: unread conversations, status breakdown, and recent activity.',
+            'viber': 'Generate a summary of my Viber conversations: unread messages and recent activity.',
+            'whatsapp': 'Generate a summary of my WhatsApp conversations: unread messages, messaging window status, and recent activity.',
+            'facebook': 'Generate a summary of my Facebook and Instagram conversations: unread messages and recent activity by channel.',
+            'sms': 'Generate a summary of my SMS conversations: unread messages and recent activity.',
+            'broadcast': 'Generate a summary of my broadcast campaigns: status, delivery rates, and recent campaigns.',
+            'knowledge-base': 'Generate a summary of my knowledge base: articles, FAQs, and guides by category.'
         };
         const prompt = prompts[type] || 'Generate a summary.';
         useSuggestion(prompt);
