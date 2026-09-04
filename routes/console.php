@@ -18,12 +18,6 @@ Schedule::command('inbox:process-scheduled-replies')->everyMinute();
 Schedule::command('inbox:sync-mail')
     ->everyMinute()
     ->withoutOverlapping(10);
-// Full crawl (every folder, including custom/nested ones) — the every-minute run
-// above only probes Inbox+Sent. Cheap after the first pass: syncFolderPage() stops
-// as soon as a newest-first page comes back fully already-synced.
-Schedule::command('inbox:sync-mail --full')
-    ->everyFifteenMinutes()
-    ->withoutOverlapping(20);
 Schedule::command('facebook:sync-messages')
     ->everyMinute()
     ->withoutOverlapping(10);

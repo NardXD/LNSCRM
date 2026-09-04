@@ -626,6 +626,10 @@
                     <option value="">Current view</option>
                     <option value="any">Any folder</option>
                     <option value="inbox">Inbox</option>
+                    <option value="drafts">Drafts</option>
+                    <option value="sent">Sent</option>
+                    <option value="trash">Trash</option>
+                    <option value="spam">Spam</option>
                 </select>
             </label>
             <label class="inbox-suggest-field">From
@@ -2831,15 +2835,14 @@
     const CONNECT = root.dataset.connect;
     const USER_ID = Number(root.dataset.userId || 0);
 
-    // CRM workflow states on the Inbox folder (open/archived/snoozed) — not raw Outlook
-    // folders, so this stays a fixed list driven by `state.view`. Raw mail folders
-    // (Drafts/Sent/Trash/Spam/Archive/custom) come from each inbox's `folders` array
-    // (backend-discovered) and are rendered separately in renderNav(), driven by
-    // `state.filters.folder` — see rawFolderRowsHtml().
     const MAILBOX_FOLDERS = [
         { view: 'open', label: 'Inbox', countKey: 'open_count' },
         { view: 'archived', label: 'Archived', countKey: 'archived_count' },
         { view: 'snoozed', label: 'Snoozed', countKey: 'snoozed_count' },
+        { view: 'drafts', label: 'Drafts', countKey: 'drafts_count' },
+        { view: 'sent', label: 'Sent', countKey: 'sent_count' },
+        { view: 'trash', label: 'Trash', countKey: 'trash_count' },
+        { view: 'spam', label: 'Spam', countKey: 'spam_count' },
     ];
 
     const state = {
@@ -4624,22 +4627,13 @@
             || ({ open: 'Open', assigned_to_me: 'Assigned to me', unassigned: 'Unassigned', archived: 'Archived', snoozed: 'Snoozed' }[view] || view);
     }
 
-    // When browsing a raw mail folder (Drafts/Sent/Trash/Spam/Archive/custom) via
-    // state.filters.folder, prefer its backend-supplied label over state.view's.
-    function currentFolderLabel() {
-        if (!state.filters.folder) return null;
-        const inbox = state.inboxes.find(i => i.id === state.selectedInboxId);
-        return inbox?.folders?.find(f => f.key === state.filters.folder)?.label || state.filters.folder;
-    }
-
     function updateListTitle() {
-        const label = currentFolderLabel() || folderLabel(state.view);
         if (state.selectedInboxId) {
             const inbox = state.inboxes.find(i => i.id === state.selectedInboxId);
-            el('listTitle').textContent = (inbox?.name || 'Inbox') + ' · ' + label;
+            el('listTitle').textContent = (inbox?.name || 'Inbox') + ' · ' + folderLabel(state.view);
             return;
         }
-        el('listTitle').textContent = label;
+        el('listTitle').textContent = folderLabel(state.view);
     }
 
     async function api(path, options = {}) {
@@ -4985,10 +4979,8 @@
         inboxList.innerHTML = state.inboxes.map(inbox => {
             const expanded = !!state.expandedInboxIds[inbox.id] || state.selectedInboxId === inbox.id;
             if (state.selectedInboxId === inbox.id) state.expandedInboxIds[inbox.id] = true;
-            const isSelected = state.selectedInboxId === inbox.id;
-            const noRawFolder = !state.filters.folder;
-            const statusRows = MAILBOX_FOLDERS.map(folder => {
-                const active = isSelected && noRawFolder && state.view === folder.view;
+            const folders = MAILBOX_FOLDERS.map(folder => {
+                const active = state.selectedInboxId === inbox.id && state.view === folder.view;
                 const count = inbox[folder.countKey] || 0;
                 return `
                     <button type="button" class="inbox-folder-row ${active ? 'active' : ''}"
@@ -4998,19 +4990,6 @@
                     </button>
                 `;
             }).join('');
-
-            const rawFolderRows = (inbox.folders || []).map(folder => {
-                const active = isSelected && state.filters.folder === folder.key;
-                return `
-                    <button type="button" class="inbox-folder-row ${active ? 'active' : ''}"
-                        data-inbox-id="${inbox.id}" data-raw-folder="${folder.key}">
-                        <span>${escapeHtml(folder.label)}</span>
-                        ${folder.count ? `<span class="inbox-count">${folder.count}</span>` : '<span></span>'}
-                    </button>
-                `;
-            }).join('');
-
-            const folders = statusRows + rawFolderRows;
 
             return `
             <div class="inbox-mailbox ${expanded ? 'is-expanded' : ''}" data-mailbox-id="${inbox.id}">
@@ -5082,21 +5061,6 @@
                 `<option value="${i.id}">${escapeHtml(i.name)}</option>`
             ).join('');
             advInbox.value = prev;
-        }
-
-        const advFolder = el('advFolder');
-        if (advFolder) {
-            const prevFolder = advFolder.value || state.filters.folder || '';
-            const seen = new Set();
-            const dynamicOptions = [];
-            state.inboxes.forEach(i => (i.folders || []).forEach(f => {
-                if (seen.has(f.key)) return;
-                seen.add(f.key);
-                dynamicOptions.push(`<option value="${f.key}">${escapeHtml(f.label)}</option>`);
-            }));
-            advFolder.innerHTML = '<option value="">Current view</option><option value="any">Any folder</option>'
-                + '<option value="inbox">Inbox</option>' + dynamicOptions.join('');
-            advFolder.value = prevFolder;
         }
 
         const advAssigned = el('advAssigned');
@@ -5668,10 +5632,8 @@
             push('inbox_id', 'Inbox', inbox?.name || f.inbox_id);
         }
         if (f.folder) {
-            const staticLabels = { any: 'Any folder', inbox: 'Inbox' };
-            const inbox = state.inboxes.find(i => i.id === (f.inbox_id ? Number(f.inbox_id) : state.selectedInboxId));
-            const dynamicLabel = inbox?.folders?.find(x => x.key === f.folder)?.label;
-            push('folder', 'Folder', staticLabels[f.folder] || dynamicLabel || f.folder);
+            const folderLabels = { any: 'Any folder', inbox: 'Inbox', drafts: 'Drafts', sent: 'Sent', trash: 'Trash', spam: 'Spam' };
+            push('folder', 'Folder', folderLabels[f.folder] || f.folder);
         }
         if (f.from) push('from', 'From', f.from);
         if (f.to) push('to', 'To', f.to);
@@ -6320,8 +6282,7 @@
         el('archiveBtnLabel').textContent = inbox?.type === 'personal' ? 'Archive in my inbox' : 'Archive';
         renderAssignMenu();
 
-        // Reply is available from any folder except Trash/Spam — including custom folders.
-        const canReply = !isTrashOrSpam;
+        const canReply = folder === 'inbox' || folder === 'sent' || folder === 'drafts';
         state.composerCanReply = canReply;
         el('composerArea').style.display = '';
         el('composerArea').classList.toggle('is-expanded', !!state.composerExpanded);
@@ -6834,7 +6795,6 @@
     document.querySelectorAll('[data-view][data-scope="all"]').forEach(btn => {
         btn.addEventListener('click', async () => {
             state.view = btn.dataset.view;
-            state.filters.folder = '';
             state.selectedInboxId = null;
             renderNav();
             await loadConversations();
@@ -6869,19 +6829,6 @@
             const id = Number(folderBtn.dataset.inboxId);
             state.selectedInboxId = id;
             state.view = folderBtn.dataset.folderView;
-            state.filters.folder = '';
-            state.expandedInboxIds[id] = true;
-            renderNav();
-            await loadConversations();
-            return;
-        }
-
-        const rawFolderBtn = e.target.closest('[data-raw-folder]');
-        if (rawFolderBtn) {
-            const id = Number(rawFolderBtn.dataset.inboxId);
-            state.selectedInboxId = id;
-            state.view = 'open';
-            state.filters.folder = rawFolderBtn.dataset.rawFolder;
             state.expandedInboxIds[id] = true;
             renderNav();
             await loadConversations();
@@ -6899,7 +6846,6 @@
             state.expandedInboxIds[id] = true;
             state.selectedInboxId = id;
             state.view = 'open';
-            state.filters.folder = '';
             renderNav();
             await loadConversations();
         }
@@ -7127,6 +7073,14 @@
         loadConversations({ append: false });
     });
 
+    const SYNC_FOLDERS = [
+        { key: 'inbox', label: 'Inbox' },
+        { key: 'drafts', label: 'Drafts' },
+        { key: 'sent', label: 'Sent' },
+        { key: 'trash', label: 'Trash' },
+        { key: 'spam', label: 'Spam' },
+    ];
+
     function setSyncProgress(done, total, status, newCount, barRatio = null) {
         const safeTotal = Math.max(0, Number(total) || 0);
         const safeDone = Math.max(0, Number(done) || 0);
@@ -7213,21 +7167,16 @@
                 already = inboxMeta.already_synced ?? totals?.already_synced ?? 0;
                 const folderRemaining = inboxMeta.folders_remaining || {};
                 const folderGraph = inboxMeta.folders || {};
-                const folderLabels = inboxMeta.folder_labels || {};
-                // Folder set comes entirely from the backend now (well-known + any
-                // discovered custom folders) — no fixed list on the client.
-                const folderKeys = Array.from(new Set([...Object.keys(folderRemaining), ...Object.keys(folderGraph)]));
 
                 // Always probe Inbox (and Sent) newest-first even when count delta is 0 —
                 // Graph totalItemCount can match local while brand-new messages are still missing.
-                foldersToSync = folderKeys
-                    .map(key => {
-                        const remaining = folderRemaining[key] || 0;
-                        const graph = folderGraph[key] || 0;
-                        const probe = (key === 'inbox' || key === 'sent') && remaining <= 0 && graph > 0;
+                foldersToSync = SYNC_FOLDERS
+                    .map(f => {
+                        const remaining = folderRemaining[f.key] || 0;
+                        const graph = folderGraph[f.key] || 0;
+                        const probe = (f.key === 'inbox' || f.key === 'sent') && remaining <= 0 && graph > 0;
                         return {
-                            key,
-                            label: folderLabels[key] || key,
+                            ...f,
                             remaining: probe ? 100 : remaining,
                             graph,
                             probe,
