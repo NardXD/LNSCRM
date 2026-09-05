@@ -35,9 +35,3 @@ Schedule::command('sms:sync-messages')
 Schedule::command('inbox:tag-to-leads Inquiry --shared-inbox=Talk2Us')
     ->everyMinute()
     ->withoutOverlapping(10);
-// Auto-attach shared-inbox threads to an existing lead whenever the sender's email
-// matches one of that lead's identities — no tag required, and never creates a new
-// lead (that's what inbox:tag-to-leads is for).
-Schedule::command('inbox:match-leads')
-    ->everyMinute()
-    ->withoutOverlapping(10);
