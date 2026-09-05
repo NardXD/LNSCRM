@@ -15,6 +15,7 @@ Schedule::command('leads:process-scheduled-statuses')->everyFiveMinutes();
 Schedule::command('leads:process-scheduled-emails')->everyFiveMinutes();
 Schedule::command('leads:process-follow-up-days')->dailyAt('06:00');
 Schedule::command('inbox:process-scheduled-replies')->everyMinute();
+
 Schedule::command('inbox:sync-mail')
     ->everyMinute()
     ->withoutOverlapping(10);
@@ -32,5 +33,5 @@ Schedule::command('sms:sync-messages')
     ->everyMinute()
     ->withoutOverlapping(10);
 Schedule::command('inbox:tag-to-leads Inquiry --shared-inbox=Talk2Us')
-    ->everyFiveMinutes()
+    ->everyMinute()
     ->withoutOverlapping(10);
