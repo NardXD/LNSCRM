@@ -258,30 +258,6 @@
         white-space: nowrap;
     }
 
-    .lead-sort-btn {
-        display: inline-flex;
-        align-items: center;
-        background: none;
-        border: none;
-        padding: 0;
-        margin: 0;
-        font: inherit;
-        text-transform: inherit;
-        letter-spacing: inherit;
-        color: var(--text-secondary);
-        cursor: pointer;
-    }
-
-    .lead-sort-btn:hover,
-    .lead-sort-btn.active {
-        color: var(--text-primary);
-    }
-
-    .lead-sort-arrow {
-        display: inline-block;
-        width: 0.75em;
-    }
-
     .leads-table td,
     .ld-page .data-table td {
         padding: 0.5rem 0.65rem;

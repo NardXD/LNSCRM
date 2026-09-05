@@ -124,11 +124,6 @@ class LeadsController extends Controller
     public function list(Request $request): JsonResponse
     {
         $companyId = (int) Auth::user()->company_id;
-
-        if ((string) $request->get('sort') === 'thread_age') {
-            return $this->listSortedByThreadAge($companyId, $request);
-        }
-
         $query = $this->leadReports->filteredQuery($companyId, $request)
             ->with(['identities', 'assignedUser:id,name', 'labels'])
             ->orderByDesc('updated_at');
@@ -148,7 +143,16 @@ class LeadsController extends Controller
 
                 return $this->serialize($lead);
             })->all(),
-            'sources' => $this->sourcesFor($companyId),
+            'sources' => Lead::query()
+                ->where('company_id', $companyId)
+                ->whereNotNull('source')
+                ->where('source', '!=', '')
+                ->distinct()
+                ->orderBy('source')
+                ->pluck('source')
+                ->map(fn ($source) => $this->sanitizeUtf8String((string) $source))
+                ->values()
+                ->all(),
             'pagination' => [
                 'current_page' => $leads->currentPage(),
                 'last_page' => $leads->lastPage(),
@@ -156,84 +160,6 @@ class LeadsController extends Controller
                 'total' => $leads->total(),
             ],
         ]);
-    }
-
-    /**
-     * Sorting by connected-thread age needs to happen after the thread is computed,
-     * so (unlike the default listing) this loads every filtered lead up front,
-     * sorts in memory, and paginates the sorted collection.
-     */
-    protected function listSortedByThreadAge(int $companyId, Request $request): JsonResponse
-    {
-        $direction = strtolower((string) $request->get('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
-        $perPage = min(100, max(10, (int) $request->get('per_page', 20)));
-        $page = max(1, (int) $request->get('page', 1));
-
-        $allLeads = $this->leadReports->filteredQuery($companyId, $request)
-            ->with(['identities', 'assignedUser:id,name', 'labels'])
-            ->get();
-
-        $threads = rescue(
-            fn () => $this->connectedThreads->forLeads($companyId, $allLeads),
-            [],
-            report: true
-        );
-
-        $sorted = $allLeads->sort(function (Lead $a, Lead $b) use ($threads, $direction) {
-            $atA = $threads[(int) $a->id]['at'] ?? null;
-            $atB = $threads[(int) $b->id]['at'] ?? null;
-
-            if ($atA === null && $atB === null) {
-                return 0;
-            }
-            if ($atA === null) {
-                return $direction === 'asc' ? 1 : -1;
-            }
-            if ($atB === null) {
-                return $direction === 'asc' ? -1 : 1;
-            }
-
-            // Ascending "age" means the most recent activity first, i.e. newest timestamp first.
-            $cmp = strcmp($atA, $atB);
-
-            return $direction === 'asc' ? -$cmp : $cmp;
-        })->values();
-
-        $total = $sorted->count();
-        $items = $sorted->slice(($page - 1) * $perPage, $perPage)->values();
-
-        return response()->json([
-            'success' => true,
-            'data' => $items->map(function (Lead $lead) use ($threads) {
-                $lead->setAttribute('connected_thread', $threads[(int) $lead->id] ?? null);
-
-                return $this->serialize($lead);
-            })->all(),
-            'sources' => $this->sourcesFor($companyId),
-            'pagination' => [
-                'current_page' => $page,
-                'last_page' => max(1, (int) ceil($total / $perPage)),
-                'per_page' => $perPage,
-                'total' => $total,
-            ],
-        ]);
-    }
-
-    /**
-     * @return list<string>
-     */
-    protected function sourcesFor(int $companyId): array
-    {
-        return Lead::query()
-            ->where('company_id', $companyId)
-            ->whereNotNull('source')
-            ->where('source', '!=', '')
-            ->distinct()
-            ->orderBy('source')
-            ->pluck('source')
-            ->map(fn ($source) => $this->sanitizeUtf8String((string) $source))
-            ->values()
-            ->all();
     }
 
     public function followUpCounts(Request $request): JsonResponse
