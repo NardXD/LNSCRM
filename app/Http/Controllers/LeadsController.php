@@ -426,6 +426,7 @@ class LeadsController extends Controller
 
         $lead->syncIdentities($identities);
         $this->applyFacebookConversationName($lead, $request);
+        $this->applyFacebookConversationLabels($lead, $request);
         $this->leadActivity->recordCreated($lead, $request->input('source') ?: 'manual');
         $this->inboxAttach->attachMany($lead, $request->input('inbox_conversation_ids', []), $user);
         if ($lead->assigned_to) {
@@ -1657,6 +1658,36 @@ class LeadsController extends Controller
 
         $conversation->name = $lead->name;
         $conversation->save();
+    }
+
+    /**
+     * Carries over any labels tagged on the Facebook conversation before it had a
+     * lead (see FacebookController::attachLabel) so they aren't lost when "Save as
+     * lead" converts it — the conversation's own labels are cleared afterward since
+     * the lead is now the source of truth for them.
+     */
+    protected function applyFacebookConversationLabels(Lead $lead, StoreLeadRequest $request): void
+    {
+        $conversationId = (int) $request->input('facebook_conversation_id', 0);
+        if ($conversationId < 1) {
+            return;
+        }
+
+        $conversation = FacebookConversation::query()
+            ->where('company_id', $lead->company_id)
+            ->find($conversationId);
+
+        if (! $conversation) {
+            return;
+        }
+
+        $labelIds = $conversation->leadLabels()->pluck('lead_labels.id')->all();
+        if ($labelIds === []) {
+            return;
+        }
+
+        $lead->labels()->syncWithoutDetaching($labelIds);
+        $conversation->leadLabels()->detach();
     }
 
     protected function assignedToForCompany(int $companyId, mixed $assignedTo): ?int
