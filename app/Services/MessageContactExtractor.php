@@ -62,9 +62,15 @@ class MessageContactExtractor
             $names = $fromOutbound['names'];
         }
 
+        // Phones/emails only ever come from the customer's own (inbound) messages —
+        // agent replies routinely quote the company's own branch numbers/support
+        // addresses (canned "we're away" templates, signatures), and merging those in
+        // used to get them picked up as if they were the customer's, falsely matching
+        // this conversation to whichever unrelated lead had already claimed that
+        // company contact detail as an identity.
         return [
-            'phones' => array_values(array_unique(array_merge($fromInbound['phones'], $fromOutbound['phones']))),
-            'emails' => array_values(array_unique(array_merge($fromInbound['emails'], $fromOutbound['emails']))),
+            'phones' => $fromInbound['phones'],
+            'emails' => $fromInbound['emails'],
             'names' => $names,
         ];
     }
