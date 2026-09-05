@@ -2275,6 +2275,7 @@
         document.getElementById('leadInboxResults').innerHTML = '';
         state.pendingInboxConversations = [];
         state.attachedInboxConversations = Array.isArray(lead.attached_inbox_conversations) ? lead.attached_inbox_conversations : [];
+        state.editingId = lead.id;
         renderAttachedInboxEmails();
         if (!lead.attached_inbox_conversations) {
             loadAttachedInboxEmails(lead.id);
@@ -2282,7 +2283,6 @@
         document.getElementById('leadModalTitle').textContent = [lead.title, lead.name].filter(Boolean).join(' ') || 'Lead';
         setLeadModalAdded(lead);
         document.getElementById('deleteLeadBtn').hidden = false;
-        state.editingId = lead.id;
         state.leadPhones = leadPhoneValues(lead);
         state.leadName = [lead.title, lead.name].filter(Boolean).join(' ').trim();
         renderLeadModalChannelLinks([], [], state.leadPhones);
