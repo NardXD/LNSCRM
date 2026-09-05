@@ -119,12 +119,6 @@ class SaveTaggedInboxAsLeads extends Command
 
         $limit = $this->option('limit') !== null ? max(0, (int) $this->option('limit')) : null;
 
-        $conversations = $baseQuery
-            ->with(['messages', 'inbox.account'])
-            ->orderBy('id')
-            ->when($limit, fn ($q) => $q->limit($limit))
-            ->get();
-
         $this->info(sprintf(
             '%d conversation(s) tagged "%s" with no lead yet%s.%s',
             $totalMatched,
@@ -136,61 +130,76 @@ class SaveTaggedInboxAsLeads extends Command
         $created = 0;
         $matchedExisting = 0;
         $skipped = 0;
+        $processed = 0;
 
-        foreach ($conversations as $conversation) {
-            $label = "#{$conversation->id} ".($conversation->subject ?: '(no subject)');
+        // Chunked (not ->get()) — with no --limit this can match every tagged
+        // conversation in the company, and eager-loading all of their messages
+        // (HTML bodies included) in one query exhausted PHP's memory limit.
+        $baseQuery
+            ->with(['messages', 'inbox.account'])
+            ->chunkById(100, function ($conversations) use (
+                $limit, &$processed, &$created, &$matchedExisting, &$skipped, $companyId, $dryRun, $source, $user
+            ) {
+                foreach ($conversations as $conversation) {
+                    if ($limit !== null && $processed >= $limit) {
+                        return false;
+                    }
+                    $processed++;
 
-            $extracted = $this->extractFromConversation($conversation);
-            $name = $extracted['names'][0] ?? null;
-            $phones = $extracted['phones'];
-            $emails = $extracted['emails'];
+                    $label = "#{$conversation->id} ".($conversation->subject ?: '(no subject)');
 
-            if (! $name || ($phones === [] && $emails === [])) {
-                $this->line("  {$label}: skipped — could not find a name plus a phone or email in the body.");
-                $skipped++;
+                    $extracted = $this->extractFromConversation($conversation);
+                    $name = $extracted['names'][0] ?? null;
+                    $phones = $extracted['phones'];
+                    $emails = $extracted['emails'];
 
-                continue;
-            }
+                    if (! $name || ($phones === [] && $emails === [])) {
+                        $this->line("  {$label}: skipped — could not find a name plus a phone or email in the body.");
+                        $skipped++;
 
-            $identities = $this->identityList($phones, $emails);
-            $conflict = $this->findIdentityConflict($companyId, $identities);
+                        continue;
+                    }
 
-            if ($dryRun) {
-                if ($conflict) {
-                    $this->line("  {$label}: would attach to existing lead \"{$conflict->lead?->name}\" (#{$conflict->lead_id}) — {$name}.");
-                } else {
-                    $this->line("  {$label}: would create lead \"{$name}\" (".implode(', ', array_merge($phones, $emails)).').');
+                    $identities = $this->identityList($phones, $emails);
+                    $conflict = $this->findIdentityConflict($companyId, $identities);
+
+                    if ($dryRun) {
+                        if ($conflict) {
+                            $this->line("  {$label}: would attach to existing lead \"{$conflict->lead?->name}\" (#{$conflict->lead_id}) — {$name}.");
+                        } else {
+                            $this->line("  {$label}: would create lead \"{$name}\" (".implode(', ', array_merge($phones, $emails)).').');
+                        }
+
+                        continue;
+                    }
+
+                    if ($conflict && $conflict->lead) {
+                        $lead = $conflict->lead;
+                        $matchedExisting++;
+                    } else {
+                        $lead = Lead::create([
+                            'company_id' => $companyId,
+                            'name' => $name,
+                            'source' => $source,
+                            'status' => LeadStatus::fallbackSlug($companyId),
+                        ]);
+                        $lead->syncIdentities($identities);
+                        $this->leadActivity->recordCreated($lead, $source, $user->id);
+                        $created++;
+                    }
+
+                    try {
+                        // requireMembership: false — this runs from the server as a trusted backend
+                        // job, not through the UI, so --user doesn't need to be a member of the
+                        // shared inbox the "Inquiry" emails live in. It's still only used to
+                        // attribute the created lead/activity records to someone.
+                        $this->inboxAttach->attach($lead, $conversation, $user, requireMembership: false);
+                        $this->line("  {$label}: {$name} → lead #{$lead->id} (attached).");
+                    } catch (Throwable $e) {
+                        $this->line("  {$label}: {$name} → lead #{$lead->id}, but could not attach the email — {$e->getMessage()}");
+                    }
                 }
-
-                continue;
-            }
-
-            if ($conflict && $conflict->lead) {
-                $lead = $conflict->lead;
-                $matchedExisting++;
-            } else {
-                $lead = Lead::create([
-                    'company_id' => $companyId,
-                    'name' => $name,
-                    'source' => $source,
-                    'status' => LeadStatus::fallbackSlug($companyId),
-                ]);
-                $lead->syncIdentities($identities);
-                $this->leadActivity->recordCreated($lead, $source, $user->id);
-                $created++;
-            }
-
-            try {
-                // requireMembership: false — this runs from the server as a trusted backend
-                // job, not through the UI, so --user doesn't need to be a member of the
-                // shared inbox the "Inquiry" emails live in. It's still only used to
-                // attribute the created lead/activity records to someone.
-                $this->inboxAttach->attach($lead, $conversation, $user, requireMembership: false);
-                $this->line("  {$label}: {$name} → lead #{$lead->id} (attached).");
-            } catch (Throwable $e) {
-                $this->line("  {$label}: {$name} → lead #{$lead->id}, but could not attach the email — {$e->getMessage()}");
-            }
-        }
+            }, 'inbox_conversations.id', 'id');
 
         if (! $dryRun) {
             $this->info("Done. Created {$created}, matched to an existing lead {$matchedExisting}, skipped {$skipped}.");
