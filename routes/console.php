@@ -31,3 +31,6 @@ Schedule::command('facebook:sync-messages')
 Schedule::command('sms:sync-messages')
     ->everyMinute()
     ->withoutOverlapping(10);
+Schedule::command('inbox:tag-to-leads Inquiry --shared-inbox=Talk2Us')
+    ->everyFiveMinutes()
+    ->withoutOverlapping(10);
