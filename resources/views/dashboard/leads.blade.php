@@ -65,11 +65,12 @@
                         <th>Assigned</th>
                         <th>Status</th>
                         <th>Updated</th>
+                        <th>Thread Age</th>
                         <th></th>
                     </tr>
                 </thead>
                 <tbody id="leadsTableBody">
-                    <tr><td colspan="8" class="empty-state">Loading leads…</td></tr>
+                    <tr><td colspan="9" class="empty-state">Loading leads…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -998,6 +999,26 @@
         if (!iso) return '—';
         try { return new Date(iso).toLocaleString(); } catch { return iso; }
     }
+    function timeAgo(iso) {
+        if (!iso) return '—';
+        const then = new Date(iso).getTime();
+        if (Number.isNaN(then)) return '—';
+        const diffSec = Math.floor((Date.now() - then) / 1000);
+        if (diffSec < 60) return 'just now';
+        const units = [
+            ['y', 31536000],
+            ['mo', 2592000],
+            ['w', 604800],
+            ['d', 86400],
+            ['h', 3600],
+            ['m', 60],
+        ];
+        for (const [label, secs] of units) {
+            const value = Math.floor(diffSec / secs);
+            if (value >= 1) return `${value}${label} ago`;
+        }
+        return 'just now';
+    }
     function formatDate(iso) {
         if (!iso) return '';
         try { return new Date(iso).toLocaleDateString(); } catch { return iso; }
@@ -1262,6 +1283,7 @@
                 </td>
                 <td>${statusBadge(lead)}</td>
                 <td class="lead-meta">${esc(formatAt(lead.updated_at))}</td>
+                <td class="lead-meta" title="${lead.connected_thread_label ? esc(lead.connected_thread_label + ' · ' + formatAt(lead.connected_thread_at)) : 'No connected thread'}">${esc(timeAgo(lead.connected_thread_at))}</td>
                 <td>
                     <button type="button" class="btn btn-secondary btn-sm" data-message="${lead.id}">Message</button>
                 </td>
@@ -1283,7 +1305,7 @@
         const existing = body.querySelector('tr[data-id="' + id + '"]');
         if (existing) existing.remove();
         if (!body.querySelector('tr[data-id]')) {
-            body.innerHTML = `<tr><td colspan="8" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
+            body.innerHTML = `<tr><td colspan="9" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
         }
     }
     function assigneeOptions(selectedId, extraUser) {
@@ -1802,7 +1824,7 @@
             const rows = data.data || [];
             body.innerHTML = rows.length
                 ? rows.map(lead => leadRowHtml(lead)).join('')
-                : `<tr><td colspan="8" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
+                : `<tr><td colspan="9" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
 
             const pag = data.pagination || {};
             document.getElementById('leadsPageInfo').textContent = `Showing page ${pag.current_page || 1} of ${pag.last_page || 1} (${pag.total || 0} leads)`;
@@ -1812,7 +1834,7 @@
             loadStatusCounts();
             loadFollowUpCounts();
         } catch (err) {
-            body.innerHTML = '<tr><td colspan="8" class="empty-state">Could not load leads. Try again.</td></tr>';
+            body.innerHTML = '<tr><td colspan="9" class="empty-state">Could not load leads. Try again.</td></tr>';
             if (err?.message) console.error(err.message);
         } finally {
             if (opts.overlay !== false) setOverlay('leadsTableBusy', false);

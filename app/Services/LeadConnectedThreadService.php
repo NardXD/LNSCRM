@@ -6,6 +6,7 @@ use App\Models\FacebookConversation;
 use App\Models\InboxConversation;
 use App\Models\Lead;
 use App\Models\LeadIdentity;
+use App\Models\PhoneCallLog;
 use App\Models\SmsConversation;
 use App\Models\ViberConversation;
 use App\Models\WhatsAppConversation;
@@ -21,7 +22,7 @@ class LeadConnectedThreadService
      * Best connected channel thread per lead for the current page.
      *
      * @param  iterable<Lead>  $leads
-     * @return array<int, array{channel: string, label: string, url: string, conversation_id: int}>
+     * @return array<int, array{channel: string, label: string, url: string, conversation_id: int, at: ?string}>
      */
     public function forLeads(int $companyId, iterable $leads): array
     {
@@ -48,6 +49,7 @@ class LeadConnectedThreadService
                     'label' => $best['label'],
                     'url' => $best['url'],
                     'conversation_id' => $best['conversation_id'],
+                    'at' => $best['at'],
                 ];
             }
         }
@@ -192,6 +194,7 @@ class LeadConnectedThreadService
             fn (SmsConversation $c) => (string) ($c->name ?: $c->peer_phone)
         );
         $this->collectFacebook($companyId, $socialByLead, $allSocial, $candidates);
+        $this->collectPhoneCalls($companyId, $phonesByLead, $allPhoneDigits, $candidates);
 
         return $candidates;
     }
@@ -355,6 +358,77 @@ class LeadConnectedThreadService
                     'score' => 100,
                     'title' => $title($conversation),
                     'preview' => (string) ($conversation->last_message_preview ?? ''),
+                ];
+            }
+        }
+    }
+
+    /**
+     * @param  array<int, list<string>>  $phonesByLead
+     * @param  list<string>  $allPhoneDigits
+     * @param  array<int, list<array{channel: string, label: string, url: string, conversation_id: int, at: ?string, score: int, title: string, preview: string}>>  $candidates
+     */
+    protected function collectPhoneCalls(
+        int $companyId,
+        array $phonesByLead,
+        array $allPhoneDigits,
+        array &$candidates
+    ): void {
+        $suffixes = [];
+        foreach ($allPhoneDigits as $digits) {
+            if (strlen($digits) >= 7) {
+                $suffixes[] = substr($digits, -8);
+            }
+        }
+        $suffixes = array_values(array_unique(array_filter($suffixes)));
+        if ($suffixes === []) {
+            return;
+        }
+
+        $rows = PhoneCallLog::query()
+            ->where('company_id', $companyId)
+            ->where(function ($q) use ($suffixes) {
+                foreach ($suffixes as $suffix) {
+                    $q->orWhere('from_number', 'like', '%'.$suffix)
+                        ->orWhere('to_number', 'like', '%'.$suffix);
+                }
+            })
+            ->orderByDesc('started_at')
+            ->orderByDesc('id')
+            ->limit(200)
+            ->get(['id', 'from_number', 'to_number', 'direction', 'status', 'duration', 'started_at']);
+
+        foreach ($rows as $call) {
+            $fieldDigits = [];
+            foreach ([$call->from_number, $call->to_number] as $field) {
+                if ($field === null || $field === '') {
+                    continue;
+                }
+                $digits = preg_replace('/\D+/', '', $this->twilioCompany->normalizePhone((string) $field)) ?? '';
+                if ($digits !== '') {
+                    $fieldDigits[] = $digits;
+                }
+            }
+            if ($fieldDigits === []) {
+                continue;
+            }
+
+            $at = $call->started_at?->toIso8601String();
+            $preview = trim(($call->status ? ucfirst((string) $call->status) : '').($call->duration ? ' · '.$call->duration.'s' : ''));
+
+            foreach ($phonesByLead as $leadId => $leadPhones) {
+                if (! $this->phonesMatch($leadPhones, $fieldDigits)) {
+                    continue;
+                }
+                $candidates[$leadId][] = [
+                    'channel' => 'call',
+                    'label' => 'Phone System',
+                    'url' => url('/twilio/call'),
+                    'conversation_id' => (int) $call->id,
+                    'at' => $at,
+                    'score' => 100,
+                    'title' => 'Call · '.ucfirst((string) ($call->direction ?: '')),
+                    'preview' => $preview,
                 ];
             }
         }

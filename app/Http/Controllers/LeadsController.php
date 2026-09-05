@@ -1218,6 +1218,7 @@ class LeadsController extends Controller
             'connected_thread_url' => $connected['url'] ?? null,
             'connected_thread_channel' => $connected['channel'] ?? null,
             'connected_thread_label' => $connected['label'] ?? null,
+            'connected_thread_at' => $connected['at'] ?? null,
             'customer_type' => $lead->customer_type,
             'residential_type' => $lead->residential_type,
             'business_industry' => $lead->business_industry,
