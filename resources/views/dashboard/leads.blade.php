@@ -26,27 +26,29 @@
 
     <div class="leads-toolbar">
         <input type="search" id="leadSearch" class="leads-search" placeholder="Search name, phone, email, or label…">
-        <div class="leads-label-filter" id="leadLabelFilter">
-            <div id="leadLabelFilterChips" class="lead-label-filter-chips"></div>
-            <select id="leadLabelFilterSelect" aria-label="Filter by labels">
-                <option value="">Filter labels…</option>
+        <div class="leads-toolbar-filters">
+            <div class="leads-label-filter" id="leadLabelFilter">
+                <div id="leadLabelFilterChips" class="lead-label-filter-chips"></div>
+                <select id="leadLabelFilterSelect" aria-label="Filter by labels">
+                    <option value="">Filter labels…</option>
+                </select>
+            </div>
+            <select id="leadSourceFilter" class="leads-source-filter" aria-label="Filter by source">
+                <option value="">All sources</option>
+            </select>
+            <select id="leadAssigneeFilter" class="leads-assignee-filter" aria-label="Filter by assignee">
+                <option value="">All assignees</option>
+                <option value="__none__">Unassigned</option>
+            </select>
+            <select id="leadSortFilter" class="leads-sort-filter" aria-label="Sort leads by">
+                <option value="updated_at">Sort: Updated</option>
+                <option value="thread_age">Sort: Thread Age</option>
+            </select>
+            <select id="leadSortDirFilter" class="leads-sort-filter" aria-label="Sort direction">
+                <option value="desc">Descending</option>
+                <option value="asc">Ascending</option>
             </select>
         </div>
-        <select id="leadSourceFilter" class="leads-source-filter" aria-label="Filter by source">
-            <option value="">All sources</option>
-        </select>
-        <select id="leadAssigneeFilter" class="leads-assignee-filter" aria-label="Filter by assignee">
-            <option value="">All assignees</option>
-            <option value="__none__">Unassigned</option>
-        </select>
-        <select id="leadSortFilter" class="leads-sort-filter" aria-label="Sort leads by">
-            <option value="updated_at">Sort: Updated</option>
-            <option value="thread_age">Sort: Thread Age</option>
-        </select>
-        <select id="leadSortDirFilter" class="leads-sort-filter" aria-label="Sort direction">
-            <option value="desc">Descending</option>
-            <option value="asc">Ascending</option>
-        </select>
     </div>
 
     <div class="leads-tabs" role="tablist" id="leadStatusTabs">

@@ -70,10 +70,32 @@
 
     .leads-toolbar {
         display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        margin-bottom: 0.6rem;
+    }
+
+    .leads-toolbar .leads-search {
+        width: 100%;
+    }
+
+    .leads-toolbar-filters {
+        display: flex;
         gap: 0.45rem;
         align-items: center;
-        flex-wrap: wrap;
-        margin-bottom: 0.6rem;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+    }
+
+    .leads-toolbar-filters .leads-label-filter {
+        flex: 0 0 auto;
+    }
+
+    .leads-toolbar-filters .leads-source-filter,
+    .leads-toolbar-filters .leads-assignee-filter,
+    .leads-toolbar-filters .leads-sort-filter {
+        width: auto;
+        flex: 0 0 auto;
     }
 
     .leads-toolbar-stack {
