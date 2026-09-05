@@ -362,6 +362,7 @@ class LeadRuleEngine
                     'reopen_after_days' => $this->scheduleReopen($lead, $value),
                     'unsnooze' => $this->unsnooze($lead),
                     'send_email' => $this->sendEmail($lead, $value, $rule),
+                    'attach_shared_inbox' => $this->attachSharedInbox($lead, $context, $rule),
                     default => null,
                 };
             } catch (\Throwable $e) {
@@ -699,6 +700,39 @@ class LeadRuleEngine
             'Lead reopened by follow-up rule',
             ['source' => 'unsnooze', 'status' => $restore]
         );
+    }
+
+    /**
+     * @param  array{inbox_conversation_id?: int|string|null}  $context
+     */
+    private function attachSharedInbox(Lead $lead, array $context, ?LeadRule $rule): void
+    {
+        $conversationId = (int) ($context['inbox_conversation_id'] ?? 0);
+        if ($conversationId < 1) {
+            return;
+        }
+
+        $conversation = InboxConversation::query()
+            ->where('company_id', $lead->company_id)
+            ->find($conversationId);
+        if (! $conversation || (int) $conversation->lead_id === (int) $lead->id) {
+            return;
+        }
+
+        $actor = ($rule?->created_by ? User::find($rule->created_by) : null) ?? $lead->assignedUser;
+        if (! $actor) {
+            return;
+        }
+
+        try {
+            app(LeadInboxAttachService::class)->attach($lead, $conversation, $actor, requireMembership: false);
+        } catch (\Throwable $e) {
+            Log::warning('Lead rule could not attach shared inbox thread', [
+                'lead_id' => $lead->id,
+                'conversation_id' => $conversationId,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function notifyAssignee(Lead $lead): void

@@ -3508,11 +3508,12 @@
         return `<input type="text" data-rule-cond-value placeholder="Value" value="${esc(selected || '')}">`;
     }
     function actionNeedsValue(type) {
-        return !['create_lead', 'notify_assignee', 'unsnooze'].includes(type);
+        return !['create_lead', 'notify_assignee', 'unsnooze', 'attach_shared_inbox'].includes(type);
     }
     function actionTypeOptions(selected = 'assign') {
         return [
             ['create_lead', 'Create a lead'],
+            ['attach_shared_inbox', 'Attach shared inbox thread'],
             ['assign', 'Assign lead to'],
             ['add_label', 'Add label'],
             ['set_status', 'Set status'],
