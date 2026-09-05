@@ -65,7 +65,11 @@
                         <th>Assigned</th>
                         <th>Status</th>
                         <th>Updated</th>
-                        <th>Thread Age</th>
+                        <th>
+                            <button type="button" class="lead-sort-btn" id="leadsSortThreadAge" data-sort="thread_age">
+                                Thread Age<span class="lead-sort-arrow" id="leadsSortThreadAgeArrow"></span>
+                            </button>
+                        </th>
                         <th></th>
                     </tr>
                 </thead>
@@ -978,7 +982,7 @@
     const STOREGANISE_CONNECTED = @json(!empty($storeganiseConnected));
     const CAN_VIEW_QUOTATION_BUILDER = @json(!empty($canViewQuotationBuilder));
     const LEAD_QUOTE_URL_BASE = @json(url('/quotation-builder/leads'));
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], emailTemplates: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', savedLeadStoreganiseSiteId: null, storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', sort: 'thread_age', sortDir: 'asc', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], emailTemplates: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', savedLeadStoreganiseSiteId: null, storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -1018,6 +1022,14 @@
             if (value >= 1) return `${value}${label} ago`;
         }
         return 'just now';
+    }
+    function updateThreadAgeSortIndicator() {
+        const btn = document.getElementById('leadsSortThreadAge');
+        const arrow = document.getElementById('leadsSortThreadAgeArrow');
+        if (!btn || !arrow) return;
+        const active = state.sort === 'thread_age';
+        btn.classList.toggle('active', active);
+        arrow.textContent = active ? (state.sortDir === 'asc' ? ' ↑' : ' ↓') : '';
     }
     function formatDate(iso) {
         if (!iso) return '';
@@ -1812,6 +1824,8 @@
     async function loadLeads(opts = {}) {
         if (opts.overlay !== false) setOverlay('leadsTableBusy', true);
         const q = new URLSearchParams({ page: String(state.page), per_page: '20', status: state.status });
+        if (state.sort) q.set('sort', state.sort);
+        if (state.sortDir) q.set('direction', state.sortDir);
         if (state.search) q.set('search', state.search);
         if (state.source) q.set('source', state.source);
         if (state.assignedTo) q.set('assigned_to', state.assignedTo);
@@ -2580,6 +2594,14 @@
     document.getElementById('leadStorageReason')?.addEventListener('change', syncLeadProfileFields);
     document.getElementById('leadsPrev').addEventListener('click', () => { state.page = Math.max(1, state.page - 1); loadLeads(); });
     document.getElementById('leadsNext').addEventListener('click', () => { state.page += 1; loadLeads(); });
+    document.getElementById('leadsSortThreadAge')?.addEventListener('click', () => {
+        state.sortDir = state.sort === 'thread_age' && state.sortDir === 'asc' ? 'desc' : 'asc';
+        state.sort = 'thread_age';
+        state.page = 1;
+        updateThreadAgeSortIndicator();
+        loadLeads();
+    });
+    updateThreadAgeSortIndicator();
 
     let searchTimer;
     document.getElementById('leadSearch').addEventListener('input', (e) => {
