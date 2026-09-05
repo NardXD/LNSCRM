@@ -249,7 +249,13 @@ class SaveTaggedInboxAsLeads extends Command
             return ['phones' => [], 'emails' => [], 'names' => []];
         }
 
-        return $this->extractor->fromTexts($texts);
+        $extracted = $this->extractor->fromTexts($texts);
+        $extracted['emails'] = array_values(array_filter(
+            $extracted['emails'],
+            fn (string $email) => ! str_ends_with(strtolower($email), '@locnstor247.com')
+        ));
+
+        return $extracted;
     }
 
     /**
