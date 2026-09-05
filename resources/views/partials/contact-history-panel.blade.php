@@ -627,7 +627,7 @@
             : '<p class="chp-empty">No timeline events.</p>';
         root.innerHTML = `
             <div class="chp-section">${contactHtml}</div>
-            ${conversationLabelsSectionHtml(opts)}
+            ${contact.lead ? '' : conversationLabelsSectionHtml(opts)}
             <div class="chp-section">
                 <div class="chp-label">Other channels</div>
                 ${threadsHtml}
