@@ -9,6 +9,7 @@ use App\Models\LeadActivity;
 use App\Models\LeadIdentity;
 use App\Models\LeadLabel;
 use App\Models\LeadStatus;
+use App\Models\SharedInbox;
 use App\Models\SmsMessage;
 use App\Models\User;
 use App\Models\ViberMessage;
@@ -94,6 +95,13 @@ class LeadReportService
             $query->whereNull('leads.assigned_to');
         } elseif ($assignedTo !== '' && ctype_digit($assignedTo)) {
             $query->where('leads.assigned_to', (int) $assignedTo);
+        }
+
+        if (! empty($filters['no_shared_thread'])) {
+            $query->whereDoesntHave('inboxConversations', function ($conversation) {
+                $conversation->whereNull('merged_into_id')
+                    ->whereHas('inbox', fn ($inbox) => $inbox->where('type', SharedInbox::TYPE_SHARED));
+            });
         }
 
         $customerType = trim((string) ($filters['customer_type'] ?? ''));
@@ -476,6 +484,7 @@ class LeadReportService
             'source' => $filters['source'] ?? '',
             'label_ids' => $labelIds,
             'assigned_to' => $filters['assigned_to'] ?? '',
+            'no_shared_thread' => (bool) ($filters['no_shared_thread'] ?? false),
             'customer_type' => $filters['customer_type'] ?? '',
             'date_from' => $filters['date_from'] ?? '',
             'date_to' => $filters['date_to'] ?? '',

@@ -40,6 +40,10 @@
                 <option value="">All assignees</option>
                 <option value="__none__">Unassigned</option>
             </select>
+            <select id="leadThreadFilter" class="leads-thread-filter" aria-label="Filter by shared mailbox thread">
+                <option value="">All leads</option>
+                <option value="1">No shared mailbox thread</option>
+            </select>
             <select id="leadSortFilter" class="leads-sort-filter" aria-label="Sort leads by">
                 <option value="updated_at">Sort: Updated</option>
                 <option value="thread_age">Sort: Thread Age</option>
@@ -988,7 +992,7 @@
     const STOREGANISE_CONNECTED = @json(!empty($storeganiseConnected));
     const CAN_VIEW_QUOTATION_BUILDER = @json(!empty($canViewQuotationBuilder));
     const LEAD_QUOTE_URL_BASE = @json(url('/quotation-builder/leads'));
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', sort: 'updated_at', sortDir: 'desc', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], emailTemplates: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', savedLeadStoreganiseSiteId: null, storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', noSharedThread: false, labelIds: [], followUp: '', sort: 'updated_at', sortDir: 'desc', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], emailTemplates: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', savedLeadStoreganiseSiteId: null, storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -1827,6 +1831,7 @@
         if (state.search) q.set('search', state.search);
         if (state.source) q.set('source', state.source);
         if (state.assignedTo) q.set('assigned_to', state.assignedTo);
+        if (state.noSharedThread) q.set('no_shared_thread', '1');
         if (state.followUp) q.set('follow_up_day', String(state.followUp));
         state.labelIds.forEach(id => q.append('label_ids[]', id));
         try {
@@ -1836,7 +1841,7 @@
             const rows = data.data || [];
             body.innerHTML = rows.length
                 ? rows.map(lead => leadRowHtml(lead)).join('')
-                : `<tr><td colspan="9" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
+                : `<tr><td colspan="9" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.noSharedThread || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
 
             const pag = data.pagination || {};
             document.getElementById('leadsPageInfo').textContent = `Showing page ${pag.current_page || 1} of ${pag.last_page || 1} (${pag.total || 0} leads)`;
@@ -1922,6 +1927,7 @@
         if (state.search) q.set('search', state.search);
         if (state.source) q.set('source', state.source);
         if (state.assignedTo) q.set('assigned_to', state.assignedTo);
+        if (state.noSharedThread) q.set('no_shared_thread', '1');
         state.labelIds.forEach(id => q.append('label_ids[]', id));
         try {
             const res = await fetch(api + '/follow-up-counts?' + q.toString(), { credentials: 'same-origin', headers: headers() });
@@ -1937,6 +1943,7 @@
         if (state.search) q.set('search', state.search);
         if (state.source) q.set('source', state.source);
         if (state.assignedTo) q.set('assigned_to', state.assignedTo);
+        if (state.noSharedThread) q.set('no_shared_thread', '1');
         if (state.followUp) q.set('follow_up_day', String(state.followUp));
         state.labelIds.forEach(id => q.append('label_ids[]', id));
         try {
@@ -2627,6 +2634,11 @@
     });
     document.getElementById('leadAssigneeFilter')?.addEventListener('change', (e) => {
         state.assignedTo = e.target.value || '';
+        state.page = 1;
+        loadLeads();
+    });
+    document.getElementById('leadThreadFilter')?.addEventListener('change', (e) => {
+        state.noSharedThread = e.target.value === '1';
         state.page = 1;
         loadLeads();
     });

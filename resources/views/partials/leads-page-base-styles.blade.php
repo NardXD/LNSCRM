@@ -93,6 +93,7 @@
 
     .leads-toolbar-filters .leads-source-filter,
     .leads-toolbar-filters .leads-assignee-filter,
+    .leads-toolbar-filters .leads-thread-filter,
     .leads-toolbar-filters .leads-sort-filter {
         width: auto;
         flex: 0 0 auto;
@@ -161,6 +162,7 @@
 
     .leads-source-filter,
     .leads-assignee-filter,
+    .leads-thread-filter,
     .leads-sort-filter,
     .qb-assignee-filter {
         min-width: 0;
