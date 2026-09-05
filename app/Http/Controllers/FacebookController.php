@@ -14,6 +14,7 @@ use App\Notifications\FacebookMessageNotification;
 use App\Services\FacebookGraphHistoryService;
 use App\Services\FacebookGraphMessagingService;
 use App\Services\FacebookMessageSyncService;
+use App\Services\FacebookReportService;
 use App\Services\FlexCrmLookupService;
 use App\Services\LeadAutoCreateService;
 use App\Services\LeadFollowUpDayService;
@@ -31,6 +32,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\Response;
 
 class FacebookController extends Controller
@@ -42,7 +44,8 @@ class FacebookController extends Controller
         protected MessageContactExtractor $messageContacts,
         protected FlexCrmLookupService $crmLookup,
         protected LeadAutoCreateService $leadAutoCreate,
-        protected LeadFollowUpDayService $followUpDays
+        protected LeadFollowUpDayService $followUpDays,
+        protected FacebookReportService $facebookReports
     ) {}
 
     public function index()
@@ -64,6 +67,22 @@ class FacebookController extends Controller
             'pageName' => $integration?->page_name,
             'instagramUsername' => $integration?->instagram_username,
             'appTimezone' => config('app.timezone'),
+        ]);
+    }
+
+    public function reports(): View
+    {
+        return view('dashboard.facebook-reports');
+    }
+
+    public function reportSummary(Request $request): JsonResponse
+    {
+        $companyId = (int) Auth::user()->company_id;
+        $summary = $this->facebookReports->summary($companyId, $request);
+
+        return response()->json([
+            'success' => true,
+            'data' => $summary,
         ]);
     }
 

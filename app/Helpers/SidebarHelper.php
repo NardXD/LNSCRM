@@ -175,6 +175,14 @@ class SidebarHelper
                 'category' => 'main',
             ],
             [
+                'route' => 'facebook-reports',
+                'permission' => 'view_facebook',
+                'module_slug' => 'facebook',
+                'label' => 'Facebook Reports',
+                'icon' => 'bar-chart',
+                'category' => 'main',
+            ],
+            [
                 'route' => 'sms',
                 'permission' => 'view_sms',
                 'module_slug' => 'sms',

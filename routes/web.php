@@ -544,9 +544,12 @@ Route::middleware(['auth', 'company.active'])->group(function () {
 
     Route::get('/facebook', [FacebookController::class, 'index'])
         ->middleware('permission:view_facebook')->name('facebook');
+    Route::get('/facebook/reports', [FacebookController::class, 'reports'])
+        ->middleware('permission:view_facebook')->name('facebook-reports');
 
     Route::prefix('api/facebook')->middleware('permission:view_facebook')->group(function () {
         Route::get('/bootstrap', [FacebookController::class, 'bootstrap'])->name('api.facebook.bootstrap');
+        Route::get('/reports', [FacebookController::class, 'reportSummary'])->name('api.facebook.reports');
         Route::get('/conversations', [FacebookController::class, 'conversations'])->name('api.facebook.conversations');
         Route::get('/conversations/{conversation}/messages', [FacebookController::class, 'messages'])->name('api.facebook.messages');
         Route::post('/conversations/{conversation}/messages', [FacebookController::class, 'sendMessage'])->name('api.facebook.messages.store');
