@@ -249,7 +249,7 @@ class SaveTaggedInboxAsLeads extends Command
             return ['phones' => [], 'emails' => [], 'names' => []];
         }
 
-        $excludedEmailDomains = ['@locnstor247.com', '@sezpr02mb6201.apcprd02.prod.outlook.com'];
+        $excludedEmailDomains = ['@locnstor247.com', '@sezpr02mb6201.apcprd02.prod.outlook.com', '@c128513.sgvps.net'];
 
         $extracted = $this->extractor->fromTexts($texts);
         $extracted['emails'] = array_values(array_filter(
