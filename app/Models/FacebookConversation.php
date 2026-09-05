@@ -21,6 +21,8 @@ class FacebookConversation extends Model
         'peer_id',
         'name',
         'username',
+        'extracted_phone',
+        'extracted_email',
         'profile_pic',
         'unread_count',
         'last_message_preview',

@@ -84,6 +84,15 @@ class MessageContactExtractor
         $name = $extracted['names'][0] ?? null;
         if ($name && FacebookConversation::isPlaceholderName($conversation->name)) {
             $conversation->name = $name;
+        }
+
+        // Cached so the conversation list (which can't afford to re-scan every
+        // conversation's message history on every page load) can still match this
+        // conversation to its assigned lead by phone/email, not just by name.
+        $conversation->extracted_phone = $extracted['phones'][0] ?? null;
+        $conversation->extracted_email = $extracted['emails'][0] ?? null;
+
+        if ($conversation->isDirty()) {
             $conversation->save();
         }
 

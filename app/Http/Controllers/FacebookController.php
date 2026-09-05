@@ -1406,8 +1406,8 @@ class FacebookController extends Controller
             'labels' => $this->serializeLabels($c),
             'lead' => $this->crmLookup->matchAssignedLead(
                 $this->crmLookup->assignedLeadIndex((int) $c->company_id),
-                null,
-                null,
+                $c->extracted_phone,
+                $c->extracted_email,
                 $c->name,
                 $c->username
             ),
