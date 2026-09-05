@@ -52,6 +52,39 @@ class LeadFacebookConversionTest extends TestCase
         $this->assertSame(0, $conversation->leadLabels()->count());
     }
 
+    public function test_saving_a_labeled_conversation_that_matches_an_existing_lead_still_carries_the_label_over(): void
+    {
+        [$user, $conversation] = $this->userWithConversation();
+
+        $label = LeadLabel::create([
+            'company_id' => $conversation->company_id,
+            'name' => 'Hot lead',
+            'color' => '#4338ca',
+        ]);
+        $conversation->leadLabels()->attach($label->id);
+
+        $existingLead = Lead::create([
+            'company_id' => $conversation->company_id,
+            'name' => 'Jane Customer',
+            'status' => 'new',
+        ]);
+        $existingLead->syncIdentities([
+            ['type' => 'phone', 'value' => '5551234567', 'is_primary' => true],
+        ]);
+
+        $response = $this->actingAs($user)->postJson('/api/leads', [
+            'name' => 'Jane Customer',
+            'phones' => [['value' => '5551234567', 'label' => null]],
+            'facebook_conversation_id' => $conversation->id,
+            'source' => 'facebook',
+        ]);
+
+        $response->assertStatus(422)->assertJsonPath('existing_lead_id', $existingLead->id);
+
+        $this->assertTrue($existingLead->labels()->where('lead_labels.id', $label->id)->exists());
+        $this->assertSame(0, $conversation->leadLabels()->count());
+    }
+
     /**
      * @return array{0: User, 1: FacebookConversation}
      */

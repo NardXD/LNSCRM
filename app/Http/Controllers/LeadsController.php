@@ -406,6 +406,13 @@ class LeadsController extends Controller
         $identities = $this->identityPayload($request);
 
         if ($conflict = $this->findIdentityConflict($companyId, $identities)) {
+            // The button still hands the conversation's own not-yet-a-lead labels
+            // over here — the request just isn't creating a new lead this time,
+            // it's being matched to one that already exists by phone/email.
+            if ($conflict->lead) {
+                $this->applyFacebookConversationLabels($conflict->lead, $request);
+            }
+
             return $this->conflictResponse($conflict);
         }
 
@@ -1539,7 +1546,7 @@ class LeadsController extends Controller
                 ->where('normalized_value', $normalized)
                 ->whereHas('lead', fn ($q) => $q->where('company_id', $companyId))
                 ->when($exceptLeadId, fn ($q) => $q->where('lead_id', '!=', $exceptLeadId))
-                ->with('lead:id,name')
+                ->with('lead:id,name,company_id')
                 ->first();
 
             if ($match) {
@@ -1663,8 +1670,9 @@ class LeadsController extends Controller
     /**
      * Carries over any labels tagged on the Facebook conversation before it had a
      * lead (see FacebookController::attachLabel) so they aren't lost when "Save as
-     * lead" converts it — the conversation's own labels are cleared afterward since
-     * the lead is now the source of truth for them.
+     * lead" converts it — whether that creates a brand new lead or matches an
+     * existing one by phone/email. The conversation's own labels are cleared
+     * afterward since the lead is now the source of truth for them.
      */
     protected function applyFacebookConversationLabels(Lead $lead, StoreLeadRequest $request): void
     {
