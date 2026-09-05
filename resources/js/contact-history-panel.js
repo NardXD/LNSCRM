@@ -119,6 +119,139 @@ function compactLead(lead) {
     };
 }
 
+function conversationLabelsSectionHtml(opts) {
+    if (!opts.conversationLabelsApi) return '';
+    const items = Array.isArray(opts.conversationLabels) ? opts.conversationLabels.filter((label) => label && label.name) : [];
+    const pills = items.length
+        ? items.map((label) => {
+            const color = label.color || '#4338ca';
+            return `<span class="channel-label-chip" style="background:${esc(color)};color:${chipTextColor(color)}">${esc(label.name)} <button type="button" data-chp-remove-conv-label="${label.id}" title="Remove">×</button></span>`;
+        }).join('')
+        : '<span class="chp-empty">No labels yet</span>';
+
+    return `
+        <div class="chp-section" data-chp-conv-labels-section>
+            <div class="chp-label">Conversation labels</div>
+            <div class="chp-label-pills" data-chp-conv-labels>${pills}</div>
+            <select class="chp-select" data-chp-add-conv-label><option value="">Add existing label…</option></select>
+            <div class="chp-lead-label-add">
+                <input type="text" class="chp-select" data-chp-new-conv-label maxlength="50" placeholder="New label">
+                <button type="button" class="chp-save-lead" data-chp-add-conv-label-btn>Add</button>
+            </div>
+        </div>
+    `;
+}
+
+async function conversationLabelApi(opts, method, body, labelId) {
+    const url = opts.conversationLabelsApi + (labelId ? '/' + labelId : '');
+    const res = await fetch(url, {
+        method,
+        credentials: 'same-origin',
+        headers: leadCsrfHeaders(),
+        body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Request failed.');
+    return data;
+}
+
+function bindConversationLabelEditors(root, opts) {
+    if (!opts.conversationLabelsApi) return;
+    const section = root.querySelector('[data-chp-conv-labels-section]');
+    if (!section) return;
+
+    const pills = section.querySelector('[data-chp-conv-labels]');
+    const addSelect = section.querySelector('[data-chp-add-conv-label]');
+    const nameInput = section.querySelector('[data-chp-new-conv-label]');
+    const addBtn = section.querySelector('[data-chp-add-conv-label-btn]');
+    let currentLabels = Array.isArray(opts.conversationLabels) ? opts.conversationLabels.slice() : [];
+
+    const renderPills = () => {
+        if (!pills) return;
+        pills.innerHTML = currentLabels.length
+            ? currentLabels.map((label) => {
+                const color = label.color || '#4338ca';
+                return `<span class="channel-label-chip" style="background:${esc(color)};color:${chipTextColor(color)}">${esc(label.name)} <button type="button" data-chp-remove-conv-label="${label.id}" title="Remove">×</button></span>`;
+            }).join('')
+            : '<span class="chp-empty">No labels yet</span>';
+    };
+
+    const fillAddSelect = () => {
+        if (!addSelect) return;
+        const used = new Set(currentLabels.map((label) => Number(label.id)));
+        addSelect.innerHTML = '<option value="">Add existing label…</option>' +
+            leadOptionsCache.labels.filter((label) => !used.has(Number(label.id)))
+                .map((label) => `<option value="${label.id}">${esc(label.name)}</option>`).join('');
+    };
+
+    const applyLabels = (labels) => {
+        currentLabels = Array.isArray(labels) ? labels : [];
+        renderPills();
+        fillAddSelect();
+        if (typeof opts.onConversationLabelsChange === 'function') opts.onConversationLabelsChange(currentLabels);
+    };
+
+    ensureLeadOptions().then(fillAddSelect);
+
+    addSelect?.addEventListener('change', async () => {
+        const labelId = addSelect.value;
+        if (!labelId) return;
+        try {
+            addSelect.disabled = true;
+            const data = await conversationLabelApi(opts, 'POST', { label_id: Number(labelId) });
+            if (data.data && !leadOptionsCache.labels.some((label) => String(label.id) === String(data.data.id))) {
+                leadOptionsCache.labels.push(data.data);
+            }
+            applyLabels(data.labels || currentLabels);
+        } catch (err) {
+            alert(err.message || 'Could not add label.');
+        } finally {
+            addSelect.disabled = false;
+            addSelect.value = '';
+        }
+    });
+
+    const addByName = async () => {
+        const name = String(nameInput?.value || '').trim();
+        if (!name) {
+            nameInput?.focus();
+            return;
+        }
+        try {
+            if (addBtn) addBtn.disabled = true;
+            const data = await conversationLabelApi(opts, 'POST', { name });
+            if (data.data && !leadOptionsCache.labels.some((label) => String(label.id) === String(data.data.id))) {
+                leadOptionsCache.labels.push(data.data);
+            }
+            if (nameInput) nameInput.value = '';
+            applyLabels(data.labels || currentLabels);
+        } catch (err) {
+            alert(err.message || 'Could not add label.');
+        } finally {
+            if (addBtn) addBtn.disabled = false;
+        }
+    };
+
+    addBtn?.addEventListener('click', addByName);
+    nameInput?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addByName();
+        }
+    });
+
+    pills?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-chp-remove-conv-label]');
+        if (!btn) return;
+        try {
+            const data = await conversationLabelApi(opts, 'DELETE', null, btn.dataset.chpRemoveConvLabel);
+            applyLabels(data.labels || currentLabels.filter((label) => String(label.id) !== String(btn.dataset.chpRemoveConvLabel)));
+        } catch (err) {
+            alert(err.message || 'Could not remove label.');
+        }
+    });
+}
+
 function assignedLeadPanelHtml(lead, canEdit = false) {
     if (!lead) return '';
     const link = lead.crm_url
@@ -451,6 +584,7 @@ function renderPanel(root, data, opts = {}) {
 
     root.innerHTML = `
         <div class="chp-section">${contactHtml}</div>
+        ${conversationLabelsSectionHtml(opts)}
         <div class="chp-section">
             <div class="chp-label">Other channels</div>
             ${threadsHtml}
@@ -466,6 +600,7 @@ function renderPanel(root, data, opts = {}) {
         saveBtn.addEventListener('click', () => saveAsLead(root, opts, contact));
     }
     bindLeadEditors(root, opts, contact);
+    bindConversationLabelEditors(root, opts);
 }
 
 function isPlaceholderName(name) {

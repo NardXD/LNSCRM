@@ -597,12 +597,25 @@
         return String(str || '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
     }
 
+    function conversationLabelChips(c) {
+        const items = (c?.labels || []).filter(l => l?.name);
+        if (!items.length) return '';
+        return `<div class="channel-label-chips">${items.map(l => {
+            const color = l.color || '#4338ca';
+            return `<span class="channel-label-chip" style="background:${escapeHtml(color)}">${escapeHtml(l.name)}</span>`;
+        }).join('')}</div>`;
+    }
+
     function assignedLeadLine(c) {
-        if (window.LnsAssignedLead?.markup) return window.LnsAssignedLead.markup(c.lead, escapeHtml);
-        const name = c?.lead?.assigned_user?.name;
-        const chips = (c?.lead?.labels || []).filter(l => l?.name).map(l => escapeHtml(l.name)).join(', ');
-        if (!name && !chips) return '';
-        return `${name ? `<div class="channel-assigned">Assigned to ${escapeHtml(name)}</div>` : ''}${chips ? `<div class="channel-assigned">${chips}</div>` : ''}`;
+        const leadMarkup = window.LnsAssignedLead?.markup
+            ? window.LnsAssignedLead.markup(c.lead, escapeHtml)
+            : (() => {
+                const name = c?.lead?.assigned_user?.name;
+                const chips = (c?.lead?.labels || []).filter(l => l?.name).map(l => escapeHtml(l.name)).join(', ');
+                if (!name && !chips) return '';
+                return `${name ? `<div class="channel-assigned">Assigned to ${escapeHtml(name)}</div>` : ''}${chips ? `<div class="channel-assigned">${chips}</div>` : ''}`;
+            })();
+        return leadMarkup + conversationLabelChips(c);
     }
 
     function assignedLeadSuffix(c) {
@@ -621,6 +634,13 @@
         const conv = conversations[idx];
         renderThreads();
         els.headerStatus.textContent = channelLabel(conv.channel) + (conv.username ? ' · @' + conv.username : '') + assignedLeadSuffix(conv);
+    }
+
+    function applyConversationLabelsToActive(conversationId, labels) {
+        const idx = conversations.findIndex(c => c.id === conversationId);
+        if (idx < 0) return;
+        conversations[idx] = { ...conversations[idx], labels: labels || [] };
+        renderThreads();
     }
 
     function channelLabel(channel) {
@@ -969,6 +989,9 @@
             needsLeadDetails: wasPlaceholder,
             canEditLead: true,
             onLeadUpdated: applyLeadToActive,
+            conversationLabels: conv.labels || [],
+            conversationLabelsApi: `/api/facebook/conversations/${conv.id}/labels`,
+            onConversationLabelsChange: (labels) => applyConversationLabelsToActive(conv.id, labels),
             onSaved(data, extra) {
                 if (extra?.existing && data.existing_lead_id) {
                     window.location.href = '/leads?lead=' + data.existing_lead_id;

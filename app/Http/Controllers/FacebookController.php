@@ -7,6 +7,7 @@ use App\Models\FacebookConversation;
 use App\Models\FacebookConversationUserRead;
 use App\Models\FacebookIntegration;
 use App\Models\FacebookMessage;
+use App\Models\LeadLabel;
 use App\Models\MessageTemplate;
 use App\Models\User;
 use App\Notifications\FacebookMessageNotification;
@@ -15,6 +16,7 @@ use App\Services\FacebookGraphMessagingService;
 use App\Services\FacebookMessageSyncService;
 use App\Services\FlexCrmLookupService;
 use App\Services\LeadAutoCreateService;
+use App\Services\LeadFollowUpDayService;
 use App\Services\LeadRuleEngine;
 use App\Services\MessageContactExtractor;
 use App\Services\TimezoneService;
@@ -39,7 +41,8 @@ class FacebookController extends Controller
         protected FacebookGraphMessagingService $graphMessaging,
         protected MessageContactExtractor $messageContacts,
         protected FlexCrmLookupService $crmLookup,
-        protected LeadAutoCreateService $leadAutoCreate
+        protected LeadAutoCreateService $leadAutoCreate,
+        protected LeadFollowUpDayService $followUpDays
     ) {}
 
     public function index()
@@ -106,6 +109,7 @@ class FacebookController extends Controller
 
         $query = FacebookConversation::query()
             ->where('company_id', $user->company_id)
+            ->with('leadLabels')
             ->leftJoin('facebook_conversation_user_reads as ur', function ($join) use ($user) {
                 $join->on('ur.facebook_conversation_id', '=', 'facebook_conversations.id')
                     ->where('ur.user_id', '=', $user->id);
@@ -1380,6 +1384,7 @@ class FacebookController extends Controller
             'is_read' => (bool) $c->is_read,
             'last_message_preview' => $c->last_message_preview,
             'last_message_at' => $c->last_message_at?->toIso8601String(),
+            'labels' => $this->serializeLabels($c),
             'lead' => $this->crmLookup->matchAssignedLead(
                 $this->crmLookup->assignedLeadIndex((int) $c->company_id),
                 null,
@@ -1388,6 +1393,82 @@ class FacebookController extends Controller
                 $c->username
             ),
         ];
+    }
+
+    protected function serializeLabels(FacebookConversation $c): array
+    {
+        return $c->loadMissing('leadLabels')->leadLabels
+            ->map(fn (LeadLabel $label) => ['id' => $label->id, 'name' => $label->name, 'color' => $label->color])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Attach an existing or newly-named label directly to a conversation,
+     * independent of any matched lead — lets users tag a Facebook/Instagram
+     * thread before it is saved as a lead.
+     */
+    public function attachLabel(Request $request, FacebookConversation $conversation): JsonResponse
+    {
+        $this->assertCompanyConversation($conversation);
+        $validated = $request->validate([
+            'label_id' => ['nullable', 'integer', 'exists:lead_labels,id'],
+            'name' => ['nullable', 'required_without:label_id', 'string', 'max:50'],
+            'color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+        ]);
+
+        $companyId = (int) $conversation->company_id;
+        $label = null;
+        if (! empty($validated['label_id'])) {
+            $label = LeadLabel::query()
+                ->where('company_id', $companyId)
+                ->whereKey($validated['label_id'])
+                ->first();
+        }
+
+        $name = trim((string) ($validated['name'] ?? ''));
+        if ($name !== '' && $this->followUpDays->dayFromLabelName($name) !== null) {
+            return response()->json(['message' => 'Follow-up days are managed separately from labels.'], 422);
+        }
+
+        if (! $label && $name !== '') {
+            $label = LeadLabel::query()
+                ->where('company_id', $companyId)
+                ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+                ->first();
+            if (! $label) {
+                $label = LeadLabel::create([
+                    'company_id' => $companyId,
+                    'name' => $name,
+                    'color' => $validated['color'] ?? '#4338ca',
+                ]);
+            }
+        }
+
+        if (! $label) {
+            return response()->json(['message' => 'Choose or type a label.'], 422);
+        }
+
+        $conversation->leadLabels()->syncWithoutDetaching([$label->id]);
+
+        return response()->json([
+            'data' => ['id' => $label->id, 'name' => $label->name, 'color' => $label->color],
+            'labels' => $this->serializeLabels($conversation->fresh()),
+        ], 201);
+    }
+
+    public function detachLabel(Request $request, FacebookConversation $conversation, LeadLabel $leadLabel): JsonResponse
+    {
+        $this->assertCompanyConversation($conversation);
+        if ((int) $leadLabel->company_id !== (int) $conversation->company_id) {
+            abort(404);
+        }
+
+        $conversation->leadLabels()->detach($leadLabel->id);
+
+        return response()->json([
+            'labels' => $this->serializeLabels($conversation->fresh()),
+        ]);
     }
 
     protected function formatMessage(FacebookMessage $m): array

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class FacebookConversation extends Model
@@ -48,5 +49,16 @@ class FacebookConversation extends Model
     public function userReads(): HasMany
     {
         return $this->hasMany(FacebookConversationUserRead::class, 'facebook_conversation_id');
+    }
+
+    /**
+     * Lead labels applied directly to this conversation, independent of any
+     * matched Lead — Facebook conversations have no persisted lead_id, so this
+     * is the only place a label can live before/without a lead.
+     */
+    public function leadLabels(): BelongsToMany
+    {
+        return $this->belongsToMany(LeadLabel::class, 'facebook_conversation_lead_label')
+            ->withTimestamps();
     }
 }
