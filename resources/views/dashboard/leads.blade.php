@@ -39,6 +39,14 @@
             <option value="">All assignees</option>
             <option value="__none__">Unassigned</option>
         </select>
+        <select id="leadSortFilter" class="leads-sort-filter" aria-label="Sort leads by">
+            <option value="updated_at">Sort: Updated</option>
+            <option value="thread_age">Sort: Thread Age</option>
+        </select>
+        <select id="leadSortDirFilter" class="leads-sort-filter" aria-label="Sort direction">
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+        </select>
     </div>
 
     <div class="leads-tabs" role="tablist" id="leadStatusTabs">
@@ -978,7 +986,7 @@
     const STOREGANISE_CONNECTED = @json(!empty($storeganiseConnected));
     const CAN_VIEW_QUOTATION_BUILDER = @json(!empty($canViewQuotationBuilder));
     const LEAD_QUOTE_URL_BASE = @json(url('/quotation-builder/leads'));
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], emailTemplates: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', savedLeadStoreganiseSiteId: null, storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', labelIds: [], followUp: '', sort: 'updated_at', sortDir: 'desc', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], emailTemplates: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', savedLeadStoreganiseSiteId: null, storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -1812,6 +1820,8 @@
     async function loadLeads(opts = {}) {
         if (opts.overlay !== false) setOverlay('leadsTableBusy', true);
         const q = new URLSearchParams({ page: String(state.page), per_page: '20', status: state.status });
+        if (state.sort) q.set('sort', state.sort);
+        if (state.sortDir) q.set('direction', state.sortDir);
         if (state.search) q.set('search', state.search);
         if (state.source) q.set('source', state.source);
         if (state.assignedTo) q.set('assigned_to', state.assignedTo);
@@ -2615,6 +2625,16 @@
     });
     document.getElementById('leadAssigneeFilter')?.addEventListener('change', (e) => {
         state.assignedTo = e.target.value || '';
+        state.page = 1;
+        loadLeads();
+    });
+    document.getElementById('leadSortFilter')?.addEventListener('change', (e) => {
+        state.sort = e.target.value || 'updated_at';
+        state.page = 1;
+        loadLeads();
+    });
+    document.getElementById('leadSortDirFilter')?.addEventListener('change', (e) => {
+        state.sortDir = e.target.value || 'desc';
         state.page = 1;
         loadLeads();
     });

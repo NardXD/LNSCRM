@@ -139,6 +139,7 @@
 
     .leads-source-filter,
     .leads-assignee-filter,
+    .leads-sort-filter,
     .qb-assignee-filter {
         min-width: 0;
         width: 100%;
