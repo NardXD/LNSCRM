@@ -73,6 +73,14 @@ return [
             'replace_placeholders' => true,
         ],
 
+        'lead_rules' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/lead-rules.log'),
+            'level' => env('LOG_LEAD_RULES_LEVEL', 'debug'),
+            'days' => env('LOG_LEAD_RULES_DAYS', 14),
+            'replace_placeholders' => true,
+        ],
+
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),

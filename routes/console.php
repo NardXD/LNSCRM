@@ -35,3 +35,7 @@ Schedule::command('sms:sync-messages')
 Schedule::command('inbox:tag-to-leads Inquiry --shared-inbox=Talk2Us')
     ->everyMinute()
     ->withoutOverlapping(10);
+
+// Cron has no native "every N days" frequency, so this uses the day-of-month
+// step idiom (1st, 4th, 7th, ... 28th/31st) instead of a fixed 72-hour cadence.
+Schedule::command('logs:clear')->cron('0 3 */3 * *');

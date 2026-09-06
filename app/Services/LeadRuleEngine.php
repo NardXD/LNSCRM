@@ -140,17 +140,32 @@ class LeadRuleEngine
     public function apply(?Lead $lead, string $channel, string|array $triggers, array $context = []): ?Lead
     {
         if (self::$running) {
+            $this->ruleLog('debug', 'Skipped: engine is already running (reentrant call)');
+
             return $lead;
         }
 
         $eventTriggers = array_values(array_filter(array_map('strval', (array) $triggers)));
         $companyId = (int) ($lead?->company_id ?: ($context['company_id'] ?? 0));
         if ($companyId < 1 || $eventTriggers === []) {
+            $this->ruleLog('debug', 'Skipped: missing company_id or triggers', [
+                'company_id' => $companyId,
+                'triggers' => $eventTriggers,
+            ]);
+
             return $lead;
         }
 
         $channel = $channel !== '' ? self::normalizeChannel($channel) : '';
         $lead?->loadMissing(['identities', 'labels', 'assignedUser']);
+
+        $this->ruleLog('info', 'Evaluating event', [
+            'company_id' => $companyId,
+            'channel' => $channel,
+            'triggers' => $eventTriggers,
+            'lead_id' => $lead?->id,
+            'message' => isset($context['message']) ? mb_substr((string) $context['message'], 0, 500) : null,
+        ]);
 
         $rules = LeadRule::query()
             ->where('company_id', $companyId)
@@ -163,14 +178,28 @@ class LeadRuleEngine
         try {
             foreach ($rules as $rule) {
                 if (! $this->ruleMatchesTriggers($rule, $eventTriggers)) {
+                    $this->ruleLog('debug', 'Rule skipped: trigger mismatch', [
+                        'rule_id' => $rule->id,
+                        'rule_name' => $rule->name,
+                    ]);
                     continue;
                 }
                 if (! $this->matches($lead, $channel, $rule->conditions ?? [], $context)) {
+                    $this->ruleLog('debug', 'Rule skipped: conditions not met', [
+                        'rule_id' => $rule->id,
+                        'rule_name' => $rule->name,
+                    ]);
                     continue;
                 }
+                $this->ruleLog('info', 'Rule matched: running actions', [
+                    'rule_id' => $rule->id,
+                    'rule_name' => $rule->name,
+                    'action_count' => count($rule->actions ?? []),
+                ]);
                 $lead = $this->runActions($lead, $rule->actions ?? [], $channel, $context, $companyId, $rule);
                 LeadRule::whereKey($rule->id)->update(['last_applied_at' => now()]);
                 if ($rule->stop_processing) {
+                    $this->ruleLog('debug', 'Rule stopped further processing', ['rule_id' => $rule->id]);
                     break;
                 }
             }
@@ -178,7 +207,20 @@ class LeadRuleEngine
             self::$running = false;
         }
 
+        $this->ruleLog('info', 'Finished', [
+            'company_id' => $companyId,
+            'result_lead_id' => $lead?->id,
+        ]);
+
         return $lead;
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    private function ruleLog(string $level, string $message, array $context = []): void
+    {
+        Log::channel('lead_rules')->log($level, $message, $context);
     }
 
     /**
@@ -341,21 +383,59 @@ class LeadRuleEngine
             }
         }
 
+        $assignCount = 0;
         foreach ($ordered as $action) {
             $type = $action['type'] ?? '';
             $value = $action['value'] ?? null;
 
             try {
                 if ($type === 'create_lead') {
+                    $beforeId = $lead?->id;
                     $lead = $this->createLead($lead, $channel, $context, $companyId, $value);
+                    $this->ruleLog('info', 'Action: create_lead', [
+                        'rule_id' => $rule?->id,
+                        'lead_id_before' => $beforeId,
+                        'lead_id_after' => $lead?->id,
+                    ]);
                     continue;
                 }
                 if (! $lead) {
+                    $this->ruleLog('debug', 'Action skipped: no lead yet', [
+                        'rule_id' => $rule?->id,
+                        'action' => $type,
+                    ]);
+                    continue;
+                }
+                if ($type === 'assign') {
+                    $assignCount++;
+                    $before = $lead->assigned_to;
+                    $this->assign($lead, $value);
+                    $this->ruleLog('info', 'Action: assign', [
+                        'rule_id' => $rule?->id,
+                        'lead_id' => $lead->id,
+                        'assign_value' => $value,
+                        'assigned_to_before' => $before,
+                        'assigned_to_after' => $lead->assigned_to,
+                        'nth_assign_action_in_rule' => $assignCount,
+                    ]);
+                    if ($assignCount > 1) {
+                        $this->ruleLog('warning', 'This rule has more than one assign action — only the last one sticks', [
+                            'rule_id' => $rule?->id,
+                        ]);
+                    }
+                    continue;
+                }
+                if ($type === 'add_label') {
+                    $this->addLabel($lead, $value);
+                    $this->ruleLog('info', 'Action: add_label', [
+                        'rule_id' => $rule?->id,
+                        'lead_id' => $lead->id,
+                        'label_value' => $value,
+                        'labels_after' => $lead->labels()->pluck('name')->all(),
+                    ]);
                     continue;
                 }
                 match ($type) {
-                    'assign' => $this->assign($lead, $value),
-                    'add_label' => $this->addLabel($lead, $value),
                     'set_status' => $this->setStatus($lead, $value),
                     'set_status_after_days' => $this->scheduleStatus($lead, $value),
                     'notify_assignee' => $this->notifyAssignee($lead),
@@ -365,8 +445,20 @@ class LeadRuleEngine
                     'attach_shared_inbox' => $this->attachSharedInbox($lead, $context, $rule),
                     default => null,
                 };
+                $this->ruleLog('info', 'Action ran', [
+                    'rule_id' => $rule?->id,
+                    'lead_id' => $lead->id,
+                    'action' => $type,
+                    'value' => $value,
+                ]);
             } catch (\Throwable $e) {
                 Log::warning('Lead rule action failed', [
+                    'lead_id' => $lead?->id,
+                    'action' => $type,
+                    'error' => $e->getMessage(),
+                ]);
+                $this->ruleLog('error', 'Action failed', [
+                    'rule_id' => $rule?->id,
                     'lead_id' => $lead?->id,
                     'action' => $type,
                     'error' => $e->getMessage(),
@@ -402,15 +494,39 @@ class LeadRuleEngine
             $keywordMap
         );
 
+        $name = $blank($extracted['name'] ?? null) ?: $blank($context['contact_name'] ?? null);
+        $phone = $blank($extracted['phone'] ?? null) ?: $blank($context['phone'] ?? null);
+        $email = $blank($extracted['email'] ?? null) ?: $blank($context['email'] ?? null);
+        $facebookName = $blank($context['facebook_name'] ?? null);
+        $instagramUsername = $blank($context['instagram_username'] ?? null);
+
+        $this->ruleLog('debug', 'create_lead: keyword extraction', [
+            'keywords' => $keywordMap,
+            'extracted' => $extracted,
+            'resolved_name' => $name,
+            'resolved_phone' => $phone,
+            'resolved_email' => $email,
+            'resolved_facebook_name' => $facebookName,
+            'resolved_instagram_username' => $instagramUsername,
+        ]);
+
         $created = app(LeadAutoCreateService::class)->ensure(
             $companyId,
             $channel !== '' ? $channel : 'inbox',
-            $blank($extracted['name'] ?? null) ?: $blank($context['contact_name'] ?? null),
-            $blank($extracted['phone'] ?? null) ?: $blank($context['phone'] ?? null),
-            $blank($extracted['email'] ?? null) ?: $blank($context['email'] ?? null),
-            $blank($context['facebook_name'] ?? null),
-            $blank($context['instagram_username'] ?? null),
+            $name,
+            $phone,
+            $email,
+            $facebookName,
+            $instagramUsername,
         );
+
+        if (! $created) {
+            $this->ruleLog('warning', 'create_lead: ensure() returned no lead — needs a phone, email, facebook_name, or instagram_username; a bare name is not enough', [
+                'company_id' => $companyId,
+                'channel' => $channel,
+                'name' => $name,
+            ]);
+        }
 
         return $created?->load(['identities', 'labels', 'assignedUser']) ?? $lead;
     }
