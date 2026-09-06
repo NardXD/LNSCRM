@@ -98,10 +98,14 @@ class TestLeadRule extends Command
                 if ($type === 'create_lead') {
                     $keywords = is_array($action['value'] ?? null) ? $action['value'] : [];
                     $extracted = $extractor->fromKeywords($message, $keywords);
-                    $hasIdentity = (bool) ($extracted['phone'] || $extracted['email']);
+                    $resolvedName = $extracted['name'] ?: (string) ($context['contact_name'] ?? '');
+                    $hasFacebookNameFallback = $channel === 'facebook' && trim($resolvedName) !== '';
+                    $hasIdentity = (bool) ($extracted['phone'] || $extracted['email'] || $hasFacebookNameFallback);
                     $this->line('    → create_lead: extracted '.json_encode($extracted));
                     if (! $hasIdentity) {
                         $this->warn('      No phone/email extracted, and this action never receives a facebook_name/instagram_username either — LeadAutoCreateService::ensure() will return null (no lead created) unless a lead already exists upstream.');
+                    } elseif ($hasFacebookNameFallback && ! $extracted['phone'] && ! $extracted['email']) {
+                        $this->line('      Facebook channel: no phone/email found, falling back to chat name "'.$resolvedName.'" as the lead identity.');
                     }
                 }
 

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\FacebookConversation;
 use App\Models\InboxConversation;
 use App\Models\InboxTemplate;
 use App\Models\Lead;
@@ -499,6 +500,12 @@ class LeadRuleEngine
         $email = $blank($extracted['email'] ?? null) ?: $blank($context['email'] ?? null);
         $facebookName = $blank($context['facebook_name'] ?? null);
         $instagramUsername = $blank($context['instagram_username'] ?? null);
+
+        // Facebook/Instagram have no phone or email by default — the chat name is the
+        // only identity available, so it's enough on its own to create the lead.
+        if ($channel === 'facebook' && ! $facebookName && ! $instagramUsername && $name && ! FacebookConversation::isPlaceholderName($name)) {
+            $facebookName = $name;
+        }
 
         $this->ruleLog('debug', 'create_lead: keyword extraction', [
             'keywords' => $keywordMap,
