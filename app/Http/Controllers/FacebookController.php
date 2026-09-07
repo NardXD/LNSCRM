@@ -473,6 +473,7 @@ class FacebookController extends Controller
         $lead = $this->leadAutoCreate->fromFacebookConversation($conversation, $extracted);
         $isNew = FacebookMessage::query()->where('facebook_conversation_id', $conversation->id)->count() <= 1;
         $this->leadAutoCreate->applyRules($lead, 'facebook', LeadRuleEngine::outboundTriggers($isNew), [
+            'company_id' => $conversation->company_id,
             'contact_name' => $conversation->name,
             'message' => (string) ($validated['text'] ?? ''),
         ]);
@@ -895,6 +896,7 @@ class FacebookController extends Controller
 
         $lead = $this->leadAutoCreate->fromFacebookConversation($conversation, $extracted);
         $this->leadAutoCreate->applyRules($lead, 'facebook', LeadRuleEngine::inboundTriggers($isNewConversation), [
+            'company_id' => $conversation->company_id,
             'contact_name' => $conversation->name,
             'message' => $text,
         ]);
@@ -1031,6 +1033,7 @@ class FacebookController extends Controller
 
         $lead = $this->leadAutoCreate->fromFacebookConversation($conversation, $extracted);
         $this->leadAutoCreate->applyRules($lead, 'facebook', LeadRuleEngine::inboundTriggers($isNewConversation), [
+            'company_id' => $conversation->company_id,
             'contact_name' => $conversation->name,
             'message' => $text,
         ]);
