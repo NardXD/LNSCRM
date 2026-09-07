@@ -28,6 +28,11 @@
                     </p>
                 </div>
                 <div class="fb-header-actions">
+                    @if(auth()->user()?->hasPermission('view_leads'))
+                        <a class="fb-icon-btn" href="{{ route('leads') }}?openRules=1" target="_blank" rel="noopener" title="Automation rules for Facebook &amp; Instagram messages">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="14" y2="12"/><line x1="4" y1="18" x2="10" y2="18"/><circle cx="18" cy="15" r="3"/><path d="m20.5 17.5 1.5 1.5"/></svg>
+                        </a>
+                    @endif
                     <button type="button" class="fb-icon-btn" id="fbSyncBtn" title="Sync Messenger inbox (also auto-syncs every 45s)">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     </button>

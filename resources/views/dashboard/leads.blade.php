@@ -4327,6 +4327,14 @@
         const id = params.get('lead');
         const tab = params.get('tab') || undefined;
         if (id) openLead(id, { tab }).catch(() => {});
+        if (params.get('openRules')) {
+            state.rulesPage = 1;
+            state.rulesSearch = '';
+            const search = document.getElementById('leadRuleSearch');
+            if (search) search.value = '';
+            loadRules().catch(() => {});
+            openRulesModal();
+        }
     });
 })();
 </script>

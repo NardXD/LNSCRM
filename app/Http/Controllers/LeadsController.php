@@ -18,8 +18,8 @@ use App\Models\LeadLabel;
 use App\Models\LeadNote;
 use App\Models\LeadRule;
 use App\Models\LeadStatus;
-use App\Models\StoreganiseIntegration;
 use App\Models\SharedInbox;
+use App\Models\StoreganiseIntegration;
 use App\Models\User;
 use App\Services\ContactConversationHistoryService;
 use App\Services\FlexCrmLookupService;
@@ -34,6 +34,8 @@ use App\Services\LeadStoreganiseService;
 use App\Services\StoreganiseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
@@ -1251,7 +1253,7 @@ class LeadsController extends Controller
         }
 
         try {
-            return \Illuminate\Support\Carbon::parse($value)->format('Y-m-d');
+            return Carbon::parse($value)->format('Y-m-d');
         } catch (\Throwable) {
             return null;
         }
@@ -1457,8 +1459,8 @@ class LeadsController extends Controller
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, LeadIdentity>  $identities
-     * @return array{0: \Illuminate\Support\Collection<int, LeadIdentity>, 1: \Illuminate\Support\Collection<int, LeadIdentity>}
+     * @param  Collection<int, LeadIdentity>  $identities
+     * @return array{0: Collection<int, LeadIdentity>, 1: Collection<int, LeadIdentity>}
      */
     protected function groupContactIdentities($identities): array
     {
@@ -1776,7 +1778,7 @@ class LeadsController extends Controller
             'triggers.*' => ['required', 'string', 'in:'.$triggerKeys],
             'conditions' => [$required, 'array', 'min:1'],
             'conditions.*.field' => ['required', 'in:channel,shared_inbox,inbox,contact_name,phone,email,subject,message,lead_status,lead_label,label_added,status_changed,follow_up_day'],
-            'conditions.*.operator' => ['required', 'in:contains,equals,starts_with,in,does_not_have,not_equals'],
+            'conditions.*.operator' => ['required', 'in:contains,equals,starts_with,in,does_not_have,not_equals,contains_any'],
             'conditions.*.value' => ['nullable'],
             'actions' => [$required, 'array', 'min:1'],
             'actions.*.type' => ['required', 'in:create_lead,assign,add_label,set_status,set_status_after_days,notify_assignee,reopen_after_days,unsnooze,send_email,attach_shared_inbox'],
@@ -1792,6 +1794,7 @@ class LeadsController extends Controller
                 if ($ids->count() !== count((array) ($condition['value'] ?? []))) {
                     abort(response()->json(['message' => 'Choose valid channels.'], 422));
                 }
+
                 continue;
             }
             if ($field === 'shared_inbox' || $field === 'inbox') {
@@ -1811,6 +1814,7 @@ class LeadsController extends Controller
                 if ($valid !== $ids->count()) {
                     abort(response()->json(['message' => 'Choose valid shared inboxes.'], 422));
                 }
+
                 continue;
             }
             if ($field === 'follow_up_day') {
@@ -1819,6 +1823,18 @@ class LeadsController extends Controller
                 if (! $isPlus && ((int) $dayValue < 1 || (int) $dayValue > 365)) {
                     abort(response()->json(['message' => 'Choose a follow-up day (1–365) or the older-than bucket.'], 422));
                 }
+
+                continue;
+            }
+            if (($condition['operator'] ?? '') === 'contains_any') {
+                $keywords = collect(is_array($condition['value'] ?? null) ? $condition['value'] : explode(',', (string) ($condition['value'] ?? '')))
+                    ->map(fn ($keyword) => trim((string) $keyword))
+                    ->filter(fn ($keyword) => $keyword !== '')
+                    ->values();
+                if ($keywords->isEmpty()) {
+                    abort(response()->json(['message' => 'Add at least one keyword.'], 422));
+                }
+
                 continue;
             }
             if (trim((string) ($condition['value'] ?? '')) === '') {
@@ -1854,6 +1870,7 @@ class LeadsController extends Controller
                     if ($valid !== $userIds->count()) {
                         abort(response()->json(['message' => 'Choose valid teammates for round robin.'], 422));
                     }
+
                     continue;
                 }
                 $assignee = (string) $assignee;

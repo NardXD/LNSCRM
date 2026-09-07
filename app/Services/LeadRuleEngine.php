@@ -183,6 +183,7 @@ class LeadRuleEngine
                         'rule_id' => $rule->id,
                         'rule_name' => $rule->name,
                     ]);
+
                     continue;
                 }
                 if (! $this->matches($lead, $channel, $rule->conditions ?? [], $context)) {
@@ -190,6 +191,7 @@ class LeadRuleEngine
                         'rule_id' => $rule->id,
                         'rule_name' => $rule->name,
                     ]);
+
                     continue;
                 }
                 $this->ruleLog('info', 'Rule matched: running actions', [
@@ -267,6 +269,7 @@ class LeadRuleEngine
                 if ($channel === '' || ! in_array($channel, $channels, true)) {
                     return false;
                 }
+
                 continue;
             }
 
@@ -283,6 +286,7 @@ class LeadRuleEngine
                 if ($eventInboxId < 1 || ! in_array($eventInboxId, $inboxIds, true)) {
                     return false;
                 }
+
                 continue;
             }
 
@@ -290,6 +294,7 @@ class LeadRuleEngine
                 if (! $lead || ! $this->compare((string) $lead->status, (string) $value, $operator === 'equals' ? 'equals' : 'equals')) {
                     return false;
                 }
+
                 continue;
             }
 
@@ -306,6 +311,7 @@ class LeadRuleEngine
                 if ($missing ? $has : ! $has) {
                     return false;
                 }
+
                 continue;
             }
 
@@ -317,6 +323,7 @@ class LeadRuleEngine
                 if ($changed !== strtolower(trim((string) $value))) {
                     return false;
                 }
+
                 continue;
             }
 
@@ -333,6 +340,7 @@ class LeadRuleEngine
                 if (! $matched) {
                     return false;
                 }
+
                 continue;
             }
 
@@ -349,6 +357,7 @@ class LeadRuleEngine
                 if (! $matched) {
                     return false;
                 }
+
                 continue;
             }
 
@@ -360,6 +369,14 @@ class LeadRuleEngine
                 'message' => (string) ($context['message'] ?? ''),
                 default => '',
             };
+
+            if ($operator === 'contains_any') {
+                if (! $this->containsAny($haystack, $value)) {
+                    return false;
+                }
+
+                continue;
+            }
 
             if (! $this->compare($haystack, (string) $value, $operator)) {
                 return false;
@@ -398,6 +415,7 @@ class LeadRuleEngine
                         'lead_id_before' => $beforeId,
                         'lead_id_after' => $lead?->id,
                     ]);
+
                     continue;
                 }
                 if (! $lead) {
@@ -405,6 +423,7 @@ class LeadRuleEngine
                         'rule_id' => $rule?->id,
                         'action' => $type,
                     ]);
+
                     continue;
                 }
                 if ($type === 'assign') {
@@ -424,6 +443,7 @@ class LeadRuleEngine
                             'rule_id' => $rule?->id,
                         ]);
                     }
+
                     continue;
                 }
                 if ($type === 'add_label') {
@@ -434,6 +454,7 @@ class LeadRuleEngine
                         'label_value' => $value,
                         'labels_after' => $lead->labels()->pluck('name')->all(),
                     ]);
+
                     continue;
                 }
                 match ($type) {
@@ -618,6 +639,26 @@ class LeadRuleEngine
             'contains' => str_contains(mb_strtolower($haystack), mb_strtolower($compare)),
             default => false,
         };
+    }
+
+    /**
+     * True if $haystack contains any of the (comma-separated or array) needles in $value.
+     * Lets a single condition match several keywords without needing one rule per keyword,
+     * since conditions in a rule are otherwise AND'd together with no OR support.
+     */
+    private function containsAny(string $haystack, mixed $value): bool
+    {
+        $needles = is_array($value) ? $value : explode(',', (string) $value);
+        $haystack = mb_strtolower($haystack);
+
+        foreach ($needles as $needle) {
+            $needle = mb_strtolower(trim((string) $needle));
+            if ($needle !== '' && str_contains($haystack, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function assign(Lead $lead, mixed $value): void
