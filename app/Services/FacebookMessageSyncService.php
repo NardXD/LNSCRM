@@ -18,6 +18,11 @@ class FacebookMessageSyncService
 {
     protected bool $lastStoreCreated = true;
 
+    public function __construct(
+        protected MessageContactExtractor $messageContacts,
+        protected LeadAutoCreateService $leadAutoCreate
+    ) {}
+
     /**
      * Import historical Messenger inbox (and Twilio) messages into the CRM.
      *
@@ -655,6 +660,8 @@ class FacebookMessageSyncService
     ): FacebookConversation {
         $this->lastStoreCreated = true;
         $conversation = $this->upsertConversation($integration, $channel, $peerId, $name);
+        $isNewConversation = $conversation->wasRecentlyCreated
+            || FacebookMessage::where('facebook_conversation_id', $conversation->id)->count() === 0;
         $storedAt = TimezoneService::fromExternal($sentAt);
 
         $duplicate = $this->findNearDuplicate($conversation->id, $direction, $type, $text, $storedAt);
@@ -688,7 +695,8 @@ class FacebookMessageSyncService
         $record->updated_at = $storedAt;
         $record->save();
 
-        // Live poll/ingest only — bulk history sync must not flood unread badges.
+        // Live poll/ingest only — bulk history sync must not flood unread badges,
+        // re-run lead rules on months of old messages, or re-assign already-worked leads.
         if ($countAsUnread && $direction === 'inbound') {
             $conversation->unread_count = (int) $conversation->unread_count + 1;
             $conversation->save();
@@ -697,6 +705,22 @@ class FacebookMessageSyncService
                 ->where('facebook_conversation_id', $conversation->id)
                 ->where('is_read', true)
                 ->update(['is_read' => false]);
+
+            try {
+                $extracted = $this->messageContacts->applyToConversation($conversation);
+                $lead = $this->leadAutoCreate->fromFacebookConversation($conversation, $extracted);
+                $this->leadAutoCreate->applyRules($lead, 'facebook', LeadRuleEngine::inboundTriggers($isNewConversation), [
+                    'company_id' => $conversation->company_id,
+                    'contact_name' => $conversation->name,
+                    'message' => $text,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('Facebook sync could not apply lead rules', [
+                    'conversation_id' => $conversation->id,
+                    'mid' => $mid,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
 
         return $conversation;
