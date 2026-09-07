@@ -754,7 +754,7 @@ class LeadsController extends Controller
         }
         $this->leadRuleForUser($leadRule);
 
-        if ($request->exists('is_active') && count($request->except(['_token', '_method'])) <= 1) {
+        if ($request->exists('is_active') && ! $request->hasAny(['name', 'triggers', 'conditions', 'actions'])) {
             $leadRule->update(['is_active' => $request->boolean('is_active')]);
 
             return response()->json(['success' => true, 'data' => $this->serializeRule($leadRule->fresh())]);
