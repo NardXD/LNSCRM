@@ -522,8 +522,8 @@ class FacebookMessageSyncService
                     // optional
                 }
 
-                    foreach ($context->messages->stream(['order' => 'asc'], $limit, 100) as $message) {
-                        $sentAt = TimezoneService::fromExternal($message->dateCreated);
+                foreach ($context->messages->stream(['order' => 'asc'], $limit, 100) as $message) {
+                    $sentAt = TimezoneService::fromExternal($message->dateCreated);
                     if ($after && $sentAt->lt($after)) {
                         continue;
                     }
@@ -708,7 +708,7 @@ class FacebookMessageSyncService
 
             try {
                 $extracted = $this->messageContacts->applyToConversation($conversation);
-                $lead = $this->leadAutoCreate->fromFacebookConversation($conversation, $extracted);
+                $lead = $this->leadAutoCreate->fromFacebookConversation($conversation, $extracted, createIfMissing: false);
                 $this->leadAutoCreate->applyRules($lead, 'facebook', LeadRuleEngine::inboundTriggers($isNewConversation), [
                     'company_id' => $conversation->company_id,
                     'contact_name' => $conversation->name,

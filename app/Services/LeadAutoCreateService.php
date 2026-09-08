@@ -49,7 +49,7 @@ class LeadAutoCreateService
     /**
      * @param  array{phones?: list<string>, emails?: list<string>, names?: list<string>}|null  $extracted
      */
-    public function fromFacebookConversation(FacebookConversation $conversation, ?array $extracted = null): ?Lead
+    public function fromFacebookConversation(FacebookConversation $conversation, ?array $extracted = null, bool $createIfMissing = true): ?Lead
     {
         $extracted = $extracted ?? ['phones' => [], 'emails' => [], 'names' => []];
         $isIg = $conversation->channel === 'instagram';
@@ -67,7 +67,8 @@ class LeadAutoCreateService
             $extracted['phones'][0] ?? null,
             $extracted['emails'][0] ?? null,
             $facebookName,
-            $isIg ? ($conversation->username ?: $conversation->name) : null
+            $isIg ? ($conversation->username ?: $conversation->name) : null,
+            $createIfMissing
         );
 
         if (
@@ -183,7 +184,8 @@ class LeadAutoCreateService
         ?string $phone = null,
         ?string $email = null,
         ?string $facebookName = null,
-        ?string $instagramUsername = null
+        ?string $instagramUsername = null,
+        bool $createIfMissing = true
     ): ?Lead {
         $phone = $this->cleanPhone($companyId, $phone);
         $email = $this->cleanEmail($companyId, $email);
@@ -206,6 +208,10 @@ class LeadAutoCreateService
                 }
 
                 return $lead->fresh('identities');
+            }
+
+            if (! $createIfMissing) {
+                return null;
             }
 
             $lead = Lead::create([

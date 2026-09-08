@@ -470,7 +470,7 @@ class FacebookController extends Controller
         $this->touchConversation($conversation, $message);
 
         $extracted = $this->messageContacts->applyToConversation($conversation);
-        $lead = $this->leadAutoCreate->fromFacebookConversation($conversation, $extracted);
+        $lead = $this->leadAutoCreate->fromFacebookConversation($conversation, $extracted, createIfMissing: false);
         $isNew = FacebookMessage::query()->where('facebook_conversation_id', $conversation->id)->count() <= 1;
         $this->leadAutoCreate->applyRules($lead, 'facebook', LeadRuleEngine::outboundTriggers($isNew), [
             'company_id' => $conversation->company_id,
@@ -894,7 +894,7 @@ class FacebookController extends Controller
         $extracted = $this->messageContacts->applyToConversation($conversation);
         $this->notifyUnread($conversation, $record);
 
-        $lead = $this->leadAutoCreate->fromFacebookConversation($conversation, $extracted);
+        $lead = $this->leadAutoCreate->fromFacebookConversation($conversation, $extracted, createIfMissing: false);
         $this->leadAutoCreate->applyRules($lead, 'facebook', LeadRuleEngine::inboundTriggers($isNewConversation), [
             'company_id' => $conversation->company_id,
             'contact_name' => $conversation->name,
@@ -1031,7 +1031,7 @@ class FacebookController extends Controller
         $extracted = $this->messageContacts->applyToConversation($conversation);
         $this->notifyUnread($conversation, $record);
 
-        $lead = $this->leadAutoCreate->fromFacebookConversation($conversation, $extracted);
+        $lead = $this->leadAutoCreate->fromFacebookConversation($conversation, $extracted, createIfMissing: false);
         $this->leadAutoCreate->applyRules($lead, 'facebook', LeadRuleEngine::inboundTriggers($isNewConversation), [
             'company_id' => $conversation->company_id,
             'contact_name' => $conversation->name,
