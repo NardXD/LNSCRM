@@ -1564,14 +1564,17 @@
     let conversationsHasMore = false;
     let conversationsSearch = '';
     let loadMoreInProgress = false;
+    let conversationsRequestSeq = 0;
 
     async function loadConversations(search = '') {
         conversationsOffset = 0;
         conversationsSearch = search;
+        const seq = ++conversationsRequestSeq;
         const params = new URLSearchParams({ limit: CONVERSATIONS_PAGE_SIZE, offset: 0 });
         if (search) params.set('search', search);
         const res = await api(baseUrl + '/conversations?' + params.toString());
         const json = await res.json();
+        if (seq !== conversationsRequestSeq) return; // a newer request has since superseded this one
         if (!json.success) return;
         conversationsHasMore = json.has_more ?? false;
         renderConversations(json.data, true);
