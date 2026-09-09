@@ -2199,11 +2199,17 @@
         if (replyingTo && currentConversationType === 'group') {
             body.reply_to_id = replyingTo.id;
         }
-        const res = await api(baseUrl + '/conversations/' + currentConversationId + '/messages', {
-            method: 'POST',
-            body: body
-        });
-        const json = await res.json();
+        let res, json;
+        try {
+            res = await api(baseUrl + '/conversations/' + currentConversationId + '/messages', {
+                method: 'POST',
+                body: body
+            });
+            json = await res.json();
+        } catch (err) {
+            alert('Failed to send message: the server did not return a valid response. Please try again.');
+            return;
+        }
         if (json.success) {
             messageInput.value = '';
             messageInput.style.height = 'auto';
@@ -2215,6 +2221,8 @@
             appendMessage(m, group);
             document.getElementById('messagesArea').scrollTop = document.getElementById('messagesArea').scrollHeight;
             loadConversations(document.getElementById('conversationSearch').value);
+        } else {
+            alert(json.message || 'Failed to send message. Please try again.');
         }
     }
 
