@@ -274,25 +274,20 @@ class MessagingController extends Controller
         $query = $conversation->messages()->with(['user', 'replyTo.user']);
 
         if ($beforeId) {
-            $messages = $query->where('id', '<', $beforeId)
-                ->orderBy('id', 'desc')
-                ->limit($limit + 1)
-                ->get();
-        } else {
-            $messages = $query->orderBy('id', 'desc')
-                ->limit($limit + 1)
-                ->get()
-                ->reverse()
-                ->values();
+            $query->where('id', '<', $beforeId);
         }
+        // Fetched newest-first so a plain take($limit) below always drops the
+        // oldest (extra probe) row, regardless of branch; reversed to
+        // oldest-first afterwards for display.
+        $messages = $query->reorder('id', 'desc')
+            ->limit($limit + 1)
+            ->get();
 
         $hasMore = $messages->count() > $limit;
         if ($hasMore) {
             $messages = $messages->take($limit);
         }
-        if ($beforeId) {
-            $messages = $messages->reverse()->values();
-        }
+        $messages = $messages->reverse()->values();
         $receipts = $this->formatReceipts($conversation, $user);
         $messages = $messages->map(fn ($m) => $this->formatMessage($m, $user, $receipts));
 
