@@ -1909,11 +1909,11 @@ $("#insurance_unit3").change(function () {
     var unit2 = $("#unit2_ins_hdn").val();
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
-    var sum = (unit1 * 1 + ins_total * 1 + unit3 * 1 + unit4 * 1) / 1;
-    $("#unit2_ins").text("8M");
-    $("#unit2_insurance_hdn").val(insurance_unit2);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    var sum = (unit1 * 1 + unit2 * 1 + ins_total * 1 + unit4 * 1) / 1;
+    $("#unit3_ins").text("8M");
+    $("#unit3_insurance_hdn").val(insurance_unit3);
+    $("#unit3_ins_val").text(ins_total);
+    $("#unit3_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
@@ -1924,11 +1924,11 @@ $("#insurance_unit3").change(function () {
     var unit2 = $("#unit2_ins_hdn").val();
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
-    var sum = (unit1 * 1 + ins_total * 1 + unit3 * 1 + unit4 * 1) / 1;
-    $("#unit2_ins").text("5M");
-    $("#unit2_insurance_hdn").val(insurance_unit2);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    var sum = (unit1 * 1 + unit2 * 1 + ins_total * 1 + unit4 * 1) / 1;
+    $("#unit3_ins").text("5M");
+    $("#unit3_insurance_hdn").val(insurance_unit3);
+    $("#unit3_ins_val").text(ins_total);
+    $("#unit3_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
@@ -1939,11 +1939,11 @@ $("#insurance_unit3").change(function () {
     var unit2 = $("#unit2_ins_hdn").val();
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
-    var sum = (unit1 * 1 + ins_total * 1 + unit3 * 1 + unit4 * 1) / 1;
-    $("#unit2_ins").text("2.5M");
-    $("#unit2_insurance_hdn").val(insurance_unit2);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    var sum = (unit1 * 1 + unit2 * 1 + ins_total * 1 + unit4 * 1) / 1;
+    $("#unit3_ins").text("2.5M");
+    $("#unit3_insurance_hdn").val(insurance_unit3);
+    $("#unit3_ins_val").text(ins_total);
+    $("#unit3_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
@@ -1954,11 +1954,11 @@ $("#insurance_unit3").change(function () {
     var unit2 = $("#unit2_ins_hdn").val();
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
-    var sum = (unit1 * 1 + ins_total * 1 + unit3 * 1 + unit4 * 1) / 1;
-    $("#unit2_ins").text("2M");
-    $("#unit2_insurance_hdn").val(insurance_unit2);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    var sum = (unit1 * 1 + unit2 * 1 + ins_total * 1 + unit4 * 1) / 1;
+    $("#unit3_ins").text("2M");
+    $("#unit3_insurance_hdn").val(insurance_unit3);
+    $("#unit3_ins_val").text(ins_total);
+    $("#unit3_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
@@ -1968,11 +1968,11 @@ $("#insurance_unit3").change(function () {
     var unit2 = $("#unit2_ins_hdn").val();
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
-    var sum = (unit1 * 1 + ins_total * 1 + unit3 * 1 + unit4 * 1) / 1;
-    $("#unit2_ins").text("1M");
-    $("#unit2_insurance_hdn").val(insurance_unit2);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    var sum = (unit1 * 1 + unit2 * 1 + ins_total * 1 + unit4 * 1) / 1;
+    $("#unit3_ins").text("1M");
+    $("#unit3_insurance_hdn").val(insurance_unit3);
+    $("#unit3_ins_val").text(ins_total);
+    $("#unit3_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
@@ -1983,10 +1983,10 @@ $("#insurance_unit3").change(function () {
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
     var sum = (unit1 * 1 + unit2 * 1 + ins_total * 1 + unit4 * 1) / 1;
-    $("#unit2_ins").text(insurance_unit3 + "K");
-    $("#unit2_insurance_hdn").val(insurance_unit3);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    $("#unit3_ins").text(insurance_unit3 + "K");
+    $("#unit3_insurance_hdn").val(insurance_unit3);
+    $("#unit3_ins_val").text(ins_total);
+    $("#unit3_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
@@ -1997,10 +1997,10 @@ $("#insurance_unit3").change(function () {
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
     var sum = (unit1 * 1 + unit2 * 1 + ins_total * 1 + unit4 * 1) / 1;
-    $("#unit2_ins").text(insurance_unit3 + "K");
-    $("#unit2_insurance_hdn").val(insurance_unit3);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    $("#unit3_ins").text(insurance_unit3 + "K");
+    $("#unit3_insurance_hdn").val(insurance_unit3);
+    $("#unit3_ins_val").text(ins_total);
+    $("#unit3_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
@@ -2011,10 +2011,10 @@ $("#insurance_unit3").change(function () {
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
     var sum = (unit1 * 1 + unit2 * 1 + ins_total * 1 + unit4 * 1) / 1;
-    $("#unit2_ins").text(insurance_unit3 + "K");
-    $("#unit2_insurance_hdn").val(insurance_unit3);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    $("#unit3_ins").text(insurance_unit3 + "K");
+    $("#unit3_insurance_hdn").val(insurance_unit3);
+    $("#unit3_ins_val").text(ins_total);
+    $("#unit3_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
@@ -2025,10 +2025,10 @@ $("#insurance_unit3").change(function () {
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
     var sum = (unit1 * 1 + unit2 * 1 + ins_total * 1 + unit4 * 1) / 1;
-    $("#unit2_ins").text(insurance_unit3 + "K");
-    $("#unit2_insurance_hdn").val(insurance_unit3);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    $("#unit3_ins").text(insurance_unit3 + "K");
+    $("#unit3_insurance_hdn").val(insurance_unit3);
+    $("#unit3_ins_val").text(ins_total);
+    $("#unit3_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
@@ -2039,10 +2039,10 @@ $("#insurance_unit3").change(function () {
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
     var sum = (unit1 * 1 + unit2 * 1 + ins_total * 1 + unit4 * 1) / 1;
-    $("#unit2_ins").text(insurance_unit3 + "K");
-    $("#unit2_insurance_hdn").val(insurance_unit3);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    $("#unit3_ins").text(insurance_unit3 + "K");
+    $("#unit3_insurance_hdn").val(insurance_unit3);
+    $("#unit3_ins_val").text(ins_total);
+    $("#unit3_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
@@ -2325,14 +2325,14 @@ $("#insurance_unit4").change(function () {
   if (insurance_unit4 >= 8000) {
     var ins_total = 14576.0;
     var unit1 = $("#unit1_ins_hdn").val();
-    // var unit2 = $('#unit2_ins_hdn').val();
+    var unit2 = $("#unit2_ins_hdn").val();
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
-    var sum = (unit1 * 1 + ins_total * 1 + unit3 * 1 + unit4 * 1) / 1;
-    $("#unit2_ins").text("8M");
-    $("#unit2_insurance_hdn").val(insurance_unit2);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    var sum = (unit1 * 1 + unit2 * 1 + unit3 * 1 + ins_total * 1) / 1;
+    $("#unit4_ins").text("8M");
+    $("#unit4_insurance_hdn").val(insurance_unit4);
+    $("#unit4_ins_val").text(ins_total);
+    $("#unit4_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
@@ -2340,14 +2340,14 @@ $("#insurance_unit4").change(function () {
     }else if (insurance_unit4 >= 5000) {
     var ins_total = 9110.0;
     var unit1 = $("#unit1_ins_hdn").val();
-    // var unit2 = $('#unit2_ins_hdn').val();
+    var unit2 = $("#unit2_ins_hdn").val();
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
-    var sum = (unit1 * 1 + ins_total * 1 + unit3 * 1 + unit4 * 1) / 1;
-    $("#unit2_ins").text("5M");
-    $("#unit2_insurance_hdn").val(insurance_unit2);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    var sum = (unit1 * 1 + unit2 * 1 + unit3 * 1 + ins_total * 1) / 1;
+    $("#unit4_ins").text("5M");
+    $("#unit4_insurance_hdn").val(insurance_unit4);
+    $("#unit4_ins_val").text(ins_total);
+    $("#unit4_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
@@ -2355,14 +2355,14 @@ $("#insurance_unit4").change(function () {
   } else if (insurance_unit4 >= 2500) {
     var ins_total = 4555.0;
     var unit1 = $("#unit1_ins_hdn").val();
-    // var unit2 = $('#unit2_ins_hdn').val();
+    var unit2 = $("#unit2_ins_hdn").val();
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
-    var sum = (unit1 * 1 + ins_total * 1 + unit3 * 1 + unit4 * 1) / 1;
-    $("#unit2_ins").text("2.5M");
-    $("#unit2_insurance_hdn").val(insurance_unit2);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    var sum = (unit1 * 1 + unit2 * 1 + unit3 * 1 + ins_total * 1) / 1;
+    $("#unit4_ins").text("2.5M");
+    $("#unit4_insurance_hdn").val(insurance_unit4);
+    $("#unit4_ins_val").text(ins_total);
+    $("#unit4_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
@@ -2370,98 +2370,98 @@ $("#insurance_unit4").change(function () {
   } else if (insurance_unit4 >= 2000) {
     var ins_total = 3644.0;
     var unit1 = $("#unit1_ins_hdn").val();
-    // var unit2 = $('#unit2_ins_hdn').val();
+    var unit2 = $("#unit2_ins_hdn").val();
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
-    var sum = (unit1 * 1 + ins_total * 1 + unit3 * 1 + unit4 * 1) / 1;
-    $("#unit2_ins").text("2M");
-    $("#unit2_insurance_hdn").val(insurance_unit2);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    var sum = (unit1 * 1 + unit2 * 1 + unit3 * 1 + ins_total * 1) / 1;
+    $("#unit4_ins").text("2M");
+    $("#unit4_insurance_hdn").val(insurance_unit4);
+    $("#unit4_ins_val").text(ins_total);
+    $("#unit4_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
   } else if (insurance_unit4 >= 1000) {
     var ins_total = 1822.0;
     var unit1 = $("#unit1_ins_hdn").val();
-    // var unit2 = $('#unit2_ins_hdn').val();
+    var unit2 = $("#unit2_ins_hdn").val();
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
-    var sum = (unit1 * 1 + ins_total * 1 + unit3 * 1 + unit4 * 1) / 1;
-    $("#unit2_ins").text("1M");
-    $("#unit2_insurance_hdn").val(insurance_unit2);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    var sum = (unit1 * 1 + unit2 * 1 + unit3 * 1 + ins_total * 1) / 1;
+    $("#unit4_ins").text("1M");
+    $("#unit4_insurance_hdn").val(insurance_unit4);
+    $("#unit4_ins_val").text(ins_total);
+    $("#unit4_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
   } else if (insurance_unit4 >= 750) {
     var ins_total = 1366;
     var unit1 = $("#unit1_ins_hdn").val();
-    // var unit2 = $('#unit2_ins_hdn').val();
+    var unit2 = $("#unit2_ins_hdn").val();
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
     var sum = (unit1 * 1 + unit2 * 1 + unit3 * 1 + ins_total * 1) / 1;
-    $("#unit2_ins").text(insurance_unit4 + "K");
-    $("#unit2_insurance_hdn").val(insurance_unit4);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    $("#unit4_ins").text(insurance_unit4 + "K");
+    $("#unit4_insurance_hdn").val(insurance_unit4);
+    $("#unit4_ins_val").text(ins_total);
+    $("#unit4_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
   } else if (insurance_unit4 >= 700) {
     var ins_total = 1275;
     var unit1 = $("#unit1_ins_hdn").val();
-    // var unit2 = $('#unit2_ins_hdn').val();
+    var unit2 = $("#unit2_ins_hdn").val();
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
     var sum = (unit1 * 1 + unit2 * 1 + unit3 * 1 + ins_total * 1) / 1;
-    $("#unit2_ins").text(insurance_unit4 + "K");
-    $("#unit2_insurance_hdn").val(insurance_unit4);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    $("#unit4_ins").text(insurance_unit4 + "K");
+    $("#unit4_insurance_hdn").val(insurance_unit4);
+    $("#unit4_ins_val").text(ins_total);
+    $("#unit4_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
   } else if (insurance_unit4 >= 650) {
     var ins_total = 1184;
     var unit1 = $("#unit1_ins_hdn").val();
-    // var unit2 = $('#unit2_ins_hdn').val();
+    var unit2 = $("#unit2_ins_hdn").val();
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
     var sum = (unit1 * 1 + unit2 * 1 + unit3 * 1 + ins_total * 1) / 1;
-    $("#unit2_ins").text(insurance_unit4 + "K");
-    $("#unit2_insurance_hdn").val(insurance_unit4);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    $("#unit4_ins").text(insurance_unit4 + "K");
+    $("#unit4_insurance_hdn").val(insurance_unit4);
+    $("#unit4_ins_val").text(ins_total);
+    $("#unit4_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
   } else if (insurance_unit4 >= 600) {
     var ins_total = 1092;
     var unit1 = $("#unit1_ins_hdn").val();
-    // var unit2 = $('#unit2_ins_hdn').val();
+    var unit2 = $("#unit2_ins_hdn").val();
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
     var sum = (unit1 * 1 + unit2 * 1 + unit3 * 1 + ins_total * 1) / 1;
-    $("#unit2_ins").text(insurance_unit4 + "K");
-    $("#unit2_insurance_hdn").val(insurance_unit4);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    $("#unit4_ins").text(insurance_unit4 + "K");
+    $("#unit4_insurance_hdn").val(insurance_unit4);
+    $("#unit4_ins_val").text(ins_total);
+    $("#unit4_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);
   } else if (insurance_unit4 >= 550) {
     var ins_total = 1002;
     var unit1 = $("#unit1_ins_hdn").val();
-    // var unit2 = $('#unit2_ins_hdn').val();
+    var unit2 = $("#unit2_ins_hdn").val();
     var unit3 = $("#unit3_ins_hdn").val();
     var unit4 = $("#unit4_ins_hdn").val();
     var sum = (unit1 * 1 + unit2 * 1 + unit3 * 1 + ins_total * 1) / 1;
-    $("#unit2_ins").text(insurance_unit4 + "K");
-    $("#unit2_insurance_hdn").val(insurance_unit4);
-    $("#unit2_ins_val").text(ins_total);
-    $("#unit2_ins_hdn").val(ins_total);
+    $("#unit4_ins").text(insurance_unit4 + "K");
+    $("#unit4_insurance_hdn").val(insurance_unit4);
+    $("#unit4_ins_val").text(ins_total);
+    $("#unit4_ins_hdn").val(ins_total);
     $("#total_ins_final").val(sum);
     document.getElementById("units_ins_val_total").innerHTML =
       numUSD.format(sum);

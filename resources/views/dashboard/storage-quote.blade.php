@@ -247,7 +247,7 @@
         contracts: @json(url('/contracts')),
     };
 </script>
-<script src="{{ asset('assets/js/storage-quote.js') }}?v=1"></script>
+<script src="{{ asset('assets/js/storage-quote.js') }}?v=2"></script>
 <script>
 $(function () {
     var $facilitySelect = $('#facility_select');
