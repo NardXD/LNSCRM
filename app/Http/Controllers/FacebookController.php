@@ -205,7 +205,7 @@ class FacebookController extends Controller
             $this->facebookSync->ingestRecent($integration, $twilio, 45, 80, false);
             $this->ensurePageSubscribed($integration);
         } catch (\Throwable $e) {
-            Log::warning('Facebook recent message pull failed', ['error' => $e->getMessage()]);
+            Log::warning('Facebook recent message pull failed', ['error' => FacebookGraphHistoryService::sanitizeGraphError($e->getMessage())]);
         }
     }
 
@@ -375,7 +375,7 @@ class FacebookController extends Controller
         } catch (\Throwable $e) {
             Log::warning('Facebook Graph thread import failed', [
                 'conversation_id' => $conversation->id,
-                'error' => $e->getMessage(),
+                'error' => FacebookGraphHistoryService::sanitizeGraphError($e->getMessage()),
             ]);
         }
     }
@@ -447,7 +447,9 @@ class FacebookController extends Controller
                 $raw = ['sid' => $sent->sid, 'status' => $sent->status];
             }
         } catch (\Throwable $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
+            // A Graph HTTP timeout embeds the full request URL, including the live
+            // access_token query param — never return that raw to the browser.
+            return response()->json(['message' => FacebookGraphHistoryService::sanitizeGraphError($e->getMessage())], 422);
         }
 
         $message = FacebookMessage::create([
@@ -537,10 +539,11 @@ class FacebookController extends Controller
                     150
                 );
             } catch (\Throwable $e) {
-                Log::error('Facebook recent sync failed', ['error' => $e->getMessage()]);
+                $safeMessage = FacebookGraphHistoryService::sanitizeGraphError($e->getMessage());
+                Log::error('Facebook recent sync failed', ['error' => $safeMessage]);
 
                 return response()->json([
-                    'message' => $e->getMessage() ?: 'Could not sync recent Messenger messages.',
+                    'message' => $safeMessage ?: 'Could not sync recent Messenger messages.',
                 ], 422);
             }
 
@@ -567,10 +570,11 @@ class FacebookController extends Controller
                 (int) ($validated['limit'] ?? 800)
             );
         } catch (\Throwable $e) {
-            Log::error('Facebook history sync failed', ['error' => $e->getMessage()]);
+            $safeMessage = FacebookGraphHistoryService::sanitizeGraphError($e->getMessage());
+            Log::error('Facebook history sync failed', ['error' => $safeMessage]);
 
             return response()->json([
-                'message' => $e->getMessage() ?: 'Could not sync Messenger inbox history.',
+                'message' => $safeMessage ?: 'Could not sync Messenger inbox history.',
             ], 422);
         }
 
@@ -607,7 +611,7 @@ class FacebookController extends Controller
             try {
                 $this->handleMetaWebhook($integration, $request, $object);
             } catch (\Throwable $e) {
-                Log::error('Meta Instagram webhook handler error', ['error' => $e->getMessage()]);
+                Log::error('Meta Instagram webhook handler error', ['error' => FacebookGraphHistoryService::sanitizeGraphError($e->getMessage())]);
             }
 
             if (! $integration->webhook_set_at) {
@@ -651,7 +655,7 @@ class FacebookController extends Controller
         try {
             $this->handleInboundTwilioMessage($integration, $request);
         } catch (\Throwable $e) {
-            Log::error('Facebook webhook handler error', ['error' => $e->getMessage()]);
+            Log::error('Facebook webhook handler error', ['error' => FacebookGraphHistoryService::sanitizeGraphError($e->getMessage())]);
         }
 
         if (! $integration->webhook_set_at) {
@@ -825,7 +829,7 @@ class FacebookController extends Controller
                         $mid
                     );
                 } catch (\Throwable $e) {
-                    Log::warning('Meta inbound media download failed', ['error' => $e->getMessage()]);
+                    Log::warning('Meta inbound media download failed', ['error' => FacebookGraphHistoryService::sanitizeGraphError($e->getMessage())]);
                     $mediaUrl = $remote;
                 }
             } elseif ($text === null) {
@@ -1008,7 +1012,7 @@ class FacebookController extends Controller
                         (string) $messageSid
                     );
                 } catch (\Throwable $e) {
-                    Log::warning('Facebook inbound media download failed', ['error' => $e->getMessage()]);
+                    Log::warning('Facebook inbound media download failed', ['error' => FacebookGraphHistoryService::sanitizeGraphError($e->getMessage())]);
                     $mediaUrl = (string) $remoteMedia;
                 }
             }
@@ -1104,7 +1108,7 @@ class FacebookController extends Controller
             ]);
             $this->touchConversation($conversation, $message);
         } catch (\Throwable $e) {
-            Log::warning('Facebook welcome message failed', ['error' => $e->getMessage()]);
+            Log::warning('Facebook welcome message failed', ['error' => FacebookGraphHistoryService::sanitizeGraphError($e->getMessage())]);
         }
     }
 
@@ -1301,7 +1305,7 @@ class FacebookController extends Controller
         try {
             $this->graphMessaging->subscribePage($pageId, $token);
         } catch (\Throwable $e) {
-            Log::warning('Facebook Page subscribe failed', ['error' => $e->getMessage()]);
+            Log::warning('Facebook Page subscribe failed', ['error' => FacebookGraphHistoryService::sanitizeGraphError($e->getMessage())]);
         }
     }
 

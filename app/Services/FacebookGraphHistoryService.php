@@ -24,6 +24,20 @@ class FacebookGraphHistoryService
     }
 
     /**
+     * A cURL/HTTP client exception message includes the full request URL, which
+     * includes the live access_token query param — strip it before this can ever
+     * reach a log file or be shown in a UI hint.
+     */
+    public static function sanitizeGraphError(?string $message): ?string
+    {
+        if ($message === null || $message === '') {
+            return $message;
+        }
+
+        return preg_replace('/access_token=[^&\s"]+/i', 'access_token=REDACTED', $message) ?? $message;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function lastStats(): array
@@ -114,12 +128,13 @@ class FacebookGraphHistoryService
                     }
                 }
             } catch (\Throwable $e) {
-                $this->platformErrors[$platform] = $e->getMessage();
-                $this->lastError = $e->getMessage();
+                $safeMessage = self::sanitizeGraphError($e->getMessage());
+                $this->platformErrors[$platform] = $safeMessage;
+                $this->lastError = $safeMessage;
                 Log::error('Facebook Graph history sync failed for one platform', [
                     'platform' => $platform,
                     'node_id' => $node,
-                    'error' => $e->getMessage(),
+                    'error' => $safeMessage,
                 ]);
             }
         }
@@ -208,7 +223,7 @@ class FacebookGraphHistoryService
                 break;
             }
         } catch (\Throwable $e) {
-            $this->lastError = $this->lastError ?: $e->getMessage();
+            $this->lastError = $this->lastError ?: self::sanitizeGraphError($e->getMessage());
         }
 
         return array_values(array_filter($rows, fn ($row) => ($row['mid'] ?? '') !== ''));
@@ -270,7 +285,17 @@ class FacebookGraphHistoryService
                 break;
             }
             $pages++;
-            $response = $this->graphGet($next, $params);
+            try {
+                $response = $this->graphGet($next, $params);
+            } catch (\Throwable $e) {
+                // A single slow/failed page (this Graph edge can hang or time out on later
+                // pages even after page 1 succeeds) shouldn't discard threads already
+                // yielded from earlier pages — stop paginating and keep what we have.
+                // The raw exception message includes the full request URL (with the live
+                // access_token query param) — never let that reach a log file as-is.
+                $firstError = self::sanitizeGraphError($e->getMessage());
+                break;
+            }
             if (! $response['ok']) {
                 if (! $retriedWithSmallerLimit && $limit > 1 && $this->isReduceDataError($response['error'])) {
                     // Meta explicitly asks for a retry with less data — honor it once
@@ -726,9 +751,12 @@ class FacebookGraphHistoryService
      */
     protected function graphGet(string $url, array $query = []): array
     {
+        // The Instagram conversations edge can take 15-20s to respond even when it
+        // succeeds (observed directly against this Page) — a short timeout here was
+        // killing genuinely-in-progress requests before Meta could answer.
         $response = $query === []
-            ? Http::timeout(10)->connectTimeout(5)->get($url)
-            : Http::timeout(10)->connectTimeout(5)->get($url, $query);
+            ? Http::timeout(20)->connectTimeout(5)->get($url)
+            : Http::timeout(20)->connectTimeout(5)->get($url, $query);
 
         $payload = $response->json() ?: [];
         if (! $response->successful()) {

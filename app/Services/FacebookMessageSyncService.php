@@ -71,7 +71,7 @@ class FacebookMessageSyncService
                     $token,
                     $after,
                     min(3000, max(200, $limit)),
-                    55,
+                    70,
                     $this->ownIds($integration),
                     $platforms
                 );
@@ -121,9 +121,12 @@ class FacebookMessageSyncService
                     $hint = 'Instagram: '.$this->graphHint($instagramError);
                 }
             } catch (\Throwable $e) {
-                Log::warning('Facebook Graph history sync failed', ['error' => $e->getMessage()]);
-                $hint = $this->graphHint($e->getMessage());
-                $graphError = $e->getMessage();
+                // Exceptions from the Graph HTTP client can embed the full request URL,
+                // including the live access_token query param — never log that raw.
+                $safeMessage = FacebookGraphHistoryService::sanitizeGraphError($e->getMessage());
+                Log::warning('Facebook Graph history sync failed', ['error' => $safeMessage]);
+                $hint = $this->graphHint($safeMessage);
+                $graphError = $safeMessage;
             }
         } else {
             $hint = 'Twilio only has messages that already passed through this Twilio account. Save a Facebook Page Access Token under Integrations to import replies sent from Messenger / Page Inbox.';
@@ -345,7 +348,7 @@ class FacebookMessageSyncService
                         $token,
                         $after,
                         min(400, max(60, $limit * 3)),
-                        25,
+                        40,
                         $this->ownIds($integration),
                         $platforms
                     );
@@ -363,8 +366,9 @@ class FacebookMessageSyncService
                         $hint = $this->graphHint($graph->lastError());
                     }
                 } catch (\Throwable $e) {
-                    Log::warning('Facebook recent Graph pull failed', ['error' => $e->getMessage()]);
-                    $hint = $this->graphHint($e->getMessage());
+                    $safeMessage = FacebookGraphHistoryService::sanitizeGraphError($e->getMessage());
+                    Log::warning('Facebook recent Graph pull failed', ['error' => $safeMessage]);
+                    $hint = $this->graphHint($safeMessage);
                 }
             }
         }
