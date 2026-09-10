@@ -73,7 +73,6 @@
                 <thead>
                     <tr>
                         <th>Lead</th>
-                        <th>Age</th>
                         <th>Phones</th>
                         <th>Emails</th>
                         <th>Labels</th>
@@ -85,7 +84,7 @@
                     </tr>
                 </thead>
                 <tbody id="leadsTableBody">
-                    <tr><td colspan="10" class="empty-state">Loading leads…</td></tr>
+                    <tr><td colspan="9" class="empty-state">Loading leads…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -172,7 +171,7 @@
                                 <input type="text" id="leadPostal" maxlength="20" placeholder="Postal or ZIP">
                             </div>
                         </div>
-                        <div class="form-row form-row-3">
+                        <div class="form-row">
                             <div class="form-group">
                                 <label for="leadCompany">Company</label>
                                 <input type="text" id="leadCompany" maxlength="255" placeholder="Optional">
@@ -180,10 +179,6 @@
                             <div class="form-group">
                                 <label for="leadDob">Date of birth</label>
                                 <input type="date" id="leadDob">
-                            </div>
-                            <div class="form-group">
-                                <label for="leadAge">Age</label>
-                                <input type="text" id="leadAge" readonly placeholder="—">
                             </div>
                         </div>
                         <div class="form-group">
@@ -1292,7 +1287,6 @@
                     ${lead.company_name ? `<div class="lead-company">${esc(lead.company_name)}</div>` : ''}
                     ${sourceVisual(lead)}
                 </td>
-                <td class="lead-meta">${esc(calculateAge(lead.date_of_birth) || '—')}</td>
                 <td class="lead-meta">${esc((lead.phones || []).map(p => p.value).join(', ') || '—')}</td>
                 <td class="lead-meta">${esc((lead.emails || []).map(e => e.value).join(', ') || '—')}</td>
                 <td>${labelChips(lead.labels)}</td>
@@ -1325,7 +1319,7 @@
         const existing = body.querySelector('tr[data-id="' + id + '"]');
         if (existing) existing.remove();
         if (!body.querySelector('tr[data-id]')) {
-            body.innerHTML = `<tr><td colspan="10" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
+            body.innerHTML = `<tr><td colspan="9" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
         }
     }
     function assigneeOptions(selectedId, extraUser) {
@@ -1847,7 +1841,7 @@
             const rows = data.data || [];
             body.innerHTML = rows.length
                 ? rows.map(lead => leadRowHtml(lead)).join('')
-                : `<tr><td colspan="10" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.noSharedThread || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
+                : `<tr><td colspan="9" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.noSharedThread || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
 
             const pag = data.pagination || {};
             document.getElementById('leadsPageInfo').textContent = `Showing page ${pag.current_page || 1} of ${pag.last_page || 1} (${pag.total || 0} leads)`;
@@ -1857,7 +1851,7 @@
             loadStatusCounts();
             loadFollowUpCounts();
         } catch (err) {
-            body.innerHTML = '<tr><td colspan="10" class="empty-state">Could not load leads. Try again.</td></tr>';
+            body.innerHTML = '<tr><td colspan="9" class="empty-state">Could not load leads. Try again.</td></tr>';
             if (err?.message) console.error(err.message);
         } finally {
             if (opts.overlay !== false) setOverlay('leadsTableBusy', false);
@@ -1969,19 +1963,6 @@
     function setVal(id, value) {
         const el = document.getElementById(id);
         if (el) el.value = value || '';
-    }
-    function calculateAge(dobValue) {
-        if (!dobValue) return '';
-        const dob = new Date(dobValue);
-        if (Number.isNaN(dob.getTime())) return '';
-        const today = new Date();
-        let age = today.getFullYear() - dob.getFullYear();
-        const monthDiff = today.getMonth() - dob.getMonth();
-        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) age--;
-        return age >= 0 ? age : '';
-    }
-    function updateLeadAgeDisplay() {
-        setVal('leadAge', calculateAge(val('leadDob')));
     }
     function splitName(name) {
         const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
@@ -2270,7 +2251,6 @@
         fillContactList('primaryEmailsList', lead.primary_emails || (lead.email ? [lead.email] : []), 'name@company.com', { type: 'email', required: true, keepOne: true, max: '255' });
         setVal('leadCompany', lead.company_name);
         setVal('leadDob', lead.date_of_birth);
-        updateLeadAgeDisplay();
         setVal('leadAltTitle', lead.alt_title);
         setVal('leadAltFirstName', lead.alt_first_name);
         setVal('leadAltLastName', lead.alt_last_name);
@@ -2534,7 +2514,6 @@
     }
 
     document.getElementById('newLeadBtn').addEventListener('click', () => { resetForm(); openModal(); });
-    document.getElementById('leadDob')?.addEventListener('input', updateLeadAgeDisplay);
     document.getElementById('closeLeadModal').addEventListener('click', closeModal);
     document.getElementById('cancelLeadBtn').addEventListener('click', closeModal);
     document.getElementById('syncLeadStoreganiseBtn')?.addEventListener('click', () => { syncLeadToStoreganise(); });
