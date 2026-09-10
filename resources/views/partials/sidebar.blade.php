@@ -124,6 +124,49 @@
                             </div>
                         </div>
                         @endif
+                    @elseif($item['route'] === 'reports')
+                        @php
+                            $hasLeadReports = in_array('view_lead_reports', $userPermissions ?? []);
+                            $hasFacebookReports = in_array('view_facebook_reports', $userPermissions ?? []);
+                            $showReportsMenu = $hasLeadReports || $hasFacebookReports;
+                        @endphp
+                        @if($showReportsMenu)
+                        <div class="nav-item-parent {{ request()->routeIs('lead-reports') || request()->routeIs('facebook-reports') ? 'active' : '' }}">
+                            <div class="nav-item nav-item-toggle" onclick="toggleSubmenu('reportsSubmenu')">
+                                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="12" y1="20" x2="12" y2="10"/>
+                                    <line x1="18" y1="20" x2="18" y2="4"/>
+                                    <line x1="6" y1="20" x2="6" y2="14"/>
+                                </svg>
+                                <span class="nav-text">Reports</span>
+                                <svg class="nav-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="6 9 12 15 18 9"/>
+                                </svg>
+                            </div>
+                            <div class="nav-submenu" id="reportsSubmenu" style="display: {{ request()->routeIs('lead-reports') || request()->routeIs('facebook-reports') ? 'block' : 'none' }};">
+                                @if($hasLeadReports)
+                                <a href="{{ route('lead-reports') }}" class="nav-subitem {{ request()->routeIs('lead-reports') ? 'active' : '' }}">
+                                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="12" y1="20" x2="12" y2="10"/>
+                                        <line x1="18" y1="20" x2="18" y2="4"/>
+                                        <line x1="6" y1="20" x2="6" y2="14"/>
+                                    </svg>
+                                    <span class="nav-text">Lead Reports</span>
+                                </a>
+                                @endif
+                                @if($hasFacebookReports)
+                                <a href="{{ route('facebook-reports') }}" class="nav-subitem {{ request()->routeIs('facebook-reports') ? 'active' : '' }}">
+                                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="12" y1="20" x2="12" y2="10"/>
+                                        <line x1="18" y1="20" x2="18" y2="4"/>
+                                        <line x1="6" y1="20" x2="6" y2="14"/>
+                                    </svg>
+                                    <span class="nav-text">Facebook Reports</span>
+                                </a>
+                                @endif
+                            </div>
+                        </div>
+                        @endif
                     @elseif($item['route'] === 'quotation-builder')
                         @php
                             $hasQuotationBuilder = in_array('view_quotation_builder', $userPermissions ?? []);

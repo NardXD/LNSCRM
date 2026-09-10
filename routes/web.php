@@ -152,28 +152,28 @@ Route::middleware(['auth', 'company.active'])->group(function () {
 
     Route::get('/time-tracking', [TimeTrackingController::class, 'index'])->middleware('permission:view_time_tracking')->name('time-tracking');
 
-    Route::get('/hiring-queue', [HiringQueueController::class, 'index'])->middleware('permission:view_client_management')->name('hiring-queue');
-    Route::get('/api/hiring-queue', [HiringQueueController::class, 'getItems'])->middleware('permission:view_client_management')->name('api.hiring-queue.index');
-    Route::post('/api/hiring-queue', [HiringQueueController::class, 'store'])->middleware('permission:view_client_management')->name('api.hiring-queue.store');
-    Route::get('/api/hiring-queue/{item}', [HiringQueueController::class, 'show'])->middleware('permission:view_client_management')->name('api.hiring-queue.show');
-    Route::patch('/api/hiring-queue/{item}', [HiringQueueController::class, 'update'])->middleware('permission:view_client_management')->name('api.hiring-queue.update');
-    Route::get('/api/hiring-queue/{item}/comments', [HiringQueueController::class, 'getComments'])->middleware('permission:view_client_management')->name('api.hiring-queue.comments');
-    Route::post('/api/hiring-queue/{item}/comments', [HiringQueueController::class, 'storeComment'])->middleware('permission:view_client_management')->name('api.hiring-queue.comments.store');
-    Route::delete('/api/hiring-queue/{item}/comments/{comment}', [HiringQueueController::class, 'destroyComment'])->middleware('permission:view_client_management')->name('api.hiring-queue.comments.destroy');
-    Route::get('/api/hiring-queue/{item}/pdf', [HiringQueueController::class, 'pdf'])->middleware('permission:view_client_management')->name('api.hiring-queue.pdf');
-    Route::patch('/api/hiring-queue/{item}/status', [HiringQueueController::class, 'updateStatus'])->middleware('permission:view_client_management')->name('api.hiring-queue.status.update');
-    Route::get('/api/hiring-queue/{item}/candidates', [HiringQueueController::class, 'getCandidates'])->middleware('permission:view_client_management')->name('api.hiring-queue.candidates');
-    Route::post('/api/hiring-queue/{item}/candidates', [HiringQueueController::class, 'storeCandidate'])->middleware('permission:view_client_management')->name('api.hiring-queue.candidates.store');
-    Route::patch('/api/hiring-queue/{item}/candidates/{candidate}', [HiringQueueController::class, 'updateCandidate'])->middleware('permission:view_client_management')->name('api.hiring-queue.candidates.update');
-    Route::patch('/api/hiring-queue/{item}/candidates/{candidate}/status', [HiringQueueController::class, 'updateCandidateStatus'])->middleware('permission:view_client_management')->name('api.hiring-queue.candidates.status.update');
+    Route::get('/hiring-queue', [HiringQueueController::class, 'index'])->middleware('permission:view_hiring_queue')->name('hiring-queue');
+    Route::get('/api/hiring-queue', [HiringQueueController::class, 'getItems'])->middleware('permission:view_hiring_queue')->name('api.hiring-queue.index');
+    Route::post('/api/hiring-queue', [HiringQueueController::class, 'store'])->middleware('permission:view_hiring_queue')->name('api.hiring-queue.store');
+    Route::get('/api/hiring-queue/{item}', [HiringQueueController::class, 'show'])->middleware('permission:view_hiring_queue')->name('api.hiring-queue.show');
+    Route::patch('/api/hiring-queue/{item}', [HiringQueueController::class, 'update'])->middleware('permission:view_hiring_queue')->name('api.hiring-queue.update');
+    Route::get('/api/hiring-queue/{item}/comments', [HiringQueueController::class, 'getComments'])->middleware('permission:view_hiring_queue')->name('api.hiring-queue.comments');
+    Route::post('/api/hiring-queue/{item}/comments', [HiringQueueController::class, 'storeComment'])->middleware('permission:view_hiring_queue')->name('api.hiring-queue.comments.store');
+    Route::delete('/api/hiring-queue/{item}/comments/{comment}', [HiringQueueController::class, 'destroyComment'])->middleware('permission:view_hiring_queue')->name('api.hiring-queue.comments.destroy');
+    Route::get('/api/hiring-queue/{item}/pdf', [HiringQueueController::class, 'pdf'])->middleware('permission:view_hiring_queue')->name('api.hiring-queue.pdf');
+    Route::patch('/api/hiring-queue/{item}/status', [HiringQueueController::class, 'updateStatus'])->middleware('permission:view_hiring_queue')->name('api.hiring-queue.status.update');
+    Route::get('/api/hiring-queue/{item}/candidates', [HiringQueueController::class, 'getCandidates'])->middleware('permission:view_hiring_queue')->name('api.hiring-queue.candidates');
+    Route::post('/api/hiring-queue/{item}/candidates', [HiringQueueController::class, 'storeCandidate'])->middleware('permission:view_hiring_queue')->name('api.hiring-queue.candidates.store');
+    Route::patch('/api/hiring-queue/{item}/candidates/{candidate}', [HiringQueueController::class, 'updateCandidate'])->middleware('permission:view_hiring_queue')->name('api.hiring-queue.candidates.update');
+    Route::patch('/api/hiring-queue/{item}/candidates/{candidate}/status', [HiringQueueController::class, 'updateCandidateStatus'])->middleware('permission:view_hiring_queue')->name('api.hiring-queue.candidates.status.update');
 
     Route::get('/leads', [LeadsController::class, 'index'])->middleware('permission:view_leads')->name('leads');
-    Route::get('/leads/reports', [LeadsController::class, 'reports'])->middleware('permission:view_leads')->name('lead-reports');
+    Route::get('/leads/reports', [LeadsController::class, 'reports'])->middleware('permission:view_lead_reports')->name('lead-reports');
+    Route::get('/api/leads/reports', [LeadsController::class, 'reportSummary'])->middleware('permission:view_lead_reports')->name('api.leads.reports');
+    Route::get('/api/leads/reports/export', [LeadsController::class, 'exportReport'])->middleware('permission:view_lead_reports')->name('api.leads.reports.export');
     Route::prefix('api/leads')->middleware('permission:view_leads')->group(function () {
         Route::get('/', [LeadsController::class, 'list'])->name('api.leads.index');
         Route::post('/', [LeadsController::class, 'store'])->name('api.leads.store');
-        Route::get('/reports', [LeadsController::class, 'reportSummary'])->name('api.leads.reports');
-        Route::get('/reports/export', [LeadsController::class, 'exportReport'])->name('api.leads.reports.export');
         Route::get('/labels', [LeadsController::class, 'labels'])->name('api.leads.labels');
         Route::post('/labels', [LeadsController::class, 'storeLabel'])->name('api.leads.labels.store');
         Route::patch('/labels/{leadLabel}', [LeadsController::class, 'updateLabel'])->name('api.leads.labels.update');
@@ -542,11 +542,12 @@ Route::middleware(['auth', 'company.active'])->group(function () {
     Route::get('/facebook', [FacebookController::class, 'index'])
         ->middleware('permission:view_facebook')->name('facebook');
     Route::get('/facebook/reports', [FacebookController::class, 'reports'])
-        ->middleware('permission:view_facebook')->name('facebook-reports');
+        ->middleware('permission:view_facebook_reports')->name('facebook-reports');
+    Route::get('/api/facebook/reports', [FacebookController::class, 'reportSummary'])
+        ->middleware('permission:view_facebook_reports')->name('api.facebook.reports');
 
     Route::prefix('api/facebook')->middleware('permission:view_facebook')->group(function () {
         Route::get('/bootstrap', [FacebookController::class, 'bootstrap'])->name('api.facebook.bootstrap');
-        Route::get('/reports', [FacebookController::class, 'reportSummary'])->name('api.facebook.reports');
         Route::get('/conversations', [FacebookController::class, 'conversations'])->name('api.facebook.conversations');
         Route::get('/conversations/{conversation}/messages', [FacebookController::class, 'messages'])->name('api.facebook.messages');
         Route::post('/conversations/{conversation}/messages', [FacebookController::class, 'sendMessage'])->name('api.facebook.messages.store');

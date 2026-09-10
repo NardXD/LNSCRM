@@ -716,6 +716,42 @@ class UserManagementController extends Controller
                     'category' => 'quotation-builder',
                 ]
             );
+            Permission::firstOrCreate(
+                [
+                    'slug' => 'view_lead_reports',
+                    'company_id' => $user->company_id,
+                ],
+                [
+                    'name' => 'view_lead_reports',
+                    'display_name' => 'Lead Reports',
+                    'description' => 'Access to the lead reports page and its charts/exports',
+                    'category' => 'main',
+                ]
+            );
+            Permission::firstOrCreate(
+                [
+                    'slug' => 'view_facebook_reports',
+                    'company_id' => $user->company_id,
+                ],
+                [
+                    'name' => 'view_facebook_reports',
+                    'display_name' => 'Facebook Reports',
+                    'description' => 'Access to the Facebook/Instagram reports page and its charts',
+                    'category' => 'main',
+                ]
+            );
+            Permission::firstOrCreate(
+                [
+                    'slug' => 'view_hiring_queue',
+                    'company_id' => $user->company_id,
+                ],
+                [
+                    'name' => 'view_hiring_queue',
+                    'display_name' => 'Hiring Queue',
+                    'description' => 'Access to the hiring queue module',
+                    'category' => 'main',
+                ]
+            );
         }
 
         $permissionsQuery = Permission::query();
@@ -796,7 +832,7 @@ class UserManagementController extends Controller
             ],
             'Viber' => ['view_viber', 'module_slug' => 'viber'],
             'WhatsApp' => ['view_whatsapp', 'module_slug' => 'whatsapp'],
-            'Facebook & Instagram' => ['view_facebook', 'module_slug' => 'facebook'],
+            'Facebook & Instagram' => ['view_facebook', 'view_facebook_reports', 'module_slug' => 'facebook'],
             'SMS' => ['view_sms', 'send_sms', 'module_slug' => 'sms'],
             'Message Templates' => [
                 'create_message_templates',
@@ -810,7 +846,8 @@ class UserManagementController extends Controller
             ],
             'Billing & Payments' => ['view_billing', 'delete_billing', 'module_slug' => 'billing'],
             'Client Management' => ['view_client_management', 'module_slug' => 'client-management'],
-            'Leads' => ['view_leads', 'create_lead_rules', 'module_slug' => 'client-management'],
+            'Leads' => ['view_leads', 'create_lead_rules', 'view_lead_reports', 'module_slug' => 'client-management'],
+            'Hiring Queue' => ['view_hiring_queue', 'module_slug' => 'client-management'],
             'Tickets & Helpdesk' => ['view_tickets', 'module_slug' => 'tickets'],
             'Knowledge Base' => [
                 'view_knowledge_base',
