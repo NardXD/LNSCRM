@@ -357,8 +357,7 @@ class FacebookController extends Controller
                 array_values(array_filter([
                     (string) $integration->page_id,
                     (string) $integration->instagram_business_account_id,
-                ])),
-                (string) $integration->instagram_business_account_id
+                ]))
             );
             $imported = $this->facebookSync->importGraphRows($integration, $rows);
             if ($graph->lastError()) {

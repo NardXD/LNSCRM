@@ -54,14 +54,12 @@ class FacebookGraphHistoryService
         int $maxMessages = 1500,
         int $deadlineSeconds = 90,
         array $ownIds = [],
-        array $platforms = ['messenger'],
-        string $instagramBusinessAccountId = ''
+        array $platforms = ['messenger']
     ): array {
         $this->lastError = null;
         $this->platformErrors = [];
         $this->lastStats = ['threads' => 0, 'messages' => 0, 'skipped_no_peer' => 0];
         $pageId = trim($pageId);
-        $instagramBusinessAccountId = trim($instagramBusinessAccountId);
         $ownIds = $this->normalizeOwnIds($pageId, $ownIds);
         $this->assertPageToken($accessToken, $pageId);
         $rows = [];
@@ -82,9 +80,9 @@ class FacebookGraphHistoryService
                 continue;
             }
 
-            $node = $platform === 'instagram' && $instagramBusinessAccountId !== ''
-                ? $instagramBusinessAccountId
-                : $pageId;
+            // Meta only exposes the /conversations edge on the Page node — the Instagram
+            // Business Account node rejects it outright with "(#100) nonexisting field".
+            $node = $pageId;
             $deadline = microtime(true) + $perPlatformSeconds;
 
             try {
@@ -140,18 +138,16 @@ class FacebookGraphHistoryService
         string $accessToken,
         string $peerId,
         string $channel = 'messenger',
-        array $ownIds = [],
-        string $instagramBusinessAccountId = ''
+        array $ownIds = []
     ): array {
         $this->lastError = null;
         $this->platformErrors = [];
         $pageId = trim($pageId);
         $peerId = trim($peerId);
-        $instagramBusinessAccountId = trim($instagramBusinessAccountId);
         $platform = $channel === 'instagram' ? 'instagram' : 'messenger';
-        $node = $platform === 'instagram' && $instagramBusinessAccountId !== ''
-            ? $instagramBusinessAccountId
-            : $pageId;
+        // Meta only exposes the /conversations edge on the Page node — the Instagram
+        // Business Account node rejects it outright with "(#100) nonexisting field".
+        $node = $pageId;
         $ownIds = $this->normalizeOwnIds($pageId, $ownIds);
 
         if ($node === '' || $peerId === '') {
@@ -164,7 +160,7 @@ class FacebookGraphHistoryService
             'platform' => $platform,
             'user_id' => $peerId,
             'fields' => $this->conversationListFields(),
-            'limit' => 5,
+            'limit' => $platform === 'instagram' ? 1 : 5,
             'access_token' => $accessToken,
         ]);
 
@@ -253,15 +249,21 @@ class FacebookGraphHistoryService
         ?float $deadline = null
     ): \Generator {
         $pages = 0;
+        // On some Pages Meta's Instagram conversations edge errors with
+        // "(#1) Please reduce the amount of data you're asking for" for any
+        // limit above 1, even though the same edge handles limit=25 fine for
+        // Messenger — request one thread per page for Instagram.
+        $limit = $platform === 'instagram' ? 1 : 25;
         $next = $this->baseUrl.'/'.$pageId.'/conversations';
         $params = [
             'platform' => $platform,
             'fields' => $this->conversationListFields(),
-            'limit' => 25,
+            'limit' => $limit,
             'access_token' => $accessToken,
         ];
         $firstError = null;
         $yielded = false;
+        $retriedWithSmallerLimit = false;
 
         while ($next && $pages < 40) {
             if ($deadline !== null && microtime(true) >= $deadline) {
@@ -270,6 +272,22 @@ class FacebookGraphHistoryService
             $pages++;
             $response = $this->graphGet($next, $params);
             if (! $response['ok']) {
+                if (! $retriedWithSmallerLimit && $limit > 1 && $this->isReduceDataError($response['error'])) {
+                    // Meta explicitly asks for a retry with less data — honor it once
+                    // instead of surfacing a transient-looking error as a hard failure.
+                    $retriedWithSmallerLimit = true;
+                    $pages--;
+                    $next = $this->baseUrl.'/'.$pageId.'/conversations';
+                    $params = [
+                        'platform' => $platform,
+                        'fields' => $this->conversationListFields(),
+                        'limit' => 1,
+                        'access_token' => $accessToken,
+                    ];
+
+                    continue;
+                }
+
                 $firstError = $response['error'];
                 break;
             }
@@ -287,6 +305,13 @@ class FacebookGraphHistoryService
             $this->lastError = $firstError;
             throw new \RuntimeException($firstError);
         }
+    }
+
+    protected function isReduceDataError(?string $message): bool
+    {
+        $haystack = strtolower((string) $message);
+
+        return $haystack !== '' && str_contains($haystack, 'reduce the amount of data');
     }
 
     protected function conversationListFields(): string

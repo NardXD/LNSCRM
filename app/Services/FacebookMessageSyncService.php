@@ -73,8 +73,7 @@ class FacebookMessageSyncService
                     min(3000, max(200, $limit)),
                     55,
                     $this->ownIds($integration),
-                    $platforms,
-                    (string) $integration->instagram_business_account_id
+                    $platforms
                 );
                 $graphCount = count($graphRows);
                 $graphError = $graph->lastError();
@@ -348,8 +347,7 @@ class FacebookMessageSyncService
                         min(400, max(60, $limit * 3)),
                         25,
                         $this->ownIds($integration),
-                        $platforms,
-                        (string) $integration->instagram_business_account_id
+                        $platforms
                     );
                     $imported += $this->importGraphRows($integration, $rows);
                     $instagramError = $graph->platformErrors()['instagram'] ?? null;
