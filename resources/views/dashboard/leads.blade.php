@@ -1039,9 +1039,14 @@
         if (!iso) return '—';
         const created = new Date(iso).getTime();
         if (Number.isNaN(created)) return '—';
-        const diffDays = Math.floor((Date.now() - created) / 86400000);
-        if (diffDays <= 0) return 'Today';
-        return diffDays === 1 ? '1 day' : `${diffDays} days`;
+        const diffMs = Date.now() - created;
+        const diffDays = Math.floor(diffMs / 86400000);
+        if (diffDays >= 1) return diffDays === 1 ? '1 day' : `${diffDays} days`;
+        const diffHours = Math.floor(diffMs / 3600000);
+        if (diffHours >= 1) return diffHours === 1 ? '1 hour' : `${diffHours} hours`;
+        const diffMinutes = Math.max(0, Math.floor(diffMs / 60000));
+        if (diffMinutes < 1) return 'Just now';
+        return diffMinutes === 1 ? '1 minute' : `${diffMinutes} minutes`;
     }
     function formatDate(iso) {
         if (!iso) return '';
