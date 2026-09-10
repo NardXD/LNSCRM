@@ -74,7 +74,10 @@ class ProcessLeadFollowUpDays extends Command
                                 ['follow_up_day' => $day, 'source' => 'created_at'],
                                 null
                             );
-                            $rules->apply($lead, '', [LeadRuleEngine::TRIGGER_FOLLOW_UP_DAY_REACHED], [
+                            $rules->apply($lead, '', [
+                                LeadRuleEngine::TRIGGER_FOLLOW_UP_DAY_REACHED,
+                                LeadRuleEngine::TRIGGER_LEAD_AGE_REACHED,
+                            ], [
                                 'follow_up_day' => $day,
                                 'company_id' => (int) $lead->company_id,
                             ]);

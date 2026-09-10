@@ -923,6 +923,7 @@
 .leads-rule-extra-card.is-trigger { grid-template-columns: minmax(0, 1fr) auto; }
 .leads-rule-trigger-fields { display: grid; gap: 0.4rem; }
 .leads-rule-trigger-fields.has-label { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+.leads-rule-trigger-fields.has-age { grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 0.7fr); }
 .leads-rule-extra-card.is-action { grid-template-columns: 1fr 1fr auto; }
 .leads-rule-extra-card.is-action.is-create-lead { grid-template-columns: minmax(0, 1fr) auto; }
 .leads-rule-extra-card.is-action.is-create-lead [data-rule-action-value] { display: none; }
@@ -3296,6 +3297,7 @@
         { value: 'lead_status_changed', label: 'Status changed', help: 'When the lead status changes to this status. Delayed actions, like set status after X days, start counting from this change date.' },
         { value: 'lead_note_added', label: 'Note is added to lead', help: 'When a note is saved on the lead.' },
         { value: 'follow_up_day_reached', label: 'Follow-up day is reached', help: 'Once a day when the lead reaches this follow-up day. Day 1 is the day after it was created. Use labels like Inquiry or Move in only when you want a rule to depend on a tag, not on the follow-up bucket itself.' },
+        { value: 'lead_age_reached', label: 'Lead age is reached', help: 'Checked once a day, based on how many days since the lead was created. Add a "Lead age" condition below to set greater than, less than, or equal to which number of days.' },
     ];
     const RULE_CHANNELS = [
         ['phone', 'Phone'],
@@ -3496,6 +3498,7 @@
             ['status_changed', 'Status changed'],
             ['lead_label', 'Lead label'],
             ['label_added', 'Label added'],
+            ['lead_age', 'Lead age'],
         ];
         return fields.map(([value, label]) =>
             `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`
@@ -3506,6 +3509,11 @@
             const current = selected === 'does_not_have' || selected === 'not_equals' ? 'does_not_have' : 'equals';
             return [['equals', 'has'], ['does_not_have', "doesn't have"]]
                 .map(([value, label]) => `<option value="${value}" ${current === value ? 'selected' : ''}>${label}</option>`)
+                .join('');
+        }
+        if (field === 'lead_age') {
+            return [['greater_than', 'greater than'], ['less_than', 'less than'], ['equals', 'equal to']]
+                .map(([value, label]) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`)
                 .join('');
         }
         return [['contains', 'contains'], ['equals', 'equals'], ['starts_with', 'starts with']]
@@ -3520,6 +3528,9 @@
             return `<select data-rule-cond-value>${(state.companyLabels || []).map(l =>
                 `<option value="${field === 'label_added' ? l.id : esc(l.name)}" ${String(selected) === String(l.id) || String(selected) === String(l.name) ? 'selected' : ''}>${esc(l.name)}</option>`
             ).join('') || '<option value="">No labels</option>'}</select>`;
+        }
+        if (field === 'lead_age') {
+            return `<input type="number" data-rule-cond-value min="0" max="3650" step="1" placeholder="Days" value="${esc(selected || '')}">`;
         }
         return `<input type="text" data-rule-cond-value placeholder="Value" value="${esc(selected || '')}">`;
     }
@@ -3646,6 +3657,7 @@
         if (type === 'lead_labeled') return 'label';
         if (type === 'lead_status_changed') return 'status';
         if (type === 'follow_up_day_reached') return 'day';
+        if (type === 'lead_age_reached') return 'age';
         return '';
     }
     function triggerExtraOptions(type, selected = '') {
@@ -3654,16 +3666,28 @@
         if (type === 'follow_up_day_reached') return triggerFollowUpDayOptions(selected);
         return '<option value="">—</option>';
     }
+    function triggerAgeOperatorOptions(selected = 'equals') {
+        return [['greater_than', 'greater than'], ['less_than', 'less than'], ['equals', 'equal to']]
+            .map(([value, label]) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`)
+            .join('');
+    }
+    function triggerExtraFieldsHtml(type, preset = {}) {
+        const kind = triggerExtraKind(type);
+        if (kind === 'age') {
+            return `<select data-rule-trigger-op>${triggerAgeOperatorOptions(preset.operator || 'equals')}</select>`
+                + `<input type="number" data-rule-trigger-label min="0" max="3650" step="1" placeholder="Days" value="${esc(preset.day || '')}">`;
+        }
+        return `<select data-rule-trigger-label ${kind ? '' : 'hidden disabled'}>${triggerExtraOptions(type, preset.label || preset.status || preset.day || '')}</select>`;
+    }
     function syncTriggerLabelSelect(row) {
         const type = row?.querySelector('[data-rule-trigger]')?.value;
         const fields = row?.querySelector('.leads-rule-trigger-fields');
-        const extraSel = row?.querySelector('[data-rule-trigger-label]');
-        if (!extraSel) return;
+        if (!fields) return;
         const kind = triggerExtraKind(type);
-        extraSel.hidden = !kind;
-        extraSel.disabled = !kind;
-        fields?.classList.toggle('has-label', !!kind);
-        if (kind) extraSel.innerHTML = triggerExtraOptions(type, extraSel.value);
+        fields.classList.toggle('has-label', !!kind && kind !== 'age');
+        fields.classList.toggle('has-age', kind === 'age');
+        fields.querySelectorAll('[data-rule-trigger-label], [data-rule-trigger-op]').forEach(el => el.remove());
+        fields.insertAdjacentHTML('beforeend', triggerExtraFieldsHtml(type, {}));
     }
     function addRuleTriggerRow(preset = {}) {
         const wrap = document.getElementById('leadRuleTriggers');
@@ -3674,9 +3698,9 @@
         row.className = 'leads-rule-extra-card is-trigger';
         row.innerHTML = `
             <div>
-                <div class="leads-rule-trigger-fields${kind ? ' has-label' : ''}">
+                <div class="leads-rule-trigger-fields${kind === 'age' ? ' has-age' : (kind ? ' has-label' : '')}">
                     <select data-rule-trigger>${triggerOptions(value)}</select>
-                    <select data-rule-trigger-label ${kind ? '' : 'hidden disabled'}>${triggerExtraOptions(value, preset.label || preset.status || preset.day || '')}</select>
+                    ${triggerExtraFieldsHtml(value, preset)}
                 </div>
                 <p class="leads-rule-trigger-help">${esc(triggerHelp(value))}</p>
             </div>
@@ -3692,7 +3716,7 @@
         row.className = 'leads-rule-extra-card';
         row.innerHTML = `
             <select data-rule-cond-field>${conditionFieldOptions(field)}</select>
-            <select data-rule-cond-operator>${conditionOperatorOptions(field, preset.operator || (field === 'lead_label' ? 'equals' : 'contains'))}</select>
+            <select data-rule-cond-operator>${conditionOperatorOptions(field, preset.operator || (field === 'lead_label' || field === 'lead_age' ? 'equals' : 'contains'))}</select>
             ${conditionValueControl(field, preset.value || '')}
             <button type="button" class="leads-rule-remove" data-remove-rule-row title="Remove">×</button>
         `;
@@ -3886,15 +3910,17 @@
         });
         updateRuleInboxLabel();
         const triggers = Array.isArray(rule.triggers) ? rule.triggers : [];
+        const leadAgeCond = triggers.includes('lead_age_reached') ? conditions.find(c => c.field === 'lead_age') : null;
         if (!triggers.length) addRuleTriggerRow({ value: 'inbound_message' });
         else triggers.forEach(trigger => addRuleTriggerRow({
             value: trigger,
             label: trigger === 'lead_labeled' ? (addedLabel?.value || '') : '',
             status: trigger === 'lead_status_changed' ? (changedStatus?.value || '') : '',
-            day: trigger === 'follow_up_day_reached' ? (followUpDay?.value || '2') : '',
+            day: trigger === 'follow_up_day_reached' ? (followUpDay?.value || '2') : (trigger === 'lead_age_reached' ? (leadAgeCond?.value || '') : ''),
+            operator: trigger === 'lead_age_reached' ? (leadAgeCond?.operator || 'equals') : '',
         }));
         conditions
-            .filter(c => c.field && c.field !== 'channel' && c.field !== 'shared_inbox' && c.field !== 'inbox' && c.field !== 'label_added' && c.field !== 'status_changed' && c.field !== 'follow_up_day')
+            .filter(c => c.field && c.field !== 'channel' && c.field !== 'shared_inbox' && c.field !== 'inbox' && c.field !== 'label_added' && c.field !== 'status_changed' && c.field !== 'follow_up_day' && c !== leadAgeCond)
             .forEach(c => addRuleConditionRow(c));
         const actions = Array.isArray(rule.actions) ? rule.actions : [];
         if (!actions.length) addRuleActionRow();
@@ -3920,6 +3946,10 @@
             }
             if (sel?.value === 'follow_up_day_reached' && extraVal) {
                 conditions.push({ field: 'follow_up_day', operator: 'equals', value: extraVal });
+            }
+            if (sel?.value === 'lead_age_reached' && extraVal) {
+                const ageOp = row.querySelector('[data-rule-trigger-op]')?.value || 'equals';
+                conditions.push({ field: 'lead_age', operator: ageOp, value: extraVal });
             }
         });
         document.querySelectorAll('#leadRuleConditions .leads-rule-extra-card').forEach(row => {

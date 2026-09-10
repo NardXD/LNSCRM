@@ -1785,8 +1785,8 @@ class LeadsController extends Controller
             'triggers' => [$required, 'array', 'min:1'],
             'triggers.*' => ['required', 'string', 'in:'.$triggerKeys],
             'conditions' => [$required, 'array', 'min:1'],
-            'conditions.*.field' => ['required', 'in:channel,shared_inbox,inbox,contact_name,phone,email,subject,message,lead_status,lead_label,label_added,status_changed,follow_up_day'],
-            'conditions.*.operator' => ['required', 'in:contains,equals,starts_with,in,does_not_have,not_equals,contains_any'],
+            'conditions.*.field' => ['required', 'in:channel,shared_inbox,inbox,contact_name,phone,email,subject,message,lead_status,lead_label,label_added,status_changed,follow_up_day,lead_age'],
+            'conditions.*.operator' => ['required', 'in:contains,equals,starts_with,in,does_not_have,not_equals,contains_any,greater_than,less_than'],
             'conditions.*.value' => ['nullable'],
             'actions' => [$required, 'array', 'min:1'],
             'actions.*.type' => ['required', 'in:create_lead,assign,add_label,set_status,set_status_after_days,notify_assignee,reopen_after_days,unsnooze,send_email,attach_shared_inbox'],
@@ -1830,6 +1830,14 @@ class LeadsController extends Controller
                 $isPlus = $this->followUpDays->isPlusValue($dayValue);
                 if (! $isPlus && ((int) $dayValue < 1 || (int) $dayValue > 365)) {
                     abort(response()->json(['message' => 'Choose a follow-up day (1–365) or the older-than bucket.'], 422));
+                }
+
+                continue;
+            }
+            if ($field === 'lead_age') {
+                $days = trim((string) ($condition['value'] ?? ''));
+                if (! ctype_digit($days) || (int) $days < 0 || (int) $days > 3650) {
+                    abort(response()->json(['message' => 'Enter a valid number of days for lead age.'], 422));
                 }
 
                 continue;
