@@ -13,7 +13,6 @@
             <p class="ld-subtitle">Phones, emails, and social names shared across Phone, Inbox, Viber, WhatsApp, Facebook, and SMS.</p>
         </div>
         <div class="leads-header-actions ld-top-actions">
-            <button type="button" class="btn btn-secondary btn-sm" id="leadFollowUpDaysBtn">Follow-up days</button>
             <button type="button" class="btn btn-secondary btn-sm" id="leadLabelsBtn">Labels</button>
             <button type="button" class="btn btn-secondary btn-sm" id="leadStatusesBtn">Statuses</button>
             <button type="button" class="btn btn-secondary btn-sm" id="leadRulesBtn">Rules</button>
@@ -58,10 +57,6 @@
 
     <div class="leads-tabs" role="tablist" id="leadStatusTabs">
         <button type="button" class="leads-tab active" data-status="all">All</button>
-    </div>
-
-    <div class="leads-followup-row">
-        <div class="leads-followup-chips" id="leadFollowUpChips" role="tablist" aria-label="Follow-up days"></div>
     </div>
 
     <div class="leads-card" id="leadsCard">
@@ -457,7 +452,7 @@
                         <textarea id="leadMessageHtmlSource" class="leads-html-source" rows="8" hidden placeholder="<p>Hi @{{first_name}},</p><p>…</p>"></textarea>
                     </div>
                 </div>
-                <p class="leads-rules-help leads-message-tokens">Tokens: @{{first_name}}, @{{last_name}}, @{{name}}, @{{follow_up_day}}, @{{company}}. Mail supports HTML.</p>
+                <p class="leads-rules-help leads-message-tokens">Tokens: @{{first_name}}, @{{last_name}}, @{{name}}, @{{company}}. Mail supports HTML.</p>
             </div>
             <div class="modal-actions leads-rules-actions">
                 <button type="button" class="btn btn-secondary" id="cancelLeadMessageBtn">Cancel</button>
@@ -479,29 +474,6 @@
                     <button type="button" class="btn btn-secondary btn-sm" id="leadActivityPrev" disabled>Previous</button>
                     <button type="button" class="btn btn-secondary btn-sm" id="leadActivityNext" disabled>Next</button>
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal-overlay" id="leadFollowUpDaysModal">
-        <div class="modal-content leads-rules-modal">
-            <div class="modal-header">
-                <h3>Follow-up days</h3>
-                <button type="button" class="modal-close-btn" id="closeLeadFollowUpDaysModal">&times;</button>
-            </div>
-            <div class="leads-rules-body">
-                <p class="leads-rules-help">Each day is a follow-up bucket (4 → 4th Day FU), separate from Labels. Day 1 is the day after the lead was created. Open leads sit in the latest due bucket. Converted, lost, archived, Move in, and Not Interested leads are left out.</p>
-                <div id="leadFollowUpDaysList" class="leads-rule-list"></div>
-                <form id="leadFollowUpDaysForm" class="leads-label-create">
-                    <label class="leads-followup-day-field">
-                        <span>Day</span>
-                        <input type="number" id="leadFollowUpDayInput" class="leads-followup-day-input" min="1" max="365" step="1" placeholder="7" required>
-                    </label>
-                    <button type="submit" class="btn btn-primary" id="addLeadFollowUpDayBtn">Add day</button>
-                </form>
-            </div>
-            <div class="modal-actions leads-rules-actions">
-                <button type="button" class="btn btn-secondary" id="closeLeadFollowUpDaysBtn">Close</button>
             </div>
         </div>
     </div>
@@ -950,12 +922,6 @@
 .leads-label-create { display: flex; gap: 0.45rem; align-items: center; margin-top: 0.85rem; }
 .leads-label-create input[type="text"] { flex: 1; min-width: 0; padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; background: var(--bg-card); color: var(--text-primary); }
 .leads-label-create input[type="color"] { width: 2.4rem; height: 2.2rem; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); cursor: pointer; }
-.leads-followup-day-field { display: flex; align-items: center; gap: 0.45rem; flex: 1; min-width: 0; height: 2.2rem; padding: 0 0.15rem 0 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text-secondary); font-size: 0.875rem; font-weight: 600; box-sizing: border-box; }
-.leads-followup-day-field:focus-within { border-color: var(--accent); }
-.leads-followup-day-input { flex: 1; min-width: 0; width: 100%; height: 100%; border: 0; background: transparent; color: var(--text-primary); font-size: 0.875rem; font-weight: 500; padding: 0 0.7rem 0 0; appearance: textfield; -moz-appearance: textfield; }
-.leads-followup-day-input:focus { outline: none; }
-.leads-followup-day-input::-webkit-outer-spin-button,
-.leads-followup-day-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .leads-label-row-color { width: 2rem; height: 1.85rem; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); cursor: pointer; }
         @media (max-width: 700px) {
             .leads-rule-extra-card, .leads-rule-extra-card.is-action { grid-template-columns: 1fr; }
@@ -991,11 +957,10 @@
     const api = '/api/leads';
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
     const LEAD_OPTIONS = @json($leadFormOptions);
-    const LEAD_FOLLOW_UP = @json($leadFollowUpConfig ?? []);
     const STOREGANISE_CONNECTED = @json(!empty($storeganiseConnected));
     const CAN_VIEW_QUOTATION_BUILDER = @json(!empty($canViewQuotationBuilder));
     const LEAD_QUOTE_URL_BASE = @json(url('/quotation-builder/leads'));
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', noSharedThread: false, labelIds: [], followUp: '', sort: 'lead_age', sortDir: 'asc', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], emailTemplates: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', savedLeadStoreganiseSiteId: null, storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', noSharedThread: false, labelIds: [], sort: 'lead_age', sortDir: 'asc', statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], emailTemplates: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', savedLeadStoreganiseSiteId: null, storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -1062,8 +1027,8 @@
             return;
         }
         const added = formatDate(lead.created_at);
-        const days = Number.isFinite(Number(lead.follow_up_day))
-            ? Math.max(0, Number(lead.follow_up_day))
+        const days = Number.isFinite(Number(lead.lead_age_days))
+            ? Math.max(0, Number(lead.lead_age_days))
             : null;
         let age = '';
         if (days === 0) age = 'today';
@@ -1142,10 +1107,6 @@
             ? statusName(status) + ' until ' + formatDate(lead.reopen_at)
             : statusName(status);
         return `<span class="lead-badge ${esc(status)}">${esc(label)}</span>`;
-    }
-    function followUpLabelName(day) {
-        const row = (state.followUpLabels || []).find(item => Number(item.day) === Number(day));
-        return row?.name || `${day}${Number(day) === 1 ? 'st' : Number(day) === 2 ? 'nd' : Number(day) === 3 ? 'rd' : 'th'} Day FU`;
     }
     function sourceVisual(lead) {
         const source = String(lead.source || '').trim();
@@ -1336,7 +1297,7 @@
         const existing = body.querySelector('tr[data-id="' + id + '"]');
         if (existing) existing.remove();
         if (!body.querySelector('tr[data-id]')) {
-            body.innerHTML = `<tr><td colspan="10" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
+            body.innerHTML = `<tr><td colspan="10" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
         }
     }
     function assigneeOptions(selectedId, extraUser) {
@@ -1849,7 +1810,6 @@
         if (state.source) q.set('source', state.source);
         if (state.assignedTo) q.set('assigned_to', state.assignedTo);
         if (state.noSharedThread) q.set('no_shared_thread', '1');
-        if (state.followUp) q.set('follow_up_day', String(state.followUp));
         state.labelIds.forEach(id => q.append('label_ids[]', id));
         try {
             const res = await fetch(api + '?' + q.toString(), { credentials: 'same-origin', headers: headers() });
@@ -1858,7 +1818,7 @@
             const rows = data.data || [];
             body.innerHTML = rows.length
                 ? rows.map(lead => leadRowHtml(lead)).join('')
-                : `<tr><td colspan="10" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.noSharedThread || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
+                : `<tr><td colspan="10" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.noSharedThread ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
 
             const pag = data.pagination || {};
             document.getElementById('leadsPageInfo').textContent = `Showing page ${pag.current_page || 1} of ${pag.last_page || 1} (${pag.total || 0} leads)`;
@@ -1866,7 +1826,6 @@
             document.getElementById('leadsNext').disabled = (pag.current_page || 1) >= (pag.last_page || 1);
             renderSourceFilter(data.sources || []);
             loadStatusCounts();
-            loadFollowUpCounts();
         } catch (err) {
             body.innerHTML = '<tr><td colspan="10" class="empty-state">Could not load leads. Try again.</td></tr>';
             if (err?.message) console.error(err.message);
@@ -1875,93 +1834,12 @@
         }
     }
 
-    function applyFollowUpConfig(config) {
-        const days = Array.isArray(config?.days) ? config.days.map(Number).filter(d => d >= 1) : [];
-        state.followUpDays = days.length ? days : [4, 10, 30, 90];
-        state.followUpLabels = Array.isArray(config?.labels) ? config.labels : [];
-        state.followUpPlusMin = Number(config?.plus_min || (Math.max(...state.followUpDays) + 1));
-        if (state.followUp && !state.followUpDays.includes(Number(state.followUp))) {
-            state.followUp = '';
-        }
-        renderFollowUpChips();
-        renderFollowUpDaysList();
-    }
-    function renderFollowUpChips() {
-        const wrap = document.getElementById('leadFollowUpChips');
-        if (!wrap) return;
-        const counts = state.followUpCounts || {};
-        const chips = [`<button type="button" class="leads-followup-chip ${state.followUp === '' ? 'active' : ''}" data-follow-up="">All</button>`]
-            .concat(state.followUpDays.map(day => {
-                const key = String(day);
-                const count = counts[key] ?? 0;
-                return `<button type="button" class="leads-followup-chip ${String(state.followUp) === key ? 'active' : ''}" data-follow-up="${esc(key)}">${esc(followUpLabelName(day))} <span data-count="${esc(key)}">${count}</span></button>`;
-            }));
-        wrap.innerHTML = chips.join('');
-    }
-    function renderFollowUpDaysList() {
-        const list = document.getElementById('leadFollowUpDaysList');
-        if (!list) return;
-        if (!state.followUpDays.length) {
-            list.innerHTML = '<p class="chp-empty">Add at least one follow-up day.</p>';
-            return;
-        }
-        list.innerHTML = state.followUpDays.map(day => `
-            <div class="leads-rule-row">
-                <div class="leads-rule-row-main">
-                    <div class="leads-rule-row-name">${esc(followUpLabelName(day))}</div>
-                </div>
-                <div class="leads-rule-row-actions">
-                    <button type="button" class="link-btn" data-remove-follow-up-day="${day}">Remove</button>
-                </div>
-            </div>
-        `).join('');
-    }
-    async function saveFollowUpDays(days) {
-        const res = await fetch(api + '/follow-up-days', {
-            method: 'PUT',
-            credentials: 'same-origin',
-            headers: headers(true),
-            body: JSON.stringify({ days }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.message || 'Could not save follow-up days.');
-        applyFollowUpConfig(data.data || {});
-        loadCompanyLabels();
-        loadFollowUpCounts();
-        loadLeads();
-    }
-    function openFollowUpDaysModal() {
-        renderFollowUpDaysList();
-        document.getElementById('leadFollowUpDaysModal')?.classList.add('open');
-        document.getElementById('leadFollowUpDayInput')?.focus();
-    }
-    function closeFollowUpDaysModal() {
-        document.getElementById('leadFollowUpDaysModal')?.classList.remove('open');
-    }
-
-    async function loadFollowUpCounts() {
-        const q = new URLSearchParams({ status: state.status });
-        if (state.search) q.set('search', state.search);
-        if (state.source) q.set('source', state.source);
-        if (state.assignedTo) q.set('assigned_to', state.assignedTo);
-        if (state.noSharedThread) q.set('no_shared_thread', '1');
-        state.labelIds.forEach(id => q.append('label_ids[]', id));
-        try {
-            const res = await fetch(api + '/follow-up-counts?' + q.toString(), { credentials: 'same-origin', headers: headers() });
-            const data = await res.json();
-            const payload = data.data || {};
-            if (payload.days) applyFollowUpConfig(payload);
-            state.followUpCounts = payload.counts || payload;
-            renderFollowUpChips();
-        } catch {}
-    }
     async function loadStatusCounts() {
         const q = new URLSearchParams({ status: state.status });
         if (state.search) q.set('search', state.search);
         if (state.source) q.set('source', state.source);
         if (state.assignedTo) q.set('assigned_to', state.assignedTo);
         if (state.noSharedThread) q.set('no_shared_thread', '1');
-        if (state.followUp) q.set('follow_up_day', String(state.followUp));
         state.labelIds.forEach(id => q.append('label_ids[]', id));
         try {
             const res = await fetch(api + '/status-counts?' + q.toString(), { credentials: 'same-origin', headers: headers() });
@@ -2678,51 +2556,6 @@
         state.page = 1;
         loadLeads();
     });
-    document.getElementById('leadFollowUpChips')?.addEventListener('click', (e) => {
-        const chip = e.target.closest('.leads-followup-chip');
-        if (!chip) return;
-        state.followUp = chip.dataset.followUp || '';
-        state.page = 1;
-        renderFollowUpChips();
-        loadLeads();
-    });
-    document.getElementById('leadFollowUpDaysBtn')?.addEventListener('click', openFollowUpDaysModal);
-    document.getElementById('closeLeadFollowUpDaysModal')?.addEventListener('click', closeFollowUpDaysModal);
-    document.getElementById('closeLeadFollowUpDaysBtn')?.addEventListener('click', closeFollowUpDaysModal);
-    document.getElementById('leadFollowUpDaysForm')?.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const input = document.getElementById('leadFollowUpDayInput');
-        const day = Number(input?.value);
-        if (!Number.isInteger(day) || day < 1 || day > 365) {
-            return alert('Enter a day from 1 to 365.');
-        }
-        if (state.followUpDays.includes(day)) {
-            input.value = '';
-            return;
-        }
-        const btn = document.getElementById('addLeadFollowUpDayBtn');
-        btn.disabled = true;
-        try {
-            await saveFollowUpDays([...state.followUpDays, day]);
-            input.value = '';
-        } catch (err) {
-            alert(err.message);
-        } finally {
-            btn.disabled = false;
-        }
-    });
-    document.getElementById('leadFollowUpDaysList')?.addEventListener('click', async (e) => {
-        const btn = e.target.closest('[data-remove-follow-up-day]');
-        if (!btn) return;
-        const day = Number(btn.dataset.removeFollowUpDay);
-        const next = state.followUpDays.filter(d => d !== day);
-        if (!next.length) return alert('Keep at least one follow-up day.');
-        try {
-            await saveFollowUpDays(next);
-        } catch (err) {
-            alert(err.message);
-        }
-    });
     function closeMessageModal() {
         document.getElementById('leadMessageModal')?.classList.remove('open');
         state.messageLeadId = '';
@@ -3296,7 +3129,6 @@
         { value: 'lead_labeled', label: 'Label added', help: 'When this label is added to the lead.' },
         { value: 'lead_status_changed', label: 'Status changed', help: 'When the lead status changes to this status. Delayed actions, like set status after X days, start counting from this change date.' },
         { value: 'lead_note_added', label: 'Note is added to lead', help: 'When a note is saved on the lead.' },
-        { value: 'follow_up_day_reached', label: 'Follow-up day is reached', help: 'Once a day when the lead reaches this follow-up day. Day 1 is the day after it was created. Use labels like Inquiry or Move in only when you want a rule to depend on a tag, not on the follow-up bucket itself.' },
         { value: 'lead_age_reached', label: 'Lead age is reached', help: 'Checked once a day, based on how many days since the lead was created. Add a "Lead age" condition below to set greater than, less than, or equal to which number of days.' },
     ];
     const RULE_CHANNELS = [
@@ -3647,23 +3479,15 @@
             `<option value="${esc(s.slug)}" ${selected === s.slug ? 'selected' : ''}>${esc(s.name)}</option>`
         ).join('');
     }
-    function triggerFollowUpDayOptions(selected = '') {
-        const days = state.followUpDays.length ? state.followUpDays : [4, 10, 30, 90];
-        const current = String(selected || days[0] || '4');
-        const opts = days.map(d => `<option value="${d}" ${current === String(d) ? 'selected' : ''}>${esc(followUpLabelName(d))}</option>`).join('');
-        return opts + (days.includes(Number(current)) ? '' : `<option value="${esc(current)}" selected>${esc(followUpLabelName(current))}</option>`);
-    }
     function triggerExtraKind(type) {
         if (type === 'lead_labeled') return 'label';
         if (type === 'lead_status_changed') return 'status';
-        if (type === 'follow_up_day_reached') return 'day';
         if (type === 'lead_age_reached') return 'age';
         return '';
     }
     function triggerExtraOptions(type, selected = '') {
         if (type === 'lead_labeled') return triggerLabelOptions(selected);
         if (type === 'lead_status_changed') return triggerStatusOptions(selected);
-        if (type === 'follow_up_day_reached') return triggerFollowUpDayOptions(selected);
         return '<option value="">—</option>';
     }
     function triggerAgeOperatorOptions(selected = 'equals') {
@@ -3896,7 +3720,6 @@
         const inboxCond = conditions.find(c => c.field === 'shared_inbox' || c.field === 'inbox');
         const addedLabel = conditions.find(c => c.field === 'label_added');
         const changedStatus = conditions.find(c => c.field === 'status_changed');
-        const followUpDay = conditions.find(c => c.field === 'follow_up_day');
         renderRuleChannelPicker();
         renderRuleInboxPicker();
         const selected = new Set((Array.isArray(channel?.value) ? channel.value : []).map(String));
@@ -3916,11 +3739,11 @@
             value: trigger,
             label: trigger === 'lead_labeled' ? (addedLabel?.value || '') : '',
             status: trigger === 'lead_status_changed' ? (changedStatus?.value || '') : '',
-            day: trigger === 'follow_up_day_reached' ? (followUpDay?.value || '2') : (trigger === 'lead_age_reached' ? (leadAgeCond?.value || '') : ''),
+            day: trigger === 'lead_age_reached' ? (leadAgeCond?.value || '') : '',
             operator: trigger === 'lead_age_reached' ? (leadAgeCond?.operator || 'equals') : '',
         }));
         conditions
-            .filter(c => c.field && c.field !== 'channel' && c.field !== 'shared_inbox' && c.field !== 'inbox' && c.field !== 'label_added' && c.field !== 'status_changed' && c.field !== 'follow_up_day' && c !== leadAgeCond)
+            .filter(c => c.field && c.field !== 'channel' && c.field !== 'shared_inbox' && c.field !== 'inbox' && c.field !== 'label_added' && c.field !== 'status_changed' && c !== leadAgeCond)
             .forEach(c => addRuleConditionRow(c));
         const actions = Array.isArray(rule.actions) ? rule.actions : [];
         if (!actions.length) addRuleActionRow();
@@ -3943,9 +3766,6 @@
             }
             if (sel?.value === 'lead_status_changed' && extraVal) {
                 conditions.push({ field: 'status_changed', operator: 'equals', value: extraVal });
-            }
-            if (sel?.value === 'follow_up_day_reached' && extraVal) {
-                conditions.push({ field: 'follow_up_day', operator: 'equals', value: extraVal });
             }
             if (sel?.value === 'lead_age_reached' && extraVal) {
                 const ageOp = row.querySelector('[data-rule-trigger-op]')?.value || 'equals';
@@ -4119,7 +3939,6 @@
         if (!res.ok) return alert(data.message || 'Could not delete label.');
         state.labelIds = state.labelIds.filter(id => id !== String(del.dataset.deleteCompanyLabel));
         await loadCompanyLabels();
-        loadFollowUpCounts();
         loadLeads();
     });
     document.getElementById('leadCompanyLabelList')?.addEventListener('keydown', (e) => {
@@ -4290,12 +4109,6 @@
                 return alert('Choose which status was set.');
             }
         }
-        if (payload.triggers.includes('follow_up_day_reached')) {
-            const day = payload.conditions.find(c => c.field === 'follow_up_day');
-            if (!day || !String(day.value || '').trim()) {
-                return alert('Choose which follow-up day this rule runs on.');
-            }
-        }
         const extra = payload.conditions.filter(c => c.field !== 'channel' && c.field !== 'shared_inbox');
         if (extra.some(c => !String(c.value || '').trim())) return alert('Each condition needs a value.');
         if (!payload.actions.length) return alert('Add at least one action.');
@@ -4366,7 +4179,6 @@
 
     resetForm();
     Promise.all([loadCompanyLabels(), loadCompanyStatuses(), loadAssignees()]).then(() => {
-        applyFollowUpConfig({ days: state.followUpDays, plus_min: state.followUpPlusMin });
         return loadLeads();
     }).then(() => {
         const params = new URLSearchParams(window.location.search);

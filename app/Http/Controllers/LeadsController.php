@@ -7,7 +7,6 @@ use App\Exports\LeadReportConversationsSheet;
 use App\Exports\LeadReportLeadsSheet;
 use App\Http\Requests\StoreLeadRequest;
 use App\Http\Requests\UpdateLeadRequest;
-use App\Models\Company;
 use App\Models\FacebookConversation;
 use App\Models\InboxConversation;
 use App\Models\InboxTemplate;
@@ -26,7 +25,6 @@ use App\Services\FlexCrmLookupService;
 use App\Services\LeadActivityService;
 use App\Services\LeadChannelMessageService;
 use App\Services\LeadConnectedThreadService;
-use App\Services\LeadFollowUpDayService;
 use App\Services\LeadInboxAttachService;
 use App\Services\LeadReportService;
 use App\Services\LeadRuleEngine;
@@ -49,7 +47,6 @@ class LeadsController extends Controller
         protected LeadInboxAttachService $inboxAttach,
         protected LeadConnectedThreadService $connectedThreads,
         protected LeadReportService $leadReports,
-        protected LeadFollowUpDayService $followUpDays,
         protected LeadChannelMessageService $channelMessages
     ) {}
 
@@ -61,7 +58,6 @@ class LeadsController extends Controller
             'canManageLeadRules' => Auth::user()?->hasPermission('create_lead_rules') ?? false,
             'canViewQuotationBuilder' => Auth::user()?->hasPermission('view_quotation_builder') ?? false,
             'leadFormOptions' => Lead::formOptions(),
-            'leadFollowUpConfig' => $this->followUpDays->configForCompany($companyId),
             'storeganiseConnected' => StoreganiseIntegration::query()
                 ->where('company_id', $companyId)
                 ->where('is_active', true)
@@ -247,16 +243,6 @@ class LeadsController extends Controller
             ->all();
     }
 
-    public function followUpCounts(Request $request): JsonResponse
-    {
-        $companyId = (int) Auth::user()->company_id;
-
-        return response()->json([
-            'success' => true,
-            'data' => $this->leadReports->followUpCounts($companyId, $request),
-        ]);
-    }
-
     public function statusTabCounts(Request $request): JsonResponse
     {
         $companyId = (int) Auth::user()->company_id;
@@ -268,41 +254,6 @@ class LeadsController extends Controller
                 ['all' => 0],
                 report: true
             ),
-        ]);
-    }
-
-    public function followUpDays(): JsonResponse
-    {
-        $companyId = (int) Auth::user()->company_id;
-
-        return response()->json([
-            'success' => true,
-            'data' => $this->followUpDays->configForCompany($companyId),
-        ]);
-    }
-
-    public function updateFollowUpDays(Request $request): JsonResponse
-    {
-        $validated = $request->validate([
-            'days' => ['required', 'array', 'min:1', 'max:'.LeadFollowUpDayService::MAX_CONFIGURED_DAYS],
-            'days.*' => ['integer', 'min:1', 'max:365'],
-        ]);
-
-        $company = Company::query()->find((int) Auth::user()->company_id);
-        if (! $company) {
-            return response()->json(['message' => 'Company not found.'], 404);
-        }
-
-        $days = $this->followUpDays->normalizeDays($validated['days']);
-        $company->lead_follow_up_days = $days;
-        $company->save();
-        $this->followUpDays->rememberDays((int) $company->id, $days);
-        $this->followUpDays->ensureForCompany((int) $company->id);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Follow-up days saved.',
-            'data' => $this->followUpDays->configForCompany((int) $company->id),
         ]);
     }
 
@@ -903,9 +854,6 @@ class LeadsController extends Controller
         if ($name === '') {
             return response()->json(['message' => 'Enter a label name.'], 422);
         }
-        if ($this->followUpDays->dayFromLabelName($name) !== null) {
-            return response()->json(['message' => 'Follow-up days are managed separately from labels.'], 422);
-        }
 
         $existing = LeadLabel::query()
             ->where('company_id', $companyId)
@@ -954,9 +902,6 @@ class LeadsController extends Controller
                 return response()->json(['message' => 'Another label already uses that name.'], 422);
             }
             $validated['name'] = $name;
-            if ($this->followUpDays->dayFromLabelName($name) !== null) {
-                return response()->json(['message' => 'Follow-up days are managed separately from labels.'], 422);
-            }
         }
 
         $leadLabel->update($validated);
@@ -1190,9 +1135,6 @@ class LeadsController extends Controller
         }
 
         $name = trim((string) ($validated['name'] ?? ''));
-        if ($name !== '' && $this->followUpDays->dayFromLabelName($name) !== null) {
-            return response()->json(['message' => 'Follow-up days are managed separately from labels.'], 422);
-        }
         if (! $label && $name !== '') {
             $label = LeadLabel::query()
                 ->where('company_id', $companyId)
@@ -1209,9 +1151,6 @@ class LeadsController extends Controller
 
         if (! $label) {
             return response()->json(['message' => 'Choose or type a label.'], 422);
-        }
-        if ($this->followUpDays->dayFromLabelName((string) $label->name) !== null) {
-            return response()->json(['message' => 'Follow-up days are managed separately from labels.'], 422);
         }
 
         $alreadyAttached = $lead->labels()->where('lead_labels.id', $label->id)->exists();
@@ -1305,7 +1244,7 @@ class LeadsController extends Controller
             'status' => $lead->status,
             'reopen_at' => $lead->reopen_at?->toIso8601String(),
             'reopen_status' => $lead->reopen_status,
-            'follow_up_day' => $this->followUpDays->dayFor($lead),
+            'lead_age_days' => $lead->created_at ? (int) $lead->created_at->diffInDays(now()) : null,
             'source' => $lead->source,
             'has_connected_thread' => $connected !== null,
             'connected_thread_url' => $connected['url'] ?? null,
@@ -1785,7 +1724,7 @@ class LeadsController extends Controller
             'triggers' => [$required, 'array', 'min:1'],
             'triggers.*' => ['required', 'string', 'in:'.$triggerKeys],
             'conditions' => [$required, 'array', 'min:1'],
-            'conditions.*.field' => ['required', 'in:channel,shared_inbox,inbox,contact_name,phone,email,subject,message,lead_status,lead_label,label_added,status_changed,follow_up_day,lead_age'],
+            'conditions.*.field' => ['required', 'in:channel,shared_inbox,inbox,contact_name,phone,email,subject,message,lead_status,lead_label,label_added,status_changed,lead_age'],
             'conditions.*.operator' => ['required', 'in:contains,equals,starts_with,in,does_not_have,not_equals,contains_any,greater_than,less_than'],
             'conditions.*.value' => ['nullable'],
             'actions' => [$required, 'array', 'min:1'],
@@ -1821,15 +1760,6 @@ class LeadsController extends Controller
                     ->count();
                 if ($valid !== $ids->count()) {
                     abort(response()->json(['message' => 'Choose valid shared inboxes.'], 422));
-                }
-
-                continue;
-            }
-            if ($field === 'follow_up_day') {
-                $dayValue = trim((string) ($condition['value'] ?? ''));
-                $isPlus = $this->followUpDays->isPlusValue($dayValue);
-                if (! $isPlus && ((int) $dayValue < 1 || (int) $dayValue > 365)) {
-                    abort(response()->json(['message' => 'Choose a follow-up day (1–365) or the older-than bucket.'], 422));
                 }
 
                 continue;

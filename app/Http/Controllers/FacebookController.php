@@ -17,7 +17,6 @@ use App\Services\FacebookMessageSyncService;
 use App\Services\FacebookReportService;
 use App\Services\FlexCrmLookupService;
 use App\Services\LeadAutoCreateService;
-use App\Services\LeadFollowUpDayService;
 use App\Services\LeadRuleEngine;
 use App\Services\MessageContactExtractor;
 use App\Services\TimezoneService;
@@ -44,7 +43,6 @@ class FacebookController extends Controller
         protected MessageContactExtractor $messageContacts,
         protected FlexCrmLookupService $crmLookup,
         protected LeadAutoCreateService $leadAutoCreate,
-        protected LeadFollowUpDayService $followUpDays,
         protected FacebookReportService $facebookReports
     ) {}
 
@@ -1449,10 +1447,6 @@ class FacebookController extends Controller
         }
 
         $name = trim((string) ($validated['name'] ?? ''));
-        if ($name !== '' && $this->followUpDays->dayFromLabelName($name) !== null) {
-            return response()->json(['message' => 'Follow-up days are managed separately from labels.'], 422);
-        }
-
         if (! $label && $name !== '') {
             $label = LeadLabel::query()
                 ->where('company_id', $companyId)

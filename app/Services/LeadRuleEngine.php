@@ -38,8 +38,6 @@ class LeadRuleEngine
 
     public const TRIGGER_LEAD_NOTE_ADDED = 'lead_note_added';
 
-    public const TRIGGER_FOLLOW_UP_DAY_REACHED = 'follow_up_day_reached';
-
     public const TRIGGER_LEAD_AGE_REACHED = 'lead_age_reached';
 
     public const ASSIGN_AVAILABLE = '__available__';
@@ -83,7 +81,6 @@ class LeadRuleEngine
             self::TRIGGER_LEAD_LABELED => 'Label added',
             self::TRIGGER_LEAD_STATUS_CHANGED => 'Status changed',
             self::TRIGGER_LEAD_NOTE_ADDED => 'Note is added to lead',
-            self::TRIGGER_FOLLOW_UP_DAY_REACHED => 'Follow-up day is reached',
             self::TRIGGER_LEAD_AGE_REACHED => 'Lead age is reached',
         ];
     }
@@ -347,28 +344,11 @@ class LeadRuleEngine
                 continue;
             }
 
-            if ($field === 'follow_up_day') {
-                $eventDay = (int) ($context['follow_up_day'] ?? 0);
-                if ($eventDay < 1 && $lead) {
-                    $eventDay = app(LeadFollowUpDayService::class)->dayFor($lead);
-                }
-                $wanted = trim((string) $value);
-                $followUp = app(LeadFollowUpDayService::class);
-                $matched = $followUp->isPlusValue($wanted)
-                    ? $eventDay >= $followUp->plusMin((int) ($lead?->company_id ?: ($context['company_id'] ?? 0)))
-                    : $eventDay === (int) $wanted;
-                if (! $matched) {
-                    return false;
-                }
-
-                continue;
-            }
-
             if ($field === 'lead_age') {
                 if (! $lead || ! $lead->created_at) {
                     return false;
                 }
-                $ageDays = $lead->created_at->diffInDays(now());
+                $ageDays = (int) $lead->created_at->diffInDays(now());
                 $wanted = (int) $value;
                 $matched = match ($operator) {
                     'greater_than' => $ageDays > $wanted,

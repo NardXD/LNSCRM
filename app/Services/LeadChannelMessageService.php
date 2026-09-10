@@ -46,7 +46,6 @@ class LeadChannelMessageService
 
     public function __construct(
         protected LeadConnectedThreadService $connectedThreads,
-        protected LeadFollowUpDayService $followUpDays,
         protected LeadActivityService $leadActivity,
         protected TwilioCompanyService $twilioCompany,
         protected SmsConversationService $smsConversations,
@@ -56,7 +55,7 @@ class LeadChannelMessageService
     ) {}
 
     /**
-     * @return array{follow_up_day: int, channels: list<array<string, mixed>>}
+     * @return array{channels: list<array<string, mixed>>}
      */
     public function describe(Lead $lead, User $user): array
     {
@@ -103,7 +102,6 @@ class LeadChannelMessageService
         }
 
         return [
-            'follow_up_day' => $this->followUpDays->dayFor($lead),
             'channels' => $channels,
         ];
     }
@@ -286,12 +284,10 @@ class LeadChannelMessageService
 
     public function merge(string $text, Lead $lead): string
     {
-        $day = $this->followUpDays->dayFor($lead);
         $map = [
             '{{first_name}}' => (string) ($lead->first_name ?: ''),
             '{{last_name}}' => (string) ($lead->last_name ?: ''),
             '{{name}}' => (string) $lead->name,
-            '{{follow_up_day}}' => (string) $day,
             '{{company}}' => (string) ($lead->company_name ?: ''),
         ];
 

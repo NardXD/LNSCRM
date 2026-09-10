@@ -29,8 +29,7 @@ class LeadReportService
     protected array $userNameById = [];
 
     public function __construct(
-        protected LeadConnectedThreadService $connectedThreads,
-        protected LeadFollowUpDayService $followUpDays
+        protected LeadConnectedThreadService $connectedThreads
     ) {}
 
     /**
@@ -119,43 +118,7 @@ class LeadReportService
             $query->whereDate('leads.created_at', '<=', $dateTo);
         }
 
-        $this->followUpDays->applyToQuery($query, $companyId, $filters);
-        if ($this->followUpDays->shouldExcludeClosed($filters)) {
-            $this->followUpDays->excludeClosed($query);
-        }
-
         return $query;
-    }
-
-    /**
-     * @param  array<string, mixed>|Request  $filters
-     * @return array{days: list<int>, plus_min: int, labels: list<array{day: int, id: int, name: string, color: string|null}>, counts: array<string, int>}
-     */
-    public function followUpCounts(int $companyId, array|Request $filters): array
-    {
-        $filters = $this->normalizeFilters($filters);
-        $filters['follow_up_day'] = 0;
-        $filters['follow_up_day_min'] = 0;
-        $filters['follow_up_counts'] = true;
-
-        $base = $this->filteredQuery($companyId, $filters);
-        $config = $this->followUpDays->configForCompany($companyId);
-        $counts = [];
-
-        foreach ($config['days'] as $day) {
-            $counts[(string) $day] = (clone $base)
-                ->tap(fn ($query) => $this->followUpDays->applyToQuery($query, $companyId, [
-                    'follow_up_day' => $day,
-                ]))
-                ->count();
-        }
-
-        return [
-            'days' => $config['days'],
-            'plus_min' => $config['plus_min'],
-            'labels' => $config['labels'],
-            'counts' => $counts,
-        ];
     }
 
     /**
@@ -474,9 +437,6 @@ class LeadReportService
             $statuses
         ), fn ($s) => $s !== '')));
 
-        $followUpDay = (int) ($filters['follow_up_day'] ?? 0);
-        $followUpDayMin = (int) ($filters['follow_up_day_min'] ?? 0);
-
         return [
             'search' => $filters['search'] ?? '',
             'status' => $filters['status'] ?? 'all',
@@ -488,9 +448,6 @@ class LeadReportService
             'customer_type' => $filters['customer_type'] ?? '',
             'date_from' => $filters['date_from'] ?? '',
             'date_to' => $filters['date_to'] ?? '',
-            'follow_up_day' => $followUpDay > 0 ? $followUpDay : 0,
-            'follow_up_day_min' => $followUpDayMin > 0 ? $followUpDayMin : 0,
-            'follow_up_counts' => (bool) ($filters['follow_up_counts'] ?? false),
             'all_statuses' => (bool) ($filters['all_statuses'] ?? false),
         ];
     }
@@ -1152,7 +1109,6 @@ class LeadReportService
             LeadActivity::REOPENED => 'Reopened',
             LeadActivity::INBOX_ATTACHED => 'Inbox attached',
             LeadActivity::INBOX_DETACHED => 'Inbox detached',
-            LeadActivity::FOLLOW_UP_DAY => 'Follow-up day',
             LeadActivity::TEMPLATE_SENT => 'Template sent',
             LeadActivity::STOREGANISE_PUSH => 'Pushed to Storeganise',
             LeadActivity::STOREGANISE_UPDATE => 'Updated in Storeganise',

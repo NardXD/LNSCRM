@@ -9,9 +9,6 @@ use App\Models\InboxTemplate;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\LeadIdentity;
-use App\Models\LeadLabel;
-use App\Models\LeadRule;
-use App\Models\LeadStatus;
 use App\Models\MessageTemplate;
 use App\Models\OutlookMailAccount;
 use App\Models\Permission;
@@ -21,14 +18,12 @@ use App\Models\SharedInboxMember;
 use App\Models\User;
 use App\Models\WhatsAppConversation;
 use App\Services\InboxReplyService;
-use App\Services\LeadRuleEngine;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
-class LeadFollowUpDayTest extends TestCase
+class LeadMailFollowUpTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -43,162 +38,6 @@ class LeadFollowUpDayTest extends TestCase
     {
         Carbon::setTestNow();
         parent::tearDown();
-    }
-
-    public function test_list_filters_and_counts_follow_up_days(): void
-    {
-        [$user, $company] = $this->userWithPermissions(['view_leads']);
-
-        $this->makeLead($company, 'Created Today', 'new', now());
-        $day4 = $this->makeLead($company, 'Day Four', 'new', now()->subDays(4));
-        $day10 = $this->makeLead($company, 'Day Ten', 'new', now()->subDays(10));
-        $old = $this->makeLead($company, 'Old Lead', 'new', now()->subDays(100));
-        $converted = $this->makeLead($company, 'Converted Four', 'converted', now()->subDays(4));
-        $snoozed = $this->makeLead($company, 'Snoozed Four', Lead::STATUS_SNOOZED, now()->subDays(4));
-        $moveIn = $this->makeLead($company, 'Move In Four', 'new', now()->subDays(4));
-        $moveInLabel = LeadLabel::query()->firstOrCreate(
-            ['company_id' => $company->id, 'name' => 'Move in'],
-            ['color' => '#16a34a']
-        );
-        $moveIn->labels()->syncWithoutDetaching([$moveInLabel->id]);
-
-        $this->actingAs($user)
-            ->getJson('/api/leads?follow_up_day=4')
-            ->assertOk()
-            ->assertJsonPath('success', true)
-            ->assertJsonFragment(['id' => $day4->id, 'follow_up_day' => 4])
-            ->assertJsonFragment(['id' => $snoozed->id])
-            ->assertJsonMissing(['name' => 'Created Today'])
-            ->assertJsonMissing(['name' => 'Day Ten'])
-            ->assertJsonMissing(['name' => 'Converted Four'])
-            ->assertJsonMissing(['name' => 'Move In Four']);
-
-        $counts = $this->actingAs($user)
-            ->getJson('/api/leads/follow-up-counts')
-            ->assertOk()
-            ->json('data');
-
-        $this->assertSame([4, 10, 30, 90], $counts['days']);
-        $this->assertSame('4th Day FU', collect($counts['labels'])->firstWhere('day', 4)['name']);
-        $this->assertSame(2, $counts['counts']['4']);
-        $this->assertSame(1, $counts['counts']['10']);
-        $this->assertSame(0, $counts['counts']['30']);
-        $this->assertSame(1, $counts['counts']['90']);
-        $this->assertSame($old->id, Lead::query()->where('name', 'Old Lead')->value('id'));
-    }
-
-    public function test_follow_up_days_do_not_create_labels(): void
-    {
-        [$user, $company] = $this->userWithPermissions(['view_leads']);
-
-        $this->actingAs($user)
-            ->putJson('/api/leads/follow-up-days', ['days' => [4, 10, 30, 90]])
-            ->assertOk();
-
-        $this->assertSame(0, LeadLabel::query()->where('company_id', $company->id)->count());
-
-        $custom = LeadLabel::query()->create([
-            'company_id' => $company->id,
-            'name' => 'Custom tag',
-            'color' => '#111111',
-        ]);
-        $leftoverFu = LeadLabel::query()->create([
-            'company_id' => $company->id,
-            'name' => '4th Day FU',
-            'color' => '#7c3aed',
-        ]);
-
-        $this->actingAs($user)
-            ->deleteJson('/api/leads/labels/'.$custom->id)
-            ->assertOk();
-        $this->actingAs($user)
-            ->deleteJson('/api/leads/labels/'.$leftoverFu->id)
-            ->assertOk();
-
-        $this->actingAs($user)
-            ->getJson('/api/leads/follow-up-counts')
-            ->assertOk()
-            ->assertJsonPath('data.days', [4, 10, 30, 90]);
-
-        $names = $this->actingAs($user)
-            ->getJson('/api/leads/labels')
-            ->assertOk()
-            ->json('data');
-        $names = collect($names)->pluck('name')->all();
-
-        $this->assertNotContains('Custom tag', $names);
-        $this->assertNotContains('4th Day FU', $names);
-        $this->assertNotContains('Inquiry', $names);
-    }
-
-    public function test_follow_up_days_can_be_configured(): void
-    {
-        [$user, $company] = $this->userWithPermissions(['view_leads']);
-        $this->makeLead($company, 'Day Two', 'new', now()->subDays(2));
-        $this->makeLead($company, 'Day Seven', 'new', now()->subDays(7));
-
-        $this->actingAs($user)
-            ->putJson('/api/leads/follow-up-days', ['days' => [2, 7]])
-            ->assertOk()
-            ->assertJsonPath('data.days', [2, 7])
-            ->assertJsonPath('data.labels.0.name', '2nd Day FU')
-            ->assertJsonPath('data.labels.1.name', '7th Day FU');
-
-        Artisan::call('leads:process-follow-up-days');
-
-        $counts = $this->actingAs($user)
-            ->getJson('/api/leads/follow-up-counts')
-            ->assertOk()
-            ->json('data');
-
-        $this->assertSame([2, 7], $counts['days']);
-        $this->assertSame(1, $counts['counts']['2']);
-        $this->assertSame(1, $counts['counts']['7']);
-        $this->assertArrayNotHasKey('4', $counts['counts']);
-    }
-
-    public function test_follow_up_day_rule_fires_once_per_day_and_can_unsnooze(): void
-    {
-        [$user, $company] = $this->userWithPermissions(['view_leads']);
-        $label = LeadLabel::query()->create([
-            'company_id' => $company->id,
-            'name' => 'Day 2 follow-up',
-            'color' => '#4338ca',
-        ]);
-        LeadStatus::ensureForCompany((int) $company->id);
-
-        LeadRule::query()->create([
-            'company_id' => $company->id,
-            'name' => 'Tag day 2',
-            'priority' => 10,
-            'is_active' => true,
-            'triggers' => [LeadRuleEngine::TRIGGER_FOLLOW_UP_DAY_REACHED],
-            'conditions' => [
-                ['field' => 'follow_up_day', 'operator' => 'equals', 'value' => '2'],
-            ],
-            'actions' => [
-                ['type' => 'add_label', 'value' => $label->id],
-                ['type' => 'unsnooze', 'value' => null],
-            ],
-        ]);
-
-        $lead = $this->makeLead($company, 'Snoozed Two', Lead::STATUS_SNOOZED, now()->subDays(2), [
-            'reopen_status' => 'contacted',
-        ]);
-        $day3 = $this->makeLead($company, 'Day Three', 'new', now()->subDays(3));
-
-        Artisan::call('leads:process-follow-up-days');
-        Artisan::call('leads:process-follow-up-days');
-
-        $lead->refresh();
-        $this->assertSame(2, (int) $lead->follow_up_notified_day);
-        $this->assertTrue($lead->labels()->where('lead_labels.id', $label->id)->exists());
-        $this->assertSame('contacted', $lead->status);
-        $this->assertSame(1, LeadActivity::query()->where('lead_id', $lead->id)->where('action', LeadActivity::FOLLOW_UP_DAY)->count());
-
-        $day3->refresh();
-        $this->assertSame(3, (int) $day3->follow_up_notified_day);
-        $this->assertFalse($day3->labels()->where('lead_labels.id', $label->id)->exists());
     }
 
     public function test_message_channels_skip_whatsapp_without_thread(): void
@@ -242,7 +81,7 @@ class LeadFollowUpDayTest extends TestCase
         $this->actingAs($user)
             ->postJson('/api/leads/'.$lead->id.'/messages', [
                 'channel' => 'whatsapp',
-                'body' => 'Following up on day {{follow_up_day}}',
+                'body' => 'Following up',
             ])
             ->assertStatus(422);
 
@@ -323,14 +162,14 @@ class LeadFollowUpDayTest extends TestCase
         $this->actingAs($user)
             ->postJson('/api/leads/'.$lead->id.'/messages', [
                 'channel' => 'inbox',
-                'body' => '<p>Hi <strong>{{first_name}}</strong>, day {{follow_up_day}}.</p><p><a href="https://example.com">Open</a></p>',
+                'body' => '<p>Hi <strong>{{first_name}}</strong>.</p><p><a href="https://example.com">Open</a></p>',
                 'subject' => 'Checking in',
             ])
             ->assertOk()
             ->assertJsonPath('success', true);
 
         $this->assertSame(
-            '<p>Hi <strong>Anna</strong>, day 2.</p><p><a href="https://example.com">Open</a></p>',
+            '<p>Hi <strong>Anna</strong>.</p><p><a href="https://example.com">Open</a></p>',
             $captured
         );
         $this->assertSame(1, LeadActivity::query()->where('lead_id', $lead->id)->where('action', LeadActivity::TEMPLATE_SENT)->count());

@@ -216,45 +216,6 @@
         color: #fff;
     }
 
-    .leads-followup-row {
-        display: flex;
-        align-items: center;
-        gap: 0.45rem;
-        flex-wrap: wrap;
-        margin: 0 0 0.6rem;
-    }
-
-    .leads-followup-chips {
-        display: flex;
-        gap: 0.25rem;
-        flex-wrap: wrap;
-        flex: 1;
-    }
-
-    .leads-followup-chip {
-        border: 1px solid var(--border);
-        background: var(--bg-card);
-        color: var(--text-secondary);
-        border-radius: 6px;
-        padding: 0.28rem 0.55rem;
-        font-size: 0.6875rem;
-        font-weight: 600;
-        cursor: pointer;
-        margin: 0.2rem 0;
-        font-family: inherit;
-    }
-
-    .leads-followup-chip span {
-        margin-left: 0.15rem;
-        opacity: 0.75;
-    }
-
-    .leads-followup-chip.active {
-        background: var(--bg-primary);
-        border-color: var(--accent);
-        color: var(--accent);
-    }
-
     .leads-card {
         position: relative;
         background: var(--bg-card);
