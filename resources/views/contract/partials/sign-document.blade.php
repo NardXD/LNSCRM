@@ -48,11 +48,7 @@
     <div class="contract-agreement">
         <div class="contract-section-title">Terms of Agreement</div>
         <div class="contract-agreement-body">
-            @if(filled(trim(strip_tags($contract->content ?? ''))))
-                {!! $contract->content !!}
-            @else
-                <p class="contract-empty-content">No contract text has been provided.</p>
-            @endif
+            @include('contract.partials.agreement-body', ['contract' => $contract, 'data' => $data ?? null])
         </div>
     </div>
 </div>

@@ -14,58 +14,69 @@
             </div>
         </div>
 
-        <div class="leads-toolbar-stack">
-            <input type="search" id="leadSearch" class="leads-search" placeholder="Search leads by name, email, phone, or label…">
-            <div class="leads-toolbar-row">
-                <div class="leads-label-filter" id="qbLabelFilter">
-                    <div id="qbLabelFilterChips" class="lead-label-filter-chips"></div>
-                    <select id="qbLabelFilterSelect" aria-label="Filter by labels">
-                        <option value="">Filter labels…</option>
+        <div class="qbq-tabs">
+            <button type="button" class="qbq-tab active" id="qbTabLeadsBtn" data-tab="leads">Leads</button>
+            <button type="button" class="qbq-tab" id="qbTabQuotesBtn" data-tab="quotes">Saved Quotes</button>
+        </div>
+
+        <div id="qbLeadsPanel">
+            <div class="leads-toolbar-stack">
+                <input type="search" id="leadSearch" class="leads-search" placeholder="Search leads by name, email, phone, or label…">
+                <div class="leads-toolbar-row">
+                    <div class="leads-label-filter" id="qbLabelFilter">
+                        <div id="qbLabelFilterChips" class="lead-label-filter-chips"></div>
+                        <select id="qbLabelFilterSelect" aria-label="Filter by labels">
+                            <option value="">Filter labels…</option>
+                        </select>
+                    </div>
+                    <select id="qbAssigneeFilter" class="leads-assignee-filter" aria-label="Filter by assignee">
+                        <option value="">All assignees</option>
+                        <option value="__none__">Unassigned</option>
                     </select>
                 </div>
-                <select id="qbAssigneeFilter" class="leads-assignee-filter" aria-label="Filter by assignee">
-                    <option value="">All assignees</option>
-                    <option value="__none__">Unassigned</option>
-                </select>
+            </div>
+
+            <div class="leads-card">
+                <div class="qb-table-wrap">
+                    <table class="leads-table" id="leadsTable">
+                        <thead>
+                            <tr>
+                                <th>Lead</th>
+                                <th>Email</th>
+                                <th>Labels</th>
+                                <th>Assigned</th>
+                                <th>Status</th>
+                                <th>Facility</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="leadsTableBody">
+                            <tr>
+                                <td colspan="7" class="empty-state">
+                                    <div class="ld-loading">
+                                        <span class="ld-spinner" aria-hidden="true"></span>
+                                        Loading leads…
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="qb-mobile-cards" id="leadsCards"></div>
+
+                <div class="leads-pagination">
+                    <span id="paginationInfo">Loading…</span>
+                    <div>
+                        <button type="button" class="btn btn-secondary btn-sm" id="prevBtn" disabled>Previous</button>
+                        <button type="button" class="btn btn-secondary btn-sm" id="nextBtn" disabled>Next</button>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <div class="leads-card">
-            <div class="qb-table-wrap">
-                <table class="leads-table" id="leadsTable">
-                    <thead>
-                        <tr>
-                            <th>Lead</th>
-                            <th>Email</th>
-                            <th>Labels</th>
-                            <th>Assigned</th>
-                            <th>Status</th>
-                            <th>Facility</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="leadsTableBody">
-                        <tr>
-                            <td colspan="7" class="empty-state">
-                                <div class="ld-loading">
-                                    <span class="ld-spinner" aria-hidden="true"></span>
-                                    Loading leads…
-                                </div>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="qb-mobile-cards" id="leadsCards"></div>
-
-            <div class="leads-pagination">
-                <span id="paginationInfo">Loading…</span>
-                <div>
-                    <button type="button" class="btn btn-secondary btn-sm" id="prevBtn" disabled>Previous</button>
-                    <button type="button" class="btn btn-secondary btn-sm" id="nextBtn" disabled>Next</button>
-                </div>
-            </div>
+        <div id="qbQuotesPanel" style="display:none;">
+            @include('partials.quotation-builder-saved-quotes')
         </div>
     </div>
 @endsection
@@ -73,6 +84,10 @@
 @push('styles')
     @include('partials.leads-page-base-styles')
 <style>
+    .qbq-tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
+    .qbq-tab { border: none; background: none; padding: 0.75rem 0.25rem; margin-right: 1rem; font-size: 0.9375rem; font-weight: 500; color: var(--text-secondary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .qbq-tab:hover { color: var(--text-primary); }
+    .qbq-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
     .ld-page .leads-table tbody tr { cursor: default; }
     .lead-email { color: var(--text-secondary); word-break: break-word; font-size: 0.75rem; }
     .lead-facility {
@@ -175,6 +190,27 @@
 @push('scripts')
 <script>
 (function () {
+    const qbLeadsPanel = document.getElementById('qbLeadsPanel');
+    const qbQuotesPanel = document.getElementById('qbQuotesPanel');
+    const qbTabLeadsBtn = document.getElementById('qbTabLeadsBtn');
+    const qbTabQuotesBtn = document.getElementById('qbTabQuotesBtn');
+
+    function activateTab(tab) {
+        const isQuotes = tab === 'quotes';
+        qbLeadsPanel.style.display = isQuotes ? 'none' : '';
+        qbQuotesPanel.style.display = isQuotes ? '' : 'none';
+        qbTabLeadsBtn.classList.toggle('active', !isQuotes);
+        qbTabQuotesBtn.classList.toggle('active', isQuotes);
+    }
+
+    qbTabLeadsBtn.addEventListener('click', () => activateTab('leads'));
+    qbTabQuotesBtn.addEventListener('click', () => activateTab('quotes'));
+
+    const initialParams = new URLSearchParams(window.location.search);
+    if (initialParams.get('tab') === 'quotes') {
+        activateTab('quotes');
+    }
+
     const clientsUrl = @json(route('api.quotation-builder.clients'));
     const filterOptionsUrl = @json(route('api.quotation-builder.client-filters'));
     const leadsUrl = @json(route('leads'));

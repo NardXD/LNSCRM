@@ -601,7 +601,7 @@
                         <button class="icon-btn" title="History" onclick="event.stopPropagation(); viewContractHistory(${c.id})">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                         </button>
-                        ${canCreate && c.status === 'draft' ? `
+                        ${canCreate && c.status === 'draft' && c.content_type !== 'storage_quote' ? `
                         <button class="icon-btn" title="Edit" onclick="editContract(${c.id})">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                         </button>` : ''}
@@ -839,7 +839,9 @@
         const signed = c.signers.filter(s => s.status === 'signed').length;
         document.getElementById('viewContractProgress').textContent = `${signed}/${c.signers.length} signed`;
         document.getElementById('viewContractCreator').textContent = c.created_by || '-';
-        document.getElementById('viewContractContent').innerHTML = c.content || '<p style="color:var(--text-muted)">No content</p>';
+        document.getElementById('viewContractContent').innerHTML = c.content_type === 'storage_quote'
+            ? (c.rendered_content || '<p style="color:var(--text-muted)">No content</p>')
+            : (c.content || '<p style="color:var(--text-muted)">No content</p>');
         document.getElementById('viewContractSigners').innerHTML = c.signers.map(s => `
             <tr>
                 <td>${escapeHtml(s.name)}</td>
@@ -851,7 +853,7 @@
         `).join('');
 
         document.getElementById('viewSendBtn').style.display = canSend && ['draft','pending_signatures','partially_signed'].includes(c.status) ? 'inline-flex' : 'none';
-        document.getElementById('viewEditBtn').style.display = canCreate && c.status === 'draft' ? 'inline-flex' : 'none';
+        document.getElementById('viewEditBtn').style.display = canCreate && c.status === 'draft' && c.content_type !== 'storage_quote' ? 'inline-flex' : 'none';
         document.getElementById('viewDeleteBtn').style.display = canDelete && ['draft','cancelled'].includes(c.status) ? 'inline-flex' : 'none';
         document.getElementById('viewCancelBtn').style.display = c.status !== 'signed' && c.status !== 'cancelled' ? 'inline-flex' : 'none';
 
@@ -990,5 +992,10 @@
     loadClients();
     loadStats();
     loadContracts();
+
+    const openContractId = new URLSearchParams(window.location.search).get('open');
+    if (openContractId) {
+        openViewContractModal(parseInt(openContractId, 10));
+    }
 </script>
 @endpush

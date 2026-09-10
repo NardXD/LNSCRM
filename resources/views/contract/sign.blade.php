@@ -76,6 +76,7 @@
         .method-panel.active { display: block; }
         .footer { text-align: center; color: var(--muted); font-size: 0.8125rem; margin-top: 2rem; }
     </style>
+    @include('quotes._contract-body-styles')
 </head>
 <body>
     <div class="container">
@@ -89,7 +90,7 @@
         <div class="card">
             <h2 style="font-size:1.125rem;margin-bottom:0.25rem;">Review Contract</h2>
             <div class="meta">Please read the full agreement below before signing.</div>
-            @include('contract.partials.sign-document', ['contract' => $contract])
+            @include('contract.partials.sign-document', ['contract' => $contract, 'data' => $data ?? null])
         </div>
 
         @if($contractComplete || $alreadySigned)

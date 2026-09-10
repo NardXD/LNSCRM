@@ -275,6 +275,7 @@
             margin-bottom: 4px;
         }
     </style>
+    @include('quotes._contract-body-styles')
 </head>
 <body>
     @php
@@ -362,7 +363,7 @@
 
     <div class="agreement-section">
         <div class="section-title">Terms of Agreement</div>
-        <div class="agreement-body">{!! $contract->content !!}</div>
+        <div class="agreement-body">@include('contract.partials.agreement-body', ['contract' => $contract, 'data' => $data ?? null])</div>
     </div>
 
     <div class="signatures-section">

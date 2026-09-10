@@ -9,6 +9,7 @@ use App\Models\Contract;
 use App\Models\ContractSigner;
 use App\Models\ContractStatusHistory;
 use App\Models\GmailIntegration;
+use App\Services\Quote\QuotationDocumentMapper;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -32,7 +33,7 @@ class ContractController extends Controller
     {
         $user = Auth::user();
         $query = Contract::where('company_id', $user->company_id)
-            ->with(['client', 'user', 'signers'])
+            ->with(['client', 'user', 'signers', 'quotation'])
             ->orderByDesc('created_at');
 
         if ($request->filled('search')) {
@@ -152,7 +153,7 @@ class ContractController extends Controller
             return $response;
         }
 
-        $contract->load(['client', 'user', 'signers', 'statusHistory.user']);
+        $contract->load(['client', 'user', 'signers', 'statusHistory.user', 'quotation']);
 
         return response()->json([
             'success' => true,
@@ -329,9 +330,13 @@ class ContractController extends Controller
             abort(404);
         }
 
-        $contract->load(['client', 'company', 'signers']);
+        $contract->load(['client', 'company', 'signers', 'quotation']);
 
-        $pdf = Pdf::loadView('contract.pdf', ['contract' => $contract])
+        $data = $contract->content_type === 'storage_quote' && $contract->quotation
+            ? QuotationDocumentMapper::fromQuotation($contract->quotation)
+            : null;
+
+        $pdf = Pdf::loadView('contract.pdf', ['contract' => $contract, 'data' => $data])
             ->setPaper('a4', 'portrait')
             ->setOption('enable-local-file-access', true);
 
@@ -341,7 +346,7 @@ class ContractController extends Controller
     public function showSigningPage(string $token): View
     {
         $signer = ContractSigner::where('token', $token)
-            ->with(['contract.client', 'contract.company', 'contract.signers'])
+            ->with(['contract.client', 'contract.company', 'contract.signers', 'contract.quotation'])
             ->firstOrFail();
 
         $contract = $signer->contract;
@@ -350,9 +355,14 @@ class ContractController extends Controller
         $contractComplete = $contract->status === 'signed';
         $invalid = ! $signer->isTokenValid() && ! $alreadySigned;
 
+        $data = $contract->content_type === 'storage_quote' && $contract->quotation
+            ? QuotationDocumentMapper::fromQuotation($contract->quotation)
+            : null;
+
         return view('contract.sign', [
             'signer' => $signer,
             'contract' => $contract,
+            'data' => $data,
             'token' => $token,
             'expired' => $expired,
             'alreadySigned' => $alreadySigned,
@@ -552,16 +562,29 @@ class ContractController extends Controller
             'created_by' => $contract->user->name,
             'created_at' => $contract->created_at->format('M d, Y'),
             'signers_progress' => "{$signedCount}/{$totalSigners}",
+            'content_type' => $contract->content_type,
+            'quotation_id' => $contract->quotation_id,
         ];
     }
 
     protected function formatContractDetail(Contract $contract): array
     {
+        $renderedContent = null;
+        if ($contract->content_type === 'storage_quote' && $contract->relationLoaded('quotation') && $contract->quotation) {
+            $renderedContent = view('contract.partials.agreement-body', [
+                'contract' => $contract,
+                'data' => QuotationDocumentMapper::fromQuotation($contract->quotation),
+            ])->render();
+        }
+
         return [
             'id' => $contract->id,
             'contract_number' => $contract->contract_number,
             'title' => $contract->title,
             'content' => $contract->content,
+            'content_type' => $contract->content_type,
+            'quotation_id' => $contract->quotation_id,
+            'rendered_content' => $renderedContent,
             'status' => $contract->status,
             'client_id' => $contract->client_id,
             'client' => $contract->client?->only(['id', 'name', 'email']),

@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreQuotationRequest;
 use App\Http\Requests\UpdateQuotationRequest;
 use App\Models\Client;
+use App\Models\Contract;
+use App\Models\ContractStatusHistory;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Lead;
@@ -15,6 +17,8 @@ use App\Models\QuotationStatusHistory;
 use App\Models\User;
 use App\Services\CompanyOutboundMailService;
 use App\Services\Quote\QuotationBuilderEmailTemplateService;
+use App\Services\Quote\QuotationDocumentMapper;
+use App\Services\Quote\QuotationNumberGenerator;
 use App\Services\StoreganiseService;
 use App\Support\Facilities;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -23,6 +27,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 
 class QuotationController extends Controller
 {
@@ -98,7 +103,7 @@ class QuotationController extends Controller
         $companyId = $user->company_id;
 
         $query = Quotation::where('company_id', $companyId)
-            ->with(['client', 'user'])
+            ->with(['client', 'user', 'contracts'])
             ->orderBy('created_at', 'desc');
 
         // Search filter
@@ -118,7 +123,9 @@ class QuotationController extends Controller
         }
 
         // Month filter
-        if ($request->has('month') && $request->month) {
+        if ($request->input('month') === 'all') {
+            // No date restriction — used by the Saved Quotes tab to show quotes from any month.
+        } elseif ($request->has('month') && $request->month) {
             $query->whereYear('quotation_date', substr($request->month, 0, 4))
                 ->whereMonth('quotation_date', substr($request->month, 5, 2));
         } else {
@@ -144,6 +151,8 @@ class QuotationController extends Controller
                 'amount' => (float) $quotation->total,
                 'status' => $quotation->status,
                 'created_by' => $quotation->user->name,
+                'quote_type' => $quotation->quote_type,
+                'contract_id' => $quotation->contracts->first()?->id,
             ];
         });
 
@@ -412,23 +421,7 @@ class QuotationController extends Controller
             ], 404);
         }
 
-        $prefix = $company->quotation_prefix;
-        $year = now()->year;
-        $lastQuotation = Quotation::where('company_id', $company->id)
-            ->whereYear('created_at', $year)
-            ->orderBy('id', 'desc')
-            ->first();
-
-        if ($lastQuotation) {
-            // Extract number from last quotation (format: PREFIX-YYYY-###)
-            $parts = explode('-', $lastQuotation->quotation_number);
-            $lastNumber = (int) end($parts);
-            $nextNumber = str_pad($lastNumber + 1, 3, '0', STR_PAD_LEFT);
-        } else {
-            $nextNumber = '001';
-        }
-
-        $quotationNumber = "{$prefix}-{$year}-{$nextNumber}";
+        $quotationNumber = app(QuotationNumberGenerator::class)->next($company);
 
         return response()->json([
             'success' => true,
@@ -457,23 +450,7 @@ class QuotationController extends Controller
             }
 
             // Generate quotation number with company prefix
-            $prefix = $company->quotation_prefix;
-            $year = now()->year;
-            $lastQuotation = Quotation::where('company_id', $company->id)
-                ->whereYear('created_at', $year)
-                ->orderBy('id', 'desc')
-                ->first();
-
-            if ($lastQuotation) {
-                // Extract number from last quotation (format: PREFIX-YYYY-###)
-                $parts = explode('-', $lastQuotation->quotation_number);
-                $lastNumber = (int) end($parts);
-                $nextNumber = str_pad($lastNumber + 1, 3, '0', STR_PAD_LEFT);
-            } else {
-                $nextNumber = '001';
-            }
-
-            $quotationNumber = "{$prefix}-{$year}-{$nextNumber}";
+            $quotationNumber = app(QuotationNumberGenerator::class)->next($company);
 
             // Calculate totals
             $subtotal = 0;
@@ -589,6 +566,13 @@ class QuotationController extends Controller
             abort(404, 'Quotation not found.');
         }
 
+        if ($quotation->quote_type === 'storage') {
+            $data = QuotationDocumentMapper::fromQuotation($quotation);
+
+            return Pdf::loadView('quotes.quote-pdf', ['data' => $data])
+                ->stream('quotation-'.$quotation->quotation_number.'.pdf');
+        }
+
         $quotation->load(['client', 'company', 'items']);
 
         $pdf = Pdf::loadView('quotation.pdf', ['quotation' => $quotation])
@@ -596,6 +580,28 @@ class QuotationController extends Controller
             ->setOption('enable-local-file-access', true);
 
         return $pdf->stream('quotation-'.$quotation->quotation_number.'.pdf');
+    }
+
+    /**
+     * Stream the full storage-agreement PDF (fee schedule + clauses, unsigned) for a storage quotation.
+     */
+    public function contractPdf(Quotation $quotation)
+    {
+        $user = Auth::user();
+
+        if ($quotation->company_id !== $user->company_id || $quotation->quote_type !== 'storage') {
+            abort(404, 'Quotation not found.');
+        }
+
+        $data = QuotationDocumentMapper::fromQuotation($quotation);
+
+        $pdf = Pdf::loadView('quotes.contract-pdf', ['data' => $data])->setPaper('a4');
+        $pdf->render();
+
+        $canvas = $pdf->getCanvas();
+        $canvas->page_text($canvas->get_width() / 2 - 20, $canvas->get_height() - 35, 'Page {PAGE_NUM}/{PAGE_COUNT}', null, 9);
+
+        return $pdf->stream('quotation-'.$quotation->quotation_number.'-agreement.pdf');
     }
 
     /**
@@ -785,25 +791,38 @@ class QuotationController extends Controller
                 }
             }
 
-            // Generate PDF
-            $pdf = Pdf::loadView('quotation.pdf', ['quotation' => $quotation])
-                ->setPaper('a4', 'portrait')
-                ->setOption('enable-local-file-access', true);
-
-            $pdfContent = $pdf->output();
             $filename = 'quotation-'.$quotation->quotation_number.'.pdf';
 
-            $emailHtml = view('emails.quotation', [
-                'quotation' => $quotation,
-                'client' => $quotation->client,
-                'company' => $quotation->company,
-            ])->render();
+            if ($quotation->quote_type === 'storage') {
+                $data = QuotationDocumentMapper::fromQuotation($quotation);
+                $pdfContent = Pdf::loadView('quotes.quote-pdf', ['data' => $data])->output();
+                $emailTemplate = app(QuotationBuilderEmailTemplateService::class)->renderForQuote(
+                    (int) $user->company_id,
+                    $data,
+                    $quotation->company->name ?? 'Company'
+                );
+                $emailSubject = $emailTemplate['subject'];
+                $emailHtml = $emailTemplate['body'];
+            } else {
+                // Generate PDF
+                $pdf = Pdf::loadView('quotation.pdf', ['quotation' => $quotation])
+                    ->setPaper('a4', 'portrait')
+                    ->setOption('enable-local-file-access', true);
+
+                $pdfContent = $pdf->output();
+                $emailSubject = 'Quotation #'.$quotation->quotation_number;
+                $emailHtml = view('emails.quotation', [
+                    'quotation' => $quotation,
+                    'client' => $quotation->client,
+                    'company' => $quotation->company,
+                ])->render();
+            }
 
             if ($mailbox) {
                 $sent = $mailService->sendViaOutlook(
                     $mailbox,
                     $quotation->client->email,
-                    'Quotation #'.$quotation->quotation_number,
+                    $emailSubject,
                     $emailHtml,
                     [[
                         'name' => $filename,
@@ -819,10 +838,10 @@ class QuotationController extends Controller
                     ], 500);
                 }
             } else {
-                Mail::html($emailHtml, function ($message) use ($quotation, $from, $pdfContent, $filename) {
+                Mail::html($emailHtml, function ($message) use ($quotation, $from, $pdfContent, $filename, $emailSubject) {
                     $message->from($from['email'], $quotation->company->name ?? 'Company')
                         ->to($quotation->client->email, $quotation->client->name)
-                        ->subject('Quotation #'.$quotation->quotation_number)
+                        ->subject($emailSubject)
                         ->attachData($pdfContent, $filename, [
                             'mime' => 'application/pdf',
                         ]);
@@ -856,6 +875,93 @@ class QuotationController extends Controller
                 'message' => 'Failed to send quotation: '.$e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Generate a signable Contract from a saved storage quotation, prefilling
+     * signers from the quote's tenant/alt contact. Idempotent — returns the
+     * existing contract if one has already been created for this quotation.
+     */
+    public function createContract(Quotation $quotation): JsonResponse
+    {
+        $user = Auth::user();
+
+        if ($quotation->company_id !== $user->company_id) {
+            return response()->json(['success' => false, 'message' => 'Quotation not found.'], 404);
+        }
+
+        if ($quotation->quote_type !== 'storage') {
+            return response()->json(['success' => false, 'message' => 'Only storage quotes can be converted to a contract.'], 422);
+        }
+
+        $existing = Contract::where('quotation_id', $quotation->id)->first();
+        if ($existing) {
+            return response()->json([
+                'success' => true,
+                'message' => 'A contract already exists for this quotation.',
+                'data' => ['id' => $existing->id],
+            ]);
+        }
+
+        $tenant = $quotation->storage_tenant ?? [];
+        $altContact = $quotation->storage_alt_contact ?? [];
+
+        $tenantName = trim(($tenant['first_name'] ?? '').' '.($tenant['last_name'] ?? '')) ?: ($tenant['company'] ?? 'Client');
+        $tenantEmail = trim((string) ($tenant['email'] ?? ''));
+
+        if ($tenantEmail === '') {
+            return response()->json(['success' => false, 'message' => 'The quote has no tenant email to sign with.'], 422);
+        }
+
+        $contract = DB::transaction(function () use ($quotation, $user, $tenant, $altContact, $tenantName, $tenantEmail) {
+            $contract = Contract::create([
+                'company_id' => $quotation->company_id,
+                'client_id' => $quotation->client_id,
+                'user_id' => $user->id,
+                'quotation_id' => $quotation->id,
+                'contract_number' => Contract::generateContractNumber($quotation->company_id),
+                'title' => 'Self-Storage Agreement — '.$quotation->quotation_number,
+                'content' => 'Generated from storage quotation '.$quotation->quotation_number.'. See the attached agreement for full terms.',
+                'content_type' => 'storage_quote',
+                'status' => 'draft',
+                'effective_date' => $quotation->storage_terms['start_date'] ?? null,
+                'expiry_date' => $quotation->storage_terms['end_date'] ?? null,
+            ]);
+
+            $contract->signers()->create([
+                'name' => $tenantName,
+                'email' => $tenantEmail,
+                'role' => 'client',
+                'signing_order' => 1,
+            ]);
+
+            $altEmail = trim((string) ($altContact['email'] ?? ''));
+            if ($altEmail !== '') {
+                $altName = trim(($altContact['first_name'] ?? '').' '.($altContact['last_name'] ?? '')) ?: $altEmail;
+                $contract->signers()->create([
+                    'name' => $altName,
+                    'email' => $altEmail,
+                    'role' => 'client',
+                    'signing_order' => 2,
+                ]);
+            }
+
+            ContractStatusHistory::create([
+                'contract_id' => $contract->id,
+                'user_id' => $user->id,
+                'status' => 'draft',
+                'previous_status' => null,
+                'notes' => 'Contract created from storage quotation '.$quotation->quotation_number,
+            ]);
+
+            return $contract;
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Contract created from quotation.',
+            'data' => ['id' => $contract->id],
+        ], 201);
     }
 
     /**
@@ -1023,6 +1129,10 @@ class QuotationController extends Controller
                 ], 422);
             }
 
+            if ($quotation->signature_path) {
+                Storage::disk('local')->delete($quotation->signature_path);
+            }
+
             $quotation->delete();
 
             return response()->json([
@@ -1108,6 +1218,10 @@ class QuotationController extends Controller
             'total' => (float) $quotation->total,
             'internal_notes' => $quotation->internal_notes,
             'terms_conditions' => $quotation->terms_conditions,
+            'quote_type' => $quotation->quote_type,
+            'contract_id' => $quotation->relationLoaded('contracts')
+                ? $quotation->contracts->first()?->id
+                : $quotation->contracts()->first()?->id,
             'items' => $quotation->items->map(function ($item) {
                 return [
                     'id' => $item->id,

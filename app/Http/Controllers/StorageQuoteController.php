@@ -2,11 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\LeadMissingEmailException;
 use App\Mail\StorageQuoteMail;
 use App\Models\Lead;
+use App\Models\Quotation;
+use App\Models\QuotationItem;
+use App\Models\QuotationStatusHistory;
 use App\Services\CompanyOutboundMailService;
 use App\Services\LeadQuoteMapper;
+use App\Services\LeadToClientConverter;
 use App\Services\Quote\QuotationBuilderEmailTemplateService;
+use App\Services\Quote\QuotationNumberGenerator;
 use App\Services\Quote\QuoteDocumentData;
 use App\Services\StoreganiseService;
 use App\Support\Facilities;
@@ -15,7 +21,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
@@ -160,6 +168,173 @@ class StorageQuoteController extends Controller
         }
 
         return response()->json(['message' => "Quote emailed to {$email}."]);
+    }
+
+    public function save(Request $request): JsonResponse
+    {
+        $lead = Lead::findOrFail($request->integer('lead_id'));
+        $this->authorizeLead($lead);
+
+        $data = QuoteDocumentData::fromArray($this->quoteFormPayload($request), $this->signatureBase64($request));
+
+        $email = trim((string) $data['tenant']['email']);
+        if ($email === '' || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return response()->json(['message' => 'Enter a valid lead email before saving the quote.'], 422);
+        }
+
+        $user = Auth::user();
+        $company = $user->company;
+
+        if (! $company) {
+            return response()->json(['message' => 'Company not found.'], 404);
+        }
+
+        try {
+            $quotation = DB::transaction(function () use ($lead, $data, $user, $company, $request) {
+                $client = app(LeadToClientConverter::class)->convert($lead);
+
+                $terms = $data['terms'];
+                $terms['unit_size'] = $data['unit_size'];
+
+                $items = $this->buildStorageQuoteItems($data);
+                $subtotal = array_sum(array_map(
+                    fn (array $item) => $item['quantity'] * $item['unit_price'],
+                    $items
+                ));
+
+                $locode = $request->string('lo_code')->toString();
+
+                $quotation = Quotation::create([
+                    'company_id' => $lead->company_id,
+                    'client_id' => $client->id,
+                    'user_id' => $user->id,
+                    'quotation_number' => app(QuotationNumberGenerator::class)->next($company),
+                    'quotation_date' => now(),
+                    'valid_until' => now()->addDays(30),
+                    'status' => 'draft',
+                    'subtotal' => $subtotal,
+                    'tax_amount' => $data['totals']['vat_amount'],
+                    'discount_amount' => $data['totals']['reduction'],
+                    'discount_type' => 'amount',
+                    'total' => $data['totals']['total_due'],
+                    'quote_type' => 'storage',
+                    'storage_tenant' => $data['tenant'],
+                    'storage_alt_contact' => $data['alt_contact'],
+                    'storage_units' => $data['all_units'],
+                    'storage_terms' => $terms,
+                    'storage_totals' => $data['totals'],
+                    'facility_code' => $locode !== '' ? $locode : null,
+                ]);
+
+                foreach ($items as $index => $item) {
+                    QuotationItem::create([
+                        'quotation_id' => $quotation->id,
+                        'item_name' => $item['item_name'],
+                        'description' => $item['description'],
+                        'quantity' => $item['quantity'],
+                        'unit_price' => $item['unit_price'],
+                        'tax_percentage' => 0,
+                        'tax_amount' => 0,
+                        'total' => $item['quantity'] * $item['unit_price'],
+                        'sort_order' => $index,
+                    ]);
+                }
+
+                if ($data['signature_base64']) {
+                    $path = "quotes/{$quotation->id}/signature.png";
+                    Storage::disk('local')->put($path, base64_decode($data['signature_base64']));
+                    $quotation->update(['signature_path' => $path]);
+                }
+
+                QuotationStatusHistory::create([
+                    'quotation_id' => $quotation->id,
+                    'user_id' => $user->id,
+                    'status' => 'draft',
+                    'previous_status' => null,
+                    'notes' => 'Storage quote saved from quotation builder',
+                ]);
+
+                return $quotation;
+            });
+        } catch (LeadMissingEmailException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Quote saved.',
+            'data' => [
+                'id' => $quotation->id,
+                'quotation_number' => $quotation->quotation_number,
+                'total' => (float) $quotation->total,
+            ],
+        ]);
+    }
+
+    /**
+     * Decompose the normalized quote-document totals into invoice-style line items.
+     *
+     * @param  array<string, mixed>  $data
+     * @return list<array{item_name: string, description: ?string, quantity: float, unit_price: float}>
+     */
+    protected function buildStorageQuoteItems(array $data): array
+    {
+        $items = [];
+
+        $items[] = [
+            'item_name' => 'Storage Service Fee',
+            'description' => trim('Initial period: '.$data['terms']['initial_period'].' month(s), '
+                .$data['terms']['start_date_display'].' to '.$data['terms']['end_date_display']),
+            'quantity' => 1,
+            'unit_price' => (float) $data['totals']['final_storage_fee'],
+        ];
+
+        if ((float) $data['totals']['insurance_computation'] > 0) {
+            $items[] = [
+                'item_name' => 'Insurance Fee',
+                'description' => null,
+                'quantity' => 1,
+                'unit_price' => (float) $data['totals']['insurance_computation'],
+            ];
+        }
+
+        $items[] = [
+            'item_name' => 'Security Deposit (non-VAT)',
+            'description' => '1 month standard storage fee, net of VAT',
+            'quantity' => 1,
+            'unit_price' => (float) $data['totals']['deposit_notax'],
+        ];
+
+        $items[] = [
+            'item_name' => 'Admin Fee',
+            'description' => 'Documentation and processing fee',
+            'quantity' => 1,
+            'unit_price' => (float) $data['totals']['admin_fee'],
+        ];
+
+        foreach ($data['terms']['adjustments'] as $index => $amount) {
+            if ((float) $amount === 0.0) {
+                continue;
+            }
+
+            $items[] = [
+                'item_name' => 'Other Adjustment '.($index + 1),
+                'description' => $data['terms']['adjustment_remarks'][$index] ?: null,
+                'quantity' => 1,
+                'unit_price' => (float) $amount,
+            ];
+        }
+
+        if ((float) $data['terms']['adjustments_nonvat'] !== 0.0) {
+            $items[] = [
+                'item_name' => 'Other Adjustment (non-VAT)',
+                'description' => $data['terms']['adjustments_nonvat_remarks'] ?: null,
+                'quantity' => 1,
+                'unit_price' => (float) $data['terms']['adjustments_nonvat'],
+            ];
+        }
+
+        return $items;
     }
 
     /**

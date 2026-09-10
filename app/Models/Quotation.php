@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Storage;
 
 class Quotation extends Model
 {
@@ -27,6 +28,14 @@ class Quotation extends Model
         'internal_notes',
         'terms_conditions',
         'sent_at',
+        'quote_type',
+        'storage_tenant',
+        'storage_alt_contact',
+        'storage_units',
+        'storage_terms',
+        'storage_totals',
+        'facility_code',
+        'signature_path',
     ];
 
     protected function casts(): array
@@ -39,7 +48,29 @@ class Quotation extends Model
             'tax_amount' => 'decimal:2',
             'discount_amount' => 'decimal:2',
             'total' => 'decimal:2',
+            'storage_tenant' => 'array',
+            'storage_alt_contact' => 'array',
+            'storage_units' => 'array',
+            'storage_terms' => 'array',
+            'storage_totals' => 'array',
         ];
+    }
+
+    /**
+     * Get the contracts generated from this quotation.
+     */
+    public function contracts(): HasMany
+    {
+        return $this->hasMany(Contract::class);
+    }
+
+    public function getSignatureDataUriAttribute(): ?string
+    {
+        if (! $this->signature_path || ! Storage::disk('local')->exists($this->signature_path)) {
+            return null;
+        }
+
+        return 'data:image/png;base64,'.base64_encode(Storage::disk('local')->get($this->signature_path));
     }
 
     /**

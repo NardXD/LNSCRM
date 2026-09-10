@@ -18,11 +18,13 @@ class Contract extends Model
         'contract_number',
         'title',
         'content',
+        'content_type',
         'status',
         'effective_date',
         'expiry_date',
         'sent_at',
         'signed_at',
+        'quotation_id',
     ];
 
     protected function casts(): array
@@ -43,6 +45,11 @@ class Contract extends Model
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    public function quotation(): BelongsTo
+    {
+        return $this->belongsTo(Quotation::class);
     }
 
     public function user(): BelongsTo

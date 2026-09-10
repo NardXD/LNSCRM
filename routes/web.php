@@ -850,8 +850,12 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/quotations', [QuotationController::class, 'store'])->name('api.quotation-builder.quotations.store');
         Route::get('/quotations/{quotation}', [QuotationController::class, 'show'])->name('api.quotation-builder.quotations.show');
         Route::get('/quotations/{quotation}/pdf', [QuotationController::class, 'pdf'])->name('api.quotation-builder.quotations.pdf');
+        Route::get('/quotations/{quotation}/contract-pdf', [QuotationController::class, 'contractPdf'])->name('api.quotation-builder.quotations.contract-pdf');
         Route::get('/quotations/{quotation}/status-history', [QuotationController::class, 'getStatusHistory'])->name('api.quotation-builder.quotations.status-history');
         Route::post('/quotations/{quotation}/send-email', [QuotationController::class, 'sendEmail'])->name('api.quotation-builder.quotations.send-email');
+        Route::post('/quotations/{quotation}/create-contract', [QuotationController::class, 'createContract'])
+            ->middleware('permission:create_contracts')
+            ->name('api.quotation-builder.quotations.create-contract');
         Route::put('/quotations/{quotation}', [QuotationController::class, 'update'])->name('api.quotation-builder.quotations.update');
         Route::patch('/quotations/{quotation}/status', [QuotationController::class, 'updateStatus'])->name('api.quotation-builder.quotations.status.update');
         Route::delete('/quotations/{quotation}', [QuotationController::class, 'destroy'])->name('api.quotation-builder.quotations.destroy');
@@ -861,6 +865,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/storage-quotes/print', [StorageQuoteController::class, 'print'])->name('api.quotation-builder.storage-quotes.print');
         Route::post('/storage-quotes/download', [StorageQuoteController::class, 'download'])->name('api.quotation-builder.storage-quotes.download');
         Route::post('/storage-quotes/email', [StorageQuoteController::class, 'email'])->name('api.quotation-builder.storage-quotes.email');
+        Route::post('/storage-quotes/save', [StorageQuoteController::class, 'save'])->name('api.quotation-builder.storage-quotes.save');
 
         Route::get('/microsoft-365-mail', [IntegrationController::class, 'getMicrosoft365MailIntegration'])
             ->middleware('permission:view_quotation_builder_microsoft_365_mail')
