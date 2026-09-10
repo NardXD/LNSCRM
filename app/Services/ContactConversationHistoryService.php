@@ -107,13 +107,17 @@ class ContactConversationHistoryService
         }
 
         if (! $client && $name) {
+            // Word-boundary check to stop e.g. "Nard" from matching "Lenard" — see
+            // FlexCrmLookupService::findLeadByName() for the same fix on leads.
             $client = Client::query()
                 ->where('company_id', $companyId)
                 ->where(function ($q) use ($name) {
                     $q->where('name', 'like', '%'.$name.'%')
                         ->orWhere('contact_person', 'like', '%'.$name.'%');
                 })
-                ->first();
+                ->get()
+                ->first(fn (Client $candidate) => FlexCrmLookupService::nameMatchesWholeWord($candidate->name, $name)
+                    || FlexCrmLookupService::nameMatchesWholeWord($candidate->contact_person, $name));
         }
 
         if ($client) {

@@ -117,6 +117,9 @@ class FlexCrmLookupService
             return null;
         }
 
+        // An unanchored LIKE '%name%' matches "Nard" inside "Lenard Tupaz" — filter
+        // candidates down to a real word-boundary match so one person's name being a
+        // substring of an unrelated person's name can't cross-link their conversations.
         $lead = Lead::query()
             ->where('company_id', $companyId)
             ->where(function ($q) use ($name) {
@@ -124,7 +127,9 @@ class FlexCrmLookupService
                     ->orWhere('company_name', 'like', '%'.$name.'%');
             })
             ->with(['identities', 'assignedUser:id,name', 'labels'])
-            ->first();
+            ->get()
+            ->first(fn (Lead $candidate) => self::nameMatchesWholeWord($candidate->name, $name)
+                || self::nameMatchesWholeWord($candidate->company_name, $name));
 
         if ($lead) {
             return $lead;
@@ -143,6 +148,21 @@ class FlexCrmLookupService
                 return $cand === $needle || str_contains($cand, $needle) || str_contains($needle, $cand);
             })
             ?->lead;
+    }
+
+    /**
+     * True only if $needle appears in $haystack as a whole word (not merely as a
+     * substring) — e.g. "Nard" matches "Nard Garcia" but not "Lenard Tupaz".
+     */
+    public static function nameMatchesWholeWord(?string $haystack, string $needle): bool
+    {
+        $haystack = trim((string) $haystack);
+        $needle = trim($needle);
+        if ($haystack === '' || $needle === '') {
+            return false;
+        }
+
+        return (bool) preg_match('/(?<![\p{L}\p{N}])'.preg_quote($needle, '/').'(?![\p{L}\p{N}])/ui', $haystack);
     }
 
     public function findLeadById(int $companyId, int $leadId): ?Lead
