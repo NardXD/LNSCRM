@@ -2,12 +2,43 @@
 
 namespace App\Services\Quote;
 
+use App\Models\Contract;
 use App\Models\Quotation;
 use App\Support\Facilities;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class QuotationDocumentMapper
 {
+    /**
+     * Same shape as fromQuotation(), but for a Contract generated from a
+     * storage quotation: the "Storer Signature" / "Initial" slots are
+     * stamped with the tenant's actual captured e-signature once they've
+     * signed, instead of the (usually empty) signature captured at quote
+     * time.
+     *
+     * @return array<string, mixed>
+     */
+    public static function fromContract(Contract $contract): array
+    {
+        $data = self::fromQuotation($contract->quotation);
+
+        $signer = $contract->signers
+            ->where('role', 'client')
+            ->sortBy('signing_order')
+            ->first(fn ($s) => $s->status === 'signed');
+
+        if ($signer) {
+            $uri = $signer->getSignatureDataUri();
+            if ($uri) {
+                $data['signature_base64'] = Str::after($uri, 'base64,');
+                $data['signature_signed_at'] = $signer->signed_at?->format('m-d-Y');
+            }
+        }
+
+        return $data;
+    }
+
     /**
      * Reconstruct the canonical quote-document shape (the same shape
      * QuoteDocumentData::fromArray() produces from a live form submission)

@@ -221,7 +221,7 @@
             <div id="quote_action_message" class="storage-quote-message" hidden></div>
 
             <div class="storage-quote-actions">
-                <button type="button" class="storage-quote-btn storage-quote-btn-primary" name="save_quote" id="save_quote">Save Quote</button>
+                <button type="button" class="storage-quote-btn storage-quote-btn-primary" name="save_quote" id="save_quote">Save Contract</button>
                 <button type="submit" class="storage-quote-btn" name="print_qoute" id="print_qoute">Print</button>
                 <button type="button" class="storage-quote-btn" name="email_qoute" id="email_qoute">Email quote</button>
                 <button type="submit" class="storage-quote-btn" name="download_contract" id="download_contract">Download contract</button>
@@ -243,6 +243,8 @@
         email: @json(route('api.quotation-builder.storage-quotes.email')),
         save: @json(route('api.quotation-builder.storage-quotes.save')),
         quotationBuilder: @json(route('quotation-builder')),
+        createContractTemplate: @json(route('api.quotation-builder.quotations.create-contract', ['quotation' => '__ID__'])),
+        contracts: @json(url('/contracts')),
     };
 </script>
 <script src="{{ asset('assets/js/storage-quote.js') }}?v=1"></script>
@@ -307,7 +309,7 @@ $(function () {
             return;
         }
         if (!$('#lo_code').val()) {
-            showMessage('Select a facility before saving the quote.', true);
+            showMessage('Select a facility before saving the contract.', true);
             return;
         }
 
@@ -316,6 +318,8 @@ $(function () {
         $btn.prop('disabled', true).text('Saving...');
         $message.prop('hidden', true);
 
+        var csrfToken = $('meta[name="csrf-token"]').attr('content');
+
         $.ajax({
             url: saveUrl,
             method: 'POST',
@@ -323,22 +327,43 @@ $(function () {
             processData: false,
             contentType: false,
             dataType: 'json',
-            headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content') },
+            headers: { 'X-CSRF-TOKEN': csrfToken },
         })
             .done(function (response) {
-                var text = 'Quote saved as ' + response.data.quotation_number + '.';
-                $message.html(
-                    $('<span>').text(text).prop('outerHTML')
-                    + ' <a href="' + window.STORAGE_QUOTE_API.quotationBuilder + '?tab=quotes&open=' + response.data.id + '">View in Saved Quotes</a>'
-                );
-                $message.removeClass('success error').addClass('success').prop('hidden', false);
+                $btn.text('Creating contract...');
+                var quotationId = response.data.id;
+                var createContractUrl = window.STORAGE_QUOTE_API.createContractTemplate.replace('__ID__', quotationId);
+
+                $.ajax({
+                    url: createContractUrl,
+                    method: 'POST',
+                    dataType: 'json',
+                    headers: { 'X-CSRF-TOKEN': csrfToken },
+                })
+                    .done(function (contractResponse) {
+                        window.location.href = window.STORAGE_QUOTE_API.contracts + '?open=' + contractResponse.data.id;
+                    })
+                    .fail(function (xhr) {
+                        var msg = (xhr.responseJSON && xhr.responseJSON.message) || 'The quote was saved, but the contract could not be created.';
+                        $message.html(
+                            $('<span>').text(msg).prop('outerHTML')
+                            + ' Quote ' + escapeHtml(response.data.quotation_number)
+                            + ' was saved — <a href="' + window.STORAGE_QUOTE_API.quotationBuilder + '?tab=quotes&open=' + quotationId + '">view it in Saved Quotes</a> to try again.'
+                        );
+                        $message.removeClass('success').addClass('error').prop('hidden', false);
+                        $btn.prop('disabled', false).text(originalText);
+                    });
             })
             .fail(function (xhr) {
-                var msg = (xhr.responseJSON && xhr.responseJSON.message) || 'Could not save the quote. Please try again.';
+                var msg = (xhr.responseJSON && xhr.responseJSON.message) || 'Could not save the contract. Please try again.';
                 showMessage(msg, true);
-            })
-            .always(function () { $btn.prop('disabled', false).text(originalText); });
+                $btn.prop('disabled', false).text(originalText);
+            });
     });
+
+    function escapeHtml(value) {
+        return $('<span>').text(value ?? '').html();
+    }
 
     $('#print_qoute').on('click', function (event) {
         if (!confirm('Are you sure you want to print?')) {

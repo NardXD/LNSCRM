@@ -56,7 +56,7 @@
         <p class="clause">8. If Storer has more than one Space, any breach or default in regards to one Space will authorize L&amp;S to enforce default action hereunder with regards to all Storer's Spaces and Storer's Goods, including, but not limited to, such default actions stipulated in Clause 7 hereunder, and/or refusing Storer further access to the Spaces and/or Facility.</p>
     </div>
 
-    <p class="initial-line">Initial <span class="signature-line" style="width:100px;">&nbsp;</span>/<span class="signature-line" style="width:100px;">&nbsp;</span></p>
+    <p class="initial-line">Initial <span class="signature-line" style="width:100px;">@if($data['signature_base64'] ?? null)<img src="data:image/png;base64,{{ $data['signature_base64'] }}" style="max-height:16px;">@else&nbsp;@endif</span>/<span class="signature-line" style="width:100px;">&nbsp;</span></p>
 
     <div class="columns">
         <h3>Access and Conditions</h3>
@@ -104,7 +104,7 @@
         <p class="clause">16. Storer agrees that it shall be solely responsible for all conduct of any third persons that it engages, whether in the capacity of an agent or employee, to manage, in any way whatsoever, its affairs in the Space, including but not limited to the movement, placing, and removal of the deposited Goods. Any damage to the deposited Goods shall be for the sole account of the Storer. Any damage whatsoever to the Space, the property, and any other property belonging to L&amp;S shall be borne by the Storer, which shall immediately, without need for demand, indemnify L&amp;S for the loss or damage. Should it fail to do so within fifteen (15) days, Storer shall be considered in default under Clause 7.</p>
     </div>
 
-    <p class="initial-line">Initial <span class="signature-line" style="width:100px;">&nbsp;</span>/<span class="signature-line" style="width:100px;">&nbsp;</span></p>
+    <p class="initial-line">Initial <span class="signature-line" style="width:100px;">@if($data['signature_base64'] ?? null)<img src="data:image/png;base64,{{ $data['signature_base64'] }}" style="max-height:16px;">@else&nbsp;@endif</span>/<span class="signature-line" style="width:100px;">&nbsp;</span></p>
 
     <div class="page-break"></div>
 
@@ -162,4 +162,4 @@
         <p class="clause">36. This Agreement shall be governed by and construed in accordance with the laws of the Philippines.</p>
     </div>
 
-    <p class="initial-line">Initial <span class="signature-line" style="width:100px;">&nbsp;</span>/<span class="signature-line" style="width:100px;">&nbsp;</span></p>
+    <p class="initial-line">Initial <span class="signature-line" style="width:100px;">@if($data['signature_base64'] ?? null)<img src="data:image/png;base64,{{ $data['signature_base64'] }}" style="max-height:16px;">@else&nbsp;@endif</span>/<span class="signature-line" style="width:100px;">&nbsp;</span></p>

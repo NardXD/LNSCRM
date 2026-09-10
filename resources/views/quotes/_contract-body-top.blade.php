@@ -171,6 +171,7 @@
         </tr>
     </table>
 
+    @php $initialStamp = ($data['signature_base64'] ?? null) ? '<img src="data:image/png;base64,'.$data['signature_base64'].'" style="max-height:14px;">' : ''; @endphp
     <table class="bordered">
         <tr class="total-row">
             <td colspan="2">Other Fees and Conditions (include, but not limited to):</td>
@@ -178,27 +179,27 @@
         </tr>
         <tr>
             <td colspan="2">Late Payment Fee of: P{{ number_format($data['totals']['late_fee'], 2) }} (10% of storage fee) will be charged every 10 days until outstanding balance is fully paid.</td>
-            <td></td>
+            <td>{!! $initialStamp !!}</td>
         </tr>
         <tr>
             <td colspan="2">Access system will lock Storer out of facility if payment is overdue and may re-enter when Storer pays outstanding balance.</td>
-            <td></td>
+            <td>{!! $initialStamp !!}</td>
         </tr>
         <tr>
             <td colspan="2">Payment 30 days overdue, Insurance is suspended. Overdue 42 days, stored items to be auctioned and/or disposed.</td>
-            <td></td>
+            <td>{!! $initialStamp !!}</td>
         </tr>
         <tr>
             <td colspan="2">Incidental charges will apply on damages/lost Loc&amp;Stor 24/7 property.</td>
-            <td></td>
+            <td>{!! $initialStamp !!}</td>
         </tr>
         <tr>
             <td colspan="2">Return Check fee P1,000.</td>
-            <td></td>
+            <td>{!! $initialStamp !!}</td>
         </tr>
         <tr>
             <td colspan="2"><strong>14-Day Notice required when moving out. Failure to do so will result in additional 14 days charges.</strong></td>
-            <td></td>
+            <td>{!! $initialStamp !!}</td>
         </tr>
     </table>
 

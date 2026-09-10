@@ -332,11 +332,18 @@ class ContractController extends Controller
 
         $contract->load(['client', 'company', 'signers', 'quotation']);
 
-        $data = $contract->content_type === 'storage_quote' && $contract->quotation
-            ? QuotationDocumentMapper::fromQuotation($contract->quotation)
-            : null;
+        if ($contract->content_type === 'storage_quote' && $contract->quotation) {
+            $pdf = Pdf::loadView('quotes.contract-pdf', ['data' => QuotationDocumentMapper::fromContract($contract)])
+                ->setPaper('a4');
+            $pdf->render();
 
-        $pdf = Pdf::loadView('contract.pdf', ['contract' => $contract, 'data' => $data])
+            $canvas = $pdf->getCanvas();
+            $canvas->page_text($canvas->get_width() / 2 - 20, $canvas->get_height() - 35, 'Page {PAGE_NUM}/{PAGE_COUNT}', null, 9);
+
+            return $pdf->download('contract-'.$contract->contract_number.'.pdf');
+        }
+
+        $pdf = Pdf::loadView('contract.pdf', ['contract' => $contract, 'data' => null])
             ->setPaper('a4', 'portrait')
             ->setOption('enable-local-file-access', true);
 
@@ -356,7 +363,7 @@ class ContractController extends Controller
         $invalid = ! $signer->isTokenValid() && ! $alreadySigned;
 
         $data = $contract->content_type === 'storage_quote' && $contract->quotation
-            ? QuotationDocumentMapper::fromQuotation($contract->quotation)
+            ? QuotationDocumentMapper::fromContract($contract)
             : null;
 
         return view('contract.sign', [
@@ -573,7 +580,7 @@ class ContractController extends Controller
         if ($contract->content_type === 'storage_quote' && $contract->relationLoaded('quotation') && $contract->quotation) {
             $renderedContent = view('contract.partials.agreement-body', [
                 'contract' => $contract,
-                'data' => QuotationDocumentMapper::fromQuotation($contract->quotation),
+                'data' => QuotationDocumentMapper::fromContract($contract),
             ])->render();
         }
 
