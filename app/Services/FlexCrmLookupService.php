@@ -145,7 +145,11 @@ class FlexCrmLookupService
             ->first(function (LeadIdentity $identity) use ($needle) {
                 $cand = strtolower(trim((string) $identity->value));
 
-                return $cand === $needle || str_contains($cand, $needle) || str_contains($needle, $cand);
+                // Word-boundary check, same reasoning as the Lead::name branch above —
+                // a plain str_contains() both ways still matches "nard" inside "lenard".
+                return $cand === $needle
+                    || self::nameMatchesWholeWord($cand, $needle)
+                    || self::nameMatchesWholeWord($needle, $cand);
             })
             ?->lead;
     }

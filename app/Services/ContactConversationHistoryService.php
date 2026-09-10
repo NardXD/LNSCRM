@@ -457,7 +457,12 @@ class ContactConversationHistoryService
                         if (FacebookConversation::isPlaceholderName($name)) {
                             continue;
                         }
-                        if ($cand === $name || str_contains($cand, $name) || str_contains($name, $cand)) {
+                        // Word-boundary check — a plain str_contains() both ways would
+                        // match e.g. "nard" inside "lenard" and pull an unrelated
+                        // person's Facebook/Instagram thread into this contact's timeline.
+                        if ($cand === $name
+                            || FlexCrmLookupService::nameMatchesWholeWord($cand, $name)
+                            || FlexCrmLookupService::nameMatchesWholeWord($name, $cand)) {
                             return true;
                         }
                     }

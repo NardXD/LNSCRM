@@ -536,7 +536,11 @@ class LeadConnectedThreadService
                 if ($b === '' || FacebookConversation::isPlaceholderName($b)) {
                     continue;
                 }
-                if ($a === $b || str_contains($a, $b) || str_contains($b, $a)) {
+                // Word-boundary check — a plain str_contains() both ways would match
+                // e.g. "nard" inside "lenard" and connect an unrelated thread to a lead.
+                if ($a === $b
+                    || FlexCrmLookupService::nameMatchesWholeWord($a, $b)
+                    || FlexCrmLookupService::nameMatchesWholeWord($b, $a)) {
                     return true;
                 }
             }
