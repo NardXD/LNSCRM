@@ -3129,7 +3129,7 @@
         { value: 'lead_labeled', label: 'Label added', help: 'When this label is added to the lead.' },
         { value: 'lead_status_changed', label: 'Status changed', help: 'When the lead status changes to this status. Delayed actions, like set status after X days, start counting from this change date.' },
         { value: 'lead_note_added', label: 'Note is added to lead', help: 'When a note is saved on the lead.' },
-        { value: 'lead_age_reached', label: 'Lead age is reached', help: 'Checked once a day, based on how many days since the lead was created. Add a "Lead age" condition below to set greater than, less than, or equal to which number of days.' },
+        { value: 'lead_age_reached', label: 'Lead age is reached', help: 'Checked once a day, based on how many days since the lead was created. Add a "Lead age" condition below to set greater than or equal to, less than or equal to, or equal to which number of days.' },
     ];
     const RULE_CHANNELS = [
         ['phone', 'Phone'],
@@ -3344,7 +3344,7 @@
                 .join('');
         }
         if (field === 'lead_age') {
-            return [['greater_than', 'greater than'], ['less_than', 'less than'], ['equals', 'equal to']]
+            return [['greater_than', 'greater than or equal to'], ['less_than', 'less than or equal to'], ['equals', 'equal to']]
                 .map(([value, label]) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`)
                 .join('');
         }
@@ -3491,7 +3491,7 @@
         return '<option value="">—</option>';
     }
     function triggerAgeOperatorOptions(selected = 'equals') {
-        return [['greater_than', 'greater than'], ['less_than', 'less than'], ['equals', 'equal to']]
+        return [['greater_than', 'greater than or equal to'], ['less_than', 'less than or equal to'], ['equals', 'equal to']]
             .map(([value, label]) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`)
             .join('');
     }

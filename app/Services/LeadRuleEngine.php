@@ -351,8 +351,8 @@ class LeadRuleEngine
                 $ageDays = (int) $lead->created_at->diffInDays(now());
                 $wanted = (int) $value;
                 $matched = match ($operator) {
-                    'greater_than' => $ageDays > $wanted,
-                    'less_than' => $ageDays < $wanted,
+                    'greater_than' => $ageDays >= $wanted,
+                    'less_than' => $ageDays <= $wanted,
                     'equals' => $ageDays === $wanted,
                     default => false,
                 };
