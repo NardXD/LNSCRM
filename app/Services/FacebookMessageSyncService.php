@@ -56,6 +56,7 @@ class FacebookMessageSyncService
         $hint = null;
         $existingLookup = [];
         $graphError = null;
+        $instagramError = null;
 
         $token = $integration->getDecryptedPageAccessToken();
         if ($token) {
@@ -72,10 +73,20 @@ class FacebookMessageSyncService
                     min(3000, max(200, $limit)),
                     55,
                     $this->ownIds($integration),
-                    $platforms
+                    $platforms,
+                    (string) $integration->instagram_business_account_id
                 );
                 $graphCount = count($graphRows);
                 $graphError = $graph->lastError();
+                $instagramError = $graph->platformErrors()['instagram'] ?? null;
+                if ($instagramError) {
+                    Log::error('Facebook full sync: Instagram Graph history failed', [
+                        'integration_id' => $integration->id,
+                        'company_id' => $integration->company_id,
+                        'instagram_business_account_id' => $integration->instagram_business_account_id,
+                        'error' => $instagramError,
+                    ]);
+                }
                 $existingLookup = $this->existingMids($integration, array_column($graphRows, 'mid'));
 
                 foreach ($graphRows as $row) {
@@ -105,6 +116,10 @@ class FacebookMessageSyncService
 
                 if ($graphCount === 0 && $graphError) {
                     $hint = $this->graphHint($graphError);
+                } elseif ($instagramError) {
+                    // Messenger can succeed while Instagram fails on its own node/permissions;
+                    // don't let a working Messenger sync hide a broken Instagram one.
+                    $hint = 'Instagram: '.$this->graphHint($instagramError);
                 }
             } catch (\Throwable $e) {
                 Log::warning('Facebook Graph history sync failed', ['error' => $e->getMessage()]);
@@ -182,6 +197,7 @@ class FacebookMessageSyncService
             'days' => $days,
             'hint' => $hint,
             'graph_error' => $graphError,
+            'instagram_error' => $instagramError,
             'sources' => [
                 'graph' => $graphCount,
                 'messages' => count($bySid),
@@ -198,6 +214,9 @@ class FacebookMessageSyncService
         }
         if ($graph->isMailboxPermissionError($error)) {
             return $graph->mailboxPermissionMessage();
+        }
+        if ($graph->isInstagramCapabilityError($error)) {
+            return $graph->instagramCapabilityMessage((string) $error);
         }
 
         return 'Facebook inbox import failed: '.($error ?: 'unknown error');
@@ -329,10 +348,20 @@ class FacebookMessageSyncService
                         min(400, max(60, $limit * 3)),
                         25,
                         $this->ownIds($integration),
-                        $platforms
+                        $platforms,
+                        (string) $integration->instagram_business_account_id
                     );
                     $imported += $this->importGraphRows($integration, $rows);
-                    if ($imported === 0 && $graph->lastError()) {
+                    $instagramError = $graph->platformErrors()['instagram'] ?? null;
+                    if ($instagramError) {
+                        Log::error('Facebook recent sync: Instagram Graph pull failed', [
+                            'integration_id' => $integration->id,
+                            'company_id' => $integration->company_id,
+                            'instagram_business_account_id' => $integration->instagram_business_account_id,
+                            'error' => $instagramError,
+                        ]);
+                        $hint = 'Instagram: '.$this->graphHint($instagramError);
+                    } elseif ($imported === 0 && $graph->lastError()) {
                         $hint = $this->graphHint($graph->lastError());
                     }
                 } catch (\Throwable $e) {

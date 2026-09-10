@@ -15,6 +15,9 @@ class FacebookGraphHistoryService
     /** @var array<string, mixed> */
     protected array $lastStats = [];
 
+    /** @var array<string, string> */
+    protected array $platformErrors = [];
+
     public function lastError(): ?string
     {
         return $this->lastError;
@@ -29,6 +32,18 @@ class FacebookGraphHistoryService
     }
 
     /**
+     * Per-platform Graph API errors from the last history()/thread() call, e.g.
+     * ['instagram' => '(#3) Application does not have the capability to make this API call.'].
+     * Lets a Messenger success no longer hide an Instagram-only failure.
+     *
+     * @return array<string, string>
+     */
+    public function platformErrors(): array
+    {
+        return $this->platformErrors;
+    }
+
+    /**
      * @param  array<int, string>  $ownIds
      * @return array<int, array<string, mixed>>
      */
@@ -39,15 +54,27 @@ class FacebookGraphHistoryService
         int $maxMessages = 1500,
         int $deadlineSeconds = 90,
         array $ownIds = [],
-        array $platforms = ['messenger']
+        array $platforms = ['messenger'],
+        string $instagramBusinessAccountId = ''
     ): array {
         $this->lastError = null;
+        $this->platformErrors = [];
         $this->lastStats = ['threads' => 0, 'messages' => 0, 'skipped_no_peer' => 0];
         $pageId = trim($pageId);
+        $instagramBusinessAccountId = trim($instagramBusinessAccountId);
         $ownIds = $this->normalizeOwnIds($pageId, $ownIds);
         $this->assertPageToken($accessToken, $pageId);
-        $deadline = microtime(true) + max(5, $deadlineSeconds);
         $rows = [];
+
+        // Each platform gets its own time slice off a fresh clock, instead of one deadline
+        // shared across platforms — otherwise a Page with thousands of Messenger threads
+        // consumes the whole budget and Instagram (which has no Twilio fallback) never
+        // even gets attempted.
+        $platformCount = max(1, count(array_filter(
+            $platforms,
+            fn ($p) => in_array(strtolower((string) $p), ['messenger', 'instagram'], true)
+        )));
+        $perPlatformSeconds = max(5, $deadlineSeconds) / $platformCount;
 
         foreach ($platforms as $platform) {
             $platform = strtolower((string) $platform);
@@ -55,27 +82,47 @@ class FacebookGraphHistoryService
                 continue;
             }
 
-            foreach ($this->conversations($pageId, $accessToken, $platform, $deadline) as $thread) {
-                if (count($rows) >= $maxMessages || microtime(true) >= $deadline) {
-                    break 2;
-                }
+            $node = $platform === 'instagram' && $instagramBusinessAccountId !== ''
+                ? $instagramBusinessAccountId
+                : $pageId;
+            $deadline = microtime(true) + $perPlatformSeconds;
 
-                $this->lastStats['threads']++;
-                $updated = isset($thread['updated_time']) ? Carbon::parse($thread['updated_time']) : null;
-                if ($after && $updated && $updated->lt($after)) {
-                    continue;
-                }
-
-                $thread = $this->enrichThread($thread, $accessToken, $deadline);
-                $mapped = $this->mapThread($thread, $platform, $ownIds, $after);
-                $this->lastStats['skipped_no_peer'] += $mapped['skipped_no_peer'];
-                foreach ($mapped['rows'] as $row) {
-                    $rows[] = $row;
-                    $this->lastStats['messages']++;
+            try {
+                foreach ($this->conversations($node, $accessToken, $platform, $deadline) as $thread) {
                     if (count($rows) >= $maxMessages) {
-                        break 3;
+                        break 2;
+                    }
+                    if (microtime(true) >= $deadline) {
+                        // Only this platform's time slice ran out — let the next platform
+                        // (e.g. Instagram after Messenger) still get its own full turn.
+                        break;
+                    }
+
+                    $this->lastStats['threads']++;
+                    $updated = isset($thread['updated_time']) ? Carbon::parse($thread['updated_time']) : null;
+                    if ($after && $updated && $updated->lt($after)) {
+                        continue;
+                    }
+
+                    $thread = $this->enrichThread($thread, $accessToken, $deadline);
+                    $mapped = $this->mapThread($thread, $platform, $ownIds, $after);
+                    $this->lastStats['skipped_no_peer'] += $mapped['skipped_no_peer'];
+                    foreach ($mapped['rows'] as $row) {
+                        $rows[] = $row;
+                        $this->lastStats['messages']++;
+                        if (count($rows) >= $maxMessages) {
+                            break 3;
+                        }
                     }
                 }
+            } catch (\Throwable $e) {
+                $this->platformErrors[$platform] = $e->getMessage();
+                $this->lastError = $e->getMessage();
+                Log::error('Facebook Graph history sync failed for one platform', [
+                    'platform' => $platform,
+                    'node_id' => $node,
+                    'error' => $e->getMessage(),
+                ]);
             }
         }
 
@@ -93,21 +140,27 @@ class FacebookGraphHistoryService
         string $accessToken,
         string $peerId,
         string $channel = 'messenger',
-        array $ownIds = []
+        array $ownIds = [],
+        string $instagramBusinessAccountId = ''
     ): array {
         $this->lastError = null;
+        $this->platformErrors = [];
         $pageId = trim($pageId);
         $peerId = trim($peerId);
+        $instagramBusinessAccountId = trim($instagramBusinessAccountId);
         $platform = $channel === 'instagram' ? 'instagram' : 'messenger';
+        $node = $platform === 'instagram' && $instagramBusinessAccountId !== ''
+            ? $instagramBusinessAccountId
+            : $pageId;
         $ownIds = $this->normalizeOwnIds($pageId, $ownIds);
 
-        if ($pageId === '' || $peerId === '') {
+        if ($node === '' || $peerId === '') {
             return [];
         }
 
         $this->assertPageToken($accessToken, $pageId);
 
-        $response = $this->graphGet($this->baseUrl.'/'.$pageId.'/conversations', [
+        $response = $this->graphGet($this->baseUrl.'/'.$node.'/conversations', [
             'platform' => $platform,
             'user_id' => $peerId,
             'fields' => $this->conversationListFields(),
@@ -117,8 +170,11 @@ class FacebookGraphHistoryService
 
         if (! $response['ok']) {
             $this->lastError = $response['error'];
-            Log::warning('Facebook Graph thread lookup failed', [
+            $this->platformErrors[$platform] = $response['error'];
+            Log::error('Facebook Graph thread lookup failed', [
                 'platform' => $platform,
+                'node_id' => $node,
+                'peer_id' => $peerId,
                 'error' => $response['error'],
             ]);
 
@@ -140,7 +196,7 @@ class FacebookGraphHistoryService
         try {
             $seen = 0;
             $deadline = microtime(true) + 8;
-            foreach ($this->conversations($pageId, $accessToken, $platform) as $thread) {
+            foreach ($this->conversations($node, $accessToken, $platform) as $thread) {
                 if ($seen++ >= 25 || microtime(true) >= $deadline) {
                     break;
                 }

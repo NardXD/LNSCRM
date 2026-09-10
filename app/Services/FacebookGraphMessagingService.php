@@ -116,6 +116,21 @@ class FacebookGraphMessagingService
         return 'Facebook treated this as a personal mailbox, not the Page inbox. The saved token is a User token. In Graph API Explorer, open the token dropdown, select your Page (not User Token), copy that Page token, paste it under Integrations → Facebook, Save, then Sync again.';
     }
 
+    public function isInstagramCapabilityError(?string $message): bool
+    {
+        $haystack = strtolower((string) $message);
+
+        return $haystack !== '' && (
+            str_contains($haystack, 'does not have the capability')
+            || str_contains($haystack, '(#3)')
+        );
+    }
+
+    public function instagramCapabilityMessage(string $rawError): string
+    {
+        return 'Meta rejected the Instagram request: "'.$rawError.'" — this app is not authorized for Instagram messaging yet. In the Meta App Dashboard, check: (1) the Instagram product is added and its Webhooks are subscribed to the "messages" field under the Instagram tab specifically, (2) instagram_basic and instagram_manage_messages show Advanced Access (not just Standard) in App Review, and (3) Business Verification is complete for the app. Until Meta approves those, Instagram DMs cannot be sent or read via the Graph API even though the saved token already carries the right scopes.';
+    }
+
     /**
      * @return array{id?: string, name?: string, username?: string, profile_pic?: string}
      */

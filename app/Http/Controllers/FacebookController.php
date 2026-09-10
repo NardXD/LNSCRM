@@ -357,12 +357,14 @@ class FacebookController extends Controller
                 array_values(array_filter([
                     (string) $integration->page_id,
                     (string) $integration->instagram_business_account_id,
-                ]))
+                ])),
+                (string) $integration->instagram_business_account_id
             );
             $imported = $this->facebookSync->importGraphRows($integration, $rows);
             if ($graph->lastError()) {
                 Log::warning('Facebook Graph thread lookup failed', [
                     'conversation_id' => $conversation->id,
+                    'channel' => $conversation->channel,
                     'error' => $graph->lastError(),
                 ]);
             } elseif ($imported > 0) {
@@ -593,6 +595,13 @@ class FacebookController extends Controller
         $object = strtolower((string) $request->input('object', ''));
         if (in_array($object, ['instagram', 'page'], true)) {
             if (! $this->metaSignatureIsValid($request, $integration)) {
+                Log::error('Meta webhook signature invalid; event dropped', [
+                    'integration_id' => $integration->id,
+                    'company_id' => $integration->company_id,
+                    'object' => $object,
+                    'has_app_secret' => (bool) $integration->getDecryptedAppSecret(),
+                ]);
+
                 return response('Invalid signature', 403);
             }
 
