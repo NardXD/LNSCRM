@@ -133,9 +133,17 @@ class LeadsController extends Controller
             return $this->listSortedByThreadAge($companyId, $request, $direction);
         }
 
+        $orderColumn = 'updated_at';
+        $orderDirection = $direction;
+        if ($sort === 'lead_age') {
+            $orderColumn = 'created_at';
+            // Ascending "lead age" means the most recently added lead first, i.e. newest timestamp first.
+            $orderDirection = $direction === 'asc' ? 'desc' : 'asc';
+        }
+
         $query = $this->leadReports->filteredQuery($companyId, $request)
             ->with(['identities', 'assignedUser:id,name', 'labels'])
-            ->orderBy('updated_at', $direction);
+            ->orderBy($orderColumn, $orderDirection);
 
         $perPage = min(100, max(10, (int) $request->get('per_page', 20)));
         $leads = $query->paginate($perPage);

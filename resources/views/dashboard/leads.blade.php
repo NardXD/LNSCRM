@@ -45,12 +45,13 @@
                 <option value="1">No shared mailbox thread</option>
             </select>
             <select id="leadSortFilter" class="leads-sort-filter" aria-label="Sort leads by">
+                <option value="lead_age" selected>Sort: Lead Age</option>
                 <option value="updated_at">Sort: Updated</option>
                 <option value="thread_age">Sort: Thread Age</option>
             </select>
             <select id="leadSortDirFilter" class="leads-sort-filter" aria-label="Sort direction">
+                <option value="asc" selected>Ascending</option>
                 <option value="desc">Descending</option>
-                <option value="asc">Ascending</option>
             </select>
         </div>
     </div>
@@ -73,6 +74,7 @@
                 <thead>
                     <tr>
                         <th>Lead</th>
+                        <th>Lead Age</th>
                         <th>Phones</th>
                         <th>Emails</th>
                         <th>Labels</th>
@@ -84,7 +86,7 @@
                     </tr>
                 </thead>
                 <tbody id="leadsTableBody">
-                    <tr><td colspan="9" class="empty-state">Loading leads…</td></tr>
+                    <tr><td colspan="10" class="empty-state">Loading leads…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -992,7 +994,7 @@
     const STOREGANISE_CONNECTED = @json(!empty($storeganiseConnected));
     const CAN_VIEW_QUOTATION_BUILDER = @json(!empty($canViewQuotationBuilder));
     const LEAD_QUOTE_URL_BASE = @json(url('/quotation-builder/leads'));
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', noSharedThread: false, labelIds: [], followUp: '', sort: 'updated_at', sortDir: 'desc', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], emailTemplates: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', savedLeadStoreganiseSiteId: null, storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', noSharedThread: false, labelIds: [], followUp: '', sort: 'lead_age', sortDir: 'asc', followUpDays: Array.isArray(LEAD_FOLLOW_UP.days) ? LEAD_FOLLOW_UP.days : [4, 10, 30, 90], followUpLabels: Array.isArray(LEAD_FOLLOW_UP.labels) ? LEAD_FOLLOW_UP.labels : [], followUpPlusMin: Number(LEAD_FOLLOW_UP.plus_min || 91), followUpCounts: {}, statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], emailTemplates: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: {{ !empty($canManageLeadRules) ? 'true' : 'false' }}, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', savedLeadStoreganiseSiteId: null, storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -1032,6 +1034,14 @@
             if (value >= 1) return `${value}${label} ago`;
         }
         return 'just now';
+    }
+    function leadAgeDays(iso) {
+        if (!iso) return '—';
+        const created = new Date(iso).getTime();
+        if (Number.isNaN(created)) return '—';
+        const diffDays = Math.floor((Date.now() - created) / 86400000);
+        if (diffDays <= 0) return 'Today';
+        return diffDays === 1 ? '1 day' : `${diffDays} days`;
     }
     function formatDate(iso) {
         if (!iso) return '';
@@ -1287,6 +1297,7 @@
                     ${lead.company_name ? `<div class="lead-company">${esc(lead.company_name)}</div>` : ''}
                     ${sourceVisual(lead)}
                 </td>
+                <td class="lead-meta" title="${lead.created_at ? esc(formatAt(lead.created_at)) : ''}">${esc(leadAgeDays(lead.created_at))}</td>
                 <td class="lead-meta">${esc((lead.phones || []).map(p => p.value).join(', ') || '—')}</td>
                 <td class="lead-meta">${esc((lead.emails || []).map(e => e.value).join(', ') || '—')}</td>
                 <td>${labelChips(lead.labels)}</td>
@@ -1319,7 +1330,7 @@
         const existing = body.querySelector('tr[data-id="' + id + '"]');
         if (existing) existing.remove();
         if (!body.querySelector('tr[data-id]')) {
-            body.innerHTML = `<tr><td colspan="9" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
+            body.innerHTML = `<tr><td colspan="10" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
         }
     }
     function assigneeOptions(selectedId, extraUser) {
@@ -1841,7 +1852,7 @@
             const rows = data.data || [];
             body.innerHTML = rows.length
                 ? rows.map(lead => leadRowHtml(lead)).join('')
-                : `<tr><td colspan="9" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.noSharedThread || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
+                : `<tr><td colspan="10" class="empty-state">${state.search || state.labelIds.length || state.source || state.assignedTo || state.noSharedThread || state.followUp ? 'No leads match this search.' : 'No leads yet. Create one to start matching conversations across channels.'}</td></tr>`;
 
             const pag = data.pagination || {};
             document.getElementById('leadsPageInfo').textContent = `Showing page ${pag.current_page || 1} of ${pag.last_page || 1} (${pag.total || 0} leads)`;
@@ -1851,7 +1862,7 @@
             loadStatusCounts();
             loadFollowUpCounts();
         } catch (err) {
-            body.innerHTML = '<tr><td colspan="9" class="empty-state">Could not load leads. Try again.</td></tr>';
+            body.innerHTML = '<tr><td colspan="10" class="empty-state">Could not load leads. Try again.</td></tr>';
             if (err?.message) console.error(err.message);
         } finally {
             if (opts.overlay !== false) setOverlay('leadsTableBusy', false);
