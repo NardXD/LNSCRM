@@ -70,48 +70,94 @@
     The Storage Period shall automatically extend on a month-to-month basis until a fourteen (14)-day notice of termination is given by either party.</p>
 
     <table class="bordered">
-        <tr>
-            <td rowspan="3" style="width:15%"><strong>FEE SCHEDULE (Peso)</strong></td>
-            <td>Insurance Coverage</td>
-            @for ($i = 0; $i < 4; $i++)
-                <td class="text-center">{{ $data['all_units'][$i]['insurance_coverage'] }}</td>
-            @endfor
-            <td class="text-center">Value</td>
-        </tr>
-        <tr>
-            <td>Unit Number</td>
-            @for ($i = 0; $i < 4; $i++)
-                <td class="text-center">{{ $data['all_units'][$i]['code'] }}</td>
-            @endfor
-            <td class="text-center">Unit</td>
-        </tr>
-        <tr>
-            <td>Size (SQM)</td>
-            @for ($i = 0; $i < 4; $i++)
-                <td class="text-center">{{ $data['all_units'][$i]['sqm'] }}</td>
-            @endfor
-            <td class="text-center">SQM</td>
-        </tr>
-        <tr>
-            <td colspan="2">Initial Storage Period</td>
-            <td class="text-center">{{ $data['terms']['initial_period'] }}</td>
-            <td colspan="4">Months</td>
-        </tr>
-        <tr>
-            <td colspan="2">Storage Service Fee (PHP/Month)</td>
-            <td class="text-center">{{ number_format($data['totals']['storage_fee'], 2) }}</td>
-            @for ($i = 0; $i < 4; $i++)
-                <td class="text-center">{{ number_format($data['all_units'][$i]['price'], 2) }}</td>
-            @endfor
-        </tr>
-        <tr>
-            <td colspan="2">Insurance Fee</td>
-            <td class="text-center">{{ number_format($data['totals']['insurance_total'], 2) }}</td>
-            @for ($i = 0; $i < 4; $i++)
-                <td class="text-center">{{ number_format($data['all_units'][$i]['insurance_fee'], 2) }}</td>
-            @endfor
-        </tr>
-    </table>
+    <tr>
+        <td rowspan="3" style="width:30%">
+            <strong>FEE SCHEDULE (Peso)</strong>
+        </td>
+
+        <td style="width:20%">Insurance Coverage</td>
+
+        @for ($i = 0; $i < 4; $i++)
+            <td class="text-center">
+                {{ $data['all_units'][$i]['insurance_coverage'] ?? '' }}
+            </td>
+        @endfor
+
+        <td class="text-center">Value</td>
+    </tr>
+
+    <tr>
+        <td>Unit Number</td>
+
+        @for ($i = 0; $i < 4; $i++)
+            <td class="text-center">
+                {{ $data['all_units'][$i]['code'] ?? '' }}
+            </td>
+        @endfor
+
+        <td class="text-center">Unit</td>
+    </tr>
+
+    <tr>
+        <td>Size (SQM)</td>
+
+        @for ($i = 0; $i < 4; $i++)
+            <td class="text-center">
+                {{ $data['all_units'][$i]['sqm'] ?? '' }}
+            </td>
+        @endfor
+
+        <td class="text-center">SQM</td>
+    </tr>
+
+    <tr>
+        <td>Initial Storage Period</td>
+
+        <td class="text-center">
+            {{ $data['terms']['initial_period'] }}
+        </td>
+
+        <td colspan="5">
+            Months
+        </td>
+    </tr>
+
+    <tr>
+        <td>Storage Service Fee (PHP/Month)</td>
+
+        <td class="text-center">
+            {{ number_format($data['totals']['storage_fee'], 2) }}
+        </td>
+
+        @for ($i = 0; $i < 4; $i++)
+            <td class="text-center">
+                {{ isset($data['all_units'][$i])
+                    ? number_format($data['all_units'][$i]['price'], 2)
+                    : '' }}
+            </td>
+        @endfor
+
+        <td></td>
+    </tr>
+
+    <tr>
+        <td>Insurance Fee</td>
+
+        <td class="text-center">
+            {{ number_format($data['totals']['insurance_total'], 2) }}
+        </td>
+
+        @for ($i = 0; $i < 4; $i++)
+            <td class="text-center">
+                {{ isset($data['all_units'][$i])
+                    ? number_format($data['all_units'][$i]['insurance_fee'], 2)
+                    : '' }}
+            </td>
+        @endfor
+
+        <td></td>
+    </tr>
+</table>
 
     <table class="bordered">
         <tr>
