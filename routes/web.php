@@ -279,8 +279,6 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/clients/{client}/remove-employee', [ClientManagementController::class, 'removeEmployee'])->name('api.client-management.clients.remove-employee');
 
         Route::get('/clients/{client}/projects', [ClientManagementController::class, 'getClientProjects'])->name('api.client-management.clients.projects');
-        Route::get('/clients/{client}/contracts', [ClientManagementController::class, 'getClientContracts'])->name('api.client-management.clients.contracts');
-        Route::get('/clients/{client}/contracts/{contract}/pdf', [ClientManagementController::class, 'downloadClientContractPdf'])->name('api.client-management.clients.contracts.pdf');
 
         // Notes routes
         Route::get('/clients/{client}/notes', [ClientManagementController::class, 'getClientNotes'])->name('api.client-management.clients.notes');
@@ -889,15 +887,39 @@ Route::middleware(['auth', 'company.active'])->group(function () {
     Route::get('/contracts', [ContractController::class, 'index'])
         ->middleware('permission:view_contracts')
         ->name('contracts');
+    Route::get('/contracts/email-template', [ContractController::class, 'emailTemplatePage'])
+        ->middleware('permission:view_contracts_email_template')
+        ->name('contracts.email-template');
+    Route::get('/contracts/microsoft-365-mail', [IntegrationController::class, 'contractsMicrosoft365MailPage'])
+        ->middleware('permission:view_contracts_microsoft_365_mail')
+        ->name('contracts.microsoft-365-mail');
 
     Route::prefix('api/contracts')->middleware('permission:view_contracts')->group(function () {
         Route::get('/', [ContractController::class, 'getContracts'])->name('api.contracts.index');
         Route::get('/stats', [ContractController::class, 'getStats'])->name('api.contracts.stats');
-        Route::get('/clients', [ContractController::class, 'getClients'])->name('api.contracts.clients');
+        Route::get('/leads', [ContractController::class, 'getLeads'])->name('api.contracts.leads');
         Route::get('/next-number', [ContractController::class, 'getNextContractNumber'])->name('api.contracts.next-number');
         Route::post('/', [ContractController::class, 'store'])
             ->middleware('permission:create_contracts')
             ->name('api.contracts.store');
+
+        Route::get('/microsoft-365-mail', [IntegrationController::class, 'getContractsMicrosoft365MailIntegration'])
+            ->middleware('permission:view_contracts_microsoft_365_mail')
+            ->name('api.contracts.microsoft-365-mail.get');
+        Route::delete('/microsoft-365-mail', [IntegrationController::class, 'deleteContractsMicrosoft365MailIntegration'])
+            ->middleware('permission:view_contracts_microsoft_365_mail')
+            ->name('api.contracts.microsoft-365-mail.delete');
+
+        Route::get('/email-template', [ContractController::class, 'getEmailTemplate'])
+            ->middleware('permission:view_contracts_email_template')
+            ->name('api.contracts.email-template.get');
+        Route::post('/email-template', [ContractController::class, 'storeEmailTemplate'])
+            ->middleware('permission:view_contracts_email_template')
+            ->name('api.contracts.email-template.store');
+        Route::post('/email-template/reset', [ContractController::class, 'resetEmailTemplate'])
+            ->middleware('permission:view_contracts_email_template')
+            ->name('api.contracts.email-template.reset');
+
         Route::get('/{contract}', [ContractController::class, 'show'])->name('api.contracts.show');
         Route::get('/{contract}/pdf', [ContractController::class, 'pdf'])->name('api.contracts.pdf');
         Route::get('/{contract}/status-history', [ContractController::class, 'getStatusHistory'])->name('api.contracts.status-history');
@@ -1097,12 +1119,6 @@ Route::middleware(['auth:client', 'client.company.active'])->prefix('client')->g
     Route::get('/portal/billing', [ClientPortalController::class, 'billing'])
         ->name('client.portal.billing');
 
-    Route::get('/portal/documents', [ClientPortalController::class, 'documents'])
-        ->name('client.portal.documents');
-
-    Route::get('/contracts/{contractId}/pdf', [ClientPortalController::class, 'downloadContractPdf'])
-        ->name('client.portal.contracts.pdf');
-
     // Client Portal API Routes
     Route::prefix('api')->group(function () {
         // Billing
@@ -1111,9 +1127,6 @@ Route::middleware(['auth:client', 'client.company.active'])->prefix('client')->g
 
         Route::get('/billing/stats', [ClientPortalController::class, 'getBillingStats'])
             ->name('client.portal.api.billing.stats');
-
-        Route::get('/contracts', [ClientPortalController::class, 'getContracts'])
-            ->name('client.portal.api.contracts');
 
         // Employee monitoring
         Route::get('/employees', [ClientPortalController::class, 'getAssignedEmployees'])

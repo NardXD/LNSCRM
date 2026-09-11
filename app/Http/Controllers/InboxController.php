@@ -234,6 +234,7 @@ class InboxController extends Controller
             $home = match ($request->query('intent')) {
                 'broadcast' => 'broadcast-messaging',
                 'quotation' => 'quotation-builder.microsoft-365-mail',
+                'contract' => 'contracts.microsoft-365-mail',
                 default => 'inbox',
             };
 
@@ -405,6 +406,25 @@ class InboxController extends Controller
                 );
             }
 
+            if (($state['intent'] ?? '') === 'contract') {
+                $displayName = trim((string) ($userInfo['displayName'] ?? ''));
+                SharedInbox::updateOrCreate(
+                    [
+                        'company_id' => $user->company_id,
+                        'type' => SharedInbox::TYPE_CONTRACT,
+                    ],
+                    [
+                        'outlook_mail_account_id' => $account->id,
+                        'created_by' => $user->id,
+                        'name' => $displayName !== '' ? $displayName : 'Contract mail',
+                        'email' => $email,
+                        'external_mailbox' => null,
+                        'is_active' => true,
+                        'color' => '#7c3aed',
+                    ]
+                );
+            }
+
             if (! empty($state['shared_inbox_id'])) {
                 $inbox = SharedInbox::where('company_id', $user->company_id)
                     ->where('id', $state['shared_inbox_id'])
@@ -477,6 +497,7 @@ class InboxController extends Controller
         $route = match ($state['intent'] ?? '') {
             'broadcast' => 'broadcast-messaging',
             'quotation' => 'quotation-builder.microsoft-365-mail',
+            'contract' => 'contracts.microsoft-365-mail',
             default => 'inbox',
         };
 

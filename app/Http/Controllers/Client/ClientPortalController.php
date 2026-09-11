@@ -3,14 +3,12 @@
 namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
-use App\Models\Contract;
 use App\Models\Project;
 use App\Models\ProjectTimeTracking;
 use App\Models\ScreenRecording;
 use App\Models\TimeTracking;
 use App\Models\User;
 use App\Services\LiveViewService;
-use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,7 +17,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
-use Symfony\Component\HttpFoundation\Response;
 
 class ClientPortalController extends Controller
 {
@@ -392,71 +389,6 @@ class ClientPortalController extends Controller
     public function billing(): View
     {
         return view('client-portal.billing');
-    }
-
-    /**
-     * Display signed documents for the client.
-     */
-    public function documents(): View
-    {
-        return view('client-portal.documents');
-    }
-
-    /**
-     * Get signed contracts for the client portal.
-     */
-    public function getContracts(): JsonResponse
-    {
-        $clientUser = Auth::guard('client')->user();
-        $client = $clientUser->client;
-
-        if (! $client) {
-            return response()->json(['success' => false, 'message' => 'Client not found.'], 404);
-        }
-
-        $contracts = Contract::where('client_id', $client->id)
-            ->where('status', 'signed')
-            ->orderByDesc('signed_at')
-            ->get()
-            ->map(fn (Contract $contract) => [
-                'id' => $contract->id,
-                'contract_number' => $contract->contract_number,
-                'title' => $contract->title,
-                'signed_at' => $contract->signed_at?->format('M d, Y'),
-                'effective_date' => $contract->effective_date?->format('M d, Y'),
-                'pdf_url' => route('client.portal.contracts.pdf', $contract->id),
-            ]);
-
-        return response()->json([
-            'success' => true,
-            'contracts' => $contracts,
-        ]);
-    }
-
-    /**
-     * Download a signed contract PDF for the client portal.
-     */
-    public function downloadContractPdf(int $contractId): Response
-    {
-        $clientUser = Auth::guard('client')->user();
-        $client = $clientUser->client;
-
-        if (! $client) {
-            abort(403, 'Client not found');
-        }
-
-        $contract = Contract::where('id', $contractId)
-            ->where('client_id', $client->id)
-            ->where('status', 'signed')
-            ->firstOrFail();
-
-        $contract->load(['client', 'company', 'signers']);
-
-        $pdf = Pdf::loadView('contract.pdf', ['contract' => $contract])
-            ->setPaper('a4', 'portrait')
-            ->setOption('enable-local-file-access', true);
-
-        return $pdf->download('contract-'.$contract->contract_number.'.pdf');
     }
 
     /**

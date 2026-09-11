@@ -280,7 +280,9 @@
 <body>
     @php
         $company = $contract->company;
-        $client = $contract->client;
+        $lead = $contract->lead;
+        $party = $lead ? app(\App\Services\LeadQuoteMapper::class)->toLegacy($lead) : [];
+        $partyName = $lead ? (trim(($party['sFName'] ?? '').' '.($party['sLName'] ?? '')) ?: $lead->name) : null;
     @endphp
 
     <div class="header">
@@ -338,20 +340,20 @@
             </div>
         </div>
         <div class="party-box">
-            <div class="section-title">Client</div>
+            <div class="section-title">Lead</div>
             <div class="party-info">
-                <strong>{{ $client->name }}</strong><br>
-                @if($client->contact_person)
-                    Attn: {{ $client->contact_person }}<br>
+                <strong>{{ $partyName }}</strong><br>
+                @if($party['sCompany'] ?? null)
+                    {{ $party['sCompany'] }}<br>
                 @endif
-                @if($client->email)
-                    {{ $client->email }}<br>
+                @if($party['sEmail'] ?? null)
+                    {{ $party['sEmail'] }}<br>
                 @endif
-                @if($client->phone)
-                    {{ $client->phone }}<br>
+                @if($party['sPhone'] ?? null)
+                    {{ $party['sPhone'] }}<br>
                 @endif
-                @if($client->address)
-                    {{ $client->address }}
+                @if($party['address'] ?? null)
+                    {{ $party['address'] }}
                 @endif
             </div>
         </div>

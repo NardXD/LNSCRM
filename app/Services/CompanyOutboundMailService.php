@@ -24,6 +24,17 @@ class CompanyOutboundMailService
             ->first();
     }
 
+    public function contractMailbox(int $companyId): ?SharedInbox
+    {
+        return SharedInbox::query()
+            ->where('company_id', $companyId)
+            ->where('type', SharedInbox::TYPE_CONTRACT)
+            ->where('is_active', true)
+            ->whereNotNull('outlook_mail_account_id')
+            ->with('account')
+            ->first();
+    }
+
     public function hasOutboundSender(int $companyId): bool
     {
         $mailbox = $this->quotationMailbox($companyId);
@@ -100,8 +111,8 @@ class CompanyOutboundMailService
         ];
     }
 
-    public static function configurationHelpMessage(): string
+    public static function configurationHelpMessage(string $feature = 'Quotation Builder'): string
     {
-        return 'Outbound email is not configured. Sign in with Microsoft 365 under Quotation Builder → Microsoft 365 Mail, or connect Gmail in Integrations.';
+        return "Outbound email is not configured. Sign in with Microsoft 365 under {$feature} → Microsoft 365 Mail, or connect Gmail in Integrations.";
     }
 }

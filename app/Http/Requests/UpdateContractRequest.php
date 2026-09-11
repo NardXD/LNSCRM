@@ -14,7 +14,7 @@ class UpdateContractRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'client_id' => ['sometimes', 'required', 'exists:clients,id'],
+            'lead_id' => ['sometimes', 'required', 'exists:leads,id'],
             'title' => ['sometimes', 'required', 'string', 'max:255'],
             'content' => ['sometimes', 'required', 'string'],
             'effective_date' => ['nullable', 'date'],

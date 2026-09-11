@@ -4,18 +4,18 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreContractRequest;
 use App\Http\Requests\UpdateContractRequest;
-use App\Models\Client;
 use App\Models\Contract;
 use App\Models\ContractSigner;
 use App\Models\ContractStatusHistory;
-use App\Models\GmailIntegration;
+use App\Models\Lead;
+use App\Services\CompanyOutboundMailService;
+use App\Services\Contract\ContractEmailTemplateService;
+use App\Services\LeadQuoteMapper;
 use App\Services\Quote\QuotationDocumentMapper;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -29,11 +29,66 @@ class ContractController extends Controller
         return view('dashboard.contracts');
     }
 
+    public function emailTemplatePage(): View
+    {
+        $companyName = Auth::user()->company?->name;
+        $service = app(ContractEmailTemplateService::class);
+
+        return view('dashboard.contracts-email-template', [
+            'placeholders' => ContractEmailTemplateService::placeholders(),
+            'previewContext' => $service->samplePreviewContext($companyName),
+        ]);
+    }
+
+    public function getEmailTemplate(): JsonResponse
+    {
+        $companyId = (int) Auth::user()->company_id;
+        $service = app(ContractEmailTemplateService::class);
+
+        return response()->json([
+            'template' => $service->getTemplate($companyId),
+            'defaults' => [
+                'subject' => ContractEmailTemplateService::defaultSubject(),
+                'body' => ContractEmailTemplateService::defaultBody(),
+            ],
+            'placeholders' => ContractEmailTemplateService::placeholders(),
+        ]);
+    }
+
+    public function storeEmailTemplate(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'subject' => ['required', 'string', 'max:500'],
+            'body' => ['required', 'string', 'max:50000'],
+        ]);
+
+        $companyId = (int) Auth::user()->company_id;
+        $service = app(ContractEmailTemplateService::class);
+        $template = $service->saveTemplate($companyId, $validated['subject'], $validated['body']);
+
+        return response()->json([
+            'message' => 'Email template saved.',
+            'template' => $template,
+        ]);
+    }
+
+    public function resetEmailTemplate(): JsonResponse
+    {
+        $companyId = (int) Auth::user()->company_id;
+        $service = app(ContractEmailTemplateService::class);
+        $template = $service->resetTemplate($companyId);
+
+        return response()->json([
+            'message' => 'Email template reset to default.',
+            'template' => $template,
+        ]);
+    }
+
     public function getContracts(Request $request): JsonResponse
     {
         $user = Auth::user();
         $query = Contract::where('company_id', $user->company_id)
-            ->with(['client', 'user', 'signers', 'quotation'])
+            ->with(['lead', 'user', 'signers', 'quotation'])
             ->orderByDesc('created_at');
 
         if ($request->filled('search')) {
@@ -41,7 +96,7 @@ class ContractController extends Controller
             $query->where(function ($q) use ($search) {
                 $q->where('contract_number', 'like', "%{$search}%")
                     ->orWhere('title', 'like', "%{$search}%")
-                    ->orWhereHas('client', fn ($c) => $c->where('name', 'like', "%{$search}%"));
+                    ->orWhereHas('lead', fn ($c) => $c->where('name', 'like', "%{$search}%"));
             });
         }
 
@@ -87,16 +142,32 @@ class ContractController extends Controller
         ]);
     }
 
-    public function getClients(): JsonResponse
+    public function getLeads(): JsonResponse
     {
         $companyId = Auth::user()->company_id;
 
-        $clients = Client::where('company_id', $companyId)
-            ->with(['contacts:id,client_id,name,email,role'])
+        $leads = Lead::where('company_id', $companyId)
+            ->whereNotIn('status', ['archived'])
+            ->with('identities')
             ->orderBy('name')
-            ->get(['id', 'name', 'email', 'contact_person']);
+            ->get()
+            ->map(function (Lead $lead) {
+                $email = $lead->identities->where('type', 'email')
+                    ->sortByDesc(fn ($identity) => $identity->is_primary ? 1 : 0)
+                    ->first()?->value;
+                $phone = $lead->identities->where('type', 'phone')
+                    ->sortByDesc(fn ($identity) => $identity->is_primary ? 1 : 0)
+                    ->first()?->value;
 
-        return response()->json(['success' => true, 'data' => $clients]);
+                return [
+                    'id' => $lead->id,
+                    'name' => $lead->name,
+                    'email' => $email,
+                    'phone' => $phone,
+                ];
+            });
+
+        return response()->json(['success' => true, 'data' => $leads]);
     }
 
     public function getNextContractNumber(): JsonResponse
@@ -113,18 +184,18 @@ class ContractController extends Controller
     {
         $user = Auth::user();
 
-        $client = Client::where('company_id', $user->company_id)
-            ->where('id', $request->client_id)
+        $lead = Lead::where('company_id', $user->company_id)
+            ->where('id', $request->lead_id)
             ->first();
 
-        if (! $client) {
-            return response()->json(['success' => false, 'message' => 'Client not found.'], 404);
+        if (! $lead) {
+            return response()->json(['success' => false, 'message' => 'Lead not found.'], 404);
         }
 
         $contract = DB::transaction(function () use ($request, $user) {
             $contract = Contract::create([
                 'company_id' => $user->company_id,
-                'client_id' => $request->client_id,
+                'lead_id' => $request->lead_id,
                 'user_id' => $user->id,
                 'contract_number' => Contract::generateContractNumber($user->company_id),
                 'title' => $request->title,
@@ -137,7 +208,7 @@ class ContractController extends Controller
             $this->syncSigners($contract, $request->signers);
             $this->recordStatusChange($contract, 'draft', null, $user->id, 'Contract created');
 
-            return $contract->load(['client', 'signers']);
+            return $contract->load(['lead', 'signers']);
         });
 
         return response()->json([
@@ -153,7 +224,7 @@ class ContractController extends Controller
             return $response;
         }
 
-        $contract->load(['client', 'user', 'signers', 'statusHistory.user', 'quotation']);
+        $contract->load(['lead', 'user', 'signers', 'statusHistory.user', 'quotation']);
 
         return response()->json([
             'success' => true,
@@ -176,13 +247,13 @@ class ContractController extends Controller
 
         $user = Auth::user();
 
-        if ($request->filled('client_id')) {
-            $client = Client::where('company_id', $user->company_id)
-                ->where('id', $request->client_id)
+        if ($request->filled('lead_id')) {
+            $lead = Lead::where('company_id', $user->company_id)
+                ->where('id', $request->lead_id)
                 ->first();
 
-            if (! $client) {
-                return response()->json(['success' => false, 'message' => 'Client not found.'], 404);
+            if (! $lead) {
+                return response()->json(['success' => false, 'message' => 'Lead not found.'], 404);
             }
         }
 
@@ -190,7 +261,7 @@ class ContractController extends Controller
             $previousStatus = $contract->status;
 
             $contract->update($request->only([
-                'client_id', 'title', 'content', 'effective_date', 'expiry_date',
+                'lead_id', 'title', 'content', 'effective_date', 'expiry_date',
             ]));
 
             if ($request->has('signers') && $contract->status === 'draft') {
@@ -204,7 +275,7 @@ class ContractController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Contract updated successfully.',
-            'data' => $this->formatContractDetail($contract->fresh()->load(['client', 'signers'])),
+            'data' => $this->formatContractDetail($contract->fresh()->load(['lead', 'signers'])),
         ]);
     }
 
@@ -245,18 +316,7 @@ class ContractController extends Controller
             ], 422);
         }
 
-        $gmailIntegration = GmailIntegration::where('company_id', $user->company_id)
-            ->where('is_active', true)
-            ->first();
-
-        if (! $gmailIntegration) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Gmail integration is not configured. Please configure it in Integrations.',
-            ], 400);
-        }
-
-        $contract->load(['client', 'company', 'signers']);
+        $contract->load(['lead', 'company', 'signers']);
 
         if ($contract->signers->isEmpty()) {
             return response()->json([
@@ -265,12 +325,24 @@ class ContractController extends Controller
             ], 422);
         }
 
-        try {
-            $appPassword = Crypt::decryptString($gmailIntegration->app_password);
-            $this->configureMail($gmailIntegration, $contract->company->name ?? 'Company');
+        $mailService = app(CompanyOutboundMailService::class);
+        $mailbox = $mailService->contractMailbox((int) $user->company_id);
 
+        if (! $mailbox) {
+            $from = $mailService->configureMailer((int) $user->company_id, $contract->company->name ?? 'Company');
+
+            if (! $from) {
+                return response()->json([
+                    'success' => false,
+                    'message' => CompanyOutboundMailService::configurationHelpMessage('Contracts'),
+                ], 400);
+            }
+        }
+
+        try {
             $previousStatus = $contract->status;
             $sentCount = 0;
+            $templateService = app(ContractEmailTemplateService::class);
 
             foreach ($contract->signers as $signer) {
                 if ($signer->status === 'signed') {
@@ -280,18 +352,29 @@ class ContractController extends Controller
                 $signer->generateSigningToken();
                 $signingUrl = route('contracts.sign', ['token' => $signer->token]);
 
-                $emailHtml = view('emails.contract-signing', [
-                    'contract' => $contract,
-                    'signer' => $signer,
-                    'signingUrl' => $signingUrl,
-                    'company' => $contract->company,
-                ])->render();
+                $emailTemplate = $templateService->renderForSigner(
+                    (int) $user->company_id,
+                    $signer,
+                    $signingUrl,
+                    $contract->company->name ?? 'Company'
+                );
 
-                Mail::html($emailHtml, function ($message) use ($signer, $contract, $gmailIntegration) {
-                    $message->from($gmailIntegration->email, $contract->company->name ?? 'Company')
-                        ->to($signer->email, $signer->name)
-                        ->subject('Please sign: '.$contract->title);
-                });
+                if ($mailbox) {
+                    $sent = $mailService->sendViaOutlook($mailbox, $signer->email, $emailTemplate['subject'], $emailTemplate['body']);
+
+                    if (! $sent) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Could not send the email. Please try again.',
+                        ], 500);
+                    }
+                } else {
+                    Mail::html($emailTemplate['body'], function ($message) use ($signer, $contract, $from, $emailTemplate) {
+                        $message->from($from['email'], $contract->company->name ?? 'Company')
+                            ->to($signer->email, $signer->name)
+                            ->subject($emailTemplate['subject']);
+                    });
+                }
 
                 $sentCount++;
             }
@@ -314,7 +397,7 @@ class ContractController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => "Contract sent to {$sentCount} signer(s).",
-                'data' => $this->formatContractDetail($contract->fresh()->load(['client', 'signers'])),
+                'data' => $this->formatContractDetail($contract->fresh()->load(['lead', 'signers'])),
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -330,7 +413,7 @@ class ContractController extends Controller
             abort(404);
         }
 
-        $contract->load(['client', 'company', 'signers', 'quotation']);
+        $contract->load(['lead', 'company', 'signers', 'quotation']);
 
         if ($contract->content_type === 'storage_quote' && $contract->quotation) {
             $pdf = Pdf::loadView('quotes.contract-pdf', ['data' => QuotationDocumentMapper::fromContract($contract)])
@@ -353,7 +436,7 @@ class ContractController extends Controller
     public function showSigningPage(string $token): View
     {
         $signer = ContractSigner::where('token', $token)
-            ->with(['contract.client', 'contract.company', 'contract.signers', 'contract.quotation'])
+            ->with(['contract.lead', 'contract.company', 'contract.signers', 'contract.quotation'])
             ->firstOrFail();
 
         $contract = $signer->contract;
@@ -470,7 +553,7 @@ class ContractController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Contract cancelled.',
-            'data' => $this->formatContractDetail($contract->fresh()->load(['client', 'signers'])),
+            'data' => $this->formatContractDetail($contract->fresh()->load(['lead', 'signers'])),
         ]);
     }
 
@@ -539,18 +622,19 @@ class ContractController extends Controller
         return null;
     }
 
-    protected function configureMail(GmailIntegration $gmailIntegration, string $fromName): void
+    protected function formatLeadSummary(?Lead $lead): ?array
     {
-        $appPassword = Crypt::decryptString($gmailIntegration->app_password);
+        if (! $lead) {
+            return null;
+        }
 
-        Config::set('mail.default', 'smtp');
-        Config::set('mail.mailers.smtp.host', 'smtp.gmail.com');
-        Config::set('mail.mailers.smtp.port', 587);
-        Config::set('mail.mailers.smtp.encryption', 'tls');
-        Config::set('mail.mailers.smtp.username', $gmailIntegration->email);
-        Config::set('mail.mailers.smtp.password', $appPassword);
-        Config::set('mail.from.address', $gmailIntegration->email);
-        Config::set('mail.from.name', $fromName);
+        $tenant = app(LeadQuoteMapper::class)->toLegacy($lead);
+
+        return [
+            'id' => $lead->id,
+            'name' => $lead->name,
+            'email' => $tenant['sEmail'] ?: null,
+        ];
     }
 
     protected function formatContractListItem(Contract $contract): array
@@ -562,8 +646,8 @@ class ContractController extends Controller
             'id' => $contract->id,
             'contract_number' => $contract->contract_number,
             'title' => $contract->title,
-            'client' => $contract->client->name,
-            'client_id' => $contract->client_id,
+            'lead' => $contract->lead?->name,
+            'lead_id' => $contract->lead_id,
             'status' => $contract->status,
             'effective_date' => $contract->effective_date?->format('M d, Y'),
             'created_by' => $contract->user->name,
@@ -593,8 +677,8 @@ class ContractController extends Controller
             'quotation_id' => $contract->quotation_id,
             'rendered_content' => $renderedContent,
             'status' => $contract->status,
-            'client_id' => $contract->client_id,
-            'client' => $contract->client?->only(['id', 'name', 'email']),
+            'lead_id' => $contract->lead_id,
+            'lead' => $this->formatLeadSummary($contract->lead),
             'effective_date' => $contract->effective_date?->format('Y-m-d'),
             'expiry_date' => $contract->expiry_date?->format('Y-m-d'),
             'sent_at' => $contract->sent_at?->toIso8601String(),

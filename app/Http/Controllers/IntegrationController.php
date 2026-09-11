@@ -992,6 +992,80 @@ class IntegrationController extends Controller
         return response()->json(['message' => 'Microsoft 365 mailbox disconnected successfully']);
     }
 
+    public function contractsMicrosoft365MailPage(OutlookMailService $mailService)
+    {
+        $companyId = auth()->user()?->company_id;
+        $creds = $companyId ? $mailService->getMailCredentials($companyId) : [];
+
+        return view('dashboard.contracts-microsoft-365-mail', [
+            'outlookConfigured' => ! empty($creds['client_id']) && ! empty($creds['client_secret']),
+        ]);
+    }
+
+    /**
+     * Get Microsoft 365 outbound mail connection for contracts.
+     */
+    public function getContractsMicrosoft365MailIntegration(Request $request, OutlookMailService $mailService): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $creds = $mailService->getMailCredentials($company->id);
+        $inbox = SharedInbox::query()
+            ->where('company_id', $company->id)
+            ->where('type', SharedInbox::TYPE_CONTRACT)
+            ->with('account')
+            ->first();
+
+        $connected = $inbox
+            && $inbox->is_active
+            && $inbox->outlook_mail_account_id
+            && $inbox->account;
+
+        if ($connected) {
+            return response()->json([
+                'integration' => [
+                    'email' => $inbox->email ?: $inbox->account->email,
+                    'name' => $inbox->name,
+                    'connected_at' => $inbox->updated_at,
+                ],
+                'status' => 'connected',
+                'outlook_configured' => ! empty($creds['client_id']) && ! empty($creds['client_secret']),
+            ]);
+        }
+
+        return response()->json([
+            'integration' => null,
+            'status' => 'disconnected',
+            'outlook_configured' => ! empty($creds['client_id']) && ! empty($creds['client_secret']),
+        ]);
+    }
+
+    /**
+     * Disconnect Microsoft 365 outbound mail for contracts.
+     */
+    public function deleteContractsMicrosoft365MailIntegration(Request $request): JsonResponse
+    {
+        $company = $this->getCompany($request);
+
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        SharedInbox::query()
+            ->where('company_id', $company->id)
+            ->where('type', SharedInbox::TYPE_CONTRACT)
+            ->update([
+                'outlook_mail_account_id' => null,
+                'is_active' => false,
+            ]);
+
+        return response()->json(['message' => 'Microsoft 365 mailbox disconnected successfully']);
+    }
+
     /**
      * Get Stripe integration for the current company.
      */

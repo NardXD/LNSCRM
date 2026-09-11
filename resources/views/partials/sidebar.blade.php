@@ -221,6 +221,60 @@
                             </div>
                         </div>
                         @endif
+                    @elseif($item['route'] === 'contracts')
+                        @php
+                            $hasContracts = in_array('view_contracts', $userPermissions ?? []);
+                            $hasContractEmailTemplate = in_array('view_contracts_email_template', $userPermissions ?? []);
+                            $hasContractM365Mail = in_array('view_contracts_microsoft_365_mail', $userPermissions ?? []);
+                            $showContractsMenu = $hasContracts || $hasContractEmailTemplate || $hasContractM365Mail;
+                        @endphp
+                        @if($showContractsMenu)
+                        <div class="nav-item-parent {{ request()->routeIs('contracts') || request()->routeIs('contracts.*') ? 'active' : '' }}">
+                            <div class="nav-item nav-item-toggle" onclick="toggleSubmenu('contractsSubmenu')">
+                                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+                                    <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+                                    <path d="M2 2l7.586 7.586"/>
+                                    <circle cx="11" cy="11" r="2"/>
+                                </svg>
+                                <span class="nav-text">Contracts &amp; E-Sign</span>
+                                <svg class="nav-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="6 9 12 15 18 9"/>
+                                </svg>
+                            </div>
+                            <div class="nav-submenu" id="contractsSubmenu" style="display: {{ request()->routeIs('contracts') || request()->routeIs('contracts.*') ? 'block' : 'none' }};">
+                                @if($hasContracts)
+                                <a href="{{ route('contracts') }}" class="nav-subitem {{ request()->routeIs('contracts') && !request()->routeIs('contracts.microsoft-365-mail') && !request()->routeIs('contracts.email-template') ? 'active' : '' }}">
+                                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+                                        <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+                                        <path d="M2 2l7.586 7.586"/>
+                                        <circle cx="11" cy="11" r="2"/>
+                                    </svg>
+                                    <span class="nav-text">Contracts</span>
+                                </a>
+                                @endif
+                                @if($hasContractEmailTemplate)
+                                <a href="{{ route('contracts.email-template') }}" class="nav-subitem {{ request()->routeIs('contracts.email-template') ? 'active' : '' }}">
+                                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                                        <polyline points="22,6 12,13 2,6"/>
+                                    </svg>
+                                    <span class="nav-text">Email template</span>
+                                </a>
+                                @endif
+                                @if($hasContractM365Mail)
+                                <a href="{{ route('contracts.microsoft-365-mail') }}" class="nav-subitem {{ request()->routeIs('contracts.microsoft-365-mail') ? 'active' : '' }}">
+                                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                                        <polyline points="22,6 12,13 2,6"/>
+                                    </svg>
+                                    <span class="nav-text">Microsoft 365 Mail</span>
+                                </a>
+                                @endif
+                            </div>
+                        </div>
+                        @endif
                     @else
                         <a href="{{ route($item['route']) }}" class="nav-item {{ request()->routeIs($item['route']) || request()->routeIs($item['route'] . '.*') ? 'active' : '' }}">
                             @if($item['icon'] === 'dashboard')

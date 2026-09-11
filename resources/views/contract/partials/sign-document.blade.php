@@ -1,6 +1,8 @@
 @php
     $company = $contract->company;
-    $client = $contract->client;
+    $lead = $contract->lead;
+    $party = $lead ? app(\App\Services\LeadQuoteMapper::class)->toLegacy($lead) : [];
+    $partyName = $lead ? (trim(($party['sFName'] ?? '').' '.($party['sLName'] ?? '')) ?: $lead->name) : 'Lead';
 @endphp
 
 <div class="contract-document">
@@ -30,13 +32,13 @@
             </div>
         </div>
         <div class="contract-party">
-            <div class="contract-section-title">Client</div>
+            <div class="contract-section-title">Lead</div>
             <div class="contract-party-info">
-                <strong>{{ $client->name ?? 'Client' }}</strong>
-                @if($client?->contact_person)<br>Attn: {{ $client->contact_person }}@endif
-                @if($client?->email)<br>{{ $client->email }}@endif
-                @if($client?->phone)<br>{{ $client->phone }}@endif
-                @if($client?->address)<br>{{ $client->address }}@endif
+                <strong>{{ $partyName }}</strong>
+                @if($party['sCompany'] ?? null)<br>{{ $party['sCompany'] }}@endif
+                @if($party['sEmail'] ?? null)<br>{{ $party['sEmail'] }}@endif
+                @if($party['sPhone'] ?? null)<br>{{ $party['sPhone'] }}@endif
+                @if($party['address'] ?? null)<br>{{ $party['address'] }}@endif
             </div>
         </div>
     </div>

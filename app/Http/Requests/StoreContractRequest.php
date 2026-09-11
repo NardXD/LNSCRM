@@ -14,7 +14,7 @@ class StoreContractRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'client_id' => ['required', 'exists:clients,id'],
+            'lead_id' => ['required', 'exists:leads,id'],
             'title' => ['required', 'string', 'max:255'],
             'content' => ['required', 'string'],
             'effective_date' => ['nullable', 'date'],

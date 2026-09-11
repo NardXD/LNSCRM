@@ -121,6 +121,7 @@ class SidebarHelper
             [
                 'route' => 'contracts',
                 'permission' => 'view_contracts',
+                'permission_any' => ['view_contracts', 'view_contracts_email_template', 'view_contracts_microsoft_365_mail'],
                 'module_slug' => 'contracts',
                 'label' => 'Contracts & E-Sign',
                 'icon' => 'pen-tool',

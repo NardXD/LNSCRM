@@ -7,15 +7,12 @@ use App\Http\Requests\UpdateClientRequest;
 use App\Models\Client;
 use App\Models\ClientContact;
 use App\Models\ClientNote;
-use App\Models\Contract;
 use App\Models\Project;
 use App\Models\User;
-use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Symfony\Component\HttpFoundation\Response;
 
 class ClientManagementController extends Controller
 {
@@ -873,60 +870,4 @@ class ClientManagementController extends Controller
         }
     }
 
-    /**
-     * Get signed contracts for a client.
-     */
-    public function getClientContracts(Client $client): JsonResponse
-    {
-        $user = Auth::user();
-
-        if ($client->company_id !== $user->company_id) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Client not found.',
-            ], 404);
-        }
-
-        $contracts = Contract::where('client_id', $client->id)
-            ->where('status', 'signed')
-            ->orderByDesc('signed_at')
-            ->get()
-            ->map(fn (Contract $contract) => [
-                'id' => $contract->id,
-                'contract_number' => $contract->contract_number,
-                'title' => $contract->title,
-                'signed_at' => $contract->signed_at?->format('M d, Y'),
-                'effective_date' => $contract->effective_date?->format('M d, Y'),
-                'pdf_url' => route('api.client-management.clients.contracts.pdf', [$client, $contract]),
-            ]);
-
-        return response()->json([
-            'success' => true,
-            'data' => $contracts,
-        ]);
-    }
-
-    /**
-     * Download a signed contract PDF for a client.
-     */
-    public function downloadClientContractPdf(Client $client, Contract $contract): Response
-    {
-        $user = Auth::user();
-
-        if ($client->company_id !== $user->company_id || $contract->client_id !== $client->id) {
-            abort(404);
-        }
-
-        if ($contract->status !== 'signed') {
-            abort(404);
-        }
-
-        $contract->load(['client', 'company', 'signers']);
-
-        $pdf = Pdf::loadView('contract.pdf', ['contract' => $contract])
-            ->setPaper('a4', 'portrait')
-            ->setOption('enable-local-file-access', true);
-
-        return $pdf->download('contract-'.$contract->contract_number.'.pdf');
-    }
 }

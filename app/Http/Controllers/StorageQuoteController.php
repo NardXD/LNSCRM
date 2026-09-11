@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Exceptions\LeadMissingEmailException;
 use App\Mail\StorageQuoteMail;
 use App\Models\Lead;
 use App\Models\Quotation;
@@ -10,7 +9,6 @@ use App\Models\QuotationItem;
 use App\Models\QuotationStatusHistory;
 use App\Services\CompanyOutboundMailService;
 use App\Services\LeadQuoteMapper;
-use App\Services\LeadToClientConverter;
 use App\Services\Quote\QuotationBuilderEmailTemplateService;
 use App\Services\Quote\QuotationNumberGenerator;
 use App\Services\Quote\QuoteDocumentData;
@@ -189,76 +187,70 @@ class StorageQuoteController extends Controller
             return response()->json(['message' => 'Company not found.'], 404);
         }
 
-        try {
-            $quotation = DB::transaction(function () use ($lead, $data, $user, $company, $request) {
-                $client = app(LeadToClientConverter::class)->convert($lead);
+        $quotation = DB::transaction(function () use ($lead, $data, $user, $company, $request) {
+            $terms = $data['terms'];
+            $terms['unit_size'] = $data['unit_size'];
 
-                $terms = $data['terms'];
-                $terms['unit_size'] = $data['unit_size'];
+            $items = $this->buildStorageQuoteItems($data);
+            $subtotal = array_sum(array_map(
+                fn (array $item) => $item['quantity'] * $item['unit_price'],
+                $items
+            ));
 
-                $items = $this->buildStorageQuoteItems($data);
-                $subtotal = array_sum(array_map(
-                    fn (array $item) => $item['quantity'] * $item['unit_price'],
-                    $items
-                ));
+            $locode = $request->string('lo_code')->toString();
 
-                $locode = $request->string('lo_code')->toString();
+            $quotation = Quotation::create([
+                'company_id' => $lead->company_id,
+                'lead_id' => $lead->id,
+                'user_id' => $user->id,
+                'quotation_number' => app(QuotationNumberGenerator::class)->next($company),
+                'quotation_date' => now(),
+                'valid_until' => now()->addDays(30),
+                'status' => 'draft',
+                'subtotal' => $subtotal,
+                'tax_amount' => $data['totals']['vat_amount'],
+                'discount_amount' => $data['totals']['reduction'],
+                'discount_type' => 'amount',
+                'total' => $data['totals']['total_due'],
+                'quote_type' => 'storage',
+                'storage_tenant' => $data['tenant'],
+                'storage_alt_contact' => $data['alt_contact'],
+                'storage_units' => $data['all_units'],
+                'storage_terms' => $terms,
+                'storage_totals' => $data['totals'],
+                'facility_code' => $locode !== '' ? $locode : null,
+            ]);
 
-                $quotation = Quotation::create([
-                    'company_id' => $lead->company_id,
-                    'client_id' => $client->id,
-                    'user_id' => $user->id,
-                    'quotation_number' => app(QuotationNumberGenerator::class)->next($company),
-                    'quotation_date' => now(),
-                    'valid_until' => now()->addDays(30),
-                    'status' => 'draft',
-                    'subtotal' => $subtotal,
-                    'tax_amount' => $data['totals']['vat_amount'],
-                    'discount_amount' => $data['totals']['reduction'],
-                    'discount_type' => 'amount',
-                    'total' => $data['totals']['total_due'],
-                    'quote_type' => 'storage',
-                    'storage_tenant' => $data['tenant'],
-                    'storage_alt_contact' => $data['alt_contact'],
-                    'storage_units' => $data['all_units'],
-                    'storage_terms' => $terms,
-                    'storage_totals' => $data['totals'],
-                    'facility_code' => $locode !== '' ? $locode : null,
-                ]);
-
-                foreach ($items as $index => $item) {
-                    QuotationItem::create([
-                        'quotation_id' => $quotation->id,
-                        'item_name' => $item['item_name'],
-                        'description' => $item['description'],
-                        'quantity' => $item['quantity'],
-                        'unit_price' => $item['unit_price'],
-                        'tax_percentage' => 0,
-                        'tax_amount' => 0,
-                        'total' => $item['quantity'] * $item['unit_price'],
-                        'sort_order' => $index,
-                    ]);
-                }
-
-                if ($data['signature_base64']) {
-                    $path = "quotes/{$quotation->id}/signature.png";
-                    Storage::disk('local')->put($path, base64_decode($data['signature_base64']));
-                    $quotation->update(['signature_path' => $path]);
-                }
-
-                QuotationStatusHistory::create([
+            foreach ($items as $index => $item) {
+                QuotationItem::create([
                     'quotation_id' => $quotation->id,
-                    'user_id' => $user->id,
-                    'status' => 'draft',
-                    'previous_status' => null,
-                    'notes' => 'Storage quote saved from quotation builder',
+                    'item_name' => $item['item_name'],
+                    'description' => $item['description'],
+                    'quantity' => $item['quantity'],
+                    'unit_price' => $item['unit_price'],
+                    'tax_percentage' => 0,
+                    'tax_amount' => 0,
+                    'total' => $item['quantity'] * $item['unit_price'],
+                    'sort_order' => $index,
                 ]);
+            }
 
-                return $quotation;
-            });
-        } catch (LeadMissingEmailException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
+            if ($data['signature_base64']) {
+                $path = "quotes/{$quotation->id}/signature.png";
+                Storage::disk('local')->put($path, base64_decode($data['signature_base64']));
+                $quotation->update(['signature_path' => $path]);
+            }
+
+            QuotationStatusHistory::create([
+                'quotation_id' => $quotation->id,
+                'user_id' => $user->id,
+                'status' => 'draft',
+                'previous_status' => null,
+                'notes' => 'Storage quote saved from quotation builder',
+            ]);
+
+            return $quotation;
+        });
 
         return response()->json([
             'success' => true,

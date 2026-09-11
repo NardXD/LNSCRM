@@ -16,6 +16,7 @@ use App\Models\QuotationItem;
 use App\Models\QuotationStatusHistory;
 use App\Models\User;
 use App\Services\CompanyOutboundMailService;
+use App\Services\LeadToClientConverter;
 use App\Services\Quote\QuotationBuilderEmailTemplateService;
 use App\Services\Quote\QuotationDocumentMapper;
 use App\Services\Quote\QuotationNumberGenerator;
@@ -103,7 +104,7 @@ class QuotationController extends Controller
         $companyId = $user->company_id;
 
         $query = Quotation::where('company_id', $companyId)
-            ->with(['client', 'user', 'contracts'])
+            ->with(['client', 'lead', 'user', 'contracts'])
             ->orderBy('created_at', 'desc');
 
         // Search filter
@@ -112,6 +113,9 @@ class QuotationController extends Controller
             $query->where(function ($q) use ($search) {
                 $q->where('quotation_number', 'like', "%{$search}%")
                     ->orWhereHas('client', function ($q) use ($search) {
+                        $q->where('name', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('lead', function ($q) use ($search) {
                         $q->where('name', 'like', "%{$search}%");
                     });
             });
@@ -142,8 +146,9 @@ class QuotationController extends Controller
             return [
                 'id' => $quotation->id,
                 'quotation_number' => $quotation->quotation_number,
-                'client' => $quotation->client->name,
+                'client' => $quotation->client?->name ?? $quotation->lead?->name,
                 'client_id' => $quotation->client_id,
+                'lead_id' => $quotation->lead_id,
                 'date' => $quotation->quotation_date->format('M d, Y'),
                 'date_raw' => $quotation->quotation_date->format('Y-m-d'),
                 'valid_until' => $quotation->valid_until->format('M d, Y'),
@@ -768,9 +773,17 @@ class QuotationController extends Controller
             $mailbox = $mailService->quotationMailbox((int) $user->company_id);
 
             // Load quotation with relationships
-            $quotation->load(['client', 'company', 'items']);
+            $quotation->load(['client', 'lead', 'company', 'items']);
 
-            if (! $quotation->client || ! $quotation->client->email) {
+            if ($quotation->quote_type === 'storage') {
+                $recipientEmail = trim((string) ($quotation->storage_tenant['email'] ?? ''));
+                $recipientName = trim(($quotation->storage_tenant['first_name'] ?? '').' '.($quotation->storage_tenant['last_name'] ?? '')) ?: ($quotation->lead?->name ?? '');
+            } else {
+                $recipientEmail = trim((string) ($quotation->client->email ?? ''));
+                $recipientName = $quotation->client->name ?? '';
+            }
+
+            if ($recipientEmail === '' || ! filter_var($recipientEmail, FILTER_VALIDATE_EMAIL)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Client email address is not available.',
@@ -821,7 +834,7 @@ class QuotationController extends Controller
             if ($mailbox) {
                 $sent = $mailService->sendViaOutlook(
                     $mailbox,
-                    $quotation->client->email,
+                    $recipientEmail,
                     $emailSubject,
                     $emailHtml,
                     [[
@@ -838,9 +851,9 @@ class QuotationController extends Controller
                     ], 500);
                 }
             } else {
-                Mail::html($emailHtml, function ($message) use ($quotation, $from, $pdfContent, $filename, $emailSubject) {
+                Mail::html($emailHtml, function ($message) use ($quotation, $from, $pdfContent, $filename, $emailSubject, $recipientEmail, $recipientName) {
                     $message->from($from['email'], $quotation->company->name ?? 'Company')
-                        ->to($quotation->client->email, $quotation->client->name)
+                        ->to($recipientEmail, $recipientName)
                         ->subject($emailSubject)
                         ->attachData($pdfContent, $filename, [
                             'mime' => 'application/pdf',
@@ -894,6 +907,10 @@ class QuotationController extends Controller
             return response()->json(['success' => false, 'message' => 'Only storage quotes can be converted to a contract.'], 422);
         }
 
+        if (! $quotation->lead_id) {
+            return response()->json(['success' => false, 'message' => 'This quotation has no linked lead.'], 422);
+        }
+
         $existing = Contract::where('quotation_id', $quotation->id)->first();
         if ($existing) {
             return response()->json([
@@ -916,7 +933,7 @@ class QuotationController extends Controller
         $contract = DB::transaction(function () use ($quotation, $user, $tenant, $altContact, $tenantName, $tenantEmail) {
             $contract = Contract::create([
                 'company_id' => $quotation->company_id,
-                'client_id' => $quotation->client_id,
+                'lead_id' => $quotation->lead_id,
                 'user_id' => $user->id,
                 'quotation_id' => $quotation->id,
                 'contract_number' => Contract::generateContractNumber($quotation->company_id),
@@ -1066,15 +1083,20 @@ class QuotationController extends Controller
             return null;
         }
 
-        $quotation->load(['client', 'items']);
+        $quotation->load(['client', 'lead', 'items']);
 
-        return DB::transaction(function () use ($quotation, $user) {
+        // Storage quotations attach to a Lead, not a Client — accepting into an invoice
+        // is the point where a Client record is created (invoicing/client-portal billing
+        // are inherently client-based elsewhere in the app).
+        $client = $quotation->client ?? app(LeadToClientConverter::class)->convert($quotation->lead);
+
+        return DB::transaction(function () use ($quotation, $user, $client) {
             $invoiceDate = $quotation->quotation_date;
             $dueDate = $invoiceDate->copy()->addDays(30);
 
             $invoice = Invoice::create([
                 'company_id' => $quotation->company_id,
-                'client_id' => $quotation->client_id,
+                'client_id' => $client->id,
                 'user_id' => $user->id,
                 'quotation_id' => $quotation->id,
                 'invoice_number' => Invoice::generateInvoiceNumber(),
@@ -1207,7 +1229,8 @@ class QuotationController extends Controller
             'id' => $quotation->id,
             'quotation_number' => $quotation->quotation_number,
             'client_id' => $quotation->client_id,
-            'client' => $quotation->client->name,
+            'lead_id' => $quotation->lead_id,
+            'client' => $quotation->client?->name ?? $quotation->lead?->name,
             'quotation_date' => $quotation->quotation_date->format('Y-m-d'),
             'valid_until' => $quotation->valid_until->format('Y-m-d'),
             'status' => $quotation->status,

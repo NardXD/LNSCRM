@@ -450,7 +450,6 @@
                 <button class="modal-tab" data-tab="projects">Projects</button>
                 <button class="modal-tab" data-tab="employees">Employee List</button>
                 <button class="modal-tab" data-tab="portalUsers">Portal Users</button>
-                <button class="modal-tab" data-tab="documents">Documents</button>
                 <button class="modal-tab" data-tab="notes">Notes</button>
             </div>
 
@@ -581,30 +580,6 @@
                                 </svg>
                                 <p>No portal users created yet.</p>
                                 <p style="font-size: 0.8125rem; color: var(--text-muted);">Create a portal user to allow this client to view their assigned employees.</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Documents Tab -->
-                <div class="modal-tab-content" id="documentsTab">
-                    <div class="documents-management">
-                        <div class="documents-header">
-                            <div>
-                                <h3 class="form-section-title">Signed Documents</h3>
-                                <p class="section-description">Fully executed contracts available for this client.</p>
-                            </div>
-                        </div>
-
-                        <div class="documents-list-container" id="documentsListContainer">
-                            <div class="empty-state" id="documentsEmptyState">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: 1rem;">
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                                    <polyline points="14 2 14 8 20 8"/>
-                                    <line x1="16" y1="13" x2="8" y2="13"/>
-                                    <line x1="16" y1="17" x2="8" y2="17"/>
-                                </svg>
-                                <p>No signed documents yet.</p>
                             </div>
                         </div>
                     </div>
@@ -3003,11 +2978,6 @@
             if (tabId === 'notes' && currentClientId) {
                 renderNotes(currentClientId);
             }
-
-            // Load documents when documents tab is clicked
-            if (tabId === 'documents' && currentClientId) {
-                loadClientDocuments(currentClientId);
-            }
         });
     });
     
@@ -3071,83 +3041,6 @@
     }
 
     // Project Management Functions
-    async function loadClientDocuments(clientId) {
-        const container = document.getElementById('documentsListContainer');
-        const emptyState = document.getElementById('documentsEmptyState');
-
-        if (!container) return;
-
-        container.querySelectorAll('.document-item').forEach(item => item.remove());
-        emptyState.style.display = 'block';
-        emptyState.innerHTML = '<p>Loading documents...</p>';
-
-        try {
-            const response = await fetch(`${apiBase}/clients/${clientId}/contracts`);
-            const result = await response.json();
-
-            if (!result.success) {
-                emptyState.innerHTML = '<p>Failed to load documents.</p>';
-                return;
-            }
-
-            renderDocumentsFromData(result.data || []);
-        } catch (error) {
-            console.error('Error loading documents:', error);
-            emptyState.innerHTML = '<p>Failed to load documents.</p>';
-        }
-    }
-
-    function renderDocumentsFromData(documents) {
-        const container = document.getElementById('documentsListContainer');
-        const emptyState = document.getElementById('documentsEmptyState');
-
-        if (!container) return;
-
-        container.querySelectorAll('.document-item').forEach(item => item.remove());
-
-        if (!documents || documents.length === 0) {
-            emptyState.style.display = 'block';
-            emptyState.innerHTML = `
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: 1rem;">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14 2 14 8 20 8"/>
-                    <line x1="16" y1="13" x2="8" y2="13"/>
-                    <line x1="16" y1="17" x2="8" y2="17"/>
-                </svg>
-                <p>No signed documents yet.</p>
-            `;
-            return;
-        }
-
-        emptyState.style.display = 'none';
-
-        documents.forEach(doc => {
-            const item = document.createElement('div');
-            item.className = 'document-item';
-            item.innerHTML = `
-                <div class="document-info">
-                    <div class="document-title">${doc.title || doc.contract_number}</div>
-                    <div class="document-meta">
-                        <span>${doc.contract_number}</span>
-                        ${doc.signed_at ? `<span>Signed ${doc.signed_at}</span>` : ''}
-                        ${doc.effective_date ? `<span>Effective ${doc.effective_date}</span>` : ''}
-                    </div>
-                </div>
-                <div class="document-actions">
-                    <a href="${doc.pdf_url}" class="btn-download-doc" target="_blank" rel="noopener">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                            <polyline points="7 10 12 15 17 10"/>
-                            <line x1="12" y1="15" x2="12" y2="3"/>
-                        </svg>
-                        Download PDF
-                    </a>
-                </div>
-            `;
-            container.appendChild(item);
-        });
-    }
-
     function renderProjectsFromData(projects) {
         const container = document.getElementById('projectsListContainer');
         const emptyState = document.getElementById('projectsEmptyState');

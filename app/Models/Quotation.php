@@ -15,6 +15,7 @@ class Quotation extends Model
     protected $fillable = [
         'company_id',
         'client_id',
+        'lead_id',
         'user_id',
         'quotation_number',
         'quotation_date',
@@ -82,11 +83,19 @@ class Quotation extends Model
     }
 
     /**
-     * Get the client for the quotation.
+     * Get the client for the quotation (standard, non-storage quotations only).
      */
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    /**
+     * Get the lead for the quotation (storage quotations).
+     */
+    public function lead(): BelongsTo
+    {
+        return $this->belongsTo(Lead::class);
     }
 
     /**

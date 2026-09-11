@@ -177,6 +177,16 @@ class Lead extends Model
         return $this->belongsTo(Client::class);
     }
 
+    public function quotations(): HasMany
+    {
+        return $this->hasMany(Quotation::class);
+    }
+
+    public function contracts(): HasMany
+    {
+        return $this->hasMany(Contract::class);
+    }
+
     public function identities(): HasMany
     {
         return $this->hasMany(LeadIdentity::class);

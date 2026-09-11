@@ -5,7 +5,7 @@
 @section('content')
     <div class="page-header">
         <h1 class="page-title">Contracts & E-Sign</h1>
-        <p class="page-subtitle">Create contracts, send them to clients, and collect electronic signatures</p>
+        <p class="page-subtitle">Create contracts, send them to leads, and collect electronic signatures</p>
     </div>
 
     <div class="quotation-container">
@@ -98,7 +98,7 @@
                         <tr>
                             <th>Contract #</th>
                             <th>Title</th>
-                            <th>Client</th>
+                            <th>Lead</th>
                             <th>Status</th>
                             <th>Signatures</th>
                             <th>Created</th>
@@ -144,8 +144,8 @@
                         <h3 class="form-section-title">Contract Details</h3>
                         <div class="form-grid">
                             <div class="form-group">
-                                <label class="form-label">Client *</label>
-                                <select class="form-input" id="clientId" required></select>
+                                <label class="form-label">Lead *</label>
+                                <select class="form-input" id="leadId" required></select>
                             </div>
                             <div class="form-group">
                                 <label class="form-label">Contract #</label>
@@ -228,7 +228,7 @@
                         <span class="view-value" id="viewContractTitle"></span>
                     </div>
                     <div class="view-invoice-row">
-                        <span class="view-label">Client</span>
+                        <span class="view-label">Lead</span>
                         <span class="view-value" id="viewContractClient"></span>
                     </div>
                     <div class="view-invoice-row">
@@ -458,7 +458,7 @@
     const CONTRACT_API = "{{ url('/api/contracts') }}";
     const CONTRACT_HISTORY_API = (id) => `{{ route('api.contracts.status-history', ':id') }}`.replace(':id', id);
 
-    let clients = [];
+    let leads = [];
     let contractsData = [];
     let currentPage = 1;
     let totalPages = 1;
@@ -586,7 +586,7 @@
             <tr onclick="openViewContractModal(${c.id})">
                 <td><strong>${escapeHtml(c.contract_number)}</strong></td>
                 <td>${escapeHtml(c.title)}</td>
-                <td>${escapeHtml(c.client)}</td>
+                <td>${escapeHtml(c.lead)}</td>
                 <td><span class="status-badge ${statusBadgeClass(c.status)}">${statusLabels[c.status] || c.status}</span></td>
                 <td>${c.signers_progress}</td>
                 <td>${c.created_at}</td>
@@ -635,7 +635,7 @@
                     <span class="status-badge ${statusBadgeClass(c.status)}">${statusLabels[c.status] || c.status}</span>
                 </div>
                 <div class="card-details">
-                    <div class="card-detail"><span class="card-label">Client</span><span class="card-value">${escapeHtml(c.client)}</span></div>
+                    <div class="card-detail"><span class="card-label">Lead</span><span class="card-value">${escapeHtml(c.lead)}</span></div>
                     <div class="card-detail"><span class="card-label">Signatures</span><span class="card-value">${c.signers_progress}</span></div>
                     <div class="card-detail"><span class="card-label">Created</span><span class="card-value">${c.created_at}</span></div>
                 </div>
@@ -720,11 +720,11 @@
         syncContractContentEditor();
     });
 
-    async function loadClients() {
-        const data = await api(CONTRACT_API + '/clients');
-        if (data.success) clients = data.data;
-        document.getElementById('clientId').innerHTML = '<option value="">Select client...</option>' +
-            clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    async function loadLeads() {
+        const data = await api(CONTRACT_API + '/leads');
+        if (data.success) leads = data.data;
+        document.getElementById('leadId').innerHTML = '<option value="">Select lead...</option>' +
+            leads.map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('');
     }
 
     function addSignerRow(signer = {}) {
@@ -781,7 +781,7 @@
         const c = data.data;
         document.getElementById('contractModalTitle').textContent = 'Edit Contract';
         document.getElementById('contractId').value = c.id;
-        document.getElementById('clientId').value = c.client_id;
+        document.getElementById('leadId').value = c.lead_id;
         document.getElementById('contractNumber').value = c.contract_number;
         document.getElementById('contractTitle').value = c.title;
         document.getElementById('effectiveDate').value = c.effective_date || '';
@@ -802,7 +802,7 @@
         if (!stripHtml(content)) return alert('Contract content is required.');
 
         const payload = {
-            client_id: document.getElementById('clientId').value,
+            lead_id: document.getElementById('leadId').value,
             title: document.getElementById('contractTitle').value,
             content,
             effective_date: document.getElementById('effectiveDate').value || null,
@@ -833,7 +833,7 @@
         document.getElementById('viewContractNumber').textContent = c.contract_number;
         document.getElementById('viewContractStatus').innerHTML = `<span class="status-badge ${statusBadgeClass(c.status)}">${statusLabels[c.status] || c.status}</span>`;
         document.getElementById('viewContractTitle').textContent = c.title || '-';
-        document.getElementById('viewContractClient').textContent = c.client?.name || '-';
+        document.getElementById('viewContractClient').textContent = c.lead?.name || '-';
         document.getElementById('viewContractEffective').textContent = c.effective_date || '-';
         document.getElementById('viewContractExpiry').textContent = c.expiry_date || '-';
         const signed = c.signers.filter(s => s.status === 'signed').length;
@@ -978,18 +978,17 @@
     document.getElementById('prevBtn').addEventListener('click', () => { if (currentPage > 1) loadContracts(currentPage - 1); });
     document.getElementById('nextBtn').addEventListener('click', () => { if (currentPage < totalPages) loadContracts(currentPage + 1); });
 
-    document.getElementById('clientId').addEventListener('change', function() {
-        const client = clients.find(c => c.id == this.value);
-        if (!client || document.getElementById('contractId').value) return;
+    document.getElementById('leadId').addEventListener('change', function() {
+        const lead = leads.find(l => l.id == this.value);
+        if (!lead || document.getElementById('contractId').value) return;
         const list = document.getElementById('signersList');
         if (list.children.length === 1 && !list.querySelector('.signer-name').value) {
             list.innerHTML = '';
-            addSignerRow({ name: client.contact_person || client.name, email: client.email || '', role: 'client', signing_order: 1 });
-            client.contacts?.forEach((contact, i) => addSignerRow({ name: contact.name, email: contact.email, role: 'client', signing_order: i + 2 }));
+            addSignerRow({ name: lead.name, email: lead.email || '', role: 'client', signing_order: 1 });
         }
     });
 
-    loadClients();
+    loadLeads();
     loadStats();
     loadContracts();
 
