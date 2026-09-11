@@ -2005,6 +2005,10 @@
     outline: none;
 }
 .inbox-composer-editor.form-input { min-height: 160px; max-height: 280px; }
+.inbox-composer-editor.is-drag-over {
+    border-color: var(--inbox-accent, #4f46e5);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
+}
 .inbox-composer-editor:empty:before {
     content: attr(data-placeholder);
     color: var(--inbox-muted);
@@ -4329,6 +4333,16 @@
         });
     }
 
+    function filesFromClipboard(e) {
+        const dt = e.clipboardData;
+        if (!dt) return [];
+        if (dt.files && dt.files.length) return [...dt.files];
+        return [...(dt.items || [])]
+            .filter(item => item.kind === 'file')
+            .map(item => item.getAsFile())
+            .filter(Boolean);
+    }
+
     async function addAttachments(kind, fileList) {
         const bucket = attachmentBucket(kind);
         const incoming = [...(fileList || [])];
@@ -4535,6 +4549,32 @@
             if (!item) return;
             const member = state.members.find(m => String(m.id) === String(item.dataset.mentionId));
             applyMention(kind, member);
+        });
+
+        editor?.addEventListener('paste', async (e) => {
+            const files = filesFromClipboard(e);
+            if (!files.length) return;
+            e.preventDefault();
+            await addAttachments(kind, files);
+        });
+
+        editor?.addEventListener('dragenter', (e) => {
+            if (!e.dataTransfer?.types?.includes('Files')) return;
+            e.preventDefault();
+        });
+        editor?.addEventListener('dragover', (e) => {
+            if (!e.dataTransfer?.types?.includes('Files')) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+            editor.classList.add('is-drag-over');
+        });
+        editor?.addEventListener('dragleave', () => editor.classList.remove('is-drag-over'));
+        editor?.addEventListener('drop', async (e) => {
+            editor.classList.remove('is-drag-over');
+            const files = [...(e.dataTransfer?.files || [])];
+            if (!files.length) return;
+            e.preventDefault();
+            await addAttachments(kind, files);
         });
 
         const toggle = templatePicker?.querySelector('[data-template-picker-toggle]');
