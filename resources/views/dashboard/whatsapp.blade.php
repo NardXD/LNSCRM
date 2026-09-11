@@ -192,6 +192,7 @@
     let conversations = [];
     let activeId = null;
     let pollTimer = null;
+    let autoSyncTimer = null;
     let searchTimer = null;
     let uploadKind = 'document';
     let convHasMore = false;
@@ -641,6 +642,29 @@
         }
     }
 
+    async function autoSyncRecent() {
+        if (!connected || syncInFlight) return;
+        syncInFlight = true;
+        els.syncBtn?.classList.add('is-syncing');
+        try {
+            const data = await api('/sync', {
+                method: 'POST',
+                body: JSON.stringify({ recent: true, minutes: 90 }),
+            });
+            const imported = Number(data.data?.imported || 0);
+            if (imported > 0) {
+                showSyncNote(`Auto-synced ${imported} new message${imported === 1 ? '' : 's'}.`);
+                await loadConversations({ merge: true });
+                if (activeId) await openConversation(activeId);
+            }
+        } catch (e) {
+            console.warn('WhatsApp auto-sync failed', e);
+        } finally {
+            syncInFlight = false;
+            els.syncBtn?.classList.remove('is-syncing');
+        }
+    }
+
     els.syncBtn?.addEventListener('click', () => syncMessages().catch(console.error));
     document.getElementById('waRefreshBtn').addEventListener('click', () => loadConversations().catch(console.error));
     document.getElementById('waBackBtn').addEventListener('click', () => {
@@ -694,6 +718,8 @@
                 await openConversation(openId);
             }
             pollTimer = setInterval(() => loadConversations({ merge: true }).catch(() => {}), 15000);
+            autoSyncTimer = setInterval(() => autoSyncRecent().catch(() => {}), 45000);
+            setTimeout(() => autoSyncRecent().catch(console.warn), 8000);
         }
     })();
 })();
