@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Company;
+use App\Models\LeadLabel;
 use App\Models\MessageTemplate;
 use App\Models\User;
 use App\Models\WhatsAppConversation;
@@ -12,6 +13,7 @@ use App\Notifications\WhatsAppMessageNotification;
 use App\Services\FlexCrmLookupService;
 use App\Services\LeadAutoCreateService;
 use App\Services\LeadRuleEngine;
+use App\Services\MessageContactExtractor;
 use App\Services\TwilioCompanyService;
 use App\Services\TwilioService;
 use App\Services\WhatsAppMessageSyncService;
@@ -32,7 +34,8 @@ class WhatsAppController extends Controller
         protected TwilioCompanyService $twilioCompany,
         protected LeadAutoCreateService $leadAutoCreate,
         protected FlexCrmLookupService $crmLookup,
-        protected WhatsAppMessageSyncService $whatsappSync
+        protected WhatsAppMessageSyncService $whatsappSync,
+        protected MessageContactExtractor $messageContacts
     ) {}
 
     public function index()
@@ -80,13 +83,21 @@ class WhatsAppController extends Controller
     {
         $user = Auth::user();
         $q = trim((string) $request->query('q', ''));
+        $readFilter = trim((string) $request->query('read', ''));
         $limit = min(max((int) $request->query('limit', 40), 1), 100);
         $beforeId = (int) $request->query('before_id', 0);
 
         $query = WhatsAppConversation::query()
             ->where('company_id', $user->company_id)
+            ->with('leadLabels')
             ->orderByDesc('last_message_at')
             ->orderByDesc('id');
+
+        if ($readFilter === 'unread') {
+            $query->where('unread_count', '>', 0);
+        } elseif ($readFilter === 'read') {
+            $query->where('unread_count', '<=', 0);
+        }
 
         if ($q !== '') {
             $query->where(function ($builder) use ($q) {
@@ -127,6 +138,7 @@ class WhatsAppController extends Controller
 
         $limit = min(max((int) $request->query('limit', 40), 1), 100);
         $beforeId = (int) $request->query('before_id', 0);
+        $isPoll = $request->boolean('poll');
 
         $query = WhatsAppMessage::query()
             ->where('whatsapp_conversation_id', $conversation->id);
@@ -155,16 +167,120 @@ class WhatsAppController extends Controller
 
         $messages = $messages->reverse()->values()->map(fn (WhatsAppMessage $m) => $this->formatMessage($m));
 
+        $extracted = ['phones' => [], 'emails' => [], 'names' => []];
         if ($beforeId <= 0) {
-            $conversation->update(['unread_count' => 0]);
-            $this->markConversationNotificationsRead($conversation);
+            if (! $isPoll) {
+                $conversation->update(['unread_count' => 0]);
+                $this->markConversationNotificationsRead($conversation);
+            }
+            $extracted = $this->messageContacts->applyToWhatsAppConversation($conversation);
+        }
+
+        $payload = $this->formatConversation($conversation->fresh());
+        if ($beforeId <= 0 && ! ($payload['lead'] ?? null) && ($extracted['emails'][0] ?? null)) {
+            $index = $this->crmLookup->assignedLeadIndex((int) $conversation->company_id);
+            $payload['lead'] = $this->crmLookup->matchAssignedLead($index, null, $extracted['emails'][0]);
+            if (! $payload['lead'] && ($extracted['names'][0] ?? null)) {
+                $payload['lead'] = $this->crmLookup->matchAssignedLead($index, null, null, $extracted['names'][0]);
+            }
         }
 
         return response()->json([
-            'conversation' => $this->formatConversation($conversation->fresh()),
+            'conversation' => array_merge($payload, [
+                'extracted_phones' => $extracted['phones'],
+                'extracted_emails' => $extracted['emails'],
+                'extracted_names' => $extracted['names'],
+                'extracted_name' => $extracted['names'][0] ?? null,
+            ]),
             'data' => $messages,
             'has_more' => $hasMore,
         ]);
+    }
+
+    public function updateRead(Request $request, WhatsAppConversation $conversation): JsonResponse
+    {
+        $this->assertCompanyConversation($conversation);
+        $validated = $request->validate([
+            'is_read' => ['required', 'boolean'],
+        ]);
+
+        $conversation->update(['unread_count' => $validated['is_read'] ? 0 : 1]);
+
+        return response()->json([
+            'conversation' => $this->formatConversation($conversation->fresh()),
+        ]);
+    }
+
+    /**
+     * Attach an existing or newly-named label directly to a conversation,
+     * independent of any matched lead — lets users tag a WhatsApp thread
+     * before it is saved as a lead.
+     */
+    public function attachLabel(Request $request, WhatsAppConversation $conversation): JsonResponse
+    {
+        $this->assertCompanyConversation($conversation);
+        $validated = $request->validate([
+            'label_id' => ['nullable', 'integer', 'exists:lead_labels,id'],
+            'name' => ['nullable', 'required_without:label_id', 'string', 'max:50'],
+            'color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+        ]);
+
+        $companyId = (int) $conversation->company_id;
+        $label = null;
+        if (! empty($validated['label_id'])) {
+            $label = LeadLabel::query()
+                ->where('company_id', $companyId)
+                ->whereKey($validated['label_id'])
+                ->first();
+        }
+
+        $name = trim((string) ($validated['name'] ?? ''));
+        if (! $label && $name !== '') {
+            $label = LeadLabel::query()
+                ->where('company_id', $companyId)
+                ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+                ->first();
+            if (! $label) {
+                $label = LeadLabel::create([
+                    'company_id' => $companyId,
+                    'name' => $name,
+                    'color' => $validated['color'] ?? '#4338ca',
+                ]);
+            }
+        }
+
+        if (! $label) {
+            return response()->json(['message' => 'Choose or type a label.'], 422);
+        }
+
+        $conversation->leadLabels()->syncWithoutDetaching([$label->id]);
+
+        return response()->json([
+            'data' => ['id' => $label->id, 'name' => $label->name, 'color' => $label->color],
+            'labels' => $this->serializeLabels($conversation->fresh()),
+        ], 201);
+    }
+
+    public function detachLabel(Request $request, WhatsAppConversation $conversation, LeadLabel $leadLabel): JsonResponse
+    {
+        $this->assertCompanyConversation($conversation);
+        if ((int) $leadLabel->company_id !== (int) $conversation->company_id) {
+            abort(404);
+        }
+
+        $conversation->leadLabels()->detach($leadLabel->id);
+
+        return response()->json([
+            'labels' => $this->serializeLabels($conversation->fresh()),
+        ]);
+    }
+
+    protected function serializeLabels(WhatsAppConversation $c): array
+    {
+        return $c->loadMissing('leadLabels')->leadLabels
+            ->map(fn (LeadLabel $label) => ['id' => $label->id, 'name' => $label->name, 'color' => $label->color])
+            ->values()
+            ->all();
     }
 
     public function sendMessage(Request $request, WhatsAppConversation $conversation): JsonResponse
@@ -770,10 +886,12 @@ class WhatsAppController extends Controller
             'last_message_at' => $c->last_message_at?->toIso8601String(),
             'window_expires_at' => $c->window_expires_at?->toIso8601String(),
             'within_window' => $c->isWithinMessagingWindow(),
+            'is_read' => (int) $c->unread_count <= 0,
+            'labels' => $this->serializeLabels($c),
             'lead' => $this->crmLookup->matchAssignedLead(
                 $this->crmLookup->assignedLeadIndex((int) $c->company_id),
                 $c->phone ?: $c->wa_id,
-                null,
+                $c->extracted_email,
                 $c->name ?: $c->profile_name
             ),
         ];

@@ -524,6 +524,9 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/conversations/{conversation}/messages', [WhatsAppController::class, 'messages'])->name('api.whatsapp.messages');
         Route::post('/conversations/{conversation}/messages', [WhatsAppController::class, 'sendMessage'])->name('api.whatsapp.messages.store');
         Route::get('/conversations/{conversation}/call-link', [WhatsAppController::class, 'callLink'])->name('api.whatsapp.call-link');
+        Route::patch('/conversations/{conversation}/read', [WhatsAppController::class, 'updateRead'])->name('api.whatsapp.conversations.read');
+        Route::post('/conversations/{conversation}/labels', [WhatsAppController::class, 'attachLabel'])->name('api.whatsapp.conversations.labels.attach');
+        Route::delete('/conversations/{conversation}/labels/{leadLabel}', [WhatsAppController::class, 'detachLabel'])->name('api.whatsapp.conversations.labels.detach');
         Route::post('/sync', [WhatsAppController::class, 'sync'])->name('api.whatsapp.sync');
         Route::post('/media', [WhatsAppController::class, 'uploadMedia'])->name('api.whatsapp.media.store');
         Route::get('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->index($request, 'whatsapp'))->name('api.whatsapp.templates.index');

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class WhatsAppConversation extends Model
@@ -16,6 +17,7 @@ class WhatsAppConversation extends Model
         'name',
         'profile_name',
         'phone',
+        'extracted_email',
         'is_subscribed',
         'unread_count',
         'last_message_preview',
@@ -37,6 +39,16 @@ class WhatsAppConversation extends Model
     public function messages(): HasMany
     {
         return $this->hasMany(WhatsAppMessage::class, 'whatsapp_conversation_id');
+    }
+
+    /**
+     * Lead labels applied directly to this conversation, independent of any
+     * matched Lead — mirrors FacebookConversation::leadLabels().
+     */
+    public function leadLabels(): BelongsToMany
+    {
+        return $this->belongsToMany(LeadLabel::class, 'whatsapp_conversation_lead_label')
+            ->withTimestamps();
     }
 
     public function isWithinMessagingWindow(): bool

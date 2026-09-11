@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\FacebookConversation;
 use App\Models\FacebookMessage;
+use App\Models\WhatsAppConversation;
+use App\Models\WhatsAppMessage;
 
 class MessageContactExtractor
 {
@@ -90,6 +92,87 @@ class MessageContactExtractor
         // conversation's message history on every page load) can still match this
         // conversation to its assigned lead by phone/email, not just by name.
         $conversation->extracted_phone = $extracted['phones'][0] ?? null;
+        $conversation->extracted_email = $extracted['emails'][0] ?? null;
+
+        if ($conversation->isDirty()) {
+            $conversation->save();
+        }
+
+        return $extracted;
+    }
+
+    /**
+     * @return array{phones: list<string>, emails: list<string>, names: list<string>}
+     */
+    public function fromWhatsAppConversation(WhatsAppConversation $conversation): array
+    {
+        $messages = WhatsAppMessage::query()
+            ->where('whatsapp_conversation_id', $conversation->id)
+            ->whereNotNull('text')
+            ->where('text', '!=', '')
+            ->orderByDesc('sent_at')
+            ->orderByDesc('id')
+            ->limit(500)
+            ->get(['text', 'direction'])
+            ->reverse()
+            ->values();
+
+        $inbound = [];
+        $outbound = [];
+        $promptNames = [];
+        $awaitingName = false;
+
+        foreach ($messages as $message) {
+            $text = (string) $message->text;
+            $isInbound = strtolower((string) $message->direction) === 'inbound';
+
+            if ($awaitingName && $isInbound && ! $this->isNamePrompt($text)) {
+                foreach ($this->bareNamesIn($text) as $name) {
+                    $promptNames[$name] = $name;
+                }
+            }
+
+            $awaitingName = $this->isNamePrompt($text);
+
+            if ($isInbound) {
+                $inbound[] = $text;
+            } else {
+                $outbound[] = $text;
+            }
+        }
+
+        $ignoreId = (string) ($conversation->wa_id ?: $conversation->phone);
+        $fromInbound = $this->fromTexts($inbound, $ignoreId);
+        $fromOutbound = $this->fromTexts($outbound, $ignoreId);
+
+        $names = array_values(array_unique(array_merge(
+            array_values($promptNames),
+            $fromInbound['names']
+        )));
+        if ($names === []) {
+            $names = $fromOutbound['names'];
+        }
+
+        return [
+            // WhatsApp already gives every conversation a verified phone number, so
+            // unlike Facebook there's nothing to guess out of the message text here.
+            'phones' => array_values(array_filter([$conversation->wa_id ?: $conversation->phone])),
+            'emails' => $fromInbound['emails'],
+            'names' => $names,
+        ];
+    }
+
+    /**
+     * @return array{phones: list<string>, emails: list<string>, names: list<string>}
+     */
+    public function applyToWhatsAppConversation(WhatsAppConversation $conversation): array
+    {
+        $extracted = $this->fromWhatsAppConversation($conversation);
+        $name = $extracted['names'][0] ?? null;
+        if ($name && ! $conversation->name) {
+            $conversation->name = $name;
+        }
+
         $conversation->extracted_email = $extracted['emails'][0] ?? null;
 
         if ($conversation->isDirty()) {
