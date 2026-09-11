@@ -71,7 +71,7 @@
 
     <table class="bordered">
         <tr>
-            <td rowspan="3" style="width:15%"><strong>FEE SCHEDULE (Peso)</strong></td>
+            <td rowspan="4" style="width:15%"><strong>FEE SCHEDULE (Peso)</strong></td>
             <td>Insurance Coverage</td>
             @for ($i = 0; $i < 4; $i++)
                 <td class="text-center">{{ $data['all_units'][$i]['insurance_coverage'] }}</td>
