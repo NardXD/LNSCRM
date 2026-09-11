@@ -19,7 +19,7 @@
         </tr>
         <tr>
             <td><strong>Loc&amp;Stor 24/7, Inc:</strong></td>
-            <td><span class="signature-line" style="width:100%;">&nbsp;</span></td>
+            <td>&nbsp;</td>
             <td style="white-space:nowrap;">Date :</td>
             <td>{{ $data['generated_at'] }}</td>
         </tr>
