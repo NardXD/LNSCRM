@@ -5749,26 +5749,29 @@
         }
     }
 
-    async function openConversation(id) {
+    async function openConversation(id, options = {}) {
+        const preserveDraft = !!options.preserveDraft;
         if (el('modalReply')?.style.display === 'grid') closeModal();
         state.selectedId = id;
-        state.replyAttachments = [];
-        state.commentAttachments = [];
-        state.replyCcEmails = [];
-        state.replyAll = false;
-        state.replyDraftId = null;
-        if (el('replyTo')) el('replyTo').value = '';
-        if (el('replyCc')) el('replyCc').value = '';
-        state.expandedMessageIds = {};
-        state.composerExpanded = false;
-        renderAttachChips('reply');
-        renderAttachChips('comment');
-        hideMentionPopup('reply');
-        hideMentionPopup('comment');
-        setComposerHtml('comment', '');
-        setComposerHtml('reply', '');
-        applyComposerSignature('reply');
-        el('composerHint').textContent = 'Reply via Outlook';
+        if (!preserveDraft) {
+            state.replyAttachments = [];
+            state.commentAttachments = [];
+            state.replyCcEmails = [];
+            state.replyAll = false;
+            state.replyDraftId = null;
+            if (el('replyTo')) el('replyTo').value = '';
+            if (el('replyCc')) el('replyCc').value = '';
+            state.expandedMessageIds = {};
+            state.composerExpanded = false;
+            renderAttachChips('reply');
+            renderAttachChips('comment');
+            hideMentionPopup('reply');
+            hideMentionPopup('comment');
+            setComposerHtml('comment', '');
+            setComposerHtml('reply', '');
+            applyComposerSignature('reply');
+            el('composerHint').textContent = 'Reply via Outlook';
+        }
         refreshTemplateSelects();
         // Update active highlight without rebuilding the whole list.
         el('conversationList')?.querySelectorAll('.inbox-conv').forEach(btn => {
@@ -7346,7 +7349,7 @@
 
             if (!skipRefresh) {
                 await loadBootstrap();
-                if (state.selectedId) await openConversation(state.selectedId);
+                if (state.selectedId) await openConversation(state.selectedId, { preserveDraft: true });
             }
 
             if (!quiet) {
@@ -7398,7 +7401,7 @@
             }
             if (imported > 0) {
                 await loadBootstrap();
-                if (state.selectedId) await openConversation(state.selectedId);
+                if (state.selectedId) await openConversation(state.selectedId, { preserveDraft: true });
                 el('mailStatusLabel').textContent = `Auto-synced ${imported.toLocaleString()} new`;
             }
         } catch (err) {
