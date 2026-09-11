@@ -717,6 +717,22 @@
     </div>
 </div>
 
+{{-- Photo / video attachment viewer --}}
+<div class="inbox-lightbox-backdrop" id="mediaLightbox" hidden>
+    <div class="inbox-lightbox" role="dialog" aria-modal="true" aria-label="Attachment preview">
+        <div class="inbox-lightbox-toolbar">
+            <span class="inbox-lightbox-name" id="mediaLightboxName"></span>
+            <a class="inbox-lightbox-download" id="mediaLightboxDownload" href="#" download title="Download">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </a>
+            <button type="button" class="inbox-lightbox-close" id="btnMediaLightboxClose" title="Close" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+        <div class="inbox-lightbox-body" id="mediaLightboxBody"></div>
+    </div>
+</div>
+
 </div>{{-- /.inbox-page-wrapper --}}
 
 <style>
@@ -1993,6 +2009,101 @@
     background: #fff;
 }
 .inbox-msg-attach:hover { background: var(--inbox-accent-soft); }
+.inbox-msg-media {
+    position: relative;
+    display: inline-flex;
+    width: 96px;
+    height: 96px;
+    padding: 0;
+    border: 1px solid var(--inbox-border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: #f3f4f6;
+    cursor: pointer;
+}
+.inbox-msg-media img,
+.inbox-msg-media video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+    background: #000;
+}
+.inbox-msg-media:hover { border-color: var(--inbox-accent); }
+.inbox-msg-media-play {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 1.4rem;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.15);
+    pointer-events: none;
+}
+.inbox-lightbox-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 140;
+    background: rgba(15, 23, 42, 0.78);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+}
+.inbox-lightbox-backdrop[hidden] { display: none !important; }
+.inbox-lightbox {
+    display: flex;
+    flex-direction: column;
+    max-width: min(1000px, 100%);
+    max-height: 100%;
+}
+.inbox-lightbox-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0 0.15rem 0.6rem;
+    color: #fff;
+}
+.inbox-lightbox-name {
+    flex: 1;
+    font-size: 0.85rem;
+    opacity: 0.85;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.inbox-lightbox-download,
+.inbox-lightbox-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: none;
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    cursor: pointer;
+}
+.inbox-lightbox-download:hover,
+.inbox-lightbox-close:hover { background: rgba(255, 255, 255, 0.24); }
+.inbox-lightbox-download svg,
+.inbox-lightbox-close svg { width: 16px; height: 16px; }
+.inbox-lightbox-body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+}
+.inbox-lightbox-body img,
+.inbox-lightbox-body video {
+    max-width: 100%;
+    max-height: 80vh;
+    border-radius: 6px;
+    background: #000;
+}
 .inbox-composer textarea,
 .inbox-composer-editor {
     width: 100%; border: 1px solid var(--inbox-border); border-radius: 10px;
@@ -6155,6 +6266,68 @@
         return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
     }
 
+    const MEDIA_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
+    const MEDIA_VIDEO_EXTS = ['mp4', 'webm', 'mov', 'm4v', 'ogv'];
+
+    function attachmentMediaKind(a) {
+        const type = String(a?.content_type || a?.contentType || '').toLowerCase();
+        const ext = String(a?.name || '').split('.').pop().toLowerCase();
+        if (type.startsWith('image/') || MEDIA_IMAGE_EXTS.includes(ext)) return 'image';
+        if (type.startsWith('video/') || MEDIA_VIDEO_EXTS.includes(ext)) return 'video';
+        return null;
+    }
+
+    function commentAttachmentHtml(a) {
+        const url = escapeHtml(a.download_url);
+        const name = escapeHtml(a.name || 'Attachment');
+        const kind = attachmentMediaKind(a);
+        if (kind === 'image') {
+            return `
+                <button type="button" class="inbox-msg-media" data-media-open data-media-type="image" data-media-url="${url}" data-media-name="${name}" title="${name}">
+                    <img src="${url}" alt="${name}" loading="lazy">
+                </button>
+            `;
+        }
+        if (kind === 'video') {
+            return `
+                <button type="button" class="inbox-msg-media inbox-msg-media-video" data-media-open data-media-type="video" data-media-url="${url}" data-media-name="${name}" title="${name}">
+                    <video src="${url}#t=0.1" preload="metadata" muted playsinline></video>
+                    <span class="inbox-msg-media-play" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M8 5v14l11-7z"/></svg>
+                    </span>
+                </button>
+            `;
+        }
+        return `
+            <a class="inbox-msg-attach" href="${url}" target="_blank" rel="noopener">
+                ${name}
+            </a>
+        `;
+    }
+
+    function openMediaLightbox({ url, type, name }) {
+        const body = el('mediaLightboxBody');
+        if (!body || !url) return;
+        body.innerHTML = type === 'video'
+            ? `<video src="${escapeHtml(url)}" controls autoplay></video>`
+            : `<img src="${escapeHtml(url)}" alt="${escapeHtml(name || '')}">`;
+        el('mediaLightboxName').textContent = name || '';
+        const dl = el('mediaLightboxDownload');
+        if (dl) {
+            dl.href = url;
+            dl.download = name || '';
+        }
+        el('mediaLightbox').hidden = false;
+    }
+
+    function closeMediaLightbox() {
+        const backdrop = el('mediaLightbox');
+        if (!backdrop || backdrop.hidden) return;
+        backdrop.hidden = true;
+        const body = el('mediaLightboxBody');
+        if (body) body.innerHTML = '';
+    }
+
     function emailCardHtml(m, expanded) {
         const name = m.from_name || m.from_email || 'Unknown';
         const email = m.from_email || '';
@@ -6216,11 +6389,7 @@
     function commentCardHtml(comment, expanded) {
         const name = comment.user?.name || 'Teammate';
         const preview = String(comment.body_text || htmlToPlain(comment.body_html || '') || '').replace(/\s+/g, ' ').trim();
-        const attachments = (comment.attachments || []).map(a => `
-            <a class="inbox-msg-attach" href="${escapeHtml(a.download_url)}" target="_blank" rel="noopener">
-                ${escapeHtml(a.name || 'Attachment')}
-            </a>
-        `).join('');
+        const attachments = (comment.attachments || []).map(commentAttachmentHtml).join('');
         return `
             <div class="inbox-msg internal ${expanded ? 'is-expanded' : ''}" data-comment-id="${escapeHtml(String(comment.id))}">
                 <div class="inbox-msg-row">
@@ -7654,6 +7823,17 @@
         togglePop('assignMenu', el('btnAssignToggle'));
     });
     el('threadMessages')?.addEventListener('click', (e) => {
+        const mediaBtn = e.target.closest('[data-media-open]');
+        if (mediaBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            openMediaLightbox({
+                url: mediaBtn.dataset.mediaUrl,
+                type: mediaBtn.dataset.mediaType,
+                name: mediaBtn.dataset.mediaName,
+            });
+            return;
+        }
         const cancelBtn = e.target.closest('[data-cancel-scheduled]');
         if (cancelBtn) {
             e.preventDefault();
@@ -8275,6 +8455,10 @@
     el('htmlLinkDialog')?.addEventListener('click', (e) => {
         if (e.target === el('htmlLinkDialog')) closeHtmlLinkDialog();
     });
+    el('mediaLightbox')?.addEventListener('click', (e) => {
+        if (e.target === el('mediaLightbox')) closeMediaLightbox();
+    });
+    el('btnMediaLightboxClose')?.addEventListener('click', () => closeMediaLightbox());
     el('htmlLinkUrl')?.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -8706,6 +8890,11 @@
     });
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
+            if (el('mediaLightbox') && !el('mediaLightbox').hidden) {
+                e.preventDefault();
+                closeMediaLightbox();
+                return;
+            }
             if (el('htmlLinkDialog') && !el('htmlLinkDialog').hidden) {
                 e.preventDefault();
                 closeHtmlLinkDialog();
