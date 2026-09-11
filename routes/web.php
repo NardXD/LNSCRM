@@ -524,6 +524,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/conversations/{conversation}/messages', [WhatsAppController::class, 'messages'])->name('api.whatsapp.messages');
         Route::post('/conversations/{conversation}/messages', [WhatsAppController::class, 'sendMessage'])->name('api.whatsapp.messages.store');
         Route::get('/conversations/{conversation}/call-link', [WhatsAppController::class, 'callLink'])->name('api.whatsapp.call-link');
+        Route::post('/sync', [WhatsAppController::class, 'sync'])->name('api.whatsapp.sync');
         Route::post('/media', [WhatsAppController::class, 'uploadMedia'])->name('api.whatsapp.media.store');
         Route::get('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->index($request, 'whatsapp'))->name('api.whatsapp.templates.index');
         Route::post('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->store($request, 'whatsapp'))

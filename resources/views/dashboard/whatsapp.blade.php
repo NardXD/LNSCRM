@@ -15,10 +15,14 @@
                     <h2>WhatsApp</h2>
                     <p class="wa-sub" id="waAccountLabel">{{ $businessName ?: ($displayPhone ?: 'Business chats') }}</p>
                 </div>
+                <button type="button" class="wa-icon-btn" id="waSyncBtn" title="Sync WhatsApp messages from Twilio">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
                 <button type="button" class="wa-icon-btn" id="waRefreshBtn" title="Refresh">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                 </button>
             </div>
+            <div class="wa-sync-note" id="waSyncNote"></div>
             <div class="wa-search">
                 <input type="search" id="waSearch" placeholder="Search conversations...">
             </div>
@@ -153,6 +157,10 @@
 .wa-icon-btn { width: 36px; height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .wa-icon-btn:hover { background: var(--bg-primary); color: var(--text-primary); }
 .wa-icon-btn svg { width: 18px; height: 18px; }
+.wa-icon-btn.is-syncing svg { animation: wa-spin 0.9s linear infinite; }
+@keyframes wa-spin { to { transform: rotate(360deg); } }
+.wa-sync-note { display: none; padding: 0.4rem 1rem; font-size: 0.78rem; color: var(--text-secondary); background: var(--bg-primary); }
+.wa-sync-note.is-visible { display: block; }
 .wa-back { display: none; }
 @media (max-width: 900px) {
     .wa-layout { grid-template-columns: 1fr; }
@@ -213,7 +221,10 @@
         emptyTitle: document.getElementById('waEmptyTitle'),
         emptyText: document.getElementById('waEmptyText'),
         accountLabel: document.getElementById('waAccountLabel'),
+        syncBtn: document.getElementById('waSyncBtn'),
+        syncNote: document.getElementById('waSyncNote'),
     };
+    let syncInFlight = false;
 
     async function api(path, options = {}) {
         const res = await fetch(apiBase + path, {
@@ -595,6 +606,42 @@
         }
     }
 
+    function showSyncNote(text) {
+        if (!els.syncNote) return;
+        els.syncNote.textContent = text;
+        els.syncNote.classList.toggle('is-visible', !!text);
+    }
+
+    async function syncMessages() {
+        if (!els.syncBtn || syncInFlight) return;
+        syncInFlight = true;
+        els.syncBtn.disabled = true;
+        els.syncBtn.classList.add('is-syncing');
+        showSyncNote('Checking Twilio for messages missed by the CRM...');
+        try {
+            const data = await api('/sync', {
+                method: 'POST',
+                body: JSON.stringify({ days: 30, limit: 500 }),
+            });
+            const result = data.data || {};
+            const imported = Number(result.imported || 0);
+            const scanned = Number(result.scanned || 0);
+            showSyncNote(imported
+                ? `Imported ${imported} message${imported === 1 ? '' : 's'} from Twilio.`
+                : (scanned ? `No new messages. Found ${scanned} already in the CRM.` : 'No WhatsApp history found on Twilio for the last 30 days.'));
+            await loadConversations({ merge: true });
+            if (activeId) await openConversation(activeId);
+        } catch (e) {
+            showSyncNote(e.message || 'Could not sync WhatsApp messages.');
+            alert(e.message || 'Could not sync WhatsApp messages.');
+        } finally {
+            syncInFlight = false;
+            els.syncBtn.disabled = false;
+            els.syncBtn.classList.remove('is-syncing');
+        }
+    }
+
+    els.syncBtn?.addEventListener('click', () => syncMessages().catch(console.error));
     document.getElementById('waRefreshBtn').addEventListener('click', () => loadConversations().catch(console.error));
     document.getElementById('waBackBtn').addEventListener('click', () => {
         els.sidebar.classList.remove('hidden-mobile');
