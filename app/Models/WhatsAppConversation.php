@@ -44,10 +44,14 @@ class WhatsAppConversation extends Model
     /**
      * Lead labels applied directly to this conversation, independent of any
      * matched Lead — mirrors FacebookConversation::leadLabels().
+     *
+     * Foreign pivot key is explicit because Laravel's snake_case guesser splits
+     * "WhatsApp" into "whats_app" (capital A mid-word), which doesn't match the
+     * actual "whatsapp_conversation_id" column on the pivot table.
      */
     public function leadLabels(): BelongsToMany
     {
-        return $this->belongsToMany(LeadLabel::class, 'whatsapp_conversation_lead_label')
+        return $this->belongsToMany(LeadLabel::class, 'whatsapp_conversation_lead_label', 'whatsapp_conversation_id', 'lead_label_id')
             ->withTimestamps();
     }
 
