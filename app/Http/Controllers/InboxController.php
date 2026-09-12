@@ -102,7 +102,8 @@ class InboxController extends Controller
             ->withCount([
                 'conversations as open_count' => fn ($q) => $q->notMerged()->where('folder', 'inbox')->where('status', 'open'),
                 'conversations as assigned_to_me_count' => function ($q) use ($user) {
-                    $q->notMerged()->where('folder', 'inbox');
+                    $q->notMerged();
+                    $this->constrainInboxBucket($q, 'open');
                     $this->constrainAssignedToLoggedInUser($q, $user);
                 },
                 'conversations as unread_count' => function ($q) use ($user) {
@@ -123,10 +124,16 @@ class InboxController extends Controller
                                 });
                         });
                 },
-                'conversations as archived_count' => fn ($q) => $q->notMerged()->where('folder', 'inbox')->where('status', 'archived')
-                    ->where(fn ($q) => $q->whereNull('reopen_at')->orWhere('reopen_at', '<=', now())),
-                'conversations as snoozed_count' => fn ($q) => $q->notMerged()->where('folder', 'inbox')->where('status', 'archived')
-                    ->whereNotNull('reopen_at')->where('reopen_at', '>', now()),
+                'conversations as archived_count' => function ($q) use ($user) {
+                    $q->notMerged();
+                    $this->constrainInboxBucket($q, 'archived');
+                    $this->constrainAssignedToLoggedInUser($q, $user);
+                },
+                'conversations as snoozed_count' => function ($q) use ($user) {
+                    $q->notMerged();
+                    $this->constrainInboxBucket($q, 'snoozed');
+                    $this->constrainAssignedToLoggedInUser($q, $user);
+                },
                 'conversations as drafts_count' => fn ($q) => $q->notMerged()->where('folder', 'drafts'),
                 'conversations as sent_count' => fn ($q) => $q->notMerged()->where('folder', 'sent'),
                 'conversations as trash_count' => fn ($q) => $q->notMerged()->where('folder', 'trash'),
@@ -213,7 +220,9 @@ class InboxController extends Controller
             'mail_email' => $account?->email,
             'connect_url' => route('inbox.connect.outlook'),
             'user_id' => $user->id,
-            'assigned_to_me_count' => $this->countAssignedToLoggedInUser($user),
+            'assigned_to_me_count' => $this->countAssignedToLoggedInUser($user, 'open'),
+            'archived_count' => $this->countAssignedToLoggedInUser($user, 'archived'),
+            'snoozed_count' => $this->countAssignedToLoggedInUser($user, 'snoozed'),
             'inboxes' => $inboxes,
             'tags' => $tags,
             'lead_labels' => LeadLabel::query()
@@ -600,16 +609,13 @@ class InboxController extends Controller
         } elseif ($view === 'open') {
             $query->where('folder', 'inbox')->where('status', 'open');
         } elseif ($view === 'archived') {
-            $query->where('folder', 'inbox')->where('status', 'archived')
-                ->where(function ($q) {
-                    $q->whereNull('reopen_at')->orWhere('reopen_at', '<=', now());
-                });
+            $this->constrainInboxBucket($query, 'archived');
+            $this->constrainAssignedToLoggedInUser($query, $user);
         } elseif ($view === 'snoozed') {
-            $query->where('folder', 'inbox')->where('status', 'archived')
-                ->whereNotNull('reopen_at')
-                ->where('reopen_at', '>', now());
+            $this->constrainInboxBucket($query, 'snoozed');
+            $this->constrainAssignedToLoggedInUser($query, $user);
         } elseif ($view === 'assigned_to_me') {
-            $query->where('inbox_conversations.folder', 'inbox');
+            $this->constrainInboxBucket($query, 'open');
             $this->constrainAssignedToLoggedInUser($query, $user);
         } elseif ($view === 'unassigned') {
             $query->where('folder', 'inbox')->where('status', 'open')->whereNull('assigned_to');
@@ -627,7 +633,7 @@ class InboxController extends Controller
             $query->whereHas('tags', fn ($q) => $q->where('inbox_tags.id', $validated['tag_id']));
         }
 
-        if ($view !== 'assigned_to_me' && isset($validated['assigned_to'])) {
+        if (! in_array($view, ['assigned_to_me', 'archived', 'snoozed'], true) && isset($validated['assigned_to'])) {
             if ((int) $validated['assigned_to'] === 0) {
                 $query->whereNull('inbox_conversations.assigned_to');
             } else {
@@ -2738,7 +2744,32 @@ class InboxController extends Controller
         });
     }
 
-    private function countAssignedToLoggedInUser(User $user): int
+    private function constrainInboxBucket($query, string $bucket): void
+    {
+        $query->where('inbox_conversations.folder', 'inbox');
+
+        if ($bucket === 'open') {
+            $query->where('inbox_conversations.status', 'open');
+
+            return;
+        }
+
+        $query->where('inbox_conversations.status', 'archived');
+
+        if ($bucket === 'snoozed') {
+            $query->whereNotNull('inbox_conversations.reopen_at')
+                ->where('inbox_conversations.reopen_at', '>', now());
+
+            return;
+        }
+
+        $query->where(function ($q) {
+            $q->whereNull('inbox_conversations.reopen_at')
+                ->orWhere('inbox_conversations.reopen_at', '<=', now());
+        });
+    }
+
+    private function countAssignedToLoggedInUser(User $user, string $bucket = 'open'): int
     {
         $inboxIds = $this->accessibleInboxes($user)->pluck('id');
         if ($inboxIds->isEmpty()) {
@@ -2747,9 +2778,9 @@ class InboxController extends Controller
 
         $query = InboxConversation::query()
             ->notMerged()
-            ->whereIn('shared_inbox_id', $inboxIds)
-            ->where('inbox_conversations.folder', 'inbox');
+            ->whereIn('shared_inbox_id', $inboxIds);
 
+        $this->constrainInboxBucket($query, $bucket);
         $this->constrainAssignedToLoggedInUser($query, $user);
 
         return $query->count();

@@ -95,15 +95,40 @@ class InboxAssignedToMeTest extends TestCase
         );
     }
 
-    public function test_assigned_to_me_includes_archived_inbox_mail_assigned_to_the_logged_in_user(): void
+    public function test_archived_and_snoozed_views_are_only_the_logged_in_users_mail(): void
     {
-        [$user, , $inbox] = $this->inboxWithTwoAgents();
+        [$user, $other, $inbox] = $this->inboxWithTwoAgents();
 
-        $archived = $this->makeConversation($inbox, [
+        $myOpen = $this->makeConversation($inbox, [
+            'subject' => 'Mine open',
+            'from_email' => 'mine-open@example.com',
+            'assigned_to' => $user->id,
+        ]);
+        $myArchived = $this->makeConversation($inbox, [
             'subject' => 'Archived but still mine',
             'from_email' => 'archived@example.com',
             'assigned_to' => $user->id,
             'status' => 'archived',
+        ]);
+        $theirArchived = $this->makeConversation($inbox, [
+            'subject' => 'Archived for teammate',
+            'from_email' => 'their-archived@example.com',
+            'assigned_to' => $other->id,
+            'status' => 'archived',
+        ]);
+        $mySnoozed = $this->makeConversation($inbox, [
+            'subject' => 'Snoozed mine',
+            'from_email' => 'snoozed@example.com',
+            'assigned_to' => $user->id,
+            'status' => 'archived',
+            'reopen_at' => now()->addDay(),
+        ]);
+        $theirSnoozed = $this->makeConversation($inbox, [
+            'subject' => 'Snoozed teammate',
+            'from_email' => 'their-snoozed@example.com',
+            'assigned_to' => $other->id,
+            'status' => 'archived',
+            'reopen_at' => now()->addDay(),
         ]);
         $trashed = $this->makeConversation($inbox, [
             'subject' => 'Trashed assignment',
@@ -113,10 +138,22 @@ class InboxAssignedToMeTest extends TestCase
             'status' => 'trashed',
         ]);
 
-        $ids = $this->assignedToMeIds($user);
+        $assignedIds = $this->conversationIds($user, 'assigned_to_me');
+        $archivedIds = $this->conversationIds($user, 'archived');
+        $snoozedIds = $this->conversationIds($user, 'snoozed');
 
-        $this->assertContains($archived->id, $ids);
-        $this->assertNotContains($trashed->id, $ids);
+        $this->assertContains($myOpen->id, $assignedIds);
+        $this->assertNotContains($myArchived->id, $assignedIds);
+        $this->assertNotContains($mySnoozed->id, $assignedIds);
+
+        $this->assertContains($myArchived->id, $archivedIds);
+        $this->assertNotContains($theirArchived->id, $archivedIds);
+        $this->assertNotContains($mySnoozed->id, $archivedIds);
+        $this->assertNotContains($trashed->id, $archivedIds);
+
+        $this->assertContains($mySnoozed->id, $snoozedIds);
+        $this->assertNotContains($theirSnoozed->id, $snoozedIds);
+        $this->assertNotContains($myArchived->id, $snoozedIds);
     }
 
     public function test_bootstrap_assigned_to_me_count_is_only_for_the_logged_in_user(): void
@@ -150,13 +187,17 @@ class InboxAssignedToMeTest extends TestCase
         $this->actingAs($user)
             ->getJson('/api/inbox/bootstrap')
             ->assertOk()
-            ->assertJsonPath('assigned_to_me_count', 2)
-            ->assertJsonPath('inboxes.0.assigned_to_me_count', 2);
+            ->assertJsonPath('assigned_to_me_count', 1)
+            ->assertJsonPath('archived_count', 1)
+            ->assertJsonPath('snoozed_count', 0)
+            ->assertJsonPath('inboxes.0.assigned_to_me_count', 1)
+            ->assertJsonPath('inboxes.0.archived_count', 1);
 
         $this->actingAs($other)
             ->getJson('/api/inbox/bootstrap')
             ->assertOk()
             ->assertJsonPath('assigned_to_me_count', 1)
+            ->assertJsonPath('archived_count', 0)
             ->assertJsonPath('inboxes.0.assigned_to_me_count', 1);
     }
 
@@ -202,8 +243,16 @@ class InboxAssignedToMeTest extends TestCase
      */
     private function assignedToMeIds(User $user): array
     {
+        return $this->conversationIds($user, 'assigned_to_me');
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function conversationIds(User $user, string $view): array
+    {
         $payload = $this->actingAs($user)
-            ->getJson('/api/inbox/conversations?view=assigned_to_me')
+            ->getJson('/api/inbox/conversations?view='.$view)
             ->assertOk()
             ->json();
 

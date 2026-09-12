@@ -46,14 +46,11 @@
                 <button type="button" class="inbox-nav-item" data-view="assigned_to_me" data-scope="all">
                     <span>Assigned to me</span><span class="inbox-count" id="countAssignedToMe">0</span>
                 </button>
-                <button type="button" class="inbox-nav-item" data-view="unassigned" data-scope="all">
-                    <span>Unassigned</span>
-                </button>
                 <button type="button" class="inbox-nav-item" data-view="archived" data-scope="all">
-                    <span>Archived</span>
+                    <span>Archived</span><span class="inbox-count" id="countArchived">0</span>
                 </button>
                 <button type="button" class="inbox-nav-item" data-view="snoozed" data-scope="all">
-                    <span>Snoozed</span>
+                    <span>Snoozed</span><span class="inbox-count" id="countSnoozed">0</span>
                 </button>
             </div>
 
@@ -2974,6 +2971,8 @@
         members: [],
         leadLabels: [],
         assignedToMeCount: 0,
+        archivedCount: 0,
+        snoozedCount: 0,
         conversations: [],
         checkedIds: [],
         selectedInboxId: null,
@@ -4776,7 +4775,7 @@
 
     function folderLabel(view) {
         return MAILBOX_FOLDERS.find(f => f.view === view)?.label
-            || ({ open: 'Open', assigned_to_me: 'Assigned to me', unassigned: 'Unassigned', archived: 'Archived', snoozed: 'Snoozed' }[view] || view);
+            || ({ open: 'Open', assigned_to_me: 'Assigned to me', archived: 'Archived', snoozed: 'Snoozed' }[view] || view);
     }
 
     function updateListTitle() {
@@ -5208,6 +5207,12 @@
         const assignedToMeCount = state.assignedToMeCount
             || state.inboxes.reduce((n, i) => n + (i.assigned_to_me_count || 0), 0);
         if (el('countAssignedToMe')) el('countAssignedToMe').textContent = assignedToMeCount;
+        const archivedCount = state.archivedCount
+            || state.inboxes.reduce((n, i) => n + (i.archived_count || 0), 0);
+        if (el('countArchived')) el('countArchived').textContent = archivedCount;
+        const snoozedCount = state.snoozedCount
+            || state.inboxes.reduce((n, i) => n + (i.snoozed_count || 0), 0);
+        if (el('countSnoozed')) el('countSnoozed').textContent = snoozedCount;
 
         // Highlight global views only when not scoped to a mailbox folder
         document.querySelectorAll('[data-view][data-scope="all"]').forEach(btn => {
@@ -5862,7 +5867,7 @@
             if (f.subject) params.set('subject', f.subject);
             if (f.body) params.set('body', f.body);
             if (f.folder) params.set('folder', f.folder);
-            if (state.view !== 'assigned_to_me' && f.assigned_to !== '' && f.assigned_to != null) {
+            if (!['assigned_to_me', 'archived', 'snoozed'].includes(state.view) && f.assigned_to !== '' && f.assigned_to != null) {
                 params.set('assigned_to', String(f.assigned_to));
             }
             if (f.is_read !== '' && f.is_read != null) params.set('is_read', String(f.is_read));
@@ -6968,6 +6973,8 @@
         const data = await api('/bootstrap');
         state.inboxes = data.inboxes || [];
         state.assignedToMeCount = Number(data.assigned_to_me_count || 0);
+        state.archivedCount = Number(data.archived_count || 0);
+        state.snoozedCount = Number(data.snoozed_count || 0);
         state.templates = (data.templates || []).map(t => ({
             ...t,
             body: t.body || t.body_text || '',
