@@ -11,7 +11,6 @@ use App\Models\InboxTemplate;
 use App\Models\InboxUserSetting;
 use App\Models\InboxConversationUserRead;
 use App\Models\Lead;
-use App\Models\LeadIdentity;
 use App\Models\LeadLabel;
 use App\Models\OutlookMailAccount;
 use App\Models\ScheduledInboxReply;
@@ -102,6 +101,9 @@ class InboxController extends Controller
         $inboxes = $this->accessibleInboxes($user)
             ->withCount([
                 'conversations as open_count' => fn ($q) => $q->notMerged()->where('folder', 'inbox')->where('status', 'open'),
+                'conversations as assigned_to_me_count' => fn ($q) => $q->notMerged()
+                    ->where('folder', 'inbox')
+                    ->where('assigned_to', $user->id),
                 'conversations as unread_count' => function ($q) use ($user) {
                     $q->notMerged()
                         ->where('folder', 'inbox')
@@ -605,8 +607,8 @@ class InboxController extends Controller
                 ->whereNotNull('reopen_at')
                 ->where('reopen_at', '>', now());
         } elseif ($view === 'assigned_to_me') {
-            $query->where('inbox_conversations.folder', 'inbox');
-            $this->constrainAssignedToUser($query, (int) $user->id, (int) $user->company_id);
+            $query->where('inbox_conversations.folder', 'inbox')
+                ->where('inbox_conversations.assigned_to', $user->id);
         } elseif ($view === 'unassigned') {
             $query->where('folder', 'inbox')->where('status', 'open')->whereNull('assigned_to');
         } elseif ($view === 'drafts') {
@@ -627,7 +629,7 @@ class InboxController extends Controller
             if ((int) $validated['assigned_to'] === 0) {
                 $query->whereNull('inbox_conversations.assigned_to');
             } else {
-                $this->constrainAssignedToUser($query, (int) $validated['assigned_to'], (int) $user->company_id);
+                $query->where('inbox_conversations.assigned_to', (int) $validated['assigned_to']);
             }
         }
 
@@ -2715,44 +2717,6 @@ class InboxController extends Controller
     }
 
     /**
-     * Conversations assigned to a user on the thread, or via a linked/matched lead.
-     */
-    private function constrainAssignedToUser($query, int $userId, int $companyId): void
-    {
-        $assignedLeadIds = Lead::query()
-            ->where('company_id', $companyId)
-            ->where('assigned_to', $userId)
-            ->pluck('id');
-
-        $assignedEmails = $assignedLeadIds->isEmpty()
-            ? collect()
-            : LeadIdentity::query()
-                ->where('type', LeadIdentity::TYPE_EMAIL)
-                ->whereIn('lead_id', $assignedLeadIds)
-                ->pluck('normalized_value')
-                ->map(fn ($email) => strtolower(trim((string) $email)))
-                ->filter()
-                ->unique()
-                ->values();
-
-        $query->where(function ($q) use ($userId, $assignedLeadIds, $assignedEmails) {
-            $q->where('inbox_conversations.assigned_to', $userId);
-
-            if ($assignedLeadIds->isNotEmpty()) {
-                $q->orWhereIn('inbox_conversations.lead_id', $assignedLeadIds);
-            }
-
-            if ($assignedEmails->isNotEmpty()) {
-                $placeholders = $assignedEmails->map(fn () => '?')->implode(',');
-                $q->orWhereRaw(
-                    'LOWER(inbox_conversations.from_email) IN ('.$placeholders.')',
-                    $assignedEmails->all()
-                );
-            }
-        });
-    }
-
-    /**
      * @param  array<int, array{name?: string, contentType?: string, contentBytes?: string, isInline?: bool, contentId?: string}>  $attachments
      * @return array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>|false
      */
@@ -2932,6 +2896,7 @@ class InboxController extends Controller
                 : route('inbox.connect.outlook'),
             'last_synced_at' => $inbox->last_synced_at?->toIso8601String(),
             'open_count' => $inbox->open_count ?? null,
+            'assigned_to_me_count' => $inbox->assigned_to_me_count ?? null,
             'unread_count' => $inbox->unread_count ?? null,
             'archived_count' => $inbox->archived_count ?? null,
             'snoozed_count' => $inbox->snoozed_count ?? null,

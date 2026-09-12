@@ -44,7 +44,7 @@
                     <span>Open</span><span class="inbox-count" id="countOpen">0</span>
                 </button>
                 <button type="button" class="inbox-nav-item" data-view="assigned_to_me" data-scope="all">
-                    <span>Assigned to me</span>
+                    <span>Assigned to me</span><span class="inbox-count" id="countAssignedToMe">0</span>
                 </button>
                 <button type="button" class="inbox-nav-item" data-view="unassigned" data-scope="all">
                     <span>Unassigned</span>
@@ -5204,6 +5204,8 @@
 
         const openCount = state.inboxes.reduce((n, i) => n + (i.open_count || 0), 0);
         el('countOpen').textContent = openCount;
+        const assignedToMeCount = state.inboxes.reduce((n, i) => n + (i.assigned_to_me_count || 0), 0);
+        if (el('countAssignedToMe')) el('countAssignedToMe').textContent = assignedToMeCount;
 
         // Highlight global views only when not scoped to a mailbox folder
         document.querySelectorAll('[data-view][data-scope="all"]').forEach(btn => {
@@ -5503,16 +5505,16 @@
 
     function conversationAssigneeId(c) {
         const conv = c || state.conversation;
+        if (conv?.assigned_to) return conv.assigned_to;
         const lead = conversationLead(conv);
-        if (lead) return lead.assigned_to || '';
-        return conv?.assigned_to || '';
+        return lead?.assigned_to || '';
     }
 
     function conversationAssignee(c) {
         const conv = c || state.conversation;
+        if (conv?.assignee) return conv.assignee;
         const lead = conversationLead(conv);
-        if (lead) return lead.assigned_user || null;
-        return conv?.assignee || null;
+        return lead?.assigned_user || null;
     }
 
     function conversationTagItems(c) {
@@ -6137,6 +6139,7 @@
             body: { assigned_to: userId ? Number(userId) : null },
         });
         await openConversation(state.selectedId);
+        await loadBootstrap();
         await loadConversations();
     }
 

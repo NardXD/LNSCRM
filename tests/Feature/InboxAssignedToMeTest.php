@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\Company;
 use App\Models\InboxConversation;
 use App\Models\Lead;
-use App\Models\LeadIdentity;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SharedInbox;
@@ -45,7 +44,7 @@ class InboxAssignedToMeTest extends TestCase
         $this->assertNotContains($unassigned->id, $ids);
     }
 
-    public function test_assigned_to_me_includes_emails_whose_lead_is_assigned_to_the_logged_in_user(): void
+    public function test_assigned_to_me_does_not_include_mail_only_linked_to_the_logged_in_users_lead(): void
     {
         [$user, $other, $inbox] = $this->inboxWithTwoAgents();
 
@@ -55,35 +54,31 @@ class InboxAssignedToMeTest extends TestCase
             'status' => 'new',
             'assigned_to' => $user->id,
         ]);
-        $otherLead = Lead::query()->create([
-            'company_id' => $user->company_id,
-            'name' => 'Other Lead',
-            'status' => 'new',
-            'assigned_to' => $other->id,
-        ]);
 
-        $linked = $this->makeConversation($inbox, [
-            'subject' => 'Linked lead assigned to me',
+        $leadOnly = $this->makeConversation($inbox, [
+            'subject' => 'Lead is mine but thread is not assigned',
             'from_email' => 'jane@example.com',
             'lead_id' => $myLead->id,
         ]);
-        $matched = $this->makeConversation($inbox, [
-            'subject' => 'Matched by email',
-            'from_email' => 'match@example.com',
+        $assignedToOther = $this->makeConversation($inbox, [
+            'subject' => 'Assigned to teammate even if lead is mine',
+            'from_email' => 'jane2@example.com',
+            'lead_id' => $myLead->id,
+            'assigned_to' => $other->id,
         ]);
-        $myLead->addIdentity(LeadIdentity::TYPE_EMAIL, 'match@example.com');
-
-        $otherLinked = $this->makeConversation($inbox, [
-            'subject' => 'Linked lead assigned to teammate',
-            'from_email' => 'other@example.com',
-            'lead_id' => $otherLead->id,
+        $assignedToMe = $this->makeConversation($inbox, [
+            'subject' => 'Assigned to logged in user',
+            'from_email' => 'mine@example.com',
+            'lead_id' => $myLead->id,
+            'assigned_to' => $user->id,
         ]);
 
         $ids = $this->assignedToMeIds($user);
 
-        $this->assertContains($linked->id, $ids);
-        $this->assertContains($matched->id, $ids);
-        $this->assertNotContains($otherLinked->id, $ids);
+        $this->assertContains($assignedToMe->id, $ids);
+        $this->assertNotContains($leadOnly->id, $ids);
+        $this->assertNotContains($assignedToOther->id, $ids);
+        $this->assertSame([$assignedToOther->id], $this->assignedToMeIds($other));
     }
 
     public function test_assigned_to_me_includes_archived_inbox_mail_assigned_to_the_logged_in_user(): void
@@ -108,6 +103,45 @@ class InboxAssignedToMeTest extends TestCase
 
         $this->assertContains($archived->id, $ids);
         $this->assertNotContains($trashed->id, $ids);
+    }
+
+    public function test_bootstrap_assigned_to_me_count_is_only_for_the_logged_in_user(): void
+    {
+        [$user, $other, $inbox] = $this->inboxWithTwoAgents();
+
+        $this->makeConversation($inbox, [
+            'subject' => 'Mine open',
+            'from_email' => 'mine-open@example.com',
+            'assigned_to' => $user->id,
+        ]);
+        $this->makeConversation($inbox, [
+            'subject' => 'Mine archived',
+            'from_email' => 'mine-archived@example.com',
+            'assigned_to' => $user->id,
+            'status' => 'archived',
+        ]);
+        $this->makeConversation($inbox, [
+            'subject' => 'Theirs',
+            'from_email' => 'theirs@example.com',
+            'assigned_to' => $other->id,
+        ]);
+        $this->makeConversation($inbox, [
+            'subject' => 'Mine trash',
+            'from_email' => 'mine-trash@example.com',
+            'assigned_to' => $user->id,
+            'folder' => 'trash',
+            'status' => 'trashed',
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/inbox/bootstrap')
+            ->assertOk()
+            ->assertJsonPath('inboxes.0.assigned_to_me_count', 2);
+
+        $this->actingAs($other)
+            ->getJson('/api/inbox/bootstrap')
+            ->assertOk()
+            ->assertJsonPath('inboxes.0.assigned_to_me_count', 1);
     }
 
     /**
@@ -180,6 +214,11 @@ class InboxAssignedToMeTest extends TestCase
         SharedInboxMember::query()->create([
             'shared_inbox_id' => $inbox->id,
             'user_id' => $user->id,
+            'role' => 'member',
+        ]);
+        SharedInboxMember::query()->create([
+            'shared_inbox_id' => $inbox->id,
+            'user_id' => $other->id,
             'role' => 'member',
         ]);
 
