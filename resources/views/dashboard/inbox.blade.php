@@ -2973,6 +2973,7 @@
         },
         members: [],
         leadLabels: [],
+        assignedToMeCount: 0,
         conversations: [],
         checkedIds: [],
         selectedInboxId: null,
@@ -5204,7 +5205,8 @@
 
         const openCount = state.inboxes.reduce((n, i) => n + (i.open_count || 0), 0);
         el('countOpen').textContent = openCount;
-        const assignedToMeCount = state.inboxes.reduce((n, i) => n + (i.assigned_to_me_count || 0), 0);
+        const assignedToMeCount = state.assignedToMeCount
+            || state.inboxes.reduce((n, i) => n + (i.assigned_to_me_count || 0), 0);
         if (el('countAssignedToMe')) el('countAssignedToMe').textContent = assignedToMeCount;
 
         // Highlight global views only when not scoped to a mailbox folder
@@ -5860,7 +5862,9 @@
             if (f.subject) params.set('subject', f.subject);
             if (f.body) params.set('body', f.body);
             if (f.folder) params.set('folder', f.folder);
-            if (f.assigned_to !== '' && f.assigned_to != null) params.set('assigned_to', String(f.assigned_to));
+            if (state.view !== 'assigned_to_me' && f.assigned_to !== '' && f.assigned_to != null) {
+                params.set('assigned_to', String(f.assigned_to));
+            }
             if (f.is_read !== '' && f.is_read != null) params.set('is_read', String(f.is_read));
             if (f.date_from) params.set('date_from', f.date_from);
             if (f.date_to) params.set('date_to', f.date_to);
@@ -6963,6 +6967,7 @@
     async function loadBootstrap() {
         const data = await api('/bootstrap');
         state.inboxes = data.inboxes || [];
+        state.assignedToMeCount = Number(data.assigned_to_me_count || 0);
         state.templates = (data.templates || []).map(t => ({
             ...t,
             body: t.body || t.body_text || '',

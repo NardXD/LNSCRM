@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Company;
 use App\Models\InboxConversation;
 use App\Models\Lead;
+use App\Models\LeadIdentity;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SharedInbox;
@@ -44,7 +45,7 @@ class InboxAssignedToMeTest extends TestCase
         $this->assertNotContains($unassigned->id, $ids);
     }
 
-    public function test_assigned_to_me_does_not_include_mail_only_linked_to_the_logged_in_users_lead(): void
+    public function test_assigned_to_me_includes_unassigned_mail_whose_lead_belongs_to_the_logged_in_user(): void
     {
         [$user, $other, $inbox] = $this->inboxWithTwoAgents();
 
@@ -54,11 +55,16 @@ class InboxAssignedToMeTest extends TestCase
             'status' => 'new',
             'assigned_to' => $user->id,
         ]);
+        $myLead->addIdentity(LeadIdentity::TYPE_EMAIL, 'match@example.com');
 
-        $leadOnly = $this->makeConversation($inbox, [
-            'subject' => 'Lead is mine but thread is not assigned',
+        $linked = $this->makeConversation($inbox, [
+            'subject' => 'Lead is mine, thread unassigned',
             'from_email' => 'jane@example.com',
             'lead_id' => $myLead->id,
+        ]);
+        $matched = $this->makeConversation($inbox, [
+            'subject' => 'Matched by sender email',
+            'from_email' => 'match@example.com',
         ]);
         $assignedToOther = $this->makeConversation($inbox, [
             'subject' => 'Assigned to teammate even if lead is mine',
@@ -69,14 +75,14 @@ class InboxAssignedToMeTest extends TestCase
         $assignedToMe = $this->makeConversation($inbox, [
             'subject' => 'Assigned to logged in user',
             'from_email' => 'mine@example.com',
-            'lead_id' => $myLead->id,
             'assigned_to' => $user->id,
         ]);
 
         $ids = $this->assignedToMeIds($user);
 
         $this->assertContains($assignedToMe->id, $ids);
-        $this->assertNotContains($leadOnly->id, $ids);
+        $this->assertContains($linked->id, $ids);
+        $this->assertContains($matched->id, $ids);
         $this->assertNotContains($assignedToOther->id, $ids);
         $this->assertSame([$assignedToOther->id], $this->assignedToMeIds($other));
     }
@@ -136,12 +142,51 @@ class InboxAssignedToMeTest extends TestCase
         $this->actingAs($user)
             ->getJson('/api/inbox/bootstrap')
             ->assertOk()
+            ->assertJsonPath('assigned_to_me_count', 2)
             ->assertJsonPath('inboxes.0.assigned_to_me_count', 2);
 
         $this->actingAs($other)
             ->getJson('/api/inbox/bootstrap')
             ->assertOk()
+            ->assertJsonPath('assigned_to_me_count', 1)
             ->assertJsonPath('inboxes.0.assigned_to_me_count', 1);
+    }
+
+    public function test_bootstrap_assigned_to_me_count_includes_lead_owned_unassigned_mail(): void
+    {
+        [$user, $other, $inbox] = $this->inboxWithTwoAgents();
+
+        $myLead = Lead::query()->create([
+            'company_id' => $user->company_id,
+            'name' => 'Jane Doe',
+            'status' => 'new',
+            'assigned_to' => $user->id,
+        ]);
+        $this->makeConversation($inbox, [
+            'subject' => 'Thread assigned to me',
+            'from_email' => 'mine@example.com',
+            'assigned_to' => $user->id,
+        ]);
+        $this->makeConversation($inbox, [
+            'subject' => 'Lead assigned to me',
+            'from_email' => 'lead@example.com',
+            'lead_id' => $myLead->id,
+        ]);
+        $this->makeConversation($inbox, [
+            'subject' => 'Assigned to teammate',
+            'from_email' => 'other@example.com',
+            'assigned_to' => $other->id,
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/inbox/bootstrap')
+            ->assertOk()
+            ->assertJsonPath('assigned_to_me_count', 2);
+
+        $this->actingAs($other)
+            ->getJson('/api/inbox/bootstrap')
+            ->assertOk()
+            ->assertJsonPath('assigned_to_me_count', 1);
     }
 
     /**

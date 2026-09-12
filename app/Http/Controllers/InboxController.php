@@ -11,6 +11,7 @@ use App\Models\InboxTemplate;
 use App\Models\InboxUserSetting;
 use App\Models\InboxConversationUserRead;
 use App\Models\Lead;
+use App\Models\LeadIdentity;
 use App\Models\LeadLabel;
 use App\Models\OutlookMailAccount;
 use App\Models\ScheduledInboxReply;
@@ -101,9 +102,10 @@ class InboxController extends Controller
         $inboxes = $this->accessibleInboxes($user)
             ->withCount([
                 'conversations as open_count' => fn ($q) => $q->notMerged()->where('folder', 'inbox')->where('status', 'open'),
-                'conversations as assigned_to_me_count' => fn ($q) => $q->notMerged()
-                    ->where('folder', 'inbox')
-                    ->where('assigned_to', $user->id),
+                'conversations as assigned_to_me_count' => function ($q) use ($user) {
+                    $q->notMerged()->where('folder', 'inbox');
+                    $this->constrainAssignedToLoggedInUser($q, $user);
+                },
                 'conversations as unread_count' => function ($q) use ($user) {
                     $q->notMerged()
                         ->where('folder', 'inbox')
@@ -212,6 +214,7 @@ class InboxController extends Controller
             'mail_email' => $account?->email,
             'connect_url' => route('inbox.connect.outlook'),
             'user_id' => $user->id,
+            'assigned_to_me_count' => $this->countAssignedToLoggedInUser($user),
             'inboxes' => $inboxes,
             'tags' => $tags,
             'lead_labels' => LeadLabel::query()
@@ -607,8 +610,8 @@ class InboxController extends Controller
                 ->whereNotNull('reopen_at')
                 ->where('reopen_at', '>', now());
         } elseif ($view === 'assigned_to_me') {
-            $query->where('inbox_conversations.folder', 'inbox')
-                ->where('inbox_conversations.assigned_to', $user->id);
+            $query->where('inbox_conversations.folder', 'inbox');
+            $this->constrainAssignedToLoggedInUser($query, $user);
         } elseif ($view === 'unassigned') {
             $query->where('folder', 'inbox')->where('status', 'open')->whereNull('assigned_to');
         } elseif ($view === 'drafts') {
@@ -625,7 +628,7 @@ class InboxController extends Controller
             $query->whereHas('tags', fn ($q) => $q->where('inbox_tags.id', $validated['tag_id']));
         }
 
-        if (isset($validated['assigned_to'])) {
+        if ($view !== 'assigned_to_me' && isset($validated['assigned_to'])) {
             if ((int) $validated['assigned_to'] === 0) {
                 $query->whereNull('inbox_conversations.assigned_to');
             } else {
@@ -2714,6 +2717,74 @@ class InboxController extends Controller
                         ->whereHas('members', fn ($m) => $m->where('users.id', $user->id));
                 });
             });
+    }
+
+    /**
+     * Inbox mail owned by the logged-in user: assigned on the thread, or
+     * unassigned on the thread but assigned via the linked/matched lead.
+     * Never includes a thread assigned to someone else.
+     */
+    private function constrainAssignedToLoggedInUser($query, User $user): void
+    {
+        $userId = (int) $user->id;
+        $leadIds = Lead::query()
+            ->where('company_id', $user->company_id)
+            ->where('assigned_to', $userId)
+            ->pluck('id');
+
+        $emails = $leadIds->isEmpty()
+            ? collect()
+            : LeadIdentity::query()
+                ->where('type', LeadIdentity::TYPE_EMAIL)
+                ->whereIn('lead_id', $leadIds)
+                ->pluck('normalized_value')
+                ->map(fn ($email) => strtolower(trim((string) $email)))
+                ->filter()
+                ->unique()
+                ->values();
+
+        $query->where(function ($q) use ($userId, $leadIds, $emails) {
+            $q->where('inbox_conversations.assigned_to', $userId);
+
+            if ($leadIds->isEmpty() && $emails->isEmpty()) {
+                return;
+            }
+
+            $q->orWhere(function ($unowned) use ($leadIds, $emails) {
+                $unowned->whereNull('inbox_conversations.assigned_to')
+                    ->where(function ($leadMatch) use ($leadIds, $emails) {
+                        if ($leadIds->isNotEmpty()) {
+                            $leadMatch->whereIn('inbox_conversations.lead_id', $leadIds);
+                        }
+
+                        if ($emails->isNotEmpty()) {
+                            $placeholders = $emails->map(fn () => '?')->implode(',');
+                            $method = $leadIds->isNotEmpty() ? 'orWhereRaw' : 'whereRaw';
+                            $leadMatch->{$method}(
+                                'LOWER(inbox_conversations.from_email) IN ('.$placeholders.')',
+                                $emails->all()
+                            );
+                        }
+                    });
+            });
+        });
+    }
+
+    private function countAssignedToLoggedInUser(User $user): int
+    {
+        $inboxIds = $this->accessibleInboxes($user)->pluck('id');
+        if ($inboxIds->isEmpty()) {
+            return 0;
+        }
+
+        $query = InboxConversation::query()
+            ->notMerged()
+            ->whereIn('shared_inbox_id', $inboxIds)
+            ->where('inbox_conversations.folder', 'inbox');
+
+        $this->constrainAssignedToLoggedInUser($query, $user);
+
+        return $query->count();
     }
 
     /**
