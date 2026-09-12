@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Storage;
 
 class Message extends Model
@@ -53,5 +54,13 @@ class Message extends Model
     public function replyTo(): BelongsTo
     {
         return $this->belongsTo(self::class, 'reply_to_id');
+    }
+
+    /**
+     * Facebook-style reactions on this message.
+     */
+    public function reactions(): HasMany
+    {
+        return $this->hasMany(MessageReaction::class);
     }
 }

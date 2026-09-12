@@ -487,7 +487,8 @@
         pointer-events: auto;
     }
     .msg-edit-btn,
-    .msg-reply-btn {
+    .msg-reply-btn,
+    .msg-react-btn {
         width: 34px; height: 34px; border: 0; border-radius: 50%;
         background: #fff; color: #3a3a3c; cursor: pointer;
         box-shadow: 0 1px 4px rgba(0,0,0,0.16);
@@ -495,12 +496,98 @@
         padding: 0; flex-shrink: 0;
     }
     .msg-edit-btn:hover,
-    .msg-reply-btn:hover {
+    .msg-reply-btn:hover,
+    .msg-react-btn:hover {
         background: #f2f2f7; color: #007aff;
     }
     .msg-edit-btn svg,
-    .msg-reply-btn svg { width: 16px; height: 16px; }
+    .msg-reply-btn svg,
+    .msg-react-btn svg { width: 16px; height: 16px; }
     .msg-row.direct .msg-reply-btn { display: none !important; }
+    .msg-row.is-active .msg-actions,
+    .msg-row.picker-open .msg-actions {
+        opacity: 1;
+        pointer-events: auto;
+    }
+    .msg-row.has-reactions { margin-bottom: 12px; }
+    .msg-reactions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: -8px;
+        position: relative;
+        z-index: 3;
+        max-width: 100%;
+    }
+    .msg-row.outbound .msg-reactions { justify-content: flex-end; }
+    .msg-row.inbound .msg-reactions { justify-content: flex-start; padding-left: 2px; }
+    .msg-reaction-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        border: 1px solid #e5e5ea;
+        background: #fff;
+        border-radius: 999px;
+        padding: 1px 7px 1px 5px;
+        min-height: 22px;
+        font-size: 13px;
+        line-height: 1.2;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        cursor: pointer;
+        color: #3a3a3c;
+    }
+    .msg-reaction-chip.is-mine {
+        border-color: #007aff;
+        background: #f0f7ff;
+    }
+    .msg-reaction-chip:hover { background: #f7f7f8; }
+    .msg-reaction-chip.is-mine:hover { background: #e5f1ff; }
+    .msg-reaction-count {
+        font-size: 11px;
+        font-weight: 700;
+        color: #3a3a3c;
+    }
+    .msg-reaction-picker {
+        position: fixed;
+        z-index: 2200;
+        display: none;
+        align-items: center;
+        gap: 2px;
+        padding: 5px 8px;
+        background: #fff;
+        border-radius: 999px;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06);
+    }
+    .msg-reaction-picker.open { display: flex; }
+    .msg-reaction-picker button {
+        width: 40px; height: 40px;
+        border: 0; background: transparent;
+        font-size: 26px;
+        border-radius: 50%;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0;
+        transition: transform 0.12s ease;
+    }
+    .msg-reaction-picker button:hover { transform: scale(1.32); background: transparent; }
+    .msg-reaction-picker button.is-mine { background: #e8f1ff; }
+    .msg-reaction-people {
+        position: fixed; z-index: 2210;
+        min-width: 200px; max-width: 280px; max-height: 260px; overflow-y: auto;
+        background: #fff; border: 1px solid #e5e5ea; border-radius: 12px;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.14); padding: 0.45rem 0;
+        display: none;
+    }
+    .msg-reaction-people.open { display: block; }
+    .msg-reaction-person {
+        display: flex; align-items: center; gap: 0.5rem;
+        padding: 0.4rem 0.75rem; font-size: 0.82rem; color: #111;
+    }
+    .msg-reaction-person img, .msg-reaction-person .msg-seen-initials {
+        width: 24px; height: 24px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
+    }
+    .msg-reaction-person-emoji { font-size: 1rem; width: 22px; text-align: center; flex-shrink: 0; }
+    .msg-reaction-people-empty { padding: 0.5rem 0.75rem; font-size: 0.8rem; color: #8e8e93; }
     .msg-quote {
         display: block; width: 100%; text-align: left;
         border: 0; border-left: 3px solid rgba(0,0,0,0.22);
@@ -1685,6 +1772,9 @@
         row.dataset.hasAttachment = m.attachment_path ? '1' : '0';
         row.dataset.preview = m.body || (m.attachment_type === 'image' ? 'Photo' : (m.attachment_name || 'Attachment') || '');
         row.dataset.seenBy = JSON.stringify(m.seen_by || []);
+        row.dataset.reactions = JSON.stringify(m.reactions || []);
+        row.dataset.myReaction = m.my_reaction || '';
+        if ((m.reactions || []).length) row.classList.add('has-reactions');
 
         let quote = '';
         if (m.reply_to && m.reply_to.id) {
@@ -1711,17 +1801,180 @@
         const replyBtn = currentConversationType === 'group'
             ? '<button type="button" class="msg-reply-btn" title="Reply" aria-label="Reply" onclick="window.startReplyMessage(' + Number(m.id) + ', event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg></button>'
             : '';
+        const reactBtn = '<button type="button" class="msg-react-btn" title="React" aria-label="React" onclick="window.openMessageReactionPicker(' + Number(m.id) + ', event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></button>';
         const edited = m.edited_at ? '<div class="msg-meta"><span>Edited</span></div>' : '';
-        const actions = (replyBtn || editBtn) ? '<div class="msg-actions">' + replyBtn + editBtn + '</div>' : '';
+        const actions = '<div class="msg-actions">' + reactBtn + replyBtn + editBtn + '</div>';
         row.innerHTML =
             '<div class="msg-row-avatar">' + avatarInner + '</div>' +
             '<div class="msg-col">' +
                 '<div class="msg-sender">' + escapeHtml(m.author || '') + '</div>' +
                 '<div class="msg-bubble-wrap">' + actions + '<div class="msg-bubble ' + dir + '">' + (body || '') + '</div></div>' +
+                reactionChipsMarkup(m) +
                 edited +
             '</div>';
         return row;
     }
+
+    const MESSAGE_REACTIONS = [
+        { type: 'like', emoji: '👍', label: 'Like' },
+        { type: 'love', emoji: '❤️', label: 'Love' },
+        { type: 'care', emoji: '🥰', label: 'Care' },
+        { type: 'haha', emoji: '😂', label: 'Haha' },
+        { type: 'wow', emoji: '😮', label: 'Wow' },
+        { type: 'sad', emoji: '😢', label: 'Sad' },
+        { type: 'angry', emoji: '😡', label: 'Angry' }
+    ];
+    let openReactionMessageId = null;
+
+    function reactionChipsMarkup(m) {
+        const reactions = m.reactions || [];
+        if (!reactions.length) return '';
+        return '<div class="msg-reactions">' + reactions.map(function(r) {
+            const count = Number(r.count) > 1 ? '<span class="msg-reaction-count">' + Number(r.count) + '</span>' : '';
+            return '<button type="button" class="msg-reaction-chip' + (r.reacted ? ' is-mine' : '') + '" title="See who reacted" onclick="window.showMessageReactionPeople(' + Number(m.id) + ', event)">' +
+                '<span>' + escapeHtml(r.emoji || '') + '</span>' + count +
+                '</button>';
+        }).join('') + '</div>';
+    }
+
+    function getReactionPicker() {
+        let pop = document.getElementById('msgReactionPicker');
+        if (pop) return pop;
+        pop = document.createElement('div');
+        pop.id = 'msgReactionPicker';
+        pop.className = 'msg-reaction-picker';
+        pop.setAttribute('role', 'listbox');
+        pop.setAttribute('aria-label', 'React to message');
+        pop.innerHTML = MESSAGE_REACTIONS.map(function(r) {
+            return '<button type="button" data-type="' + r.type + '" title="' + r.label + '" aria-label="' + r.label + '">' + r.emoji + '</button>';
+        }).join('');
+        pop.addEventListener('click', function(e) {
+            const btn = e.target.closest('button[data-type]');
+            if (!btn || !openReactionMessageId) return;
+            e.stopPropagation();
+            window.reactToMessage(openReactionMessageId, btn.dataset.type);
+        });
+        document.body.appendChild(pop);
+        document.addEventListener('click', function(e) {
+            if (!pop.contains(e.target) && !e.target.closest('.msg-react-btn')) {
+                closeMessageReactionPicker();
+            }
+        });
+        return pop;
+    }
+
+    function positionReactionPicker(anchor) {
+        const pop = getReactionPicker();
+        const rect = anchor.getBoundingClientRect();
+        const width = pop.offsetWidth || 292;
+        const height = pop.offsetHeight || 52;
+        let left = rect.left + (rect.width / 2) - (width / 2);
+        let top = rect.top - height - 10;
+        left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+        if (top < 8) top = rect.bottom + 10;
+        pop.style.left = left + 'px';
+        pop.style.top = top + 'px';
+    }
+
+    function closeMessageReactionPicker() {
+        const pop = document.getElementById('msgReactionPicker');
+        if (pop) pop.classList.remove('open');
+        document.querySelectorAll('.msg-row.picker-open').forEach(function(row) {
+            row.classList.remove('picker-open');
+        });
+        openReactionMessageId = null;
+    }
+
+    window.openMessageReactionPicker = function(id, ev) {
+        if (ev) ev.stopPropagation();
+        const row = document.querySelector('.msg-row[data-message-id="' + id + '"]');
+        if (!row) return;
+        const pop = getReactionPicker();
+        if (openReactionMessageId === Number(id) && pop.classList.contains('open')) {
+            closeMessageReactionPicker();
+            return;
+        }
+        closeMessageReactionPeople();
+        openReactionMessageId = Number(id);
+        document.querySelectorAll('.msg-row.picker-open').forEach(function(other) {
+            other.classList.remove('picker-open');
+        });
+        row.classList.add('picker-open');
+        const mine = row.dataset.myReaction || '';
+        pop.querySelectorAll('button[data-type]').forEach(function(btn) {
+            btn.classList.toggle('is-mine', btn.dataset.type === mine);
+        });
+        pop.classList.add('open');
+        const anchor = (ev && ev.currentTarget) || row.querySelector('.msg-react-btn') || row.querySelector('.msg-bubble') || row;
+        positionReactionPicker(anchor);
+    };
+
+    window.reactToMessage = async function(id, type) {
+        if (!currentConversationId || !type) return;
+        closeMessageReactionPicker();
+        const res = await api(baseUrl + '/conversations/' + currentConversationId + '/messages/' + id + '/react', {
+            method: 'POST',
+            body: { type: type }
+        });
+        const json = await res.json();
+        if (!json.success) {
+            alert(json.message || 'Failed to react');
+            return;
+        }
+        const row = document.querySelector('.msg-row[data-message-id="' + id + '"]');
+        if (row) row.replaceWith(buildMessageElement(json.data));
+        refreshThreadChrome();
+        applySeenLabels();
+    };
+
+    function closeMessageReactionPeople() {
+        const pop = document.getElementById('msgReactionPeople');
+        if (pop) pop.classList.remove('open');
+    }
+
+    window.showMessageReactionPeople = function(id, ev) {
+        if (ev) ev.stopPropagation();
+        closeMessageReactionPicker();
+        const row = document.querySelector('.msg-row[data-message-id="' + id + '"]');
+        if (!row) return;
+        let reactions = [];
+        try { reactions = JSON.parse(row.dataset.reactions || '[]'); } catch (_) { reactions = []; }
+        let pop = document.getElementById('msgReactionPeople');
+        if (!pop) {
+            pop = document.createElement('div');
+            pop.id = 'msgReactionPeople';
+            pop.className = 'msg-reaction-people';
+            document.body.appendChild(pop);
+            document.addEventListener('click', function(e) {
+                if (!pop.contains(e.target) && !e.target.closest('.msg-reaction-chip')) {
+                    pop.classList.remove('open');
+                }
+            });
+        }
+        if (pop.classList.contains('open') && pop.dataset.messageId === String(id)) {
+            pop.classList.remove('open');
+            return;
+        }
+        const people = [];
+        reactions.forEach(function(group) {
+            (group.users || []).forEach(function(u) {
+                people.push({ emoji: group.emoji, name: u.name, photo: u.photo, initials: u.initials });
+            });
+        });
+        pop.innerHTML = people.length
+            ? people.map(function(p) {
+                const avatar = p.photo
+                    ? '<img src="' + escapeHtml(p.photo) + '" alt="">'
+                    : '<span class="msg-seen-initials">' + escapeHtml(p.initials || '?') + '</span>';
+                return '<div class="msg-reaction-person"><span class="msg-reaction-person-emoji">' + escapeHtml(p.emoji || '') + '</span>' + avatar + '<span>' + escapeHtml(p.name || '') + '</span></div>';
+            }).join('')
+            : '<div class="msg-reaction-people-empty">No reactions yet</div>';
+        pop.dataset.messageId = String(id);
+        const rect = (ev && ev.currentTarget ? ev.currentTarget : row).getBoundingClientRect();
+        pop.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - 288)) + 'px';
+        pop.style.top = (rect.bottom + 6) + 'px';
+        pop.classList.add('open');
+    };
 
     function seenForRow(row) {
         try {
@@ -1862,6 +2115,8 @@
     async function loadMessages(conversationId) {
         if (typeof window.cancelEditMessage === 'function') window.cancelEditMessage();
         if (typeof window.cancelReplyMessage === 'function') window.cancelReplyMessage();
+        closeMessageReactionPicker();
+        closeMessageReactionPeople();
         const params = new URLSearchParams({ limit: MESSAGES_PAGE_SIZE });
         const res = await api(baseUrl + '/conversations/' + conversationId + '/messages?' + params.toString());
         const json = await res.json();
@@ -2131,7 +2386,14 @@
         if (box && !box.hidden) {
             e.preventDefault();
             window.closeMessageImagePreview();
+            return;
         }
+        if (openReactionMessageId) {
+            e.preventDefault();
+            closeMessageReactionPicker();
+            return;
+        }
+        closeMessageReactionPeople();
     });
 
     window.startEditMessage = function(id, ev) {
@@ -2730,6 +2992,44 @@
     });
     document.getElementById('messagesArea').addEventListener('scroll', () => {
         if (document.getElementById('messagesArea').scrollTop < 48) loadOlderMessages();
+        closeMessageReactionPicker();
+        closeMessageReactionPeople();
+    });
+
+    const messageGroupEl = document.getElementById('messageGroup');
+    let reactionPressTimer = null;
+    let suppressRowClick = false;
+    messageGroupEl.addEventListener('touchstart', function(e) {
+        const bubble = e.target.closest('.msg-bubble');
+        if (!bubble || e.target.closest('a, button, img, .msg-quote')) return;
+        const row = bubble.closest('.msg-row');
+        if (!row) return;
+        reactionPressTimer = setTimeout(function() {
+            suppressRowClick = true;
+            window.openMessageReactionPicker(row.dataset.messageId);
+        }, 450);
+    }, { passive: true });
+    messageGroupEl.addEventListener('touchend', function() {
+        if (reactionPressTimer) clearTimeout(reactionPressTimer);
+        reactionPressTimer = null;
+    });
+    messageGroupEl.addEventListener('touchmove', function() {
+        if (reactionPressTimer) clearTimeout(reactionPressTimer);
+        reactionPressTimer = null;
+    });
+    messageGroupEl.addEventListener('click', function(e) {
+        if (suppressRowClick) {
+            suppressRowClick = false;
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
+        const row = e.target.closest('.msg-row');
+        if (!row || e.target.closest('a, button, img, .msg-quote, .msg-reactions')) return;
+        document.querySelectorAll('#messageGroup .msg-row.is-active').forEach(function(other) {
+            if (other !== row) other.classList.remove('is-active');
+        });
+        row.classList.toggle('is-active');
     });
 
     // Init
@@ -2748,8 +3048,14 @@
             const existing = group.querySelector('.msg-row[data-message-id="' + m.id + '"]');
             if (existing) {
                 existing.dataset.seenBy = JSON.stringify(m.seen_by || []);
-                if (existing.dataset.body !== (m.body || '') || existing.dataset.editedAt !== (m.edited_at || '')) {
+                const nextReactions = JSON.stringify(m.reactions || []);
+                const reactionsChanged = existing.dataset.reactions !== nextReactions;
+                const bodyChanged = existing.dataset.body !== (m.body || '') || existing.dataset.editedAt !== (m.edited_at || '');
+                if ((bodyChanged || reactionsChanged) && String(openReactionMessageId) !== String(m.id)) {
                     existing.replaceWith(buildMessageElement(m));
+                } else if (reactionsChanged) {
+                    existing.dataset.reactions = nextReactions;
+                    existing.dataset.myReaction = m.my_reaction || '';
                 }
             } else {
                 appendMessage(m, group);

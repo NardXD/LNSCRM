@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\MessageReaction;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -271,7 +272,7 @@ class MessagingController extends Controller
         $limit = min(max((int) $request->get('limit', 25), 5), 100);
         $beforeId = $request->get('before_id');
 
-        $query = $conversation->messages()->with(['user', 'replyTo.user']);
+        $query = $conversation->messages()->with(['user', 'replyTo.user', 'reactions.user']);
 
         if ($beforeId) {
             $query->where('id', '<', $beforeId);
@@ -365,7 +366,7 @@ class MessagingController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatMessage($message->load(['user', 'replyTo.user']), $user),
+            'data' => $this->formatMessage($message->load(['user', 'replyTo.user', 'reactions.user']), $user),
         ]);
     }
 
@@ -412,7 +413,53 @@ class MessagingController extends Controller
         return response()->json([
             'success' => true,
             'data' => $this->formatMessage(
-                $message->load(['user', 'replyTo.user']),
+                $message->load(['user', 'replyTo.user', 'reactions.user']),
+                $user,
+                $this->formatReceipts($conversation, $user)
+            ),
+        ]);
+    }
+
+    /**
+     * Add, change, or remove a Facebook-style reaction (one per user per message).
+     */
+    public function reactToMessage(Request $request, Conversation $conversation, Message $message)
+    {
+        $companyId = $this->requireCompany();
+        if (! $companyId || $conversation->company_id !== $companyId) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        $user = Auth::user();
+        if (! $conversation->participants()->where('users.id', $user->id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Not a participant'], 403);
+        }
+
+        if ($message->conversation_id !== $conversation->id) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        $validated = $request->validate([
+            'type' => ['required', 'string', Rule::in(array_keys(MessageReaction::TYPES))],
+        ]);
+
+        $existing = $message->reactions()->where('user_id', $user->id)->first();
+
+        if ($existing && $existing->type === $validated['type']) {
+            $existing->delete();
+        } elseif ($existing) {
+            $existing->update(['type' => $validated['type']]);
+        } else {
+            $message->reactions()->create([
+                'user_id' => $user->id,
+                'type' => $validated['type'],
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->formatMessage(
+                $message->fresh()->load(['user', 'replyTo.user', 'reactions.user']),
                 $user,
                 $this->formatReceipts($conversation, $user)
             ),
@@ -771,7 +818,53 @@ class MessagingController extends Controller
             'edited_at' => $m->edited_at?->toIso8601String(),
             'reply_to' => $this->formatReplyTo($m, $currentUser),
             'seen_by' => $isMe ? $this->whoSaw($m, $receipts) : [],
+            'reactions' => $this->formatReactions($m, $currentUser),
+            'my_reaction' => $this->myReactionType($m, $currentUser),
         ];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function formatReactions(Message $m, $currentUser): array
+    {
+        $reactions = $m->relationLoaded('reactions')
+            ? $m->reactions
+            : $m->reactions()->with('user')->get();
+
+        $grouped = [];
+        foreach (MessageReaction::TYPES as $type => $emoji) {
+            $items = $reactions->where('type', $type)->values();
+            if ($items->isEmpty()) {
+                continue;
+            }
+
+            $grouped[] = [
+                'type' => $type,
+                'emoji' => $emoji,
+                'count' => $items->count(),
+                'reacted' => $items->contains(fn ($r) => (int) $r->user_id === (int) $currentUser->id),
+                'users' => $items->map(function ($r) {
+                    return [
+                        'id' => $r->user_id,
+                        'name' => $r->user->name ?? 'Unknown',
+                        'initials' => $this->getInitials($r->user->name ?? ''),
+                        'photo' => $r->user?->photo ? public_media_url($r->user->photo) : null,
+                    ];
+                })->values()->all(),
+            ];
+        }
+
+        return $grouped;
+    }
+
+    private function myReactionType(Message $m, $currentUser): ?string
+    {
+        $reactions = $m->relationLoaded('reactions')
+            ? $m->reactions
+            : $m->reactions()->get();
+
+        return $reactions->firstWhere('user_id', $currentUser->id)?->type;
     }
 
     /**

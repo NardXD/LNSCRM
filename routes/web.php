@@ -633,6 +633,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/conversations/{conversation}/messages', [MessagingController::class, 'getMessages'])->name('api.messaging.messages');
         Route::post('/conversations/{conversation}/messages', [MessagingController::class, 'sendMessage'])->name('api.messaging.messages.store');
         Route::post('/conversations/{conversation}/messages/{message}/update', [MessagingController::class, 'updateMessage'])->name('api.messaging.messages.update');
+        Route::post('/conversations/{conversation}/messages/{message}/react', [MessagingController::class, 'reactToMessage'])->name('api.messaging.messages.react');
         Route::post('/conversations/{conversation}/members', [MessagingController::class, 'addMember'])->name('api.messaging.conversations.members.store');
         Route::post('/conversations/{conversation}/members/{user}/remove', [MessagingController::class, 'removeMember'])->name('api.messaging.conversations.members.destroy');
         Route::post('/conversations/{conversation}/transfer-ownership', [MessagingController::class, 'transferOwnership'])->name('api.messaging.conversations.transfer-ownership');
