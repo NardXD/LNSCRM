@@ -11,6 +11,7 @@ use App\Models\InboxTemplate;
 use App\Models\InboxUserSetting;
 use App\Models\InboxConversationUserRead;
 use App\Models\Lead;
+use App\Models\LeadIdentity;
 use App\Models\LeadLabel;
 use App\Models\OutlookMailAccount;
 use App\Models\ScheduledInboxReply;
@@ -604,7 +605,8 @@ class InboxController extends Controller
                 ->whereNotNull('reopen_at')
                 ->where('reopen_at', '>', now());
         } elseif ($view === 'assigned_to_me') {
-            $query->where('folder', 'inbox')->where('status', 'open')->where('assigned_to', $user->id);
+            $query->where('inbox_conversations.folder', 'inbox');
+            $this->constrainAssignedToUser($query, (int) $user->id, (int) $user->company_id);
         } elseif ($view === 'unassigned') {
             $query->where('folder', 'inbox')->where('status', 'open')->whereNull('assigned_to');
         } elseif ($view === 'drafts') {
@@ -623,9 +625,9 @@ class InboxController extends Controller
 
         if (isset($validated['assigned_to'])) {
             if ((int) $validated['assigned_to'] === 0) {
-                $query->whereNull('assigned_to');
+                $query->whereNull('inbox_conversations.assigned_to');
             } else {
-                $query->where('assigned_to', (int) $validated['assigned_to']);
+                $this->constrainAssignedToUser($query, (int) $validated['assigned_to'], (int) $user->company_id);
             }
         }
 
@@ -2710,6 +2712,44 @@ class InboxController extends Controller
                         ->whereHas('members', fn ($m) => $m->where('users.id', $user->id));
                 });
             });
+    }
+
+    /**
+     * Conversations assigned to a user on the thread, or via a linked/matched lead.
+     */
+    private function constrainAssignedToUser($query, int $userId, int $companyId): void
+    {
+        $assignedLeadIds = Lead::query()
+            ->where('company_id', $companyId)
+            ->where('assigned_to', $userId)
+            ->pluck('id');
+
+        $assignedEmails = $assignedLeadIds->isEmpty()
+            ? collect()
+            : LeadIdentity::query()
+                ->where('type', LeadIdentity::TYPE_EMAIL)
+                ->whereIn('lead_id', $assignedLeadIds)
+                ->pluck('normalized_value')
+                ->map(fn ($email) => strtolower(trim((string) $email)))
+                ->filter()
+                ->unique()
+                ->values();
+
+        $query->where(function ($q) use ($userId, $assignedLeadIds, $assignedEmails) {
+            $q->where('inbox_conversations.assigned_to', $userId);
+
+            if ($assignedLeadIds->isNotEmpty()) {
+                $q->orWhereIn('inbox_conversations.lead_id', $assignedLeadIds);
+            }
+
+            if ($assignedEmails->isNotEmpty()) {
+                $placeholders = $assignedEmails->map(fn () => '?')->implode(',');
+                $q->orWhereRaw(
+                    'LOWER(inbox_conversations.from_email) IN ('.$placeholders.')',
+                    $assignedEmails->all()
+                );
+            }
+        });
     }
 
     /**
