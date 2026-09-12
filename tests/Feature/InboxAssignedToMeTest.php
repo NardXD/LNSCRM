@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\Company;
 use App\Models\InboxConversation;
 use App\Models\Lead;
-use App\Models\LeadIdentity;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SharedInbox;
@@ -55,16 +54,22 @@ class InboxAssignedToMeTest extends TestCase
             'status' => 'new',
             'assigned_to' => $user->id,
         ]);
-        $myLead->addIdentity(LeadIdentity::TYPE_EMAIL, 'match@example.com');
+        $otherLead = Lead::query()->create([
+            'company_id' => $user->company_id,
+            'name' => 'Other Lead',
+            'status' => 'new',
+            'assigned_to' => $other->id,
+        ]);
 
         $linked = $this->makeConversation($inbox, [
             'subject' => 'Lead is mine, thread unassigned',
             'from_email' => 'jane@example.com',
             'lead_id' => $myLead->id,
         ]);
-        $matched = $this->makeConversation($inbox, [
-            'subject' => 'Matched by sender email',
-            'from_email' => 'match@example.com',
+        $otherLeadLinked = $this->makeConversation($inbox, [
+            'subject' => 'Lead belongs to teammate',
+            'from_email' => 'other-lead@example.com',
+            'lead_id' => $otherLead->id,
         ]);
         $assignedToOther = $this->makeConversation($inbox, [
             'subject' => 'Assigned to teammate even if lead is mine',
@@ -82,9 +87,12 @@ class InboxAssignedToMeTest extends TestCase
 
         $this->assertContains($assignedToMe->id, $ids);
         $this->assertContains($linked->id, $ids);
-        $this->assertContains($matched->id, $ids);
+        $this->assertNotContains($otherLeadLinked->id, $ids);
         $this->assertNotContains($assignedToOther->id, $ids);
-        $this->assertSame([$assignedToOther->id], $this->assignedToMeIds($other));
+        $this->assertEqualsCanonicalizing(
+            [$assignedToOther->id, $otherLeadLinked->id],
+            $this->assignedToMeIds($other)
+        );
     }
 
     public function test_assigned_to_me_includes_archived_inbox_mail_assigned_to_the_logged_in_user(): void
