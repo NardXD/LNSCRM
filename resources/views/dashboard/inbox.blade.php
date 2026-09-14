@@ -6074,14 +6074,49 @@
             </div>`;
     }
 
+    function tagSwatchColor(label) {
+        const color = String(label?.color || '#64748b').trim();
+        return /^#[0-9a-fA-F]{3,8}$/.test(color) ? color : '#64748b';
+    }
+
+    function tagsMenuHtml(c) {
+        const tags = conversationTagItems(c);
+        if (!tags.length) return '';
+        const preview = tags.slice(0, 3).map(t => `
+            <span class="inbox-chip-avatar" style="background:${tagSwatchColor(t)}">${escapeHtml(initials(t.name))}</span>
+        `).join('');
+        const rows = tags.map(t => `
+            <div class="inbox-participant-row" title="${escapeHtml(t.name || '')}">
+                <span class="inbox-participant-avatar" style="background:${tagSwatchColor(t)}">${escapeHtml(initials(t.name))}</span>
+                <span class="inbox-participant-name">${escapeHtml(t.name || 'Tag')}</span>
+            </div>
+        `).join('');
+        const label = tags.length === 1 ? '1 tag' : `${tags.length} tags`;
+        return `
+            <div class="inbox-pop inbox-participants-pop" id="tagsPop">
+                <button type="button" class="inbox-chip inbox-participants-chip" id="btnTags" title="Conversation tags" aria-haspopup="menu" aria-expanded="false">
+                    ${preview}
+                    <span>${label}</span>
+                </button>
+                <div class="inbox-pop-menu inbox-participants-menu" id="tagsMenu" hidden>
+                    <div class="inbox-participants-head">Tags</div>
+                    <div class="inbox-participants-list">${rows}</div>
+                    <div class="inbox-participants-foot">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                        <span>Labels on this conversation</span>
+                    </div>
+                </div>
+            </div>`;
+    }
+
     function closeThreadPops() {
-        ['threadMoreMenu', 'snoozeMenu', 'assignMenu', 'commentEmojiMenu', 'sendReplyMenu', 'composeSendMenu', 'participantsMenu'].forEach(id => {
+        ['threadMoreMenu', 'snoozeMenu', 'assignMenu', 'commentEmojiMenu', 'sendReplyMenu', 'composeSendMenu', 'participantsMenu', 'tagsMenu'].forEach(id => {
             const node = el(id);
             if (node) node.hidden = true;
         });
         document.querySelectorAll('.inbox-icon-action.is-open, .inbox-assign-btn.is-open, .inbox-send-caret.is-open, .inbox-participants-chip.is-open').forEach(btn => {
             btn.classList.remove('is-open');
-            if (btn.id === 'btnParticipants') btn.setAttribute('aria-expanded', 'false');
+            if (btn.id === 'btnParticipants' || btn.id === 'btnTags') btn.setAttribute('aria-expanded', 'false');
         });
         const laterFields = el('sendLaterFields');
         if (laterFields) laterFields.hidden = true;
@@ -6096,7 +6131,7 @@
         closeThreadPops();
         menu.hidden = !willOpen;
         btn?.classList.toggle('is-open', willOpen);
-        if (btn?.id === 'btnParticipants') {
+        if (btn?.id === 'btnParticipants' || btn?.id === 'btnTags') {
             btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
         }
     }
@@ -6508,6 +6543,7 @@
             </span>
         `).join('') + (people.length > 6 ? `<span class="inbox-chip">+${people.length - 6}</span>` : '') +
             (isShared ? participantsMenuHtml(c) : '') +
+            tagsMenuHtml(c) +
             '<button type="button" class="inbox-chip-add" id="btnAddParticipant" title="Assign teammate">+</button>';
 
         const folder = c.folder || 'inbox';
@@ -7830,6 +7866,12 @@
         if (participantsBtn) {
             e.stopPropagation();
             togglePop('participantsMenu', participantsBtn);
+            return;
+        }
+        const tagsBtn = e.target.closest('#btnTags');
+        if (tagsBtn) {
+            e.stopPropagation();
+            togglePop('tagsMenu', tagsBtn);
             return;
         }
         if (!e.target.closest('#btnAddParticipant')) return;
