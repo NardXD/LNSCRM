@@ -1012,6 +1012,21 @@ class FrontTagImportService
         return $label;
     }
 
+    public function prepareConversationLookup(SharedInbox $sharedInbox): void
+    {
+        if (! isset($this->conversationLookupCache[$sharedInbox->id])) {
+            $this->warmConversationLookup($sharedInbox);
+        }
+    }
+
+    /**
+     * @return Collection<int, SharedInbox>
+     */
+    public function sharedInboxesForCompany(Company $company, ?int $sharedInboxId = null): Collection
+    {
+        return $this->loadSharedInboxes($company, $sharedInboxId);
+    }
+
     /**
      * @return Collection<int, SharedInbox>
      */

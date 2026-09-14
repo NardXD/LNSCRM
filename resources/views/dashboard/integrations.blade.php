@@ -255,6 +255,12 @@
         text-align: right;
     }
 
+    .front-import-section {
+        margin-top: 1.5rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--border);
+    }
+
     .front-import-actions {
         display: flex;
         flex-wrap: wrap;
@@ -851,11 +857,11 @@
         {
             id: 'front',
             name: 'Front.com',
-            description: 'One-time import of Front conversation tags into LNSCRM shared inboxes. Connect your Front API token, map inboxes, and run the import.',
+            description: 'One-time import of Front conversation tags and internal comments into LNSCRM shared inboxes. Connect your Front API token, map inboxes, and run the imports.',
             category: 'communication',
             icon: '🏷️',
             status: 'disconnected',
-            features: ['Import inbox tags', 'Inbox mapping', 'Dry-run preview', 'Import history']
+            features: ['Import inbox tags', 'Import internal comments', 'Inbox mapping', 'Dry-run preview', 'Import history']
         }
     ];
 
@@ -1497,12 +1503,12 @@
                 <div class="form-group">
                     <label class="form-label">Front API token</label>
                     <input type="password" class="form-input" id="front-api-token" placeholder="${existingData && existingData.has_token ? 'Leave blank to keep current token' : 'Paste bearer token'}">
-                    <span class="form-help">Create a token in Front → Settings → Developers with scopes <code>tags:read</code>, <code>conversations:read</code>, and optionally <code>inboxes:read</code>. Paste the token only — do not include <code>Bearer</code>.</span>
+                    <span class="form-help">Create a token in Front → Settings → Developers with scopes <code>tags:read</code>, <code>conversations:read</code>, and optionally <code>inboxes:read</code>. <code>conversations:read</code> is required to import internal comments. Paste the token only — do not include <code>Bearer</code>.</span>
                     <div id="front-token-error" class="form-help" style="color:#b91c1c;display:none;margin-top:0.5rem;"></div>
                 </div>
                 <div id="front-import-panel" class="front-import-panel" ${existingData && existingData.status === 'connected' ? '' : 'hidden'}>
                     <h4 style="font-size:0.9375rem;font-weight:600;margin:0 0 0.5rem;">Import inbox tags</h4>
-                    <p class="form-help" style="margin-bottom:0.75rem;">Sync mail into LNSCRM first (<strong>Inbox → Sync</strong> or <code>php artisan inbox:sync-mail --full</code>), then run the import below.</p>
+                    <p class="form-help" style="margin-bottom:0.75rem;">Sync mail into LNSCRM first (<strong>Inbox → Sync</strong> or <code>php artisan inbox:sync-mail --full</code>), then map inboxes and run the imports below.</p>
                     <div id="front-mapping-wrap">
                         <span class="form-help">Loading inbox mapping…</span>
                     </div>
@@ -1523,6 +1529,23 @@
                         </div>
                     </div>
                     <div id="front-import-results"></div>
+                    <div class="front-import-section">
+                        <h4 style="font-size:0.9375rem;font-weight:600;margin:0 0 0.5rem;">Import internal comments</h4>
+                        <p class="form-help" style="margin-bottom:0.75rem;">Copies Front conversation comments onto matched LNSCRM threads. Authors are matched to CRM users by email or name; unmatched comments keep the original Front author name.</p>
+                        <div class="front-import-actions" style="margin-top:0;">
+                            <button type="button" class="btn-secondary" id="front-comment-dry-run-btn" onclick="handleFrontCommentImport(true)">Preview comments</button>
+                            <button type="button" class="btn-primary" id="front-comment-import-btn" onclick="handleFrontCommentImport(false)">Import comments</button>
+                            <button type="button" class="btn-secondary" id="front-comment-reset-progress-btn" onclick="handleFrontCommentResetProgress()" title="Forget which conversations were already scanned for comments, so the next run rescans everything.">Reset comment progress</button>
+                        </div>
+                        <div id="front-comment-import-loading" class="front-import-loading" hidden>
+                            <div class="front-import-spinner" aria-hidden="true"></div>
+                            <div style="flex:1;">
+                                <div id="front-comment-import-loading-label">Processing…</div>
+                                <div class="front-import-loading-bar" aria-hidden="true"><span id="front-comment-import-loading-fill"></span></div>
+                            </div>
+                        </div>
+                        <div id="front-comment-import-results"></div>
+                    </div>
                 </div>
             `,
             'calendar': `
@@ -2454,7 +2477,9 @@
         const fill = document.getElementById('front-import-loading-fill');
         const dryRunBtn = document.getElementById('front-dry-run-btn');
         const importBtn = document.getElementById('front-import-btn');
-        [dryRunBtn, importBtn].forEach(btn => { if (btn) btn.disabled = !!isLoading; });
+        const commentDryRunBtn = document.getElementById('front-comment-dry-run-btn');
+        const commentImportBtn = document.getElementById('front-comment-import-btn');
+        [dryRunBtn, importBtn, commentDryRunBtn, commentImportBtn].forEach(btn => { if (btn) btn.disabled = !!isLoading; });
         const pct = percent === null || percent === undefined ? null : Math.max(0, Math.min(100, Math.round(percent)));
         if (label) label.textContent = pct === null ? message : `${message} ${pct}%`;
         if (loading) loading.hidden = !isLoading;
@@ -2577,6 +2602,14 @@
                 existingIntegration.last_import_stats,
                 !!existingIntegration.last_import_dry_run,
                 existingIntegration.last_import_at || null
+            );
+        }
+
+        if (existingIntegration?.last_comment_import_stats) {
+            renderFrontCommentImportResults(
+                existingIntegration.last_comment_import_stats,
+                !!existingIntegration.last_comment_import_dry_run,
+                existingIntegration.last_comment_import_at || null
             );
         }
 
@@ -2852,6 +2885,282 @@
             renderFrontImportError(error.message || 'Front tag import failed. Please try again.');
         } finally {
             setFrontImportLoading(false);
+        }
+    }
+
+    function renderFrontCommentImportResults(stats, dryRun = false, lastImportAt = null) {
+        const wrap = document.getElementById('front-comment-import-results');
+        if (!wrap || !stats) return;
+
+        const samples = Array.isArray(stats.unmatched_samples) ? stats.unmatched_samples : [];
+        const when = lastImportAt ? new Date(lastImportAt).toLocaleString() : new Date().toLocaleString();
+
+        wrap.innerHTML = `
+            <div class="front-import-results">
+                <h4>${dryRun ? 'Comment preview' : 'Comment import results'} <span style="font-weight:400;color:var(--text-secondary);">· ${when}</span></h4>
+                ${dryRun && stats.preview_limit ? `<p class="form-help" style="margin:0 0 0.75rem;color:#b45309;">Preview shows the first ${stats.preview_limit} Front conversations only. Run import to process all.</p>` : ''}
+                <dl>
+                    <dt>Mapped inboxes</dt><dd>${stats.mapped_inboxes ?? 0}</dd>
+                    ${dryRun ? `<dt>Conversations scanned</dt><dd>${stats.conversations_scanned ?? 0}</dd>` : ''}
+                    ${!dryRun && stats.conversations_already_synced ? `<dt>Already scanned (skipped)</dt><dd>${stats.conversations_already_synced}</dd>` : ''}
+                    <dt>Matched conversations</dt><dd>${stats.conversations_matched ?? 0}</dd>
+                    <dt>Unmatched conversations</dt><dd>${stats.conversations_unmatched ?? 0}</dd>
+                    <dt>Conversations with comments</dt><dd>${stats.conversations_with_comments ?? 0}</dd>
+                    <dt>Comments ${dryRun ? 'would import' : 'imported'}</dt><dd>${stats.comments_imported ?? 0}</dd>
+                    <dt>Already imported (skipped)</dt><dd>${stats.comments_existing ?? 0}</dd>
+                    ${stats.comments_unmatched_author ? `<dt>Authors not matched to CRM users</dt><dd>${stats.comments_unmatched_author}</dd>` : ''}
+                </dl>
+                ${samples.length ? `<ul class="front-unmatched-list">${samples.map(s => `<li>${escapeHtml(String(s))}</li>`).join('')}</ul>` : ''}
+            </div>
+        `;
+    }
+
+    function renderFrontCommentImportError(message) {
+        const wrap = document.getElementById('front-comment-import-results');
+        if (!wrap) return;
+
+        wrap.innerHTML = `
+            <div class="front-import-results" style="border-color:#fecaca;">
+                <h4 style="color:#b91c1c;margin-bottom:0.5rem;">Comment import failed</h4>
+                <p class="form-help" style="margin:0;color:#b91c1c;">${escapeHtml(String(message || 'Unknown error'))}</p>
+            </div>
+        `;
+    }
+
+    function emptyFrontCommentImportStats() {
+        return {
+            mapped_inboxes: 0,
+            conversations_scanned: 0,
+            conversations_already_synced: 0,
+            conversations_matched: 0,
+            conversations_unmatched: 0,
+            conversations_with_comments: 0,
+            comments_imported: 0,
+            comments_existing: 0,
+            comments_unmatched_author: 0,
+            unmatched_samples: [],
+        };
+    }
+
+    function mergeFrontCommentImportStats(target, source) {
+        if (!source) return target;
+        [
+            'mapped_inboxes',
+            'conversations_scanned',
+            'conversations_already_synced',
+            'conversations_matched',
+            'conversations_unmatched',
+            'conversations_with_comments',
+            'comments_imported',
+            'comments_existing',
+            'comments_unmatched_author',
+        ].forEach(key => {
+            target[key] = (Number(target[key]) || 0) + (Number(source[key]) || 0);
+        });
+        if (source.import_mode) target.import_mode = source.import_mode;
+        if (source.preview_limit) target.preview_limit = source.preview_limit;
+        if (source.preview_limited) target.preview_limited = source.preview_limited;
+        if (source.inbox_errors?.length) {
+            target.inbox_errors = [...(target.inbox_errors || []), ...source.inbox_errors];
+        }
+        const samples = source.unmatched_samples || [];
+        samples.forEach(sample => {
+            if ((target.unmatched_samples || []).length < 10 && !(target.unmatched_samples || []).includes(sample)) {
+                target.unmatched_samples = [...(target.unmatched_samples || []), sample];
+            }
+        });
+        return target;
+    }
+
+    function setFrontCommentImportLoading(isLoading, message = 'Processing…', percent = null) {
+        const loading = document.getElementById('front-comment-import-loading');
+        const label = document.getElementById('front-comment-import-loading-label');
+        const fill = document.getElementById('front-comment-import-loading-fill');
+        const dryRunBtn = document.getElementById('front-dry-run-btn');
+        const importBtn = document.getElementById('front-import-btn');
+        const commentDryRunBtn = document.getElementById('front-comment-dry-run-btn');
+        const commentImportBtn = document.getElementById('front-comment-import-btn');
+        [dryRunBtn, importBtn, commentDryRunBtn, commentImportBtn].forEach(btn => { if (btn) btn.disabled = !!isLoading; });
+        const pct = percent === null || percent === undefined ? null : Math.max(0, Math.min(100, Math.round(percent)));
+        if (label) label.textContent = pct === null ? message : `${message} ${pct}%`;
+        if (loading) loading.hidden = !isLoading;
+        if (fill) {
+            if (pct === null) {
+                fill.classList.remove('determinate');
+                fill.style.width = '';
+            } else {
+                fill.classList.add('determinate');
+                fill.style.width = `${pct}%`;
+            }
+        }
+    }
+
+    async function runFrontCommentImportRequest(dryRun, inboxMap, frontInboxId, persistResults = true, pageUrl = null, resultStats = null) {
+        const payload = {
+            dry_run: dryRun,
+            inbox_map: inboxMap,
+            front_inbox_id: frontInboxId || null,
+            persist_results: persistResults,
+        };
+        if (pageUrl) {
+            payload.page_url = pageUrl;
+        }
+        if (resultStats) {
+            payload.result_stats = resultStats;
+        }
+
+        const response = await fetch('/api/integrations/front/import-comments', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+            },
+            body: JSON.stringify(payload)
+        });
+
+        return parseFrontImportResponse(response);
+    }
+
+    async function runFrontInboxCommentImportPaged(dryRun, entry, actionLabel, basePercent = 0, nextPercent = 100) {
+        const partial = emptyFrontCommentImportStats();
+
+        if (dryRun) {
+            setFrontCommentImportLoading(true, `${actionLabel} ${entry.frontName} (first 100)…`, basePercent);
+            const data = await runFrontCommentImportRequest(
+                dryRun,
+                { [entry.frontId]: entry.sharedId },
+                entry.frontId,
+                false
+            );
+            mergeFrontCommentImportStats(partial, data.stats || {});
+            return partial;
+        }
+
+        let pageUrl = null;
+        let page = 0;
+        let resumeNote = '';
+
+        do {
+            page += 1;
+            const withinInboxFraction = 1 - 1 / (page + 1);
+            const currentPercent = basePercent + (nextPercent - basePercent) * withinInboxFraction;
+            setFrontCommentImportLoading(
+                true,
+                `${actionLabel} ${entry.frontName} – page ${page}${resumeNote}…`,
+                currentPercent
+            );
+            const data = await runFrontCommentImportRequest(
+                dryRun,
+                { [entry.frontId]: entry.sharedId },
+                entry.frontId,
+                false,
+                pageUrl
+            );
+            mergeFrontCommentImportStats(partial, data.stats || {});
+            if (data.stats?.resumed_from) {
+                resumeNote = ` (resuming after ${data.stats.resumed_from} already done)`;
+            }
+            pageUrl = data.has_more && data.next_page_url ? data.next_page_url : null;
+        } while (pageUrl);
+
+        return partial;
+    }
+
+    async function handleFrontCommentResetProgress() {
+        if (!confirm('Reset Front comment sync progress? The next run will rescan every conversation for comments instead of resuming or skipping ones already scanned. Existing imported comments are kept.')) {
+            return;
+        }
+
+        const btn = document.getElementById('front-comment-reset-progress-btn');
+        if (btn) btn.disabled = true;
+
+        try {
+            const response = await fetch('/api/integrations/front/comment-import-progress', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                }
+            });
+            if (response.ok) {
+                document.getElementById('front-comment-import-results')?.replaceChildren();
+            } else {
+                alert('Error resetting Front comment sync progress.');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error resetting Front comment sync progress.');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async function handleFrontCommentImport(dryRun = false) {
+        const hasExisting = window.existingIntegration && window.existingIntegration.has_token;
+        const apiToken = document.getElementById('front-api-token')?.value?.trim() || '';
+
+        if (!hasExisting && !apiToken) {
+            showFrontTokenError('Save your Front API token first.');
+            return;
+        }
+
+        if (apiToken) {
+            const saved = await handleFrontSave(false);
+            if (!saved) return;
+        }
+
+        const entries = collectFrontInboxEntries();
+        const actionLabel = dryRun ? 'Previewing comments in' : 'Importing comments from';
+
+        if (entries.length === 0 && frontMappingRowsTotal > 0) {
+            renderFrontCommentImportError('Every Front inbox is set to "— Skip —", so there is nothing to import. Map at least one Front inbox to a LNSCRM shared inbox first.');
+            return;
+        }
+
+        const aggregated = emptyFrontCommentImportStats();
+
+        setFrontCommentImportLoading(true, `${actionLabel}…`, entries.length ? 0 : null);
+        document.getElementById('front-comment-import-results')?.replaceChildren();
+
+        try {
+            if (entries.length === 0) {
+                setFrontCommentImportLoading(true, dryRun ? `${actionLabel} (first 100)…` : `${actionLabel} mapped inboxes…`, null);
+                const data = await runFrontCommentImportRequest(dryRun, {}, null);
+                mergeFrontCommentImportStats(aggregated, data.stats || {});
+                setFrontCommentImportLoading(true, 'Finishing…', 100);
+            } else {
+                for (let index = 0; index < entries.length; index++) {
+                    const entry = entries[index];
+                    const basePercent = (index / entries.length) * 100;
+                    const nextPercent = ((index + 1) / entries.length) * 100;
+                    setFrontCommentImportLoading(
+                        true,
+                        `${actionLabel} ${entry.frontName} (${index + 1} of ${entries.length})…`,
+                        basePercent
+                    );
+                    const inboxStats = await runFrontInboxCommentImportPaged(dryRun, entry, actionLabel, basePercent, nextPercent);
+                    mergeFrontCommentImportStats(aggregated, inboxStats);
+                }
+
+                setFrontCommentImportLoading(true, 'Finishing…', 100);
+                await runFrontCommentImportRequest(dryRun, {}, null, true, null, aggregated);
+            }
+
+            const finishedAt = new Date().toISOString();
+            renderFrontCommentImportResults(aggregated, dryRun, finishedAt);
+            window.existingIntegration = {
+                ...(window.existingIntegration || {}),
+                last_comment_import_stats: aggregated,
+                last_comment_import_dry_run: dryRun,
+                last_comment_import_at: finishedAt,
+            };
+        } catch (error) {
+            console.error('Front comment import error:', error);
+            renderFrontCommentImportError(error.message || 'Front comment import failed. Please try again.');
+        } finally {
+            setFrontCommentImportLoading(false);
         }
     }
 

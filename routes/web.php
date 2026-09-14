@@ -824,6 +824,8 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/front/mapping', [IntegrationController::class, 'getFrontMappingOptions'])->name('api.integrations.front.mapping');
         Route::post('/front/import-tags', [IntegrationController::class, 'runFrontTagImport'])->name('api.integrations.front.import-tags');
         Route::delete('/front/import-progress', [IntegrationController::class, 'resetFrontImportProgress'])->name('api.integrations.front.reset-progress');
+        Route::post('/front/import-comments', [IntegrationController::class, 'runFrontCommentImport'])->name('api.integrations.front.import-comments');
+        Route::delete('/front/comment-import-progress', [IntegrationController::class, 'resetFrontCommentImportProgress'])->name('api.integrations.front.reset-comment-progress');
     });
 
     Route::get('/billing-plan', function () {

@@ -3409,13 +3409,43 @@ class InboxController extends Controller
             'body_text' => $comment->body_text,
             'mentioned_user_ids' => $comment->mentioned_user_ids ?? [],
             'attachments' => $attachments,
-            'user' => $comment->relationLoaded('user') && $comment->user ? [
-                'id' => $comment->user->id,
-                'name' => $comment->user->name,
-                'email' => $comment->user->email,
-            ] : null,
+            'user' => $this->formatCommentUser($comment),
             'created_at' => $comment->created_at?->toIso8601String(),
         ];
+    }
+
+    private function formatCommentUser(InboxConversationComment $comment): ?array
+    {
+        $importedName = trim((string) $comment->imported_author_name);
+        $importedEmail = strtolower(trim((string) $comment->imported_author_email));
+        $user = $comment->relationLoaded('user') ? $comment->user : null;
+        $userEmail = strtolower(trim((string) ($user?->email ?? '')));
+
+        if ($user && ($importedEmail === '' || $userEmail === $importedEmail)) {
+            return [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+            ];
+        }
+
+        if ($importedName !== '') {
+            return [
+                'id' => $user?->id,
+                'name' => $importedName,
+                'email' => $comment->imported_author_email,
+            ];
+        }
+
+        if ($user) {
+            return [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+            ];
+        }
+
+        return null;
     }
 
     private function formatActivity(InboxConversationActivity $activity): array

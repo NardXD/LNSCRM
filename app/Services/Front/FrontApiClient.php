@@ -170,6 +170,14 @@ class FrontApiClient
     }
 
     /**
+     * @return list<array<string, mixed>>
+     */
+    public function listConversationComments(string $conversationId): array
+    {
+        return iterator_to_array($this->paginate('/conversations/'.rawurlencode($conversationId).'/comments'));
+    }
+
+    /**
      * @param  array<string, mixed>  $query
      */
     private function requestConversationPage(string $path, array $query): Response

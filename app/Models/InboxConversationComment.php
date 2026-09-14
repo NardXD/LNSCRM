@@ -15,6 +15,9 @@ class InboxConversationComment extends Model
         'body_text',
         'mentioned_user_ids',
         'attachments',
+        'front_comment_id',
+        'imported_author_name',
+        'imported_author_email',
     ];
 
     protected $casts = [
