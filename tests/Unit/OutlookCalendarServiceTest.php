@@ -37,8 +37,11 @@ class OutlookCalendarServiceTest extends TestCase
                         'bodyPreview' => 'Daily sync',
                         'start' => ['dateTime' => '2026-09-15T01:00:00', 'timeZone' => 'UTC'],
                         'end' => ['dateTime' => '2026-09-15T01:30:00', 'timeZone' => 'UTC'],
-                        'location' => ['displayName' => 'Zoom'],
+                        'location' => ['displayName' => 'Microsoft Teams Meeting'],
                         'isAllDay' => false,
+                        'isOrganizer' => false,
+                        'isOnlineMeeting' => true,
+                        'onlineMeeting' => ['joinUrl' => 'https://teams.microsoft.com/l/meetup-join/abc'],
                     ]],
                 ], 200);
             }
@@ -71,8 +74,11 @@ class OutlookCalendarServiceTest extends TestCase
         $this->assertSame('Team standup', $result['events'][0]['title']);
         $this->assertSame('outlook', $result['events'][0]['calendar']);
         $this->assertSame('cal-1', $result['events'][0]['calendarId']);
-        $this->assertSame('Zoom', $result['events'][0]['location']);
+        $this->assertSame('Microsoft Teams Meeting', $result['events'][0]['location']);
         $this->assertTrue($result['events'][0]['external']);
+        $this->assertFalse($result['events'][0]['isOrganizer']);
+        $this->assertTrue($result['events'][0]['isOnlineMeeting']);
+        $this->assertSame('https://teams.microsoft.com/l/meetup-join/abc', $result['events'][0]['joinUrl']);
     }
 
     public function test_asks_to_reconnect_when_calendar_scope_is_missing(): void
@@ -141,6 +147,7 @@ class OutlookCalendarServiceTest extends TestCase
             'calendar_name' => 'Calendar',
             'attendees' => ['teammate@example.com', 'not-an-email'],
             'reminder' => '15',
+            'teams_meeting' => true,
         ]);
 
         $this->assertTrue($result['ok']);
@@ -152,21 +159,32 @@ class OutlookCalendarServiceTest extends TestCase
         ]], $recorded['attendees']);
         $this->assertTrue($recorded['isReminderOn']);
         $this->assertSame(15, $recorded['reminderMinutesBeforeStart']);
+        $this->assertTrue($recorded['isOnlineMeeting']);
+        $this->assertSame('teamsForBusiness', $recorded['onlineMeetingProvider']);
     }
 
     public function test_updates_an_event(): void
     {
         $account = $this->mailAccount(4);
 
-        Http::fake([
-            'graph.microsoft.com/*' => Http::response([
-                'id' => 'evt-1',
-                'subject' => 'Updated standup',
-                'start' => ['dateTime' => '2026-09-15T02:00:00', 'timeZone' => 'UTC'],
-                'end' => ['dateTime' => '2026-09-15T02:30:00', 'timeZone' => 'UTC'],
-                'isAllDay' => false,
-            ], 200),
-        ]);
+        Http::fake(function ($request) {
+            if ($request->method() === 'GET' && str_contains($request->url(), '/me/events/evt-1')) {
+                return Http::response(['id' => 'evt-1', 'isOrganizer' => true], 200);
+            }
+
+            if ($request->method() === 'PATCH') {
+                return Http::response([
+                    'id' => 'evt-1',
+                    'subject' => 'Updated standup',
+                    'start' => ['dateTime' => '2026-09-15T02:00:00', 'timeZone' => 'UTC'],
+                    'end' => ['dateTime' => '2026-09-15T02:30:00', 'timeZone' => 'UTC'],
+                    'isAllDay' => false,
+                    'isOrganizer' => true,
+                ], 200);
+            }
+
+            return Http::response(['error' => ['message' => 'unexpected']], 500);
+        });
 
         $result = (new OutlookCalendarService($this->mailMock($account)))->updateEvent($account, 'evt-1', [
             'title' => 'Updated standup',
@@ -178,16 +196,50 @@ class OutlookCalendarServiceTest extends TestCase
 
         $this->assertTrue($result['ok']);
         $this->assertSame('Updated standup', $result['event']['title']);
+        $this->assertTrue($result['event']['isOrganizer']);
         Http::assertSent(fn ($request) => $request->method() === 'PATCH' && str_contains($request->url(), '/me/events/evt-1'));
+    }
+
+    public function test_refuses_update_when_user_is_not_the_organizer(): void
+    {
+        $account = $this->mailAccount(6);
+
+        Http::fake(function ($request) {
+            if ($request->method() === 'GET') {
+                return Http::response(['id' => 'evt-1', 'isOrganizer' => false], 200);
+            }
+
+            return Http::response(['id' => 'evt-1'], 200);
+        });
+
+        $result = (new OutlookCalendarService($this->mailMock($account)))->updateEvent($account, 'evt-1', [
+            'title' => 'Hijack',
+            'start' => '2026-09-15T02:00:00Z',
+            'end' => '2026-09-15T02:30:00Z',
+            'calendar_id' => 'cal-1',
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame(403, $result['status']);
+        $this->assertSame('Only the organizer can change this meeting.', $result['error']);
+        Http::assertNotSent(fn ($request) => $request->method() === 'PATCH');
     }
 
     public function test_deletes_an_event(): void
     {
         $account = $this->mailAccount(5);
 
-        Http::fake([
-            'graph.microsoft.com/*' => Http::response('', 204),
-        ]);
+        Http::fake(function ($request) {
+            if ($request->method() === 'GET' && str_contains($request->url(), '/me/events/evt-1')) {
+                return Http::response(['id' => 'evt-1', 'isOrganizer' => true], 200);
+            }
+
+            if ($request->method() === 'DELETE') {
+                return Http::response('', 204);
+            }
+
+            return Http::response(['error' => ['message' => 'unexpected']], 500);
+        });
 
         $result = (new OutlookCalendarService($this->mailMock($account)))->deleteEvent($account, 'evt-1');
 

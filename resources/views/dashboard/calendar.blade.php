@@ -138,6 +138,13 @@
                         <label class="form-label">Location</label>
                         <input type="text" class="form-input" id="eventLocation" placeholder="Add a location">
                     </div>
+                    <div class="form-group" id="teamsMeetingGroup">
+                        <label class="form-label form-check">
+                            <input type="checkbox" id="eventTeamsMeeting" checked>
+                            Teams meeting
+                        </label>
+                    </div>
+                    <p class="form-help" id="eventOrganizerNote" hidden>Only the organizer can edit this meeting.</p>
                     <div class="form-group">
                         <label class="form-label">Calendar</label>
                         <select class="form-input" id="eventCalendar">
@@ -168,7 +175,8 @@
             </div>
             <div class="modal-footer">
                 <p class="calendar-event-error" id="eventFormError" hidden></p>
-                <button type="button" class="btn-secondary" onclick="closeEventModal()">Discard</button>
+                <a class="btn-join" id="joinMeetingBtn" href="#" target="_blank" rel="noopener noreferrer" hidden>Join</a>
+                <button type="button" class="btn-secondary" onclick="closeEventModal()" id="discardEventBtn">Discard</button>
                 <button type="button" class="btn-secondary danger" onclick="deleteEvent()" id="deleteEventBtn" style="display: none;">Delete</button>
                 <button type="button" class="btn-primary" id="saveEventBtn" onclick="document.getElementById('eventForm').requestSubmit()">Save</button>
             </div>
@@ -526,6 +534,17 @@
         box-sizing: border-box;
     }
     .ms-timed-event strong { display: block; font-weight: 600; }
+    .ms-join-chip {
+        display: inline-block;
+        margin-top: 2px;
+        padding: 1px 6px;
+        border-radius: 3px;
+        background: #fff;
+        color: #5b5fc7;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.4;
+    }
     .ms-now-line {
         position: absolute;
         height: 2px;
@@ -595,6 +614,21 @@
         background: #faf9f8;
     }
     .calendar-event-error { margin: 0 auto 0 0; color: #a4262c; font-size: 13px; }
+    .btn-join {
+        margin-right: auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 8px 16px;
+        border-radius: 4px;
+        background: #5b5fc7;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+    }
+    .btn-join:hover { background: #4f52b2; color: #fff; }
+    .btn-join[hidden] { display: none !important; }
     .btn-primary, .btn-secondary {
         border-radius: 4px; padding: 8px 16px; font-size: 14px; font-weight: 600; cursor: pointer; border: 1px solid transparent;
     }
@@ -1010,8 +1044,15 @@
                 el.style.height = `${Math.max(item.endH - item.startH, 0.4) * HOUR_HEIGHT}px`;
                 el.style.left = `calc(${item.col} * (100% / ${item.colCount}) + 2px)`;
                 el.style.width = `calc(${100 / item.colCount}% - 4px)`;
-                el.innerHTML = `<strong>${escapeHtml(item.event.title)}</strong>${formatTime(item.event.start)}${item.event.location ? ' · ' + escapeHtml(item.event.location) : ''}`;
+                el.innerHTML = `<strong>${escapeHtml(item.event.title)}</strong>${formatTime(item.event.start)}${item.event.location ? ' · ' + escapeHtml(item.event.location) : ''}${item.event.joinUrl ? '<button type="button" class="ms-join-chip">Join</button>' : ''}`;
                 el.onclick = (e) => { e.stopPropagation(); viewEvent(item.event.id); };
+                const joinChip = el.querySelector('.ms-join-chip');
+                if (joinChip && typeof item.event.joinUrl === 'string' && /^https:\/\//i.test(item.event.joinUrl)) {
+                    joinChip.onclick = (e) => {
+                        e.stopPropagation();
+                        window.open(item.event.joinUrl, '_blank', 'noopener');
+                    };
+                }
                 col.appendChild(el);
             });
             grid.appendChild(col);
@@ -1214,6 +1255,34 @@
         return `${padTime(date.getHours())}:${padTime(date.getMinutes())}`;
     }
 
+    function setJoinButton(url) {
+        const btn = document.getElementById('joinMeetingBtn');
+        if (!btn) return;
+        const safe = typeof url === 'string' && /^https:\/\//i.test(url) ? url : '';
+        if (safe) {
+            btn.hidden = false;
+            btn.href = safe;
+        } else {
+            btn.hidden = true;
+            btn.removeAttribute('href');
+        }
+    }
+
+    function setEventFormEditable(editable) {
+        document.getElementById('eventForm').querySelectorAll('input, select, textarea').forEach(el => {
+            el.disabled = !editable;
+        });
+        const saveBtn = document.getElementById('saveEventBtn');
+        const deleteBtn = document.getElementById('deleteEventBtn');
+        const discardBtn = document.getElementById('discardEventBtn');
+        const note = document.getElementById('eventOrganizerNote');
+        if (saveBtn) saveBtn.style.display = editable ? 'inline-flex' : 'none';
+        if (deleteBtn) deleteBtn.style.display = editable && currentEditingEvent ? 'inline-flex' : 'none';
+        if (discardBtn) discardBtn.textContent = editable ? 'Discard' : 'Close';
+        if (note) note.hidden = editable;
+        if (editable) toggleAllDay();
+    }
+
     function openEventModal(date = null, options = {}) {
         if (!hasInboxCalendar()) {
             hintConnectInbox();
@@ -1222,12 +1291,11 @@
         currentEditingEvent = null;
         document.getElementById('eventModalTitle').textContent = 'New event';
         document.getElementById('eventForm').reset();
-        document.getElementById('deleteEventBtn').style.display = 'none';
-        document.getElementById('saveEventBtn').style.display = 'inline-flex';
-        document.getElementById('eventForm').querySelectorAll('input, select, textarea').forEach(el => { el.disabled = false; });
+        setEventFormEditable(true);
         populateEventCalendarSelect();
         setEventFormError('');
         setEventFormBusy(false);
+        setJoinButton(null);
 
         const base = date ? new Date(date) : new Date();
         if (!date) {
@@ -1244,6 +1312,7 @@
         document.getElementById('eventEndTime').value = formatClock(end);
         document.getElementById('eventAllDay').checked = !!options.allDay;
         document.getElementById('eventReminder').value = '15';
+        document.getElementById('eventTeamsMeeting').checked = !options.allDay;
         toggleAllDay();
 
         document.getElementById('eventModal').classList.add('active');
@@ -1257,18 +1326,16 @@
         currentEditingEvent = null;
         setEventFormError('');
         setEventFormBusy(false);
-        document.getElementById('eventForm').querySelectorAll('input, select, textarea').forEach(el => { el.disabled = false; });
-        document.getElementById('saveEventBtn').style.display = 'inline-flex';
+        setJoinButton(null);
+        setEventFormEditable(true);
     }
 
     function viewEvent(eventId) {
         const event = events.find(e => String(e.id) === String(eventId));
         if (!event) return;
         currentEditingEvent = event;
-        document.getElementById('eventModalTitle').textContent = 'Event';
-        document.getElementById('deleteEventBtn').style.display = 'block';
-        document.getElementById('saveEventBtn').style.display = 'inline-flex';
-        document.getElementById('eventForm').querySelectorAll('input, select, textarea').forEach(el => { el.disabled = false; });
+        const canEdit = event.isOrganizer === true;
+        document.getElementById('eventModalTitle').textContent = canEdit ? 'Event' : 'Meeting';
         setEventFormError('');
         setEventFormBusy(false);
         document.getElementById('eventTitle').value = event.title;
@@ -1291,8 +1358,11 @@
         document.getElementById('eventDescription').value = event.description || '';
         document.getElementById('eventLocation').value = event.location || '';
         document.getElementById('eventAttendees').value = Array.isArray(event.attendees) ? event.attendees.join(', ') : (event.attendees || '');
+        document.getElementById('eventTeamsMeeting').checked = !!(event.isOnlineMeeting || event.joinUrl);
         populateEventCalendarSelect(event.calendarId || '', true);
         setReminderValue(event.reminder);
+        setJoinButton(event.joinUrl || null);
+        setEventFormEditable(canEdit);
         toggleAllDay();
         document.getElementById('eventModal').classList.add('active');
         document.body.style.overflow = 'hidden';
@@ -1333,6 +1403,7 @@
             attendees: document.getElementById('eventAttendees').value,
             reminder: document.getElementById('eventReminder').value,
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+            teams_meeting: document.getElementById('eventTeamsMeeting').checked && !allDay,
         };
     }
 
@@ -1345,6 +1416,10 @@
         const payload = collectEventPayload();
         if (!payload.title) { setEventFormError('Add a title.'); return; }
         if (!payload.calendar_id) { setEventFormError('Choose a calendar.'); return; }
+        if (currentEditingEvent && currentEditingEvent.isOrganizer !== true) {
+            setEventFormError('Only the organizer can change this meeting.');
+            return;
+        }
         if (!payload.all_day && (!document.getElementById('eventStartTime').value || !document.getElementById('eventEndTime').value)) {
             setEventFormError('Enter a start and end time, or mark this as all day.');
             return;
@@ -1376,7 +1451,11 @@
     }
 
     function deleteEvent() {
-        if (!currentEditingEvent || !confirm('Delete this event from Outlook?')) return;
+        if (!currentEditingEvent || currentEditingEvent.isOrganizer !== true) {
+            setEventFormError('Only the organizer can change this meeting.');
+            return;
+        }
+        if (!confirm('Delete this event from Outlook?')) return;
         setEventFormBusy(true);
         setEventFormError('');
         fetch(`{{ url('/api/calendar/events') }}/${encodeURIComponent(outlookEventId(currentEditingEvent))}`, {
@@ -1400,8 +1479,12 @@
 
     function toggleAllDay() {
         const allDay = document.getElementById('eventAllDay').checked;
-        document.getElementById('eventStartTime').disabled = allDay;
-        document.getElementById('eventEndTime').disabled = allDay;
+        const canEdit = !currentEditingEvent || currentEditingEvent.isOrganizer === true;
+        document.getElementById('eventStartTime').disabled = allDay || !canEdit;
+        document.getElementById('eventEndTime').disabled = allDay || !canEdit;
+        const teamsGroup = document.getElementById('teamsMeetingGroup');
+        if (teamsGroup) teamsGroup.style.display = allDay ? 'none' : '';
+        if (allDay) document.getElementById('eventTeamsMeeting').checked = false;
     }
 
     function toggleCalendar(calendarId) {

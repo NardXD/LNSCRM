@@ -295,6 +295,7 @@ class CalendarController extends Controller
             'attendees' => ['nullable'],
             'reminder' => ['nullable', 'string', 'max:20'],
             'timezone' => ['nullable', 'string', 'max:100'],
+            'teams_meeting' => ['sometimes', 'boolean'],
         ]);
 
         $attendees = $validated['attendees'] ?? [];

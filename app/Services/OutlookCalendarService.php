@@ -68,7 +68,7 @@ class OutlookCalendarService
             ];
             $calendars[] = $mappedCalendar;
 
-            $page = $this->fetchCalendarView($account, $calendarId, $mappedCalendar, $start, $end);
+            $page = $this->fetchCalendarView($account, $calendarId, $mappedCalendar, $start, $end, $account->email);
             if ($page['needs_reconnect']) {
                 return ['calendars' => [], 'events' => [], 'needs_reconnect' => true];
             }
@@ -115,6 +115,11 @@ class OutlookCalendarService
             return $this->writeError('Missing event.', 422);
         }
 
+        $guard = $this->requireOrganizer($account, $eventId);
+        if (! $guard['ok']) {
+            return $guard;
+        }
+
         $response = Http::withToken($account->access_token)
             ->acceptJson()
             ->withHeaders(['Prefer' => 'outlook.timezone="UTC"'])
@@ -135,6 +140,11 @@ class OutlookCalendarService
         $eventId = trim($eventId);
         if ($eventId === '') {
             return $this->writeError('Missing event.', 422);
+        }
+
+        $guard = $this->requireOrganizer($account, $eventId);
+        if (! $guard['ok']) {
+            return $guard;
         }
 
         $response = Http::withToken($account->access_token)
@@ -167,14 +177,15 @@ class OutlookCalendarService
         string $calendarId,
         array $mappedCalendar,
         Carbon $start,
-        Carbon $end
+        Carbon $end,
+        ?string $accountEmail = null
     ): array {
         $url = self::GRAPH_BASE.'/me/calendars/'.rawurlencode($calendarId).'/calendarView';
         $query = [
             'startDateTime' => $start->utc()->toIso8601String(),
             'endDateTime' => $end->utc()->toIso8601String(),
             '$orderby' => 'start/dateTime',
-            '$select' => 'id,subject,bodyPreview,start,end,location,isAllDay,attendees,isReminderOn,reminderMinutesBeforeStart',
+            '$select' => 'id,subject,bodyPreview,start,end,location,isAllDay,attendees,isReminderOn,reminderMinutesBeforeStart,isOrganizer,organizer,isOnlineMeeting,onlineMeeting,onlineMeetingUrl',
             '$top' => 100,
         ];
 
@@ -202,7 +213,7 @@ class OutlookCalendarService
             }
 
             foreach ($response->json('value') ?? [] as $event) {
-                $events[] = $this->mapEvent($event, $mappedCalendar);
+                $events[] = $this->mapEvent($event, $mappedCalendar, $accountEmail);
             }
 
             $next = $response->json('@odata.nextLink');
@@ -235,7 +246,7 @@ class OutlookCalendarService
      * @param  array{id: string, name: string, color: string, isDefault: bool}  $calendar
      * @return array<string, mixed>
      */
-    private function mapEvent(array $event, array $calendar): array
+    private function mapEvent(array $event, array $calendar, ?string $accountEmail = null, bool $createdByUs = false): array
     {
         $start = $event['start'] ?? [];
         $end = $event['end'] ?? [];
@@ -250,6 +261,7 @@ class OutlookCalendarService
         }
 
         $reminderOn = (bool) ($event['isReminderOn'] ?? false);
+        $joinUrl = $this->joinUrl($event);
 
         return [
             'id' => $event['id'] ?? null,
@@ -266,7 +278,71 @@ class OutlookCalendarService
             'attendees' => $attendees,
             'reminder' => $reminderOn ? (string) ($event['reminderMinutesBeforeStart'] ?? 15) : 'none',
             'external' => true,
+            'isOrganizer' => $createdByUs || $this->eventIsOrganizer($event, $accountEmail),
+            'isOnlineMeeting' => (bool) ($event['isOnlineMeeting'] ?? false) || $joinUrl !== null,
+            'joinUrl' => $joinUrl,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $event
+     */
+    private function joinUrl(array $event): ?string
+    {
+        $candidates = [
+            $event['onlineMeeting']['joinUrl'] ?? null,
+            $event['onlineMeeting']['joinWebUrl'] ?? null,
+            $event['onlineMeetingUrl'] ?? null,
+        ];
+
+        foreach ($candidates as $url) {
+            if (is_string($url) && filter_var($url, FILTER_VALIDATE_URL)) {
+                return $url;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $event
+     */
+    private function eventIsOrganizer(array $event, ?string $accountEmail): bool
+    {
+        if (array_key_exists('isOrganizer', $event)) {
+            return (bool) $event['isOrganizer'];
+        }
+
+        $organizer = strtolower((string) ($event['organizer']['emailAddress']['address'] ?? ''));
+        $mine = strtolower(trim((string) $accountEmail));
+
+        return $organizer !== '' && $mine !== '' && $organizer === $mine;
+    }
+
+    /**
+     * @return array{ok: bool, event: ?array<string, mixed>, needs_reconnect: bool, error: ?string, status: int}
+     */
+    private function requireOrganizer(OutlookMailAccount $account, string $eventId): array
+    {
+        $response = Http::withToken($account->access_token)
+            ->acceptJson()
+            ->get(self::GRAPH_BASE.'/me/events/'.rawurlencode($eventId), [
+                '$select' => 'id,isOrganizer,organizer',
+            ]);
+
+        if ($this->isAuthFailure($response->status(), $response->json('error.code'))) {
+            return $this->writeError('Reconnect Personal MS365 in Inbox to grant calendar edit access.', 403, true);
+        }
+
+        if (! $response->successful()) {
+            return $this->writeError($this->graphErrorMessage($response) ?? 'Could not load this event.', $response->status() ?: 502);
+        }
+
+        if (! $this->eventIsOrganizer($response->json() ?? [], $account->email)) {
+            return $this->writeError('Only the organizer can change this meeting.', 403);
+        }
+
+        return ['ok' => true, 'event' => null, 'needs_reconnect' => false, 'error' => null, 'status' => 200];
     }
 
     /**
@@ -335,6 +411,11 @@ class OutlookCalendarService
             $body['reminderMinutesBeforeStart'] = (int) $reminder;
         }
 
+        if (! $allDay && ($data['teams_meeting'] ?? false)) {
+            $body['isOnlineMeeting'] = true;
+            $body['onlineMeetingProvider'] = 'teamsForBusiness';
+        }
+
         return $body;
     }
 
@@ -367,7 +448,7 @@ class OutlookCalendarService
 
         return [
             'ok' => true,
-            'event' => $this->mapEvent($response->json() ?? [], $calendar),
+            'event' => $this->mapEvent($response->json() ?? [], $calendar, $account->email, true),
             'needs_reconnect' => false,
             'error' => null,
             'status' => 200,
