@@ -6,6 +6,7 @@
     @php
         $leadFormOptions = $leadFormOptions ?? \App\Models\Lead::formOptions();
     @endphp
+    <div class="ld-page-wrapper">
     <div class="ld-page">
     <div class="ld-top">
         <div class="ld-top-main">
@@ -593,11 +594,106 @@
         </div>
     </div>
     </div>
+    </div>
 @endsection
 
 @push('styles')
     @include('partials.leads-page-base-styles')
 <style>
+body:has(.ld-page-wrapper) {
+    overflow: hidden;
+}
+
+.main-content:has(.ld-page-wrapper) {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    min-height: 100vh;
+    overflow: hidden;
+}
+
+.main-content > .content:has(.ld-page-wrapper) {
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.ld-page-wrapper {
+    margin: 0;
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    height: auto;
+    padding: 10px 12px 12px;
+    background: var(--bg-primary, #fafafa);
+}
+
+.ld-page-wrapper .ld-page {
+    max-width: none;
+    height: 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.ld-page-wrapper .ld-top,
+.ld-page-wrapper .leads-toolbar,
+.ld-page-wrapper .leads-tabs {
+    flex-shrink: 0;
+}
+
+.ld-page-wrapper .leads-card {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.ld-page-wrapper .leads-card > .table-container {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.ld-page-wrapper .leads-table thead th,
+.ld-page-wrapper .ld-page .data-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.ld-page-wrapper .leads-pagination {
+    flex-shrink: 0;
+    border-top: 1px solid var(--border);
+    background: var(--bg-card);
+}
+
+@media (max-width: 900px) {
+    body:has(.ld-page-wrapper) { overflow: auto; }
+    .main-content:has(.ld-page-wrapper) {
+        height: auto;
+        min-height: 100vh;
+        overflow: visible;
+    }
+    .ld-page-wrapper { padding: 8px; height: auto; min-height: calc(100vh - 64px); }
+    .ld-page-wrapper .ld-page {
+        height: auto;
+        min-height: calc(100vh - 64px);
+        overflow: visible;
+    }
+    .ld-page-wrapper .leads-card {
+        min-height: 50vh;
+    }
+}
+
 .lead-day-badge { display: inline-block; margin-left: 0.4rem; padding: 0.08rem 0.4rem; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: 0.68rem; font-weight: 700; vertical-align: middle; }
 .lead-message-channels { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .lead-message-channel { border: 1px solid var(--border); background: var(--bg-card); border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; color: var(--text-primary); }
