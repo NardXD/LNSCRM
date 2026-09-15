@@ -185,7 +185,7 @@ class OutlookCalendarService
             'startDateTime' => $start->utc()->toIso8601String(),
             'endDateTime' => $end->utc()->toIso8601String(),
             '$orderby' => 'start/dateTime',
-            '$select' => 'id,subject,bodyPreview,start,end,location,isAllDay,attendees,isReminderOn,reminderMinutesBeforeStart,isOrganizer,organizer,isOnlineMeeting,onlineMeeting,onlineMeetingUrl',
+            '$select' => 'id,subject,bodyPreview,start,end,location,isAllDay,attendees,isReminderOn,reminderMinutesBeforeStart,isOrganizer,organizer,isOnlineMeeting,onlineMeeting,onlineMeetingUrl,isCancelled',
             '$top' => 100,
         ];
 
@@ -281,6 +281,7 @@ class OutlookCalendarService
             'isOrganizer' => $createdByUs || $this->eventIsOrganizer($event, $accountEmail),
             'isOnlineMeeting' => (bool) ($event['isOnlineMeeting'] ?? false) || $joinUrl !== null,
             'joinUrl' => $joinUrl,
+            'isCancelled' => (bool) ($event['isCancelled'] ?? false),
         ];
     }
 

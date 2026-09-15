@@ -213,7 +213,7 @@
         --ms-text: #242424;
         --ms-muted: #605e5c;
         --ms-rail: #faf9f8;
-        --ms-hour: 48px;
+        --ms-hour: 72px;
         height: 100%;
         min-height: 0;
         flex: 1;
@@ -238,7 +238,7 @@
 
     .ms-cal {
         display: grid;
-        grid-template-columns: 248px 1fr;
+        grid-template-columns: 220px 1fr;
         height: 100%;
         min-height: 0;
     }
@@ -459,11 +459,11 @@
         border-left: 3px solid var(--ms-accent);
         background: #deecf9;
     }
-    .ms-chip.more { background: transparent; color: var(--ms-muted); font-weight: 600; padding-left: 4px; border: none; }
+    .ms-chip.canceled { opacity: 0.5; text-decoration: line-through; }
 
     .ms-timed-header, .ms-allday {
         display: grid;
-        grid-template-columns: 56px 1fr;
+        grid-template-columns: 64px 1fr;
         border-bottom: 1px solid var(--ms-line);
         flex-shrink: 0;
     }
@@ -487,8 +487,8 @@
     .ms-day-head.today .ms-day-num { background: var(--ms-accent); color: #fff; }
     .ms-day-head.selected:not(.today) .ms-day-num { box-shadow: inset 0 0 0 2px var(--ms-accent); color: var(--ms-accent); }
 
-    .ms-allday-grid { display: grid; min-height: 28px; }
-    .ms-allday-col { border-right: 1px solid var(--ms-line); padding: 4px; display: flex; flex-direction: column; gap: 2px; min-height: 28px; cursor: pointer; }
+    .ms-allday-grid { display: grid; min-height: 36px; }
+    .ms-allday-col { border-right: 1px solid var(--ms-line); padding: 4px; display: flex; flex-direction: column; gap: 2px; min-height: 36px; cursor: pointer; }
     .ms-allday-col:hover { background: #faf9f8; }
     .ms-allday-col.weekend { background: #faf9f8; }
     .ms-allday-col.today { background: #f3f9fd; }
@@ -498,7 +498,7 @@
         min-height: 0;
         overflow: auto;
         display: grid;
-        grid-template-columns: 56px 1fr;
+        grid-template-columns: 64px 1fr;
         position: relative;
     }
     .ms-hour-gutter { position: relative; }
@@ -523,17 +523,23 @@
     .ms-hour-slot:hover { background-color: rgba(0, 120, 212, .05); }
     .ms-timed-event {
         position: absolute;
-        border-radius: 3px;
-        padding: 3px 6px;
+        border-radius: 4px;
+        padding: 5px 8px 6px;
         color: #fff;
-        font-size: 12px;
+        font-size: 13px;
+        line-height: 1.3;
         overflow: hidden;
         cursor: pointer;
         z-index: 2;
-        box-shadow: inset 3px 0 0 rgba(0,0,0,.18);
+        box-shadow: inset 4px 0 0 rgba(0,0,0,.18);
         box-sizing: border-box;
     }
     .ms-timed-event strong { display: block; font-weight: 600; }
+    .ms-timed-event.canceled {
+        opacity: 0.42;
+        text-decoration: line-through;
+        z-index: 1;
+    }
     .ms-join-chip {
         display: inline-block;
         margin-top: 2px;
@@ -648,7 +654,7 @@
 
 @push('scripts')
 <script>
-    const HOUR_HEIGHT = 48;
+    const HOUR_HEIGHT = 72;
     let currentDate = new Date();
     let miniMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
     let currentView = 'workweek';
@@ -976,7 +982,7 @@
                 <button type="button" class="ms-month-num" onclick="event.stopPropagation(); goToDay('${key}')">${cursor.getDate()}</button>
                 <div class="ms-month-events">
                     ${dayEvents.slice(0, 3).map(event => `
-                        <div class="ms-chip" style="border-left-color:${escapeHtml(eventColor(event))};background:${escapeHtml(eventColor(event))}22" onclick='event.stopPropagation(); viewEvent(${JSON.stringify(String(event.id))})' title="${escapeHtml(event.title)}">
+                        <div class="ms-chip${isCanceledEvent(event) ? ' canceled' : ''}" style="border-left-color:${escapeHtml(eventColor(event))};background:${escapeHtml(eventColor(event))}22" onclick='event.stopPropagation(); viewEvent(${JSON.stringify(String(event.id))})' title="${escapeHtml(event.title)}">
                             ${event.allDay ? escapeHtml(event.title) : `${formatTime(event.start)} ${escapeHtml(event.title)}`}
                         </div>
                     `).join('')}
@@ -1014,7 +1020,7 @@
             const today = isSameDay(day, new Date());
             const weekend = day.getDay() === 0 || day.getDay() === 6;
             return `<div class="ms-allday-col${today ? ' today' : ''}${weekend ? ' weekend' : ''}" onclick="createOnDay('${ymd(day)}', true)">
-                ${allDay.map(event => `<div class="ms-chip" style="border-left-color:${escapeHtml(eventColor(event))};background:${escapeHtml(eventColor(event))}22" onclick='event.stopPropagation(); viewEvent(${JSON.stringify(String(event.id))})'>${escapeHtml(event.title)}</div>`).join('')}
+                ${allDay.map(event => `<div class="ms-chip${isCanceledEvent(event) ? ' canceled' : ''}" style="border-left-color:${escapeHtml(eventColor(event))};background:${escapeHtml(eventColor(event))}22" onclick='event.stopPropagation(); viewEvent(${JSON.stringify(String(event.id))})'>${escapeHtml(event.title)}</div>`).join('')}
             </div>`;
         }).join('');
 
@@ -1038,13 +1044,19 @@
             const timed = eventsOnDay(day).filter(e => !e.allDay).map(event => timedPlacement(event, day));
             layoutTimedClusters(timed).forEach(item => {
                 const el = document.createElement('div');
-                el.className = 'ms-timed-event';
+                const canceled = isCanceledEvent(item.event);
+                el.className = 'ms-timed-event' + (canceled ? ' canceled' : '');
                 el.style.background = eventColor(item.event);
                 el.style.top = `${item.startH * HOUR_HEIGHT}px`;
-                el.style.height = `${Math.max(item.endH - item.startH, 0.4) * HOUR_HEIGHT}px`;
-                el.style.left = `calc(${item.col} * (100% / ${item.colCount}) + 2px)`;
-                el.style.width = `calc(${100 / item.colCount}% - 4px)`;
-                el.innerHTML = `<strong>${escapeHtml(item.event.title)}</strong>${formatTime(item.event.start)}${item.event.location ? ' · ' + escapeHtml(item.event.location) : ''}${item.event.joinUrl ? '<button type="button" class="ms-join-chip">Join</button>' : ''}`;
+                el.style.height = `${Math.max(item.endH - item.startH, 0.5) * HOUR_HEIGHT}px`;
+                const geo = timedEventGeometry(item);
+                el.style.left = geo.left;
+                el.style.width = geo.width;
+                el.style.zIndex = String(geo.z);
+                const join = !canceled && item.event.joinUrl
+                    ? '<button type="button" class="ms-join-chip">Join</button>'
+                    : '';
+                el.innerHTML = `<strong>${escapeHtml(item.event.title)}</strong>${formatTime(item.event.start)}${item.event.location ? ' · ' + escapeHtml(item.event.location) : ''}${join}`;
                 el.onclick = (e) => { e.stopPropagation(); viewEvent(item.event.id); };
                 const joinChip = el.querySelector('.ms-join-chip');
                 if (joinChip && typeof item.event.joinUrl === 'string' && /^https:\/\//i.test(item.event.joinUrl)) {
@@ -1062,6 +1074,11 @@
         scrollTimedGrid(days);
     }
 
+    function isCanceledEvent(event) {
+        if (event?.isCancelled || event?.isCanceled) return true;
+        return /^\s*canceled:/i.test(String(event?.title || ''));
+    }
+
     function timedPlacement(event, day) {
         const start = new Date(event.start);
         const end = new Date(event.end || event.start);
@@ -1070,37 +1087,63 @@
         if (!isSameDay(start, day)) startH = 0;
         if (!isSameDay(end, day)) endH = 24;
         if (endH <= startH) endH = startH + 0.5;
-        return { event, startH, endH, col: 0, colCount: 1 };
+        return { event, startH, endH, col: 0, colCount: 1, behind: false };
+    }
+
+    function assignOverlapColumns(items) {
+        const colEnds = [];
+        items.forEach(item => {
+            let idx = colEnds.findIndex(end => end <= item.startH + 0.01);
+            if (idx < 0) {
+                idx = colEnds.length;
+                colEnds.push(item.endH);
+            } else {
+                colEnds[idx] = item.endH;
+            }
+            item.col = idx;
+        });
+        const n = Math.max(colEnds.length, 1);
+        items.forEach(item => { item.colCount = n; });
     }
 
     function layoutTimedClusters(items) {
         items.sort((a, b) => a.startH - b.startH || b.endH - a.endH);
-        let cluster = [];
-        let clusterEnd = -1;
-        const flush = () => {
-            if (!cluster.length) return;
-            const colEnds = [];
-            cluster.forEach(item => {
-                let idx = colEnds.findIndex(end => end <= item.startH + 0.01);
-                if (idx < 0) {
-                    idx = colEnds.length;
-                    colEnds.push(item.endH);
-                } else {
-                    colEnds[idx] = item.endH;
+        const active = items.filter(item => !isCanceledEvent(item.event));
+        const canceled = items.filter(item => isCanceledEvent(item.event));
+        const pack = (group) => {
+            let cluster = [];
+            let clusterEnd = -1;
+            group.forEach(item => {
+                if (cluster.length && item.startH >= clusterEnd - 0.01) {
+                    assignOverlapColumns(cluster);
+                    cluster = [];
+                    clusterEnd = -1;
                 }
-                item.col = idx;
+                cluster.push(item);
+                clusterEnd = Math.max(clusterEnd, item.endH);
             });
-            const n = Math.max(colEnds.length, 1);
-            cluster.forEach(item => { item.colCount = n; });
-            cluster = [];
+            if (cluster.length) assignOverlapColumns(cluster);
         };
-        items.forEach(item => {
-            if (cluster.length && item.startH >= clusterEnd - 0.01) flush();
-            cluster.push(item);
-            clusterEnd = Math.max(clusterEnd, item.endH);
-        });
-        flush();
-        return items;
+        pack(active);
+        pack(canceled);
+        canceled.forEach(item => { item.behind = true; });
+        return [...canceled, ...active];
+    }
+
+    function timedEventGeometry(item) {
+        if (item.behind || isCanceledEvent(item.event)) {
+            return { left: '4px', width: 'calc(100% - 8px)', z: 1 };
+        }
+        const col = item.col || 0;
+        if ((item.colCount || 1) <= 1) {
+            return { left: '4px', width: 'calc(100% - 8px)', z: 2 };
+        }
+        const indent = Math.min(col * 14, 42);
+        return {
+            left: `calc(${indent}% + 4px)`,
+            width: `calc(${100 - indent}% - 8px)`,
+            z: 3 + col,
+        };
     }
 
     function scrollTimedGrid(days) {
@@ -1155,7 +1198,11 @@
             const start = new Date(event.start);
             const end = new Date(event.end || event.start);
             return start < dayEnd && end > dayStart;
-        }).sort((a, b) => new Date(a.start) - new Date(b.start));
+        }).sort((a, b) => {
+            const canceledDiff = (isCanceledEvent(a) ? 1 : 0) - (isCanceledEvent(b) ? 1 : 0);
+            if (canceledDiff) return canceledDiff;
+            return new Date(a.start) - new Date(b.start);
+        });
     }
 
     function escapeHtml(value) {
@@ -1361,7 +1408,7 @@
         document.getElementById('eventTeamsMeeting').checked = !!(event.isOnlineMeeting || event.joinUrl);
         populateEventCalendarSelect(event.calendarId || '', true);
         setReminderValue(event.reminder);
-        setJoinButton(event.joinUrl || null);
+        setJoinButton((isCanceledEvent(event) ? null : event.joinUrl) || null);
         setEventFormEditable(canEdit);
         toggleAllDay();
         document.getElementById('eventModal').classList.add('active');
