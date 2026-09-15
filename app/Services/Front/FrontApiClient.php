@@ -178,6 +178,30 @@ class FrontApiClient
     }
 
     /**
+     * @return list<array<string, mixed>>
+     */
+    public function listTeammates(): array
+    {
+        return iterator_to_array($this->paginate('/teammates'));
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function listMessageTemplates(): array
+    {
+        return iterator_to_array($this->paginate('/message_templates'));
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function listTeammateMessageTemplates(string $teammateId): array
+    {
+        return iterator_to_array($this->paginate('/teammates/'.rawurlencode($teammateId).'/message_templates'));
+    }
+
+    /**
      * @param  array<string, mixed>  $query
      */
     private function requestConversationPage(string $path, array $query): Response

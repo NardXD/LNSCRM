@@ -15,6 +15,7 @@ class InboxTemplate extends Model
         'body_html',
         'body_text',
         'attachments',
+        'front_template_id',
     ];
 
     protected function casts(): array
