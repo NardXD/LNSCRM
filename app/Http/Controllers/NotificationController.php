@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\FacebookConversation;
-use App\Models\FacebookConversationUserRead;
 use App\Models\SmsConversation;
 use App\Models\User;
 use App\Models\ViberConversation;
@@ -16,9 +15,6 @@ use App\Notifications\WhatsAppMessageNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Notifications\DatabaseNotification;
-use Illuminate\Support\Carbon;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
 
 class NotificationController extends Controller
 {
@@ -93,19 +89,13 @@ class NotificationController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $channelItems = $this->channelUnreadItems($user);
-        $other = $user->notifications()
+        $notifications = $user->notifications()
             ->whereNotIn('type', self::CHANNEL_NOTIFICATION_TYPES)
             ->latest()
-            ->limit(20)
+            ->limit(30)
             ->get()
-            ->map(fn (DatabaseNotification $n) => $this->formatNotification($n));
-
-        $notifications = $channelItems
-            ->concat($other)
-            ->sortByDesc(fn (array $item) => $item['created_at'] ?? '')
-            ->values()
-            ->take(30);
+            ->map(fn (DatabaseNotification $n) => $this->formatNotification($n))
+            ->values();
 
         return response()->json([
             'success' => true,
@@ -118,10 +108,6 @@ class NotificationController extends Controller
 
     public function markRead(Request $request, string $id): JsonResponse
     {
-        if (str_starts_with($id, 'channel-')) {
-            return response()->json(['success' => true, 'data' => ['notification' => null]]);
-        }
-
         $notification = $request->user()
             ->notifications()
             ->where('id', $id)
@@ -144,147 +130,15 @@ class NotificationController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => ['unread_count' => $this->channelUnreadCount($user)],
+            'data' => ['unread_count' => $this->totalUnreadCount($user)],
         ]);
-    }
-
-    /**
-     * @return Collection<int, array<string, mixed>>
-     */
-    private function channelUnreadItems(User $user): Collection
-    {
-        $companyId = (int) $user->company_id;
-        $items = collect();
-
-        if ($user->hasPermission('view_whatsapp')) {
-            WhatsAppConversation::query()
-                ->where('company_id', $companyId)
-                ->where('unread_count', '>', 0)
-                ->orderByDesc('last_message_at')
-                ->limit(10)
-                ->get()
-                ->each(function (WhatsAppConversation $c) use ($items) {
-                    $name = $c->name ?: ($c->profile_name ?: ($c->phone ?: 'WhatsApp contact'));
-                    $items->push($this->channelItem(
-                        'whatsapp',
-                        (int) $c->id,
-                        $name,
-                        'New WhatsApp message from '.$name,
-                        (string) ($c->last_message_preview ?: ''),
-                        url('/whatsapp?conversation='.$c->id),
-                        $c->last_message_at
-                    ));
-                });
-        }
-
-        if ($user->hasPermission('view_viber')) {
-            ViberConversation::query()
-                ->where('company_id', $companyId)
-                ->where('unread_count', '>', 0)
-                ->orderByDesc('last_message_at')
-                ->limit(10)
-                ->get()
-                ->each(function (ViberConversation $c) use ($items) {
-                    $name = $c->name ?: ($c->phone ?: 'Viber contact');
-                    $items->push($this->channelItem(
-                        'viber',
-                        (int) $c->id,
-                        $name,
-                        'New Viber message from '.$name,
-                        (string) ($c->last_message_preview ?: ''),
-                        url('/viber?conversation='.$c->id),
-                        $c->last_message_at
-                    ));
-                });
-        }
-
-        if ($user->hasPermission('view_sms')) {
-            SmsConversation::query()
-                ->where('company_id', $companyId)
-                ->where('unread_count', '>', 0)
-                ->orderByDesc('last_message_at')
-                ->limit(10)
-                ->get()
-                ->each(function (SmsConversation $c) use ($items) {
-                    $name = $c->name ?: ($c->peer_phone ?: 'SMS contact');
-                    $items->push($this->channelItem(
-                        'sms',
-                        (int) $c->id,
-                        $name,
-                        'New SMS from '.$name,
-                        (string) ($c->last_message_preview ?: ''),
-                        url('/sms?conversation='.$c->id),
-                        $c->last_message_at
-                    ));
-                });
-        }
-
-        if ($user->hasPermission('view_facebook')) {
-            FacebookConversation::query()
-                ->where('company_id', $companyId)
-                ->where('unread_count', '>', 0)
-                ->orderByDesc('last_message_at')
-                ->limit(10)
-                ->get()
-                ->each(function (FacebookConversation $c) use ($items) {
-                    $channelLabel = $c->channel === 'instagram' ? 'Instagram' : 'Messenger';
-                    $name = $c->name ?: ($c->username ?: ($channelLabel.' contact'));
-                    $items->push($this->channelItem(
-                        $c->channel === 'instagram' ? 'instagram' : 'facebook',
-                        (int) $c->id,
-                        $name,
-                        'New '.$channelLabel.' message from '.$name,
-                        (string) ($c->last_message_preview ?: ''),
-                        url('/facebook?conversation='.$c->id),
-                        $c->last_message_at
-                    ));
-                });
-        }
-
-        return $items->sortByDesc(fn (array $item) => $item['created_at'] ?? '')->values();
     }
 
     private function totalUnreadCount(User $user): int
     {
-        return $this->channelUnreadCount($user) + $user->unreadNotifications()
+        return $user->unreadNotifications()
             ->whereNotIn('type', self::CHANNEL_NOTIFICATION_TYPES)
             ->count();
-    }
-
-    private function channelUnreadCount(User $user): int
-    {
-        $companyId = (int) $user->company_id;
-        $total = 0;
-
-        if ($user->hasPermission('view_whatsapp')) {
-            $total += WhatsAppConversation::query()
-                ->where('company_id', $companyId)
-                ->where('unread_count', '>', 0)
-                ->count();
-        }
-
-        if ($user->hasPermission('view_viber')) {
-            $total += ViberConversation::query()
-                ->where('company_id', $companyId)
-                ->where('unread_count', '>', 0)
-                ->count();
-        }
-
-        if ($user->hasPermission('view_sms')) {
-            $total += SmsConversation::query()
-                ->where('company_id', $companyId)
-                ->where('unread_count', '>', 0)
-                ->count();
-        }
-
-        if ($user->hasPermission('view_facebook')) {
-            $total += FacebookConversation::query()
-                ->where('company_id', $companyId)
-                ->where('unread_count', '>', 0)
-                ->count();
-        }
-
-        return $total;
     }
 
     private function messagingUnreadCount(User $user, int $companyId): int
@@ -317,38 +171,6 @@ class NotificationController extends Controller
             })
             ->whereRaw('COALESCE(ur.is_read, 0) = 0')
             ->count();
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function channelItem(
-        string $channel,
-        int $conversationId,
-        string $contactName,
-        string $summary,
-        string $snippet,
-        string $url,
-        mixed $at
-    ): array {
-        $time = $at instanceof Carbon ? $at : ($at ? Carbon::parse($at) : now());
-
-        return [
-            'id' => 'channel-'.$channel.'-'.$conversationId,
-            'type' => $channel.'_message',
-            'data' => [
-                'type' => $channel.'_message',
-                'channel' => $channel,
-                'conversation_id' => $conversationId,
-                'contact_name' => $contactName,
-                'summary' => $summary,
-                'snippet' => Str::limit(trim($snippet), 140),
-                'url' => $url,
-            ],
-            'read_at' => null,
-            'created_at' => $time->toIso8601String(),
-            'created_at_human' => $time->diffForHumans(),
-        ];
     }
 
     private function formatNotification(DatabaseNotification $notification): array

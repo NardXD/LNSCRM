@@ -3,148 +3,77 @@
 @section('title', 'Tickets & Helpdesk')
 
 @section('content')
-    <div class="page-header">
-        <h1 class="page-title">Tickets & Helpdesk</h1>
-        <p class="page-subtitle">Manage support tickets, track SLAs, and prioritize issues</p>
+    <div class="ld-page-wrapper">
+    <div class="ld-page">
+    <div class="ld-top">
+        <div class="ld-top-main">
+            <h1 class="ld-title">Tickets & Helpdesk</h1>
+            <p class="ld-subtitle">Manage support tickets, track SLAs, and prioritize issues.</p>
+        </div>
+        <div class="ld-top-actions">
+            <button type="button" class="btn btn-primary btn-sm" onclick="createTicket()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New ticket
+            </button>
+        </div>
     </div>
 
-    <div class="tickets-container">
-        <!-- Header Actions -->
-        <div class="tickets-header">
-            <div class="header-left">
-                <div class="search-box">
-                    <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="11" cy="11" r="8"/>
-                        <path d="m21 21-4.35-4.35"/>
-                    </svg>
-                    <input type="text" class="search-input" placeholder="Search tickets..." id="ticketSearch">
-                </div>
-                <select class="filter-select" id="priorityFilter">
-                    <option value="all">All Priority</option>
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="urgent">Urgent</option>
-                </select>
-            </div>
-            <div class="header-right">
-                <button class="btn-primary" onclick="createTicket()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="12" y1="5" x2="12" y2="19"/>
-                        <line x1="5" y1="12" x2="19" y2="12"/>
-                    </svg>
-                    New Ticket
-                </button>
-            </div>
+    <div class="leads-toolbar">
+        <input type="search" id="ticketSearch" class="leads-search" placeholder="Search tickets…">
+        <div class="leads-toolbar-filters">
+            <select id="priorityFilter" class="leads-source-filter" aria-label="Filter by priority">
+                <option value="all">All priority</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="leads-tabs" role="tablist" id="viewSubmenu">
+        <button type="button" class="leads-tab view-submenu-tab active" data-view="all">All tickets</button>
+        <button type="button" class="leads-tab view-submenu-tab" data-view="assigned-to-me">Assigned to me</button>
+    </div>
+
+    <div class="leads-tabs" role="tablist" id="statusTabs">
+        <button type="button" class="leads-tab status-tab active" data-status="open">Open <span id="tabCountOpen">0</span></button>
+        <button type="button" class="leads-tab status-tab" data-status="in-progress">In progress <span id="tabCountInProgress">0</span></button>
+        <button type="button" class="leads-tab status-tab" data-status="pending">Pending <span id="tabCountPending">0</span></button>
+        <button type="button" class="leads-tab status-tab" data-status="resolved">Resolved <span id="tabCountResolved">0</span></button>
+        <button type="button" class="leads-tab status-tab" data-status="closed">Closed <span id="tabCountClosed">0</span></button>
+    </div>
+
+    <div class="leads-card" id="ticketsCard">
+        <div class="table-container">
+            <table class="data-table leads-table" id="ticketsTable">
+                <thead>
+                    <tr>
+                        <th>Ticket ID</th>
+                        <th>Subject</th>
+                        <th>Client</th>
+                        <th>Assigned To</th>
+                        <th>Priority</th>
+                        <th>Status</th>
+                        <th>SLA</th>
+                        <th>Created</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="ticketsTableBody">
+                    <tr><td colspan="9" class="empty-state">Loading tickets…</td></tr>
+                </tbody>
+            </table>
         </div>
 
-        <!-- Ticket Stats -->
-        <div class="ticket-stats-grid">
-            <div class="stat-card">
-                <div class="stat-header">
-                    <span class="stat-label">Open Tickets</span>
-                    <div class="stat-icon blue">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="10"/>
-                            <line x1="12" y1="8" x2="12" y2="12"/>
-                            <line x1="12" y1="16" x2="12.01" y2="16"/>
-                        </svg>
-                    </div>
-                </div>
-                <div class="stat-value" id="statOpen">0</div>
-                <div class="stat-change" id="statOpenChange">—</div>
-            </div>
+        <div class="tickets-cards" id="ticketsCards"></div>
 
-            <div class="stat-card">
-                <div class="stat-header">
-                    <span class="stat-label">Pending</span>
-                    <div class="stat-icon orange">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="10"/>
-                            <polyline points="12 6 12 12 16 14"/>
-                        </svg>
-                    </div>
-                </div>
-                <div class="stat-value" id="statPending">0</div>
-                <div class="stat-change">Waiting for response</div>
-            </div>
-
-            <div class="stat-card">
-                <div class="stat-header">
-                    <span class="stat-label">Resolved</span>
-                    <div class="stat-icon green">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="20 6 9 17 4 12"/>
-                        </svg>
-                    </div>
-                </div>
-                <div class="stat-value" id="statResolved">0</div>
-                <div class="stat-change positive" id="statResolvedChange">—</div>
-            </div>
-
-            <div class="stat-card">
-                <div class="stat-header">
-                    <span class="stat-label">Closed</span>
-                    <div class="stat-icon purple">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-                        </svg>
-                    </div>
-                </div>
-                <div class="stat-value" id="statClosed">0</div>
-                <div class="stat-change positive" id="statClosedChange">—</div>
-            </div>
-        </div>
-
-        <!-- Tickets Table -->
-        <div class="tickets-section">
-            <div class="view-submenu" id="viewSubmenu">
-                <button type="button" class="view-submenu-tab active" data-view="all">All Tickets</button>
-                <button type="button" class="view-submenu-tab" data-view="assigned-to-me">Assigned to me</button>
-            </div>
-            <div class="status-tabs" id="statusTabs">
-                <button type="button" class="status-tab active" data-status="open">Open</button>
-                <button type="button" class="status-tab" data-status="in-progress">In Progress</button>
-                <button type="button" class="status-tab" data-status="pending">Pending</button>
-                <button type="button" class="status-tab" data-status="resolved">Resolved</button>
-                <button type="button" class="status-tab" data-status="closed">Closed</button>
-            </div>
-            <div class="table-container">
-                <table class="data-table" id="ticketsTable">
-                    <thead>
-                        <tr>
-                            <th>Ticket ID</th>
-                            <th>Subject</th>
-                            <th>Client</th>
-                            <th>Assigned To</th>
-                            <th>Priority</th>
-                            <th>Status</th>
-                            <th>SLA</th>
-                            <th>Created</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="ticketsTableBody">
-                        <!-- Data will be populated by JavaScript -->
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Mobile Card View -->
-            <div class="tickets-cards" id="ticketsCards">
-                <!-- Cards will be populated by JavaScript -->
-            </div>
-
-            <!-- Pagination -->
-            <div class="table-pagination">
-                <div class="pagination-info">
-                    <span id="paginationInfo">Showing 1 to 10 of 142 results</span>
-                </div>
-                <div class="pagination-controls">
-                    <button class="pagination-btn" id="prevBtn" disabled>Previous</button>
-                    <div class="pagination-numbers" id="paginationNumbers"></div>
-                    <button class="pagination-btn" id="nextBtn">Next</button>
-                </div>
+        <div class="leads-pagination">
+            <span id="paginationInfo">Showing 0 of 0</span>
+            <div>
+                <button type="button" class="btn btn-secondary btn-sm" id="prevBtn" disabled>Previous</button>
+                <div class="pagination-numbers" id="paginationNumbers"></div>
+                <button type="button" class="btn btn-secondary btn-sm" id="nextBtn" disabled>Next</button>
             </div>
         </div>
     </div>
@@ -201,7 +130,7 @@
                             </div>
                             <div class="comment-input" id="commentInputSection">
                                 <textarea class="comment-textarea" id="commentTextarea" placeholder="Add a comment..."></textarea>
-                                <button class="btn-primary" id="addCommentBtn" onclick="addComment()">Add Comment</button>
+                                <button type="button" class="btn btn-primary btn-sm" id="addCommentBtn" onclick="addComment()">Add comment</button>
                             </div>
                         </div>
                     </div>
@@ -373,318 +302,44 @@
                 </div>
 
                 <div class="modal-form-actions">
-                    <button type="button" class="btn-secondary" onclick="closeNewTicketModal()">Cancel</button>
-                    <button type="submit" class="btn-primary">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="closeNewTicketModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <line x1="12" y1="5" x2="12" y2="19"/>
                             <line x1="5" y1="12" x2="19" y2="12"/>
                         </svg>
-                        Create Ticket
+                        Create ticket
                     </button>
                 </div>
             </form>
         </div>
     </div>
+    </div>
+    </div>
 @endsection
 
 @push('styles')
+    @include('partials.leads-page-base-styles')
 <style>
-    .tickets-container {
-        display: flex;
-        flex-direction: column;
-        gap: 1.5rem;
-    }
-
-    /* Header */
-    .tickets-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 1rem;
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 1.25rem;
-    }
-
-    .header-left,
-    .header-right {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        flex-wrap: wrap;
-    }
-
-    .search-box {
-        position: relative;
-        min-width: 250px;
-    }
-
-    .search-icon {
-        position: absolute;
-        left: 0.75rem;
-        top: 50%;
-        transform: translateY(-50%);
-        color: var(--text-muted);
-        width: 18px;
-        height: 18px;
-        pointer-events: none;
-    }
-
-    .search-input {
-        width: 100%;
-        padding: 0.625rem 0.75rem 0.625rem 2.5rem;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        font-size: 0.875rem;
-        background: var(--bg-card);
-        color: var(--text-primary);
-        transition: all 0.15s;
-    }
-
-    .search-input:focus {
-        outline: none;
-        border-color: var(--accent);
-        box-shadow: 0 0 0 3px rgba(95, 97, 230, 0.1);
-    }
-
-    .filter-select {
-        padding: 0.625rem 0.75rem;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        font-size: 0.875rem;
-        background: var(--bg-card);
-        color: var(--text-primary);
+    .ld-page .data-table tbody tr {
         cursor: pointer;
-        transition: all 0.15s;
     }
 
-    .filter-select:focus {
-        outline: none;
-        border-color: var(--accent);
-        box-shadow: 0 0 0 3px rgba(95, 97, 230, 0.1);
-    }
-
-    /* Buttons */
-    .btn-primary {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.625rem 1.25rem;
-        border-radius: 8px;
-        font-size: 0.875rem;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.15s;
-        border: none;
-        background: var(--accent);
-        color: white;
-        -webkit-tap-highlight-color: transparent;
-    }
-
-    .btn-primary:hover {
-        background: var(--accent-hover);
-    }
-
-    .btn-primary svg {
-        width: 18px;
-        height: 18px;
-    }
-
-    /* Stats Grid */
-    .ticket-stats-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1.5rem;
-    }
-
-    .stat-card {
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 1.5rem;
-    }
-
-    .stat-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 1rem;
-    }
-
-    .stat-label {
-        font-size: 0.875rem;
-        color: var(--text-secondary);
-    }
-
-    .stat-icon {
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .stat-icon.blue {
-        background: #dbeafe;
-        color: #2563eb;
-    }
-
-    .stat-icon.orange {
-        background: #fed7aa;
-        color: #ea580c;
-    }
-
-    .stat-icon.green {
-        background: #d1fae5;
-        color: #059669;
-    }
-
-    .stat-icon.purple {
-        background: #ede9fe;
-        color: #7c3aed;
-    }
-
-    .stat-icon svg {
-        width: 20px;
-        height: 20px;
-    }
-
-    .stat-value {
-        font-size: 1.875rem;
-        font-weight: 700;
-        color: var(--text-primary);
-        margin-bottom: 0.25rem;
-    }
-
-    .stat-change {
-        font-size: 0.8125rem;
-        color: var(--text-secondary);
-    }
-
-    .stat-change.positive {
-        color: #059669;
-    }
-
-    /* Tables */
-    .tickets-section {
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 1.5rem;
-    }
-
-    .view-submenu {
-        display: flex;
-        gap: 0.25rem;
-        margin-bottom: 1rem;
-        flex-wrap: wrap;
-    }
-
-    .view-submenu-tab {
-        padding: 0.5rem 1rem;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        font-size: 0.875rem;
-        font-weight: 500;
-        cursor: pointer;
-        background: var(--bg-primary);
-        color: var(--text-secondary);
-        transition: all 0.15s;
-        -webkit-tap-highlight-color: transparent;
-    }
-
-    .view-submenu-tab:hover {
-        background: var(--bg-secondary);
-        color: var(--text-primary);
-    }
-
-    .view-submenu-tab.active {
-        background: var(--accent);
-        color: white;
-        border-color: var(--accent);
-    }
-
-    .status-tabs {
-        display: flex;
-        gap: 0.25rem;
-        margin-bottom: 1.5rem;
-        padding-bottom: 1rem;
-        border-bottom: 1px solid var(--border);
-        flex-wrap: wrap;
-    }
-
-    .status-tab {
-        padding: 0.5rem 1rem;
-        border: none;
-        border-radius: 8px;
-        font-size: 0.875rem;
-        font-weight: 500;
-        cursor: pointer;
-        background: transparent;
-        color: var(--text-secondary);
-        transition: all 0.15s;
-        -webkit-tap-highlight-color: transparent;
-    }
-
-    .status-tab:hover {
-        background: var(--bg-primary);
-        color: var(--text-primary);
-    }
-
-    .status-tab.active {
-        background: var(--accent-light);
-        color: var(--accent);
-    }
-
-    .table-container {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        margin-bottom: 1.5rem;
-    }
-
-    .data-table {
-        width: 100%;
-        border-collapse: collapse;
-    }
-
-    .data-table thead {
-        background: var(--bg-primary);
-    }
-
-    .data-table th {
-        padding: 0.875rem 1rem;
-        text-align: left;
-        font-size: 0.8125rem;
-        font-weight: 600;
-        color: var(--text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        border-bottom: 2px solid var(--border);
-        white-space: nowrap;
-    }
-
-    .data-table td {
-        padding: 1rem;
-        font-size: 0.875rem;
-        color: var(--text-primary);
-        border-bottom: 1px solid var(--border);
-    }
-
-    .data-table tbody tr:hover {
-        background: var(--bg-primary);
-        cursor: pointer;
+    .leads-toolbar .leads-source-filter {
+        min-width: 140px;
+        width: auto;
     }
 
     /* Priority Badge */
-    .priority-badge {
-        padding: 0.25rem 0.75rem;
-        border-radius: 100px;
-        font-size: 0.75rem;
-        font-weight: 500;
+    .priority-badge,
+    .status-badge,
+    .sla-badge {
         display: inline-block;
+        font-size: 0.625rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        padding: 0.1rem 0.4rem;
+        border-radius: 999px;
     }
 
     .priority-badge.low {
@@ -708,14 +363,6 @@
     }
 
     /* Status Badge */
-    .status-badge {
-        padding: 0.25rem 0.75rem;
-        border-radius: 100px;
-        font-size: 0.75rem;
-        font-weight: 500;
-        display: inline-block;
-    }
-
     .status-badge.open {
         background: #dbeafe;
         color: #2563eb;
@@ -742,14 +389,6 @@
     }
 
     /* SLA Badge */
-    .sla-badge {
-        padding: 0.25rem 0.75rem;
-        border-radius: 100px;
-        font-size: 0.75rem;
-        font-weight: 500;
-        display: inline-block;
-    }
-
     .sla-badge.compliant {
         background: #d1fae5;
         color: #059669;
@@ -769,32 +408,33 @@
     .employee-cell {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
+        gap: 0.4rem;
     }
 
     .employee-avatar {
-        width: 32px;
-        height: 32px;
+        width: 22px;
+        height: 22px;
         border-radius: 50%;
         background: var(--accent);
         color: white;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-weight: 600;
-        font-size: 0.75rem;
+        font-weight: 700;
+        font-size: 0.5625rem;
         flex-shrink: 0;
     }
 
     /* Actions */
     .table-actions {
         display: flex;
-        gap: 0.5rem;
+        gap: 0.35rem;
+        justify-content: flex-end;
     }
 
     .icon-btn {
-        width: 32px;
-        height: 32px;
+        width: 26px;
+        height: 26px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -814,23 +454,25 @@
     }
 
     .icon-btn svg {
-        width: 16px;
-        height: 16px;
+        width: 13px;
+        height: 13px;
     }
 
     /* Mobile Card View */
     .tickets-cards {
         display: none;
         flex-direction: column;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
+        gap: 0.55rem;
+        padding: 0.65rem;
+        overflow: auto;
+        min-height: 0;
     }
 
     .ticket-card {
         background: var(--bg-primary);
         border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 1.25rem;
+        border-radius: 8px;
+        padding: 0.65rem 0.75rem;
         cursor: pointer;
         transition: all 0.15s;
     }
@@ -841,112 +483,68 @@
 
     .card-header {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: space-between;
-        margin-bottom: 1rem;
-        padding-bottom: 1rem;
+        gap: 0.5rem;
+        margin-bottom: 0.55rem;
+        padding-bottom: 0.55rem;
         border-bottom: 1px solid var(--border);
     }
 
     .card-title {
         font-weight: 600;
+        font-size: 0.75rem;
         color: var(--text-primary);
     }
 
     .card-details {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 0.75rem;
+        gap: 0.45rem 0.65rem;
+        font-size: 0.75rem;
     }
 
     .card-detail {
         display: flex;
         flex-direction: column;
-        gap: 0.25rem;
+        gap: 0.1rem;
     }
 
     .card-label {
-        font-size: 0.75rem;
+        font-size: 0.625rem;
         color: var(--text-muted);
         text-transform: uppercase;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.04em;
     }
 
     .card-value {
-        font-size: 0.875rem;
+        font-size: 0.75rem;
         color: var(--text-primary);
         font-weight: 500;
-    }
-
-    /* Pagination */
-    .table-pagination {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 1rem;
-        padding-top: 1.5rem;
-        border-top: 1px solid var(--border);
-    }
-
-    .pagination-info {
-        font-size: 0.875rem;
-        color: var(--text-secondary);
-    }
-
-    .pagination-controls {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        flex-wrap: wrap;
-    }
-
-    .pagination-btn {
-        padding: 0.625rem 1rem;
-        border: 1px solid var(--border);
-        background: var(--bg-card);
-        border-radius: 8px;
-        font-size: 0.875rem;
-        font-weight: 500;
-        color: var(--text-primary);
-        cursor: pointer;
-        transition: all 0.15s;
-        -webkit-tap-highlight-color: transparent;
-    }
-
-    .pagination-btn:hover:not(:disabled) {
-        background: var(--bg-primary);
-        border-color: var(--accent);
-        color: var(--accent);
-    }
-
-    .pagination-btn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
     }
 
     .pagination-numbers {
         display: flex;
         align-items: center;
-        gap: 0.375rem;
+        gap: 0.2rem;
         flex-wrap: wrap;
     }
 
     .pagination-number {
-        min-width: 36px;
-        height: 36px;
-        padding: 0 0.5rem;
+        min-width: 24px;
+        height: 24px;
+        padding: 0 0.3rem;
         border: 1px solid var(--border);
         background: var(--bg-card);
-        border-radius: 8px;
-        font-size: 0.875rem;
+        border-radius: 6px;
+        font-size: 0.6875rem;
+        font-weight: 600;
         color: var(--text-secondary);
         cursor: pointer;
-        transition: all 0.15s;
         display: flex;
         align-items: center;
         justify-content: center;
-        -webkit-tap-highlight-color: transparent;
+        font-family: inherit;
     }
 
     .pagination-number:hover:not(.active):not(.ellipsis) {
@@ -966,7 +564,7 @@
         background: none;
         cursor: default;
         min-width: auto;
-        padding: 0 0.25rem;
+        padding: 0 0.15rem;
     }
 
     /* Ticket Modal */
@@ -974,11 +572,11 @@
         display: none;
         position: fixed;
         inset: 0;
-        background: rgba(0, 0, 0, 0.75);
+        background: rgba(15, 23, 42, 0.4);
         z-index: 2000;
         align-items: center;
         justify-content: center;
-        padding: 1rem;
+        padding: 0.75rem;
         opacity: 0;
         transition: opacity 0.2s;
     }
@@ -990,137 +588,141 @@
 
     .ticket-modal-content {
         background: var(--bg-card);
-        border-radius: 16px;
-        max-width: 1200px;
-        width: 100%;
-        max-height: 90vh;
+        border-radius: 8px;
+        width: min(1040px, 96vw);
+        max-height: 92vh;
         display: flex;
         flex-direction: column;
         position: relative;
-        transform: scale(0.95);
-        transition: transform 0.2s;
         overflow: hidden;
-    }
-
-    .ticket-modal.active .ticket-modal-content {
-        transform: scale(1);
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
     }
 
     .modal-close {
         position: absolute;
-        top: 1rem;
-        right: 1rem;
-        width: 40px;
-        height: 40px;
-        background: rgba(0, 0, 0, 0.5);
+        top: 0.55rem;
+        right: 0.55rem;
+        width: 26px;
+        height: 26px;
+        background: none;
         border: none;
-        border-radius: 50%;
-        color: white;
+        border-radius: 5px;
+        color: var(--text-muted);
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
         z-index: 10;
-        transition: background 0.15s;
     }
 
     .modal-close:hover {
-        background: rgba(0, 0, 0, 0.7);
+        background: var(--bg-primary);
+        color: var(--text-primary);
     }
 
     .modal-close svg {
-        width: 20px;
-        height: 20px;
+        width: 14px;
+        height: 14px;
     }
 
-    .modal-header {
-        padding: 1.5rem;
+    .ticket-modal .modal-header {
+        padding: 0.65rem 0.85rem;
         border-bottom: 1px solid var(--border);
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
-        gap: 1rem;
+        gap: 0.65rem;
     }
 
     .ticket-header-info {
         flex: 1;
+        min-width: 0;
+        padding-right: 1.5rem;
     }
 
     .ticket-id-badge {
         display: inline-block;
-        padding: 0.25rem 0.75rem;
+        padding: 0.1rem 0.4rem;
         background: var(--accent-light);
         color: var(--accent);
-        border-radius: 6px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        margin-bottom: 0.5rem;
+        border-radius: 999px;
+        font-size: 0.625rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        margin-bottom: 0.25rem;
     }
 
     .ticket-subject {
-        font-size: 1.5rem;
+        font-size: 0.875rem;
         font-weight: 700;
         color: var(--text-primary);
-        margin: 0 0 0.5rem 0;
+        margin: 0 0 0.2rem 0;
+        line-height: 1.35;
     }
 
     .ticket-meta {
         display: flex;
-        gap: 1rem;
-        font-size: 0.875rem;
+        flex-wrap: wrap;
+        gap: 0.5rem 0.75rem;
+        font-size: 0.6875rem;
         color: var(--text-secondary);
     }
 
     .ticket-header-actions {
         display: flex;
-        gap: 0.75rem;
+        gap: 0.45rem;
+        flex-shrink: 0;
     }
 
     .status-select {
-        padding: 0.5rem 0.75rem;
+        padding: 0.3rem 0.55rem;
         border: 1px solid var(--border);
-        border-radius: 8px;
-        font-size: 0.875rem;
+        border-radius: 6px;
+        font-size: 0.75rem;
         background: var(--bg-card);
         color: var(--text-primary);
         cursor: pointer;
     }
 
-    .modal-body {
+    .ticket-modal .modal-body {
         flex: 1;
         overflow-y: auto;
-        padding: 1.5rem;
+        padding: 0.75rem 0.85rem;
     }
 
     .ticket-details-grid {
         display: grid;
-        grid-template-columns: 2fr 1fr;
-        gap: 1.5rem;
+        grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.8fr);
+        gap: 0.75rem;
     }
 
     .ticket-main {
         display: flex;
         flex-direction: column;
-        gap: 2rem;
+        gap: 0.75rem;
     }
 
     .section-title {
-        font-size: 1rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-bottom: 1rem;
+        font-size: 0.6875rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-secondary);
+        margin-bottom: 0.45rem;
     }
 
     .ticket-description {
         background: var(--bg-primary);
+        border: 1px solid var(--border);
         border-radius: 8px;
-        padding: 1.25rem;
+        padding: 0.65rem 0.75rem;
     }
 
     .ticket-description p {
         color: var(--text-primary);
-        line-height: 1.6;
+        line-height: 1.5;
         margin: 0;
+        font-size: 0.75rem;
     }
 
     .ticket-attachment {
@@ -1191,75 +793,77 @@
     .comments-list {
         display: flex;
         flex-direction: column;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
+        gap: 0.45rem;
+        margin-bottom: 0.65rem;
     }
 
     .comment-item {
         display: flex;
-        gap: 0.75rem;
-        padding: 1rem;
+        gap: 0.5rem;
+        padding: 0.55rem 0.65rem;
         background: var(--bg-primary);
+        border: 1px solid var(--border);
         border-radius: 8px;
     }
 
     .comment-avatar {
-        width: 36px;
-        height: 36px;
+        width: 22px;
+        height: 22px;
         border-radius: 50%;
         background: var(--accent);
         color: white;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-weight: 600;
-        font-size: 0.875rem;
+        font-weight: 700;
+        font-size: 0.5625rem;
         flex-shrink: 0;
     }
 
     .comment-content {
         flex: 1;
+        min-width: 0;
     }
 
     .comment-header {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
-        margin-bottom: 0.5rem;
+        gap: 0.4rem;
+        margin-bottom: 0.2rem;
     }
 
     .comment-author {
         font-weight: 600;
         color: var(--text-primary);
-        font-size: 0.875rem;
+        font-size: 0.75rem;
     }
 
     .comment-time {
-        font-size: 0.75rem;
+        font-size: 0.625rem;
         color: var(--text-muted);
     }
 
     .comment-text {
-        font-size: 0.875rem;
+        font-size: 0.75rem;
         color: var(--text-primary);
-        line-height: 1.5;
+        line-height: 1.45;
     }
 
     .comment-input {
         display: flex;
         flex-direction: column;
-        gap: 0.75rem;
+        gap: 0.45rem;
     }
 
     .comment-textarea {
         width: 100%;
-        padding: 0.75rem;
+        padding: 0.4rem 0.6rem;
         border: 1px solid var(--border);
-        border-radius: 8px;
-        font-size: 0.875rem;
+        border-radius: 6px;
+        font-size: 0.75rem;
         font-family: inherit;
         resize: vertical;
-        min-height: 100px;
+        min-height: 72px;
         background: var(--bg-card);
         color: var(--text-primary);
     }
@@ -1267,7 +871,7 @@
     .comment-textarea:focus {
         outline: none;
         border-color: var(--accent);
-        box-shadow: 0 0 0 3px rgba(95, 97, 230, 0.1);
+        box-shadow: 0 0 0 2px rgba(95, 97, 230, 0.12);
     }
 
     .comment-input.ticket-readonly {
@@ -1283,27 +887,30 @@
     .ticket-sidebar {
         display: flex;
         flex-direction: column;
-        gap: 1.5rem;
+        gap: 0.65rem;
     }
 
     .sidebar-section {
         background: var(--bg-primary);
+        border: 1px solid var(--border);
         border-radius: 8px;
-        padding: 1.25rem;
+        padding: 0.65rem 0.75rem;
     }
 
     .sidebar-title {
-        font-size: 0.875rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-bottom: 1rem;
+        font-size: 0.6875rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-secondary);
+        margin-bottom: 0.55rem;
     }
 
     .detail-item {
         display: flex;
         flex-direction: column;
-        gap: 0.5rem;
-        margin-bottom: 1rem;
+        gap: 0.2rem;
+        margin-bottom: 0.55rem;
     }
 
     .detail-item:last-child {
@@ -1311,20 +918,21 @@
     }
 
     .detail-label {
-        font-size: 0.75rem;
+        font-size: 0.625rem;
         color: var(--text-muted);
         text-transform: uppercase;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.04em;
+        font-weight: 600;
     }
 
     .detail-value {
-        font-size: 0.875rem;
+        font-size: 0.75rem;
         color: var(--text-primary);
         font-weight: 500;
     }
 
     .sla-item {
-        margin-bottom: 1.5rem;
+        margin-bottom: 0.75rem;
     }
 
     .sla-item:last-child {
@@ -1335,20 +943,22 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.3rem;
+        gap: 0.4rem;
     }
 
     .sla-label {
-        font-size: 0.875rem;
+        font-size: 0.75rem;
         color: var(--text-primary);
-        font-weight: 500;
+        font-weight: 600;
     }
 
     .sla-status {
-        padding: 0.25rem 0.5rem;
-        border-radius: 4px;
-        font-size: 0.75rem;
-        font-weight: 500;
+        padding: 0.08rem 0.4rem;
+        border-radius: 999px;
+        font-size: 0.625rem;
+        font-weight: 700;
+        text-transform: uppercase;
     }
 
     .sla-status.compliant {
@@ -1434,32 +1044,33 @@
 
     /* New Ticket Form Modal */
     .new-ticket-modal-content {
-        max-width: 560px;
+        width: min(560px, 96vw);
+        max-width: none;
     }
 
     .modal-title {
-        font-size: 1.25rem;
+        font-size: 0.875rem;
         font-weight: 700;
         color: var(--text-primary);
         margin: 0;
     }
 
     .form-group {
-        margin-bottom: 1rem;
+        margin-bottom: 0.75rem;
     }
 
     .form-row {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 1rem;
+        gap: 0.55rem;
     }
 
     .form-label {
         display: block;
-        font-size: 0.875rem;
-        font-weight: 500;
+        font-size: 0.75rem;
+        font-weight: 600;
         color: var(--text-primary);
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.3rem;
     }
 
     .form-label .required {
@@ -1468,10 +1079,10 @@
 
     .form-input {
         width: 100%;
-        padding: 0.625rem 0.75rem;
+        padding: 0.4rem 0.6rem;
         border: 1px solid var(--border);
-        border-radius: 8px;
-        font-size: 0.875rem;
+        border-radius: 6px;
+        font-size: 0.75rem;
         font-family: inherit;
         background: var(--bg-card);
         color: var(--text-primary);
@@ -1481,7 +1092,7 @@
     .form-input:focus {
         outline: none;
         border-color: var(--accent);
-        box-shadow: 0 0 0 3px rgba(95, 97, 230, 0.1);
+        box-shadow: 0 0 0 2px rgba(95, 97, 230, 0.12);
     }
 
     .form-input::placeholder {
@@ -1490,7 +1101,7 @@
 
     textarea.form-input {
         resize: vertical;
-        min-height: 100px;
+        min-height: 80px;
     }
 
     select.form-input {
@@ -1501,37 +1112,10 @@
     .modal-form-actions {
         display: flex;
         justify-content: flex-end;
-        gap: 0.75rem;
-        padding: 1rem 1.5rem;
+        gap: 0.45rem;
+        padding: 0.55rem 0.85rem;
         border-top: 1px solid var(--border);
         background: var(--bg-primary);
-    }
-
-    .btn-secondary {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.625rem 1.25rem;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        font-size: 0.875rem;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.15s;
-        background: var(--bg-card);
-        color: var(--text-primary);
-        -webkit-tap-highlight-color: transparent;
-    }
-
-    .btn-secondary:hover {
-        background: var(--bg-primary);
-        border-color: var(--text-muted);
-    }
-
-    .modal-form-actions .btn-primary {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
     }
 
     /* Image Upload */
@@ -1632,43 +1216,16 @@
     }
 
     @media (max-width: 768px) {
-        .table-container {
+        .ld-page-wrapper .leads-card > .table-container {
             display: none !important;
         }
         .tickets-cards {
             display: flex !important;
-        }
-
-        .tickets-header {
-            flex-direction: column;
-            align-items: stretch;
-        }
-
-        .header-left,
-        .header-right {
-            width: 100%;
-        }
-
-        .search-box {
-            min-width: 100%;
-        }
-
-        .ticket-stats-grid {
-            grid-template-columns: repeat(2, 1fr);
-        }
-
-        .table-pagination {
-            flex-direction: column;
-            align-items: stretch;
-        }
-
-        .pagination-controls {
-            justify-content: center;
-            width: 100%;
+            flex: 1;
         }
 
         .ticket-modal-content {
-            max-width: 100%;
+            width: 100%;
             max-height: 100vh;
             border-radius: 0;
         }
@@ -1677,7 +1234,7 @@
             grid-template-columns: 1fr;
         }
 
-        .modal-header {
+        .ticket-modal .modal-header {
             flex-direction: column;
         }
 
@@ -1694,22 +1251,6 @@
         }
 
         .new-ticket-modal-content .form-row {
-            grid-template-columns: 1fr;
-        }
-
-        .status-tabs {
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            margin-bottom: 1rem;
-        }
-
-        .status-tab {
-            flex-shrink: 0;
-        }
-    }
-
-    @media (max-width: 480px) {
-        .ticket-stats-grid {
             grid-template-columns: 1fr;
         }
     }
@@ -1761,25 +1302,28 @@
     }
 
     function updateStats(stats) {
-        const el = id => document.getElementById(id);
-        if (el('statOpen')) el('statOpen').textContent = stats.open ?? 0;
-        if (el('statOpenChange')) el('statOpenChange').textContent = `${stats.in_progress ?? 0} in progress`;
-        if (el('statPending')) el('statPending').textContent = stats.pending ?? 0;
-        if (el('statResolved')) el('statResolved').textContent = stats.resolved ?? 0;
-        if (el('statClosed')) el('statClosed').textContent = stats.closed ?? 0;
+        const setCount = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value ?? 0;
+        };
+        setCount('tabCountOpen', stats.open);
+        setCount('tabCountInProgress', stats.in_progress);
+        setCount('tabCountPending', stats.pending);
+        setCount('tabCountResolved', stats.resolved);
+        setCount('tabCountClosed', stats.closed);
     }
 
     // Render Functions
     function renderTable() {
-        const filtered = getFilteredTickets();
-        const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
         const tbody = document.getElementById('ticketsTableBody');
-        const start = (currentPage - 1) * itemsPerPage;
-        const end = start + itemsPerPage;
-        const pageData = filtered.slice(start, end);
+        const pageData = getFilteredTickets();
+        if (!pageData.length) {
+            tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No tickets found.</td></tr>';
+            return;
+        }
 
         tbody.innerHTML = pageData.map(ticket => `
-            <tr onclick="openTicketModal(${ticket.id})">
+            <tr class="is-clickable" onclick="openTicketModal(${ticket.id})">
                 <td><strong>${ticket.ticketId}</strong></td>
                 <td>${ticket.subject}</td>
                 <td>${ticket.client}</td>
@@ -1808,11 +1352,12 @@
     }
 
     function renderCards() {
-        const filtered = getFilteredTickets();
         const container = document.getElementById('ticketsCards');
-        const start = (currentPage - 1) * itemsPerPage;
-        const end = start + itemsPerPage;
-        const pageData = filtered.slice(start, end);
+        const pageData = getFilteredTickets();
+        if (!pageData.length) {
+            container.innerHTML = '<div class="empty-state">No tickets found.</div>';
+            return;
+        }
 
         container.innerHTML = pageData.map(ticket => `
             <div class="ticket-card" onclick="openTicketModal(${ticket.id})">
@@ -1856,7 +1401,7 @@
 
         const start = total ? (currentPage - 1) * itemsPerPage + 1 : 0;
         const end = Math.min(currentPage * itemsPerPage, total);
-        info.textContent = total ? `Showing ${start} to ${end} of ${total} results` : 'No tickets to show';
+        info.textContent = total ? `Showing ${start}–${end} of ${total}` : 'Showing 0 of 0';
 
         prevBtn.disabled = currentPage === 1;
         nextBtn.disabled = currentPage >= totalPages;

@@ -9,6 +9,7 @@ use App\Models\FacebookMessage;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Notifications\FacebookMessageNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
@@ -175,6 +176,26 @@ class FacebookConversationReadStatusTest extends TestCase
             ->getJson('/api/notifications/channel-unread-counts')
             ->assertOk()
             ->assertJsonPath('data.facebook', 1);
+    }
+
+    public function test_header_notifications_exclude_facebook_messages(): void
+    {
+        [$alice, , , $conversation] = $this->twoAgentsWithConversation();
+
+        $conversation->update(['unread_count' => 1]);
+        $message = $conversation->messages()->first();
+        $alice->notify(new FacebookMessageNotification($conversation, $message));
+
+        $this->actingAs($alice)
+            ->getJson('/api/notifications/unread-count')
+            ->assertOk()
+            ->assertJsonPath('data.total', 0);
+
+        $this->actingAs($alice)
+            ->getJson('/api/notifications')
+            ->assertOk()
+            ->assertJsonPath('data.unread_count', 0)
+            ->assertJsonCount(0, 'data.notifications');
     }
 
     /**

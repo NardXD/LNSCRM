@@ -3,17 +3,20 @@
 @section('title', 'Knowledge Base')
 
 @section('content')
-    <div class="page-header">
-        <h1 class="page-title">Knowledge Base</h1>
-        <p class="page-subtitle">FAQs, guides, and articles for internal use</p>
+    <div class="ld-page-wrapper ld-page-wrapper--scroll">
+    <div class="ld-page">
+    <div class="ld-top">
+        <div class="ld-top-main">
+            <h1 class="ld-title">Knowledge Base</h1>
+            <p class="ld-subtitle">FAQs, guides, and articles for internal use.</p>
+        </div>
     </div>
 
     <div class="knowledge-container">
-        <!-- Tabs Navigation -->
-        <div class="knowledge-tabs">
-            <button class="tab-btn" data-tab="articles">Articles</button>
-            <button class="tab-btn" data-tab="faqs">FAQs</button>
-            <button class="tab-btn active" data-tab="guides">Guides</button>
+        <div class="leads-tabs knowledge-tabs" role="tablist">
+            <button type="button" class="leads-tab tab-btn" data-tab="articles">Articles</button>
+            <button type="button" class="leads-tab tab-btn" data-tab="faqs">FAQs</button>
+            <button type="button" class="leads-tab tab-btn active" data-tab="guides">Guides</button>
         </div>
 
         <!-- Articles Tab -->
@@ -22,7 +25,7 @@
                 <h2 class="section-title">Articles</h2>
                 <div class="section-actions">
                     @if(! empty($articleCategories))
-                    <select class="filter-select" id="articleCategoryFilter">
+                    <select class="leads-source-filter" id="articleCategoryFilter">
                         <option value="all">All Categories</option>
                         @foreach($articleCategories ?? [] as $cat)
                             <option value="{{ $cat['name'] }}">{{ $cat['name'] }}</option>
@@ -30,7 +33,7 @@
                     </select>
                     @endif
                     @if($canCreateKnowledgeBase ?? true)
-                    <button class="btn-primary" onclick="createArticle()">
+                    <button type="button" class="btn btn-primary btn-sm" onclick="createArticle()">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <line x1="12" y1="5" x2="12" y2="19"/>
                             <line x1="5" y1="12" x2="19" y2="12"/>
@@ -52,7 +55,7 @@
             <div class="section-header">
                 <h2 class="section-title">Frequently Asked Questions</h2>
                 @if($canCreateKnowledgeBase ?? true)
-                <button class="btn-primary" onclick="createFAQ()">
+                <button type="button" class="btn btn-primary btn-sm" onclick="createFAQ()">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="12" y1="5" x2="12" y2="19"/>
                         <line x1="5" y1="12" x2="19" y2="12"/>
@@ -63,10 +66,10 @@
             </div>
 
             <!-- FAQ Categories -->
-            <div class="faq-categories" id="faqCategoriesContainer">
-                <button type="button" class="faq-category-btn active" data-category="all">All</button>
+            <div class="leads-tabs faq-categories" id="faqCategoriesContainer">
+                <button type="button" class="leads-tab faq-category-btn active" data-category="all">All</button>
                 @foreach($faqCategories ?? [] as $cat)
-                    <button type="button" class="faq-category-btn" data-category="{{ $cat['name'] }}">{{ $cat['name'] }}</button>
+                    <button type="button" class="leads-tab faq-category-btn" data-category="{{ $cat['name'] }}">{{ $cat['name'] }}</button>
                 @endforeach
             </div>
 
@@ -81,7 +84,7 @@
             <div class="section-header">
                 <h2 class="section-title">Guides & Tutorials</h2>
                 @if($canCreateKnowledgeBase ?? true)
-                <button class="btn-primary" onclick="createGuide()">
+                <button type="button" class="btn btn-primary btn-sm" onclick="createGuide()">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="12" y1="5" x2="12" y2="19"/>
                         <line x1="5" y1="12" x2="19" y2="12"/>
@@ -464,7 +467,7 @@
                                     <option value="{{ $cat['slug'] }}">{{ $cat['name'] }}</option>
                                 @endforeach
                             </select>
-                            <button type="button" class="btn-secondary btn-sm" onclick="openAddCategoryModal('article')" title="Add category">+</button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="openAddCategoryModal('article')" title="Add category">+</button>
                         </div>
                     </div>
                 </div>
@@ -547,8 +550,8 @@
                     </div>
                 </div>
                 <div class="modal-form-actions">
-                    <button type="button" class="btn-secondary" onclick="closeNewArticleModal()">Cancel</button>
-                    <button type="submit" class="btn-primary">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="closeNewArticleModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                             <circle cx="12" cy="12" r="3"/>
@@ -583,10 +586,10 @@
                 <div class="content-body article-preview-content" id="articlePreviewContent"></div>
             </div>
             <div class="modal-form-actions article-preview-actions">
-                <button type="button" class="btn-secondary" onclick="closeArticlePreviewModal()">Back to Edit</button>
-                <button type="button" class="btn-secondary" onclick="saveArticleWithStatus('draft')">Save as Draft</button>
-                <button type="button" class="btn-secondary" onclick="saveArticleWithStatus('archived')">Archive</button>
-                <button type="button" class="btn-primary" onclick="saveArticleWithStatus('published')">Publish</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="closeArticlePreviewModal()">Back to Edit</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="saveArticleWithStatus('draft')">Save as Draft</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="saveArticleWithStatus('archived')">Archive</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="saveArticleWithStatus('published')">Publish</button>
             </div>
         </div>
     </div>
@@ -618,7 +621,7 @@
                                     <option value="{{ $cat['slug'] }}">{{ $cat['name'] }}</option>
                                 @endforeach
                             </select>
-                            <button type="button" class="btn-secondary btn-sm" onclick="openAddCategoryModal('faq')" title="Add category">+</button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="openAddCategoryModal('faq')" title="Add category">+</button>
                         </div>
                     </div>
                 </div>
@@ -662,8 +665,8 @@
                     </div>
                 </div>
                 <div class="modal-form-actions">
-                    <button type="button" class="btn-secondary" onclick="closeNewFAQModal()">Cancel</button>
-                    <button type="submit" class="btn-primary">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="closeNewFAQModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                             <circle cx="12" cy="12" r="3"/>
@@ -697,10 +700,10 @@
                 <div class="faq-answer-text content-body" id="faqPreviewAnswer"></div>
             </div>
             <div class="modal-form-actions article-preview-actions">
-                <button type="button" class="btn-secondary" onclick="closeFaqPreviewModal()">Back to Edit</button>
-                <button type="button" class="btn-secondary" onclick="saveFaqWithStatus('draft')">Save as Draft</button>
-                <button type="button" class="btn-secondary" onclick="saveFaqWithStatus('archived')">Archive</button>
-                <button type="button" class="btn-primary" onclick="saveFaqWithStatus('published')">Publish</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="closeFaqPreviewModal()">Back to Edit</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="saveFaqWithStatus('draft')">Save as Draft</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="saveFaqWithStatus('archived')">Archive</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="saveFaqWithStatus('published')">Publish</button>
             </div>
         </div>
     </div>
@@ -732,7 +735,7 @@
                                     <option value="{{ $cat['slug'] }}">{{ $cat['name'] }}</option>
                                 @endforeach
                             </select>
-                            <button type="button" class="btn-secondary btn-sm" onclick="openAddCategoryModal('guide')" title="Add category">+</button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="openAddCategoryModal('guide')" title="Add category">+</button>
                         </div>
                     </div>
                 </div>
@@ -821,8 +824,8 @@
                     </div>
                 </div>
                 <div class="modal-form-actions">
-                    <button type="button" class="btn-secondary" onclick="closeNewGuideModal()">Cancel</button>
-                    <button type="submit" class="btn-primary">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="closeNewGuideModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
                             <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
                             <polyline points="17 21 17 13 7 13 7 21"/>
@@ -854,8 +857,8 @@
                     <input type="text" id="addCategoryName" name="name" class="form-input" required placeholder="e.g. Getting Started" maxlength="100">
                 </div>
                 <div class="modal-form-actions">
-                    <button type="button" class="btn-secondary" onclick="closeAddCategoryModal()">Cancel</button>
-                    <button type="submit" class="btn-primary">Add</button>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="closeAddCategoryModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Add</button>
                 </div>
             </form>
         </div>
@@ -885,7 +888,7 @@
                 </div>
                 <div class="modal-actions">
                     @if($canEditKnowledgeBase ?? true)
-                    <button type="button" class="btn-secondary" onclick="editContent()">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="editContent()">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -894,7 +897,7 @@
                     </button>
                     @endif
                     @if($canDeleteKnowledgeBase ?? true)
-                    <button type="button" class="btn-secondary knowledge-modal-delete" onclick="deleteContent()">
+                    <button type="button" class="btn btn-secondary btn-sm knowledge-modal-delete" onclick="deleteContent()">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
                             <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
                             <line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>
@@ -912,52 +915,27 @@
             </div>
         </div>
     </div>
+    </div>
+    </div>
 @endsection
 
 @push('styles')
+    @include('partials.leads-page-base-styles')
 <style>
     .knowledge-container {
         display: flex;
         flex-direction: column;
-        gap: 1.5rem;
-    }
-
-    /* Tabs */
-    .knowledge-tabs {
-        display: flex;
-        gap: 0.5rem;
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 0.5rem;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-    }
-
-    .tab-btn {
+        gap: 0.65rem;
+        min-height: 0;
         flex: 1;
-        min-width: 150px;
-        padding: 0.75rem 1.25rem;
-        border: none;
-        background: transparent;
-        border-radius: 8px;
-        font-size: 0.875rem;
-        font-weight: 500;
-        color: var(--text-secondary);
-        cursor: pointer;
-        transition: all 0.15s;
-        white-space: nowrap;
-        -webkit-tap-highlight-color: transparent;
     }
 
-    .tab-btn:hover {
-        background: var(--bg-primary);
-        color: var(--text-primary);
+    .knowledge-tabs.leads-tabs {
+        margin-bottom: 0;
     }
 
-    .tab-btn.active {
-        background: var(--accent);
-        color: white;
+    .knowledge-tabs .leads-tab {
+        flex: 0 0 auto;
     }
 
     .tab-content {
@@ -973,98 +951,47 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 1.5rem;
+        margin-bottom: 0.65rem;
         flex-wrap: wrap;
-        gap: 1rem;
+        gap: 0.45rem;
     }
 
     .section-title {
-        font-size: 1.25rem;
-        font-weight: 600;
+        font-size: 0.875rem;
+        font-weight: 700;
         color: var(--text-primary);
+        margin: 0;
     }
 
     .section-actions {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
+        gap: 0.45rem;
         flex-wrap: wrap;
     }
 
-    /* Buttons */
-    .btn-primary, .btn-secondary {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.625rem 1.25rem;
-        border-radius: 8px;
-        font-size: 0.875rem;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.15s;
-        border: none;
-        -webkit-tap-highlight-color: transparent;
-    }
-
-    .btn-primary {
-        background: var(--accent);
-        color: white;
-    }
-
-    .btn-primary:hover {
-        background: var(--accent-hover);
-    }
-
-    .btn-secondary {
-        background: var(--bg-primary);
-        color: var(--text-primary);
-        border: 1px solid var(--border);
-    }
-
-    .btn-secondary:hover {
-        background: var(--border);
-    }
-
-    .btn-primary svg, .btn-secondary svg {
-        width: 18px;
-        height: 18px;
-    }
-
-    /* Filters */
-    .filter-select {
-        padding: 0.625rem 0.75rem;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        font-size: 0.875rem;
-        background: var(--bg-card);
-        color: var(--text-primary);
-        cursor: pointer;
-        transition: all 0.15s;
-    }
-
-    .filter-select:focus {
-        outline: none;
-        border-color: var(--accent);
-        box-shadow: 0 0 0 3px rgba(95, 97, 230, 0.1);
+    .section-actions .leads-source-filter {
+        width: auto;
+        min-width: 140px;
     }
 
     /* Articles Grid */
     .articles-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-        gap: 1.5rem;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: 0.65rem;
     }
 
     .article-card {
         background: var(--bg-card);
         border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 1.5rem;
+        border-radius: 8px;
+        padding: 0.75rem 0.85rem;
         cursor: pointer;
         transition: all 0.15s;
         display: flex;
         flex-direction: column;
-        min-height: 220px;
+        min-height: 0;
     }
 
     .article-card:hover {
@@ -1076,14 +1003,15 @@
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
-        margin-bottom: 1rem;
+        margin-bottom: 0.45rem;
     }
 
     .article-badge {
-        padding: 0.25rem 0.75rem;
-        border-radius: 100px;
-        font-size: 0.75rem;
-        font-weight: 500;
+        padding: 0.1rem 0.4rem;
+        border-radius: 999px;
+        font-size: 0.625rem;
+        font-weight: 700;
+        text-transform: uppercase;
     }
 
     .article-badge.public {
@@ -1112,28 +1040,28 @@
     }
 
     .article-title {
-        font-size: 1.125rem;
-        font-weight: 600;
+        font-size: 0.8125rem;
+        font-weight: 700;
         color: var(--text-primary);
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.3rem;
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
-        line-height: 1.4;
+        line-height: 1.35;
     }
 
     .article-excerpt,
     .article-excerpt-html {
-        font-size: 0.875rem;
+        font-size: 0.75rem;
         color: var(--text-secondary);
-        line-height: 1.6;
-        margin-bottom: 1rem;
+        line-height: 1.45;
+        margin-bottom: 0.55rem;
         display: -webkit-box;
         -webkit-line-clamp: 3;
         -webkit-box-orient: vertical;
         overflow: hidden;
-        min-height: 3.9em;
+        min-height: 0;
     }
 
     .article-excerpt-html h2 { font-size: 1rem; font-weight: 700; margin: 0.5rem 0 0.25rem 0; }
@@ -1146,67 +1074,38 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding-top: 1rem;
+        padding-top: 0.55rem;
         margin-top: auto;
         border-top: 1px solid var(--border);
-        font-size: 0.8125rem;
+        font-size: 0.6875rem;
         color: var(--text-muted);
     }
 
     .article-category {
-        padding: 0.25rem 0.75rem;
+        padding: 0.1rem 0.4rem;
         background: var(--bg-primary);
         border-radius: 6px;
-        font-weight: 500;
+        font-weight: 600;
+        font-size: 0.625rem;
     }
 
     /* FAQ Categories */
-    .faq-categories {
-        display: flex;
-        gap: 0.5rem;
-        margin-bottom: 2rem;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        padding-bottom: 0.5rem;
-    }
-
-    .faq-category-btn {
-        padding: 0.625rem 1.25rem;
-        border: 1px solid var(--border);
-        background: var(--bg-card);
-        border-radius: 8px;
-        font-size: 0.875rem;
-        font-weight: 500;
-        color: var(--text-secondary);
-        cursor: pointer;
-        transition: all 0.15s;
-        white-space: nowrap;
-        -webkit-tap-highlight-color: transparent;
-    }
-
-    .faq-category-btn:hover {
-        background: var(--bg-primary);
-        color: var(--text-primary);
-    }
-
-    .faq-category-btn.active {
-        background: var(--accent);
-        border-color: var(--accent);
-        color: white;
+    .faq-categories.leads-tabs {
+        margin-bottom: 0.55rem;
     }
 
     /* FAQs List */
     .faqs-list {
         display: flex;
         flex-direction: column;
-        gap: 1rem;
+        gap: 0.45rem;
     }
 
     .faq-item {
         background: var(--bg-card);
         border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 1.5rem;
+        border-radius: 8px;
+        padding: 0.65rem 0.75rem;
         cursor: pointer;
         transition: all 0.15s;
     }
@@ -1236,15 +1135,15 @@
     }
 
     .faq-question-text {
-        font-size: 1rem;
+        font-size: 0.8125rem;
         font-weight: 600;
         color: var(--text-primary);
         flex: 1;
     }
 
     .faq-icon {
-        width: 24px;
-        height: 24px;
+        width: 16px;
+        height: 16px;
         color: var(--accent);
         flex-shrink: 0;
         transition: transform 0.2s;
@@ -1267,10 +1166,10 @@
     }
 
     .faq-answer-text {
-        font-size: 0.875rem;
+        font-size: 0.75rem;
         color: var(--text-secondary);
-        line-height: 1.6;
-        padding-top: 1rem;
+        line-height: 1.5;
+        padding-top: 0.55rem;
         border-top: 1px solid var(--border);
     }
 
@@ -1283,41 +1182,41 @@
     .faq-meta {
         display: flex;
         align-items: center;
-        gap: 1rem;
-        margin-top: 1rem;
-        font-size: 0.8125rem;
+        gap: 0.65rem;
+        margin-top: 0.55rem;
+        font-size: 0.6875rem;
         color: var(--text-muted);
     }
 
     /* Default Application Guides */
     .default-guides-section {
-        margin-bottom: 2rem;
+        margin-bottom: 0.85rem;
     }
 
     .default-guides-heading {
-        font-size: 1.125rem;
-        font-weight: 600;
+        font-size: 0.875rem;
+        font-weight: 700;
         color: var(--text-primary);
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.25rem;
     }
 
     .default-guides-intro {
-        font-size: 0.875rem;
+        font-size: 0.75rem;
         color: var(--text-secondary);
-        line-height: 1.6;
-        margin-bottom: 1.5rem;
+        line-height: 1.45;
+        margin-bottom: 0.65rem;
     }
 
     .default-guides-list {
         display: flex;
         flex-direction: column;
-        gap: 0.5rem;
+        gap: 0.35rem;
     }
 
     .default-guide-item {
         background: var(--bg-card);
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: 8px;
         overflow: hidden;
         transition: border-color 0.15s;
     }
@@ -1332,15 +1231,15 @@
     }
 
     .default-guide-summary {
-        padding: 1rem 1.25rem;
+        padding: 0.55rem 0.75rem;
         font-weight: 600;
-        font-size: 0.9375rem;
+        font-size: 0.75rem;
         color: var(--text-primary);
         cursor: pointer;
         list-style: none;
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: 0.45rem;
     }
 
     .default-guide-summary::-webkit-details-marker {
@@ -1362,39 +1261,39 @@
     }
 
     .default-guide-steps {
-        padding: 0 1.25rem 1.25rem 2rem;
+        padding: 0 0.75rem 0.75rem 1.5rem;
         border-top: 1px solid var(--border);
     }
 
     .default-guide-steps ol {
-        margin: 1rem 0 0.75rem 0;
-        padding-left: 1.5rem;
+        margin: 0.55rem 0 0.45rem 0;
+        padding-left: 1.1rem;
     }
 
     .default-guide-steps li {
-        margin-bottom: 0.5rem;
-        font-size: 0.875rem;
-        line-height: 1.6;
+        margin-bottom: 0.3rem;
+        font-size: 0.75rem;
+        line-height: 1.45;
         color: var(--text-secondary);
     }
 
     /* Guides Grid */
     .guides-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-        gap: 1.5rem;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 0.65rem;
     }
 
     .guide-card {
         background: var(--bg-card);
         border: 1px solid var(--border);
-        border-radius: 12px;
+        border-radius: 8px;
         overflow: hidden;
         cursor: pointer;
         transition: all 0.15s;
         display: flex;
         flex-direction: column;
-        min-height: 320px;
+        min-height: 0;
     }
 
     .guide-card:hover {
@@ -1404,17 +1303,17 @@
 
     .guide-image {
         width: 100%;
-        height: 180px;
+        height: 96px;
         background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
         display: flex;
         align-items: center;
         justify-content: center;
         color: white;
-        font-size: 3rem;
+        font-size: 1.75rem;
     }
 
     .guide-content {
-        padding: 1.5rem;
+        padding: 0.65rem 0.75rem;
         display: flex;
         flex-direction: column;
         flex: 1;
@@ -1422,37 +1321,37 @@
     }
 
     .guide-category {
-        font-size: 0.75rem;
+        font-size: 0.625rem;
         color: var(--accent);
-        font-weight: 600;
+        font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
-        margin-bottom: 0.5rem;
+        letter-spacing: 0.04em;
+        margin-bottom: 0.25rem;
     }
 
     .guide-title {
-        font-size: 1.125rem;
-        font-weight: 600;
+        font-size: 0.8125rem;
+        font-weight: 700;
         color: var(--text-primary);
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.3rem;
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
-        line-height: 1.4;
+        line-height: 1.35;
     }
 
     .guide-excerpt,
     .guide-excerpt-html {
-        font-size: 0.875rem;
+        font-size: 0.75rem;
         color: var(--text-secondary);
-        line-height: 1.6;
-        margin-bottom: 1rem;
+        line-height: 1.45;
+        margin-bottom: 0.55rem;
         display: -webkit-box;
         -webkit-line-clamp: 3;
         -webkit-box-orient: vertical;
         overflow: hidden;
-        min-height: 3.9em;
+        min-height: 0;
     }
 
     .guide-excerpt-html h2 { font-size: 1rem; font-weight: 700; margin: 0.5rem 0 0.25rem 0; }
@@ -1465,7 +1364,7 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        font-size: 0.8125rem;
+        font-size: 0.6875rem;
         color: var(--text-muted);
         margin-top: auto;
     }
@@ -1475,11 +1374,11 @@
         display: none;
         position: fixed;
         inset: 0;
-        background: rgba(0, 0, 0, 0.75);
+        background: rgba(15, 23, 42, 0.4);
         z-index: 2000;
         align-items: center;
         justify-content: center;
-        padding: 1rem;
+        padding: 0.75rem;
         opacity: 0;
         transition: opacity 0.2s;
     }
@@ -1491,56 +1390,50 @@
 
     .knowledge-modal-content {
         background: var(--bg-card);
-        border-radius: 16px;
-        max-width: 900px;
-        width: 100%;
-        max-height: 90vh;
+        border-radius: 8px;
+        width: min(900px, 96vw);
+        max-height: 92vh;
         display: flex;
         flex-direction: column;
         position: relative;
-        transform: scale(0.95);
-        transition: transform 0.2s;
         overflow: hidden;
-    }
-
-    .knowledge-modal.active .knowledge-modal-content {
-        transform: scale(1);
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
     }
 
     .modal-close {
         position: absolute;
-        top: 1rem;
-        right: 1rem;
-        width: 40px;
-        height: 40px;
-        background: rgba(0, 0, 0, 0.5);
+        top: 0.55rem;
+        right: 0.55rem;
+        width: 26px;
+        height: 26px;
+        background: none;
         border: none;
-        border-radius: 50%;
-        color: white;
+        border-radius: 5px;
+        color: var(--text-muted);
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
         z-index: 10;
-        transition: background 0.15s;
     }
 
     .modal-close:hover {
-        background: rgba(0, 0, 0, 0.7);
+        background: var(--bg-primary);
+        color: var(--text-primary);
     }
 
     .modal-close svg {
-        width: 20px;
-        height: 20px;
+        width: 14px;
+        height: 14px;
     }
 
-    .modal-header {
-        padding: 1.5rem;
+    .knowledge-modal .modal-header {
+        padding: 0.65rem 0.85rem;
         border-bottom: 1px solid var(--border);
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
-        gap: 1rem;
+        gap: 0.65rem;
     }
 
     .modal-header-info {
@@ -1549,11 +1442,12 @@
 
     .modal-badge {
         display: inline-block;
-        padding: 0.25rem 0.75rem;
-        border-radius: 100px;
-        font-size: 0.75rem;
-        font-weight: 500;
-        margin-bottom: 0.5rem;
+        padding: 0.1rem 0.4rem;
+        border-radius: 999px;
+        font-size: 0.625rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        margin-bottom: 0.25rem;
     }
 
     .modal-badge.public {
@@ -1582,15 +1476,15 @@
     }
 
     .article-preview-body {
-        padding: 0 1.5rem 1rem;
+        padding: 0 0.85rem 0.65rem;
     }
 
     .article-preview-excerpt {
-        font-size: 1rem;
+        font-size: 0.8125rem;
         color: var(--text-secondary);
-        line-height: 1.7;
-        margin-bottom: 1.25rem;
-        padding-bottom: 1.25rem;
+        line-height: 1.5;
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.75rem;
         border-bottom: 1px solid var(--border);
         display: block;
         -webkit-line-clamp: unset;
@@ -1606,28 +1500,31 @@
     }
 
     .article-preview-actions {
-        padding: 0 1.5rem 1.5rem;
+        padding: 0.55rem 0.85rem 0.75rem;
         flex-wrap: wrap;
     }
 
     .modal-title {
-        font-size: 1.5rem;
+        font-size: 0.875rem;
         font-weight: 700;
         color: var(--text-primary);
-        margin: 0 0 0.5rem 0;
+        margin: 0 0 0.2rem 0;
+        line-height: 1.35;
     }
 
     .modal-meta {
         display: flex;
-        gap: 0.5rem;
-        font-size: 0.875rem;
+        gap: 0.4rem;
+        font-size: 0.6875rem;
         color: var(--text-secondary);
         flex-wrap: wrap;
     }
 
     .modal-actions {
         display: flex;
-        gap: 0.75rem;
+        gap: 0.35rem;
+        flex-wrap: wrap;
+        padding-right: 1.5rem;
     }
 
     .knowledge-modal-delete:hover {
@@ -1647,16 +1544,16 @@
         font-size: 0.75rem;
     }
 
-    .modal-body {
+    .knowledge-modal .modal-body {
         flex: 1;
         overflow-y: auto;
-        padding: 1.5rem;
+        padding: 0.75rem 0.85rem;
     }
 
     .content-body {
-        font-size: 0.9375rem;
+        font-size: 0.8125rem;
         color: var(--text-primary);
-        line-height: 1.8;
+        line-height: 1.55;
     }
 
     .content-body h2 {
@@ -1716,10 +1613,10 @@
     }
 
     .modal-form {
-        padding: 0 1.5rem 1.5rem;
+        padding: 0 0.85rem 0.85rem;
         display: flex;
         flex-direction: column;
-        gap: 1.25rem;
+        gap: 0.75rem;
     }
 
     .form-row {
@@ -1745,10 +1642,11 @@
         min-width: 0;
     }
 
-    .btn-sm {
-        padding: 0.5rem 0.75rem;
-        font-size: 0.8125rem;
+    .form-input-group .btn-sm {
         flex-shrink: 0;
+        min-width: 2rem;
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
     }
 
     .form-group-flex {
@@ -1756,8 +1654,8 @@
     }
 
     .form-label {
-        font-size: 0.875rem;
-        font-weight: 500;
+        font-size: 0.75rem;
+        font-weight: 600;
         color: var(--text-primary);
     }
 
@@ -1767,10 +1665,10 @@
 
     .form-input {
         width: 100%;
-        padding: 0.75rem;
+        padding: 0.4rem 0.6rem;
         border: 1px solid var(--border);
-        border-radius: 8px;
-        font-size: 0.875rem;
+        border-radius: 6px;
+        font-size: 0.75rem;
         background: var(--bg-card);
         color: var(--text-primary);
         font-family: inherit;
@@ -1779,7 +1677,7 @@
     .form-input:focus {
         outline: none;
         border-color: var(--accent);
-        box-shadow: 0 0 0 3px rgba(95, 97, 230, 0.1);
+        box-shadow: 0 0 0 2px rgba(95, 97, 230, 0.12);
     }
 
     .form-input::placeholder {
@@ -1794,14 +1692,15 @@
     .modal-form-actions {
         display: flex;
         justify-content: flex-end;
-        gap: 0.75rem;
-        padding-top: 0.5rem;
+        gap: 0.45rem;
+        padding-top: 0.55rem;
         border-top: 1px solid var(--border);
+        flex-wrap: wrap;
     }
 
-    .modal-form-actions .btn-primary svg {
-        width: 18px;
-        height: 18px;
+    .modal-form-actions .btn svg {
+        width: 14px;
+        height: 14px;
     }
 
     .icon-picker {
@@ -1973,17 +1872,6 @@
 
     /* Responsive */
     @media (max-width: 768px) {
-        .knowledge-tabs {
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-        }
-
-        .tab-btn {
-            min-width: 120px;
-            font-size: 0.8125rem;
-            padding: 0.625rem 1rem;
-        }
-
         .section-header {
             flex-direction: column;
             align-items: stretch;
@@ -1993,9 +1881,10 @@
             width: 100%;
         }
 
-        .filter-select {
+        .section-actions .leads-source-filter {
             flex: 1;
             min-width: 0;
+            width: auto;
         }
 
         .articles-grid,
@@ -2003,27 +1892,19 @@
             grid-template-columns: 1fr;
         }
 
-        .faq-categories {
-            flex-wrap: nowrap;
-        }
-
         .knowledge-modal-content {
-            max-width: 100%;
+            width: 100%;
             max-height: 100vh;
             border-radius: 0;
         }
 
-        .modal-header {
+        .knowledge-modal .modal-header {
             flex-direction: column;
         }
 
         .modal-actions {
             width: 100%;
-        }
-
-        .modal-actions .btn-secondary {
-            width: 100%;
-            justify-content: center;
+            padding-right: 0;
         }
 
         .form-row {
@@ -2031,21 +1912,7 @@
         }
 
         .modal-form-actions {
-            flex-direction: column;
-        }
-
-        .modal-form-actions .btn-secondary,
-        .modal-form-actions .btn-primary {
-            width: 100%;
-            justify-content: center;
-        }
-    }
-
-    @media (max-width: 480px) {
-        .tab-btn {
-            min-width: 100px;
-            font-size: 0.75rem;
-            padding: 0.5rem 0.75rem;
+            flex-wrap: wrap;
         }
     }
 </style>
@@ -2300,8 +2167,8 @@
                         ${faq.category ? `<span>${faq.category}</span>` : ''}
                         <span>${faq.views} views</span>
                         <div class="faq-item-actions" onclick="event.stopPropagation()">
-                            ${canEditKnowledgeBase ? `<button type="button" class="btn-secondary" onclick="editFaq(${faq.id})">Edit</button>` : ''}
-                            ${canDeleteKnowledgeBase ? `<button type="button" class="knowledge-modal-delete btn-secondary" onclick="deleteFaqConfirm(${faq.id})">Delete</button>` : ''}
+                            ${canEditKnowledgeBase ? `<button type="button" class="btn btn-secondary btn-sm" onclick="editFaq(${faq.id})">Edit</button>` : ''}
+                            ${canDeleteKnowledgeBase ? `<button type="button" class="btn btn-secondary btn-sm knowledge-modal-delete" onclick="deleteFaqConfirm(${faq.id})">Delete</button>` : ''}
                         </div>
                     </div>
                 </div>
@@ -2517,7 +2384,7 @@
                 const container = document.getElementById('faqCategoriesContainer');
                 const btn = document.createElement('button');
                 btn.type = 'button';
-                btn.className = 'faq-category-btn';
+                btn.className = 'leads-tab faq-category-btn';
                 btn.dataset.category = category.name;
                 btn.textContent = category.name;
                 container.appendChild(btn);
