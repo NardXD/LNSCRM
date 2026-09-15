@@ -1087,7 +1087,7 @@
         if (!isSameDay(start, day)) startH = 0;
         if (!isSameDay(end, day)) endH = 24;
         if (endH <= startH) endH = startH + 0.5;
-        return { event, startH, endH, col: 0, colCount: 1, behind: false };
+        return { event, startH, endH, col: 0, colCount: 1 };
     }
 
     function assignOverlapColumns(items) {
@@ -1107,42 +1107,30 @@
     }
 
     function layoutTimedClusters(items) {
-        items.sort((a, b) => a.startH - b.startH || b.endH - a.endH);
-        const active = items.filter(item => !isCanceledEvent(item.event));
-        const canceled = items.filter(item => isCanceledEvent(item.event));
-        const pack = (group) => {
-            let cluster = [];
-            let clusterEnd = -1;
-            group.forEach(item => {
-                if (cluster.length && item.startH >= clusterEnd - 0.01) {
-                    assignOverlapColumns(cluster);
-                    cluster = [];
-                    clusterEnd = -1;
-                }
-                cluster.push(item);
-                clusterEnd = Math.max(clusterEnd, item.endH);
-            });
-            if (cluster.length) assignOverlapColumns(cluster);
-        };
-        pack(active);
-        pack(canceled);
-        canceled.forEach(item => { item.behind = true; });
-        return [...canceled, ...active];
+        items.sort((a, b) => a.startH - b.startH || b.endH - a.endH || String(a.event.title).localeCompare(String(b.event.title)));
+        let cluster = [];
+        let clusterEnd = -1;
+        items.forEach(item => {
+            if (cluster.length && item.startH >= clusterEnd - 0.01) {
+                assignOverlapColumns(cluster);
+                cluster = [];
+                clusterEnd = -1;
+            }
+            cluster.push(item);
+            clusterEnd = Math.max(clusterEnd, item.endH);
+        });
+        if (cluster.length) assignOverlapColumns(cluster);
+        return items;
     }
 
     function timedEventGeometry(item) {
-        if (item.behind || isCanceledEvent(item.event)) {
-            return { left: '4px', width: 'calc(100% - 8px)', z: 1 };
-        }
+        const n = Math.max(item.colCount || 1, 1);
         const col = item.col || 0;
-        if ((item.colCount || 1) <= 1) {
-            return { left: '4px', width: 'calc(100% - 8px)', z: 2 };
-        }
-        const indent = Math.min(col * 14, 42);
+        const gap = 3;
         return {
-            left: `calc(${indent}% + 4px)`,
-            width: `calc(${100 - indent}% - 8px)`,
-            z: 3 + col,
+            left: `calc(${(col / n) * 100}% + ${gap}px)`,
+            width: `calc(${(1 / n) * 100}% - ${gap * 2}px)`,
+            z: 2 + col,
         };
     }
 
