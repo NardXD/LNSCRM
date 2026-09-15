@@ -839,11 +839,11 @@
         {
             id: 'outlook',
             name: 'Microsoft Outlook',
-            description: 'Configure Microsoft Outlook OAuth for calendar sync and Inbox mail (personal & shared mailboxes).',
+            description: 'Configure Microsoft Outlook OAuth for Inbox mail (personal & shared mailboxes). Calendar uses the same personal Inbox account.',
             category: 'productivity',
             icon: '📧',
             status: 'disconnected',
-            features: ['Outlook Calendar sync', 'Outlook Inbox / shared mail', 'Per-company OAuth credentials', 'Personal & shared mailbox connection']
+            features: ['Outlook Inbox / shared mail', 'Personal calendar via Inbox account', 'Per-company OAuth credentials', 'Personal & shared mailbox connection']
         },
         {
             id: 'storeganise',
@@ -1575,22 +1575,21 @@
                 <p class="form-help">Leave fields blank to keep existing values. Credentials are stored per company.</p>
             `,
             'outlook': `
-                <p class="form-help" style="margin-bottom: 1rem;">Configure Microsoft Outlook OAuth for calendar sync and Inbox mail. Users connect calendars from Calendar and mailboxes from Inbox.</p>
+                <p class="form-help" style="margin-bottom: 1rem;">Configure Microsoft Outlook OAuth for Inbox mail. Calendar shows events from the personal Microsoft 365 account connected in Inbox (no separate calendar login).</p>
                 <div class="oauth-section" style="margin-bottom: 1.5rem;">
                     <h4 style="font-size: 0.9375rem; font-weight: 600; margin-bottom: 0.75rem;">Microsoft Outlook</h4>
                     <details class="oauth-steps" style="background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem;">
-                        <summary style="cursor: pointer; font-size: 0.8125rem; font-weight: 500; color: var(--accent);">How to configure Outlook (Calendar + Inbox)</summary>
+                        <summary style="cursor: pointer; font-size: 0.8125rem; font-weight: 500; color: var(--accent);">How to configure Outlook (Inbox + Calendar)</summary>
                         <ol style="margin: 0.75rem 0 0; padding-left: 1.25rem; font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.6;">
                             <li>Go to <a href="https://portal.azure.com/" target="_blank" rel="noopener">Azure Portal</a> → Microsoft Entra ID</li>
                             <li>App registrations → New registration. For single-tenant apps, also copy the <strong>Directory (tenant) ID</strong>.</li>
-                            <li>Add Redirect URIs (Platform Web):
-                                <div style="margin-top:0.35rem;">Calendar: <code id="calendarOutlookRedirectUrl" style="background: var(--bg-card); padding: 0.125rem 0.375rem; border-radius: 4px; font-size: 0.75rem; word-break: break-all;">${(existingData && existingData.redirect_url_outlook) ? existingData.redirect_url_outlook : '{{ url("/calendar/connect/outlook/callback") }}'}</code></div>
+                            <li>Add Redirect URI (Platform Web):
                                 <div style="margin-top:0.25rem;">Inbox: <code id="inboxOutlookRedirectUrl" style="background: var(--bg-card); padding: 0.125rem 0.375rem; border-radius: 4px; font-size: 0.75rem; word-break: break-all;">${(existingData && existingData.redirect_url_outlook_mail) ? existingData.redirect_url_outlook_mail : '{{ url("/inbox/connect/outlook/callback") }}'}</code></div>
                             </li>
                             <li>Certificates &amp; secrets → New client secret → copy the value</li>
-                            <li>API permissions → Add: Calendars.Read, User.Read, Mail.ReadWrite, Mail.Send, Mail.ReadWrite.Shared, offline_access</li>
+                            <li>API permissions → Add: Calendars.ReadWrite, User.Read, Mail.ReadWrite, Mail.Send, Mail.ReadWrite.Shared, offline_access</li>
                             <li>Copy Application (client) ID and client secret below. If the app is <strong>single-tenant</strong>, paste the Directory (tenant) ID too (required — using /common will fail with AADSTS50194).</li>
-                            <li>Users connect calendars from <strong>Calendar</strong> and personal/shared mail from <strong>Inbox</strong></li>
+                            <li>Users connect personal/shared mail from <strong>Inbox</strong>. <strong>Calendar</strong> then shows, creates, updates, and shares events from that personal account.</li>
                         </ol>
                     </details>
                     <div class="form-group">

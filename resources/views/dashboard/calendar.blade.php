@@ -40,21 +40,13 @@
             </div>
             <div class="toolbar-right">
                 <div class="toolbar-actions">
-                    <button type="button" class="integration-btn" id="googleCalendarBtn" data-connect-url="{{ route('calendar.connect.google') }}" title="Connect Google Calendar">
-                        <svg viewBox="0 0 24 24" width="18" height="18">
-                            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                        </svg>
-                        <span id="googleCalendarStatus">Google</span>
-                    </button>
-                    <button type="button" class="integration-btn" id="outlookCalendarBtn" data-connect-url="{{ route('calendar.connect.outlook') }}" title="Connect Outlook Calendar">
-                        <svg viewBox="0 0 24 24" width="18" height="18">
+                    <div class="inbox-account-chip" id="inboxAccountChip">
+                        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
                             <path fill="#0078D4" d="M7.56 7h8.88c.69 0 1.25.56 1.25 1.25v7.5c0 .69-.56 1.25-1.25 1.25H7.56a1.25 1.25 0 01-1.25-1.25v-7.5C6.31 7.56 6.87 7 7.56 7z"/>
                         </svg>
-                        <span id="outlookCalendarStatus">Outlook</span>
-                    </button>
+                        <span id="inboxAccountLabel">Checking inbox…</span>
+                    </div>
+                    <a class="integration-btn" id="inboxAccountAction" href="{{ route('inbox') }}">Open Inbox</a>
                 </div>
                 <button type="button" class="btn-create" onclick="openEventModal()">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -67,7 +59,10 @@
         </div>
 
         <div class="calendar-setup-note" id="calendarSetupNote" style="display: none;">
-            <p>To see your calendar events, configure Calendar OAuth Settings in <a href="{{ route('integrations') }}">Integrations</a> and connect your personal Google or Outlook account using the buttons above.</p>
+            <p>Calendar shows events from the personal Microsoft 365 account connected in <a href="{{ route('inbox') }}">Inbox</a>. Connect Personal MS365 there to load your Outlook calendar.</p>
+        </div>
+        <div class="calendar-setup-note calendar-reconnect-note" id="calendarReconnectNote" style="display: none;">
+            <p>Your Inbox account is connected for mail, but it does not yet have calendar access. <a href="{{ route('inbox.connect.outlook') }}">Reconnect Personal MS365</a> to grant Calendars.ReadWrite, then return here.</p>
         </div>
 
         <div class="calendar-main">
@@ -75,27 +70,8 @@
         <aside class="calendar-sidebar">
             <div class="sidebar-section">
                 <h3 class="sidebar-title">My calendars</h3>
-                <div class="calendar-list">
-                    <label class="calendar-item">
-                        <input type="checkbox" checked onchange="toggleCalendar('personal')">
-                        <span class="calendar-dot" style="background: #1a73e8;"></span>
-                        <span class="calendar-name">Personal</span>
-                    </label>
-                    <label class="calendar-item">
-                        <input type="checkbox" checked onchange="toggleCalendar('work')">
-                        <span class="calendar-dot" style="background: #0b8043;"></span>
-                        <span class="calendar-name">Work</span>
-                    </label>
-                    <label class="calendar-item" id="googleCalendarItem" style="display: none;">
-                        <input type="checkbox" checked onchange="toggleCalendar('google')">
-                        <span class="calendar-dot" style="background: #4285F4;"></span>
-                        <span class="calendar-name">Google Calendar</span>
-                    </label>
-                    <label class="calendar-item" id="outlookCalendarItem" style="display: none;">
-                        <input type="checkbox" checked onchange="toggleCalendar('outlook')">
-                        <span class="calendar-dot" style="background: #0078D4;"></span>
-                        <span class="calendar-name">Outlook</span>
-                    </label>
+                <div class="calendar-list" id="calendarList">
+                    <div class="calendar-list-empty" id="calendarListEmpty">Connect Inbox to load calendars</div>
                 </div>
             </div>
             <div class="sidebar-section">
@@ -212,16 +188,14 @@
                     <div class="form-group">
                         <label class="form-label">Calendar</label>
                         <select class="form-input" id="eventCalendar">
-                            <option value="personal">Personal</option>
-                            <option value="work">Work</option>
-                            <option value="google" id="googleCalendarOption" style="display: none;">Google Calendar</option>
-                            <option value="outlook" id="outlookCalendarOption" style="display: none;">Outlook Calendar</option>
+                            <option value="">Connect Inbox to choose a calendar</option>
                         </select>
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label">Attendees</label>
-                        <input type="text" class="form-input" id="eventAttendees" placeholder="Enter email addresses (comma separated)">
+                        <label class="form-label">Share with</label>
+                        <input type="text" class="form-input" id="eventAttendees" placeholder="email@company.com, teammate@company.com">
+                        <span class="form-help">Comma-separated emails. Outlook sends invitations when you save.</span>
                     </div>
 
                     <div class="form-group">
@@ -239,9 +213,10 @@
             </div>
 
             <div class="modal-footer">
+                <p class="calendar-event-error" id="eventFormError" hidden></p>
                 <button class="btn-secondary" onclick="closeEventModal()">Cancel</button>
                 <button class="btn-secondary" onclick="deleteEvent()" id="deleteEventBtn" style="display: none;">Delete</button>
-                <button class="btn-primary" onclick="document.getElementById('eventForm').requestSubmit()">Save Event</button>
+                <button class="btn-primary" id="saveEventBtn" onclick="document.getElementById('eventForm').requestSubmit()">Save Event</button>
             </div>
         </div>
     </div>
@@ -563,6 +538,52 @@
     .upcoming-event.work { border-left-color: #0b8043; }
     .upcoming-event.google { border-left-color: #4285F4; }
     .upcoming-event.outlook { border-left-color: #0078D4; }
+    .upcoming-event.local { border-left-color: #1a73e8; }
+
+    .inbox-account-chip {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+        padding: 0.4rem 0.7rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        background: var(--bg-primary);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        max-width: 240px;
+    }
+
+    .inbox-account-chip.connected {
+        background: #e8f5e9;
+        color: #2e7d32;
+        border-color: transparent;
+    }
+
+    .inbox-account-chip.reconnect {
+        background: #fff8e1;
+        color: #b26a00;
+        border-color: #ffe082;
+    }
+
+    .inbox-account-chip span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .calendar-reconnect-note {
+        background: #fff8e1;
+        border-color: #ffe082;
+    }
+
+    .calendar-list-empty {
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+    }
+
+    a.integration-btn {
+        text-decoration: none;
+    }
 
     .upcoming-event-title {
         font-size: 0.8125rem;
@@ -714,6 +735,7 @@
     .month-event.work { background: #e6f4ea; color: #0b8043; border-left-color: #0b8043; }
     .month-event.google { background: #e8f0fe; color: #1967d2; border-left-color: #4285F4; }
     .month-event.outlook { background: #e3f2fd; color: #1565c0; border-left-color: #0078D4; }
+    .month-event.local { background: #e8f0fe; color: #1a73e8; border-left-color: #1a73e8; }
 
     .month-event.more {
         color: var(--text-secondary);
@@ -816,6 +838,7 @@
     .week-event.work, .day-event-block.work { background: #0b8043; }
     .week-event.google, .day-event-block.google { background: #4285F4; }
     .week-event.outlook, .day-event-block.outlook { background: #0078D4; }
+    .week-event.local, .day-event-block.local { background: #1a73e8; }
 
     /* Day view */
     .day-header {
@@ -987,6 +1010,19 @@
         margin-right: 0.5rem;
     }
 
+    .form-help {
+        display: block;
+        margin-top: 0.25rem;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+
+    .calendar-event-error {
+        margin: 0 auto 0 0;
+        font-size: 0.8125rem;
+        color: #c5221f;
+    }
+
     .form-label:has(input[type="checkbox"]) {
         display: flex;
         align-items: center;
@@ -1080,117 +1116,200 @@
     // Calendar State
     let currentDate = new Date();
     let currentView = 'month';
-    let googleCalendarConnected = false;
-    let outlookCalendarConnected = false;
+    let inboxConnected = false;
+    let inboxNeedsReconnect = false;
+    let inboxEmail = '';
     let currentEditingEvent = null;
+    let outlookCalendars = [];
+    let hiddenCalendarIds = new Set();
 
     let events = [];
 
     // Initialize Calendar
     function initCalendar() {
-        updateCalendarButtons();
         fetchCalendarStatus();
         updateCalendarTitle();
         renderCalendar();
         renderUpcomingEvents();
     }
 
-    // Fetch calendar connection status and external events
+    function hasInboxCalendar() {
+        return inboxConnected && !inboxNeedsReconnect;
+    }
+
     function fetchCalendarStatus() {
         fetch('{{ route("api.calendar.status") }}', {
             headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
         })
         .then(r => r.json())
         .then(data => {
-            googleCalendarConnected = data.google || false;
-            outlookCalendarConnected = data.outlook || false;
-            updateCalendarButtons();
-            const goog = document.getElementById('googleCalendarItem');
-            const outl = document.getElementById('outlookCalendarItem');
-            const googOpt = document.getElementById('googleCalendarOption');
-            const outlOpt = document.getElementById('outlookCalendarOption');
-            if (goog) goog.style.display = googleCalendarConnected ? 'flex' : 'none';
-            if (outl) outl.style.display = outlookCalendarConnected ? 'flex' : 'none';
-            if (googOpt) googOpt.style.display = googleCalendarConnected ? 'block' : 'none';
-            if (outlOpt) outlOpt.style.display = outlookCalendarConnected ? 'block' : 'none';
-            const setupNote = document.getElementById('calendarSetupNote');
-            const hasConnection = googleCalendarConnected || outlookCalendarConnected;
-            if (setupNote) setupNote.style.display = hasConnection ? 'none' : 'block';
-            if (hasConnection) {
+            inboxConnected = !!data.connected;
+            inboxEmail = data.email || '';
+            inboxNeedsReconnect = !!data.needs_reconnect;
+            updateInboxAccountChip();
+            if (inboxConnected) {
                 fetchExternalEvents();
             } else {
                 events = events.filter(e => !e.external);
+                outlookCalendars = [];
+                renderOutlookCalendars();
                 renderCalendar();
                 renderUpcomingEvents();
             }
         })
         .catch(() => {
-            document.getElementById('calendarSetupNote').style.display = 'block';
+            inboxConnected = false;
+            updateInboxAccountChip();
         });
     }
 
-    function updateCalendarButtons() {
-        const googleBtn = document.getElementById('googleCalendarBtn');
-        const outlookBtn = document.getElementById('outlookCalendarBtn');
-        const googleStatus = document.getElementById('googleCalendarStatus');
-        const outlookStatus = document.getElementById('outlookCalendarStatus');
-        if (googleBtn) {
-            googleBtn.classList.toggle('connected', googleCalendarConnected);
-            googleStatus.textContent = googleCalendarConnected ? 'Connected' : 'Google';
-            googleBtn.onclick = () => googleCalendarConnected ? disconnectCalendar('google') : (window.location.href = googleBtn.dataset.connectUrl || '{{ route("calendar.connect.google") }}');
-        }
-        if (outlookBtn) {
-            outlookBtn.classList.toggle('connected', outlookCalendarConnected);
-            outlookStatus.textContent = outlookCalendarConnected ? 'Connected' : 'Outlook';
-            outlookBtn.onclick = () => outlookCalendarConnected ? disconnectCalendar('outlook') : (window.location.href = outlookBtn.dataset.connectUrl || '{{ route("calendar.connect.outlook") }}');
-        }
-    }
+    function updateInboxAccountChip() {
+        const chip = document.getElementById('inboxAccountChip');
+        const label = document.getElementById('inboxAccountLabel');
+        const action = document.getElementById('inboxAccountAction');
+        const setupNote = document.getElementById('calendarSetupNote');
+        const reconnectNote = document.getElementById('calendarReconnectNote');
 
-    function disconnectCalendar(provider) {
-        if (!confirm('Disconnect ' + (provider === 'google' ? 'Google' : 'Outlook') + ' Calendar?')) return;
-        fetch('{{ route("api.calendar.disconnect") }}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: JSON.stringify({ provider })
-        })
-        .then(r => r.json())
-        .then(() => {
-            if (provider === 'google') {
-                googleCalendarConnected = false;
-                document.getElementById('googleCalendarItem').style.display = 'none';
-                document.getElementById('googleCalendarOption').style.display = 'none';
-            } else {
-                outlookCalendarConnected = false;
-                document.getElementById('outlookCalendarItem').style.display = 'none';
-                document.getElementById('outlookCalendarOption').style.display = 'none';
-            }
-            events = events.filter(e => !e.external || e.calendar !== provider);
-            const hasConnection = googleCalendarConnected || outlookCalendarConnected;
-            document.getElementById('calendarSetupNote').style.display = hasConnection ? 'none' : 'block';
-            updateCalendarButtons();
-            renderCalendar();
-            renderUpcomingEvents();
-        });
+        chip.classList.toggle('connected', inboxConnected && !inboxNeedsReconnect);
+        chip.classList.toggle('reconnect', inboxConnected && inboxNeedsReconnect);
+
+        if (!inboxConnected) {
+            label.textContent = 'Inbox not connected';
+            action.textContent = 'Connect in Inbox';
+            action.href = '{{ route("inbox") }}';
+        } else if (inboxNeedsReconnect) {
+            label.textContent = (inboxEmail ? inboxEmail + ' · ' : '') + 'Reconnect for calendar';
+            action.textContent = 'Reconnect';
+            action.href = '{{ route("inbox.connect.outlook") }}';
+        } else {
+            label.textContent = inboxEmail || 'Personal Outlook';
+            action.textContent = 'Open Inbox';
+            action.href = '{{ route("inbox") }}';
+        }
+
+        if (setupNote) setupNote.style.display = inboxConnected ? 'none' : 'block';
+        if (reconnectNote) reconnectNote.style.display = inboxNeedsReconnect ? 'block' : 'none';
     }
 
     function fetchExternalEvents() {
+        if (!inboxConnected) return;
         const start = getViewStartDate();
         const end = getViewEndDate();
-        const url = `{{ route("api.calendar.events") }}?start=${start.toISOString()}&end=${end.toISOString()}`;
+        const url = `{{ route("api.calendar.events") }}?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`;
         fetch(url, { headers: { 'Accept': 'application/json' } })
         .then(r => r.json())
         .then(data => {
-            const external = (data.events || []).map(e => ({ ...e, id: 'ext_' + (e.id || Math.random()), external: true }));
+            inboxNeedsReconnect = !!data.needs_reconnect;
+            updateInboxAccountChip();
+            outlookCalendars = data.calendars || [];
+            renderOutlookCalendars();
+            const external = (data.events || []).map(e => ({
+                ...e,
+                id: 'ext_' + (e.id || Math.random()),
+                external: true,
+                calendar: e.calendar || 'outlook',
+            }));
             events = events.filter(e => !e.external).concat(external);
             renderCalendar();
             renderUpcomingEvents();
         })
         .catch(() => {});
+    }
+
+    function renderOutlookCalendars() {
+        const list = document.getElementById('calendarList');
+        const empty = document.getElementById('calendarListEmpty');
+        if (!list) return;
+
+        list.querySelectorAll('.calendar-item').forEach(el => el.remove());
+        if (empty) {
+            empty.style.display = outlookCalendars.length ? 'none' : 'block';
+            empty.textContent = inboxConnected
+                ? (inboxNeedsReconnect ? 'Reconnect Inbox to load calendars' : 'No Outlook calendars')
+                : 'Connect Inbox to load calendars';
+        }
+
+        outlookCalendars.forEach(cal => {
+            const id = cal.id;
+            const label = document.createElement('label');
+            label.className = 'calendar-item';
+            const checked = !hiddenCalendarIds.has(id);
+            label.innerHTML = `
+                <input type="checkbox" ${checked ? 'checked' : ''} data-calendar-id="">
+                <span class="calendar-dot" style="background: ${escapeHtml(cal.color || '#0078D4')};"></span>
+                <span class="calendar-name"></span>
+            `;
+            label.querySelector('[data-calendar-id]').dataset.calendarId = id;
+            label.querySelector('.calendar-name').textContent = cal.name || 'Calendar';
+            label.querySelector('input').addEventListener('change', () => toggleCalendar(id));
+            list.appendChild(label);
+        });
+        populateEventCalendarSelect();
+    }
+
+    function calendarApiHeaders() {
+        return {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+        };
+    }
+
+    function outlookEventId(event) {
+        const id = String(event?.id || '');
+        return id.startsWith('ext_') ? id.slice(4) : id;
+    }
+
+    function populateEventCalendarSelect(selectedId = '', lock = false) {
+        const select = document.getElementById('eventCalendar');
+        if (!select) return;
+        select.innerHTML = '';
+        if (!outlookCalendars.length) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = hasInboxCalendar() ? 'No Outlook calendars' : 'Connect Inbox to choose a calendar';
+            select.appendChild(option);
+            select.disabled = true;
+            return;
+        }
+        outlookCalendars.forEach(cal => {
+            const option = document.createElement('option');
+            option.value = cal.id;
+            option.textContent = cal.name || 'Calendar';
+            select.appendChild(option);
+        });
+        const fallback = outlookCalendars.find(c => c.isDefault)?.id || outlookCalendars[0].id;
+        select.value = selectedId && [...select.options].some(o => o.value === selectedId) ? selectedId : fallback;
+        select.disabled = lock;
+    }
+
+    function setEventFormError(message) {
+        const el = document.getElementById('eventFormError');
+        if (!el) return;
+        if (!message) {
+            el.hidden = true;
+            el.textContent = '';
+            return;
+        }
+        el.hidden = false;
+        el.textContent = message;
+    }
+
+    function setEventFormBusy(busy) {
+        const saveBtn = document.getElementById('saveEventBtn');
+        const deleteBtn = document.getElementById('deleteEventBtn');
+        if (saveBtn) {
+            saveBtn.disabled = busy;
+            saveBtn.textContent = busy ? 'Saving…' : 'Save Event';
+        }
+        if (deleteBtn) deleteBtn.disabled = busy;
+    }
+
+    function toApiDateTime(date, time, allDay) {
+        if (allDay) return date;
+        const local = new Date(`${date}T${time || '00:00'}:00`);
+        return local.toISOString();
     }
 
     function getViewStartDate() {
@@ -1269,8 +1388,8 @@
                     <div class="month-cell-num">${currentDay.getDate()}</div>
                     <div class="month-cell-events">
                         ${dayEvents.slice(0, 3).map(event => `
-                            <div class="month-event ${event.calendar}" onclick="event.stopPropagation(); viewEvent(${event.id})" title="${event.title}">
-                                ${event.allDay ? event.title : formatTime(event.start)}
+                            <div class="month-event ${event.calendar}" style="${event.color ? `border-left-color: ${escapeHtml(event.color)};` : ''}" onclick='event.stopPropagation(); viewEvent(${JSON.stringify(String(event.id))})' title="${escapeHtml(event.title)}">
+                                ${event.allDay ? escapeHtml(event.title) : formatTime(event.start)}
                             </div>
                         `).join('')}
                         ${dayEvents.length > 3 ? `<div class="month-event more">+${dayEvents.length - 3} more</div>` : ''}
@@ -1347,6 +1466,7 @@
 
                     const eventEl = document.createElement('div');
                     eventEl.className = `week-event ${event.calendar}`;
+                    if (event.color) eventEl.style.background = event.color;
                     eventEl.style.top = `${top}%`;
                     eventEl.style.height = `${height}%`;
                     eventEl.textContent = event.title;
@@ -1403,10 +1523,11 @@
 
                 const eventEl = document.createElement('div');
                 eventEl.className = `day-event-block ${event.calendar}`;
+                if (event.color) eventEl.style.background = event.color;
                 eventEl.style.top = `${top}%`;
                 eventEl.style.height = `${height}%`;
                 eventEl.innerHTML = `
-                    <div style="font-weight: 600;">${event.title}</div>
+                    <div style="font-weight: 600;">${escapeHtml(event.title)}</div>
                     <div style="font-size: 0.75rem; opacity: 0.9;">${formatTime(event.start)} - ${formatTime(event.end)}</div>
                 `;
                 eventEl.onclick = (e) => { e.stopPropagation(); viewEvent(event.id); };
@@ -1431,9 +1552,19 @@
 
     function getEventsForDay(date) {
         return events.filter(event => {
+            if (event.calendarId && hiddenCalendarIds.has(event.calendarId)) return false;
             const eventDate = new Date(event.start);
             return isSameDay(eventDate, date);
         });
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     function formatTime(dateString) {
@@ -1459,6 +1590,7 @@
         }
         updateCalendarTitle();
         renderCalendar();
+        if (hasInboxCalendar()) fetchExternalEvents();
     }
 
     function nextPeriod() {
@@ -1471,12 +1603,14 @@
         }
         updateCalendarTitle();
         renderCalendar();
+        if (hasInboxCalendar()) fetchExternalEvents();
     }
 
     function today() {
         currentDate = new Date();
         updateCalendarTitle();
         renderCalendar();
+        if (hasInboxCalendar()) fetchExternalEvents();
     }
 
     function switchView(view) {
@@ -1487,7 +1621,7 @@
         document.getElementById(`${view}View`).classList.add('active');
         updateCalendarTitle();
         renderCalendar();
-        if (googleCalendarConnected || outlookCalendarConnected) fetchExternalEvents();
+        if (hasInboxCalendar()) fetchExternalEvents();
     }
 
     function selectDate(dateString) {
@@ -1498,20 +1632,30 @@
 
     // Event Management
     function openEventModal(date = null) {
+        if (!hasInboxCalendar()) {
+            setEventFormError('');
+            alert('Connect your personal Microsoft 365 account in Inbox to add calendar events.');
+            return;
+        }
+
         currentEditingEvent = null;
         document.getElementById('eventModalTitle').textContent = 'New Event';
         document.getElementById('eventForm').reset();
         document.getElementById('deleteEventBtn').style.display = 'none';
+        document.getElementById('saveEventBtn').style.display = 'inline-flex';
+        document.getElementById('eventForm').querySelectorAll('input, select, textarea').forEach(el => { el.disabled = false; });
+        populateEventCalendarSelect();
+        setEventFormError('');
+        setEventFormBusy(false);
 
-        if (date) {
-            const dateStr = date.toISOString().split('T')[0];
-            document.getElementById('eventStartDate').value = dateStr;
-            document.getElementById('eventEndDate').value = dateStr;
-        } else {
-            const today = new Date().toISOString().split('T')[0];
-            document.getElementById('eventStartDate').value = today;
-            document.getElementById('eventEndDate').value = today;
-        }
+        const base = date ? new Date(date) : new Date();
+        const dateStr = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(base.getDate()).padStart(2, '0')}`;
+        document.getElementById('eventStartDate').value = dateStr;
+        document.getElementById('eventEndDate').value = dateStr;
+        const nextHour = (base.getHours() + 1) % 24;
+        document.getElementById('eventStartTime').value = `${String(nextHour).padStart(2, '0')}:00`;
+        document.getElementById('eventEndTime').value = `${String((nextHour + 1) % 24).padStart(2, '0')}:00`;
+        document.getElementById('eventReminder').value = '15';
 
         document.getElementById('eventModal').classList.add('active');
         document.body.style.overflow = 'hidden';
@@ -1521,94 +1665,166 @@
         document.getElementById('eventModal').classList.remove('active');
         document.body.style.overflow = '';
         currentEditingEvent = null;
+        setEventFormError('');
+        setEventFormBusy(false);
         const form = document.getElementById('eventForm');
         form.querySelectorAll('input, select, textarea').forEach(el => { el.disabled = false; });
-        document.querySelector('.modal-footer .btn-primary').style.display = 'inline-flex';
+        document.getElementById('saveEventBtn').style.display = 'inline-flex';
     }
 
     function viewEvent(eventId) {
-        const event = events.find(e => e.id === eventId);
+        const event = events.find(e => String(e.id) === String(eventId));
         if (!event) return;
 
         currentEditingEvent = event;
         document.getElementById('eventModalTitle').textContent = 'Edit Event';
         document.getElementById('deleteEventBtn').style.display = 'block';
+        document.getElementById('saveEventBtn').style.display = 'inline-flex';
+        document.getElementById('eventForm').querySelectorAll('input, select, textarea').forEach(el => { el.disabled = false; });
+        setEventFormError('');
+        setEventFormBusy(false);
 
         document.getElementById('eventTitle').value = event.title;
-        document.getElementById('eventStartDate').value = event.start.split('T')[0];
-        document.getElementById('eventEndDate').value = event.end.split('T')[0];
+        document.getElementById('eventStartDate').value = String(event.start || '').split('T')[0];
+        document.getElementById('eventEndDate').value = String(event.end || event.start || '').split('T')[0];
         document.getElementById('eventAllDay').checked = event.allDay;
         document.getElementById('eventDescription').value = event.description || '';
         document.getElementById('eventLocation').value = event.location || '';
-        document.getElementById('eventCalendar').value = event.calendar;
+        document.getElementById('eventAttendees').value = Array.isArray(event.attendees) ? event.attendees.join(', ') : (event.attendees || '');
+        populateEventCalendarSelect(event.calendarId || '', true);
+        setReminderValue(event.reminder);
 
-        if (!event.allDay) {
+        if (!event.allDay && event.start) {
             const start = new Date(event.start);
-            const end = new Date(event.end);
+            const end = new Date(event.end || event.start);
             document.getElementById('eventStartTime').value = start.toTimeString().slice(0, 5);
             document.getElementById('eventEndTime').value = end.toTimeString().slice(0, 5);
         }
+        toggleAllDay();
 
         document.getElementById('eventModal').classList.add('active');
         document.body.style.overflow = 'hidden';
     }
 
-    function saveEvent(e) {
-        e.preventDefault();
+    function setReminderValue(value) {
+        const select = document.getElementById('eventReminder');
+        const reminder = value == null || value === '' ? 'none' : String(value);
+        if (![...select.options].some(o => o.value === reminder)) {
+            const option = document.createElement('option');
+            option.value = reminder;
+            option.textContent = reminder + ' minutes before';
+            select.appendChild(option);
+        }
+        select.value = reminder;
+    }
 
-        const title = document.getElementById('eventTitle').value;
+    function collectEventPayload() {
+        const title = document.getElementById('eventTitle').value.trim();
         const startDate = document.getElementById('eventStartDate').value;
         const endDate = document.getElementById('eventEndDate').value;
         const allDay = document.getElementById('eventAllDay').checked;
         const startTime = document.getElementById('eventStartTime').value;
         const endTime = document.getElementById('eventEndTime').value;
-        const description = document.getElementById('eventDescription').value;
-        const location = document.getElementById('eventLocation').value;
-        const calendar = document.getElementById('eventCalendar').value;
+        const calendarSelect = document.getElementById('eventCalendar');
+        const calendarId = calendarSelect.value;
+        const calendar = outlookCalendars.find(c => c.id === calendarId);
 
-        const start = allDay ? startDate : `${startDate}T${startTime}:00`;
-        const end = allDay ? endDate : `${endDate}T${endTime}:00`;
+        return {
+            title,
+            start: toApiDateTime(startDate, startTime, allDay),
+            end: toApiDateTime(endDate, endTime, allDay),
+            all_day: allDay,
+            description: document.getElementById('eventDescription').value,
+            location: document.getElementById('eventLocation').value,
+            calendar_id: calendarId,
+            calendar_name: calendar?.name || calendarSelect.selectedOptions[0]?.textContent || 'Calendar',
+            calendar_color: calendar?.color || '#0078D4',
+            attendees: document.getElementById('eventAttendees').value,
+            reminder: document.getElementById('eventReminder').value,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        };
+    }
 
-        if (currentEditingEvent) {
-            // Update existing event
-            const index = events.findIndex(e => e.id === currentEditingEvent.id);
-            events[index] = {
-                ...currentEditingEvent,
-                title,
-                start,
-                end,
-                allDay,
-                description,
-                location,
-                calendar
-            };
-        } else {
-            // Create new event
-            const newEvent = {
-                id: Date.now(),
-                title,
-                start,
-                end,
-                allDay,
-                description,
-                location,
-                calendar
-            };
-            events.push(newEvent);
+    function saveEvent(e) {
+        e.preventDefault();
+        if (!hasInboxCalendar()) {
+            setEventFormError('Connect your personal Microsoft 365 account in Inbox first.');
+            return;
         }
 
-        closeEventModal();
-        renderCalendar();
-        renderUpcomingEvents();
+        const payload = collectEventPayload();
+        if (!payload.title) {
+            setEventFormError('Enter an event title.');
+            return;
+        }
+        if (!payload.calendar_id) {
+            setEventFormError('Choose a calendar.');
+            return;
+        }
+        if (!payload.all_day && (!document.getElementById('eventStartTime').value || !document.getElementById('eventEndTime').value)) {
+            setEventFormError('Enter a start and end time, or mark this as an all-day event.');
+            return;
+        }
+
+        const editing = currentEditingEvent;
+        const url = editing
+            ? `{{ url('/api/calendar/events') }}/${encodeURIComponent(outlookEventId(editing))}`
+            : '{{ route("api.calendar.events.store") }}';
+
+        setEventFormBusy(true);
+        setEventFormError('');
+        fetch(url, {
+            method: editing ? 'PATCH' : 'POST',
+            headers: calendarApiHeaders(),
+            body: JSON.stringify(payload),
+        })
+        .then(async r => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) {
+                if (data.needs_reconnect) {
+                    inboxNeedsReconnect = true;
+                    updateInboxAccountChip();
+                }
+                throw new Error(data.message || 'Could not save this event.');
+            }
+            closeEventModal();
+            fetchExternalEvents();
+        })
+        .catch(err => {
+            setEventFormError(err.message || 'Could not save this event.');
+            setEventFormBusy(false);
+        });
     }
 
     function deleteEvent() {
-        if (currentEditingEvent && confirm('Are you sure you want to delete this event?')) {
-            events = events.filter(e => e.id !== currentEditingEvent.id);
-            closeEventModal();
-            renderCalendar();
-            renderUpcomingEvents();
+        if (!currentEditingEvent || !confirm('Delete this event from Outlook?')) return;
+        if (!hasInboxCalendar()) {
+            setEventFormError('Connect your personal Microsoft 365 account in Inbox first.');
+            return;
         }
+
+        setEventFormBusy(true);
+        setEventFormError('');
+        fetch(`{{ url('/api/calendar/events') }}/${encodeURIComponent(outlookEventId(currentEditingEvent))}`, {
+            method: 'DELETE',
+            headers: calendarApiHeaders(),
+        })
+        .then(async r => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) {
+                if (data.needs_reconnect) {
+                    inboxNeedsReconnect = true;
+                    updateInboxAccountChip();
+                }
+                throw new Error(data.message || 'Could not delete this event.');
+            }
+            closeEventModal();
+            fetchExternalEvents();
+        })
+        .catch(err => {
+            setEventFormError(err.message || 'Could not delete this event.');
+            setEventFormBusy(false);
+        });
     }
 
     function toggleAllDay() {
@@ -1617,23 +1833,32 @@
         document.getElementById('eventEndTime').disabled = allDay;
     }
 
-    function toggleCalendar(calendarType) {
-        // Toggle calendar visibility
+    function toggleCalendar(calendarId) {
+        if (hiddenCalendarIds.has(calendarId)) {
+            hiddenCalendarIds.delete(calendarId);
+        } else {
+            hiddenCalendarIds.add(calendarId);
+        }
         renderCalendar();
+        renderUpcomingEvents();
     }
 
     // Render Upcoming Events
     function renderUpcomingEvents() {
         const container = document.getElementById('upcomingEvents');
-        const hasConnection = googleCalendarConnected || outlookCalendarConnected;
         const sortedEvents = [...events]
-            .filter(e => new Date(e.start) >= new Date())
+            .filter(e => {
+                if (e.calendarId && hiddenCalendarIds.has(e.calendarId)) return false;
+                return new Date(e.start) >= new Date();
+            })
             .sort((a, b) => new Date(a.start) - new Date(b.start))
             .slice(0, 5);
 
         if (sortedEvents.length === 0) {
-            if (!hasConnection) {
-                container.innerHTML = '<div class="upcoming-setup-note">Configure Calendar OAuth in <a href="{{ route('integrations') }}">Integrations</a> and connect your personal Google or Outlook account to see upcoming events.</div>';
+            if (!inboxConnected) {
+                container.innerHTML = '<div class="upcoming-setup-note">Connect your personal Microsoft 365 account in <a href="{{ route('inbox') }}">Inbox</a> to see upcoming events.</div>';
+            } else if (inboxNeedsReconnect) {
+                container.innerHTML = '<div class="upcoming-setup-note"><a href="{{ route('inbox.connect.outlook') }}">Reconnect Personal MS365</a> in Inbox to grant calendar access.</div>';
             } else {
                 container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.875rem;">No upcoming events</div>';
             }
@@ -1643,9 +1868,10 @@
         container.innerHTML = sortedEvents.map(event => {
             const date = new Date(event.start);
             const timeStr = event.allDay ? 'All day' : formatTime(event.start);
+            const colorStyle = event.color ? `border-left-color: ${escapeHtml(event.color)};` : '';
             return `
-                <div class="upcoming-event ${event.calendar}" onclick="viewEvent(${event.id})">
-                    <div class="upcoming-event-title">${event.title}</div>
+                <div class="upcoming-event ${event.calendar}" style="${colorStyle}" onclick='viewEvent(${JSON.stringify(String(event.id))})'>
+                    <div class="upcoming-event-title">${escapeHtml(event.title)}</div>
                     <div class="upcoming-event-time">${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} • ${timeStr}</div>
                 </div>
             `;

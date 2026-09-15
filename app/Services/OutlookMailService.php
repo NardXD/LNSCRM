@@ -70,6 +70,13 @@ class OutlookMailService
         'spam' => ['graph' => 'junkemail', 'status' => 'spam', 'direction' => 'inbound'],
     ];
 
+    /**
+     * Delegated Graph scopes requested when connecting a mailbox in Inbox.
+     * Calendar uses the same personal OutlookMailAccount, so Calendars.ReadWrite
+     * is included here rather than a separate calendar OAuth flow.
+     */
+    public const GRAPH_SCOPES = 'openid profile email User.Read Mail.ReadWrite Mail.Send Mail.ReadWrite.Shared Calendars.ReadWrite offline_access';
+
     public function __construct(
         protected CalendarOauthSettingsService $oauthSettings,
         protected ChannelUnreadNotifier $unreadNotifier,
@@ -108,7 +115,8 @@ class OutlookMailService
                     'client_secret' => $creds['client_secret'],
                     'refresh_token' => $account->refresh_token,
                     'grant_type' => 'refresh_token',
-                    'scope' => 'openid profile email User.Read Mail.ReadWrite Mail.Send Mail.ReadWrite.Shared offline_access',
+                    // Omit scope so Microsoft reissues the originally granted set
+                    // (mail-only for older connections; mail + Calendars.ReadWrite after reconnect).
                 ]
             );
         } catch (\Illuminate\Http\Client\ConnectionException $e) {

@@ -970,6 +970,17 @@ Route::middleware(['auth', 'company.active'])->group(function () {
     Route::get('/api/calendar/events', [CalendarController::class, 'events'])
         ->middleware('permission:view_calendar')
         ->name('api.calendar.events');
+    Route::post('/api/calendar/events', [CalendarController::class, 'storeEvent'])
+        ->middleware('permission:view_calendar')
+        ->name('api.calendar.events.store');
+    Route::patch('/api/calendar/events/{event}', [CalendarController::class, 'updateEvent'])
+        ->middleware('permission:view_calendar')
+        ->where('event', '[^/]+')
+        ->name('api.calendar.events.update');
+    Route::delete('/api/calendar/events/{event}', [CalendarController::class, 'destroyEvent'])
+        ->middleware('permission:view_calendar')
+        ->where('event', '[^/]+')
+        ->name('api.calendar.events.destroy');
     Route::get('/api/calendar/oauth-settings', [CalendarController::class, 'getOauthSettings'])
         ->middleware('permission:view_calendar')
         ->name('api.calendar.oauth-settings');

@@ -2,116 +2,451 @@
 
 namespace App\Services;
 
-use App\Models\CalendarIntegration;
+use App\Models\OutlookMailAccount;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class OutlookCalendarService
 {
-    public function __construct(
-        protected CalendarOauthSettingsService $oauthSettings
-    ) {}
-
     private const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 
+    private const MAX_PAGES_PER_CALENDAR = 10;
+
+    public function __construct(
+        protected OutlookMailService $mailService
+    ) {}
+
     /**
-     * @param  array{client_id: string, client_secret: string, redirect: string}|null  $credentials
-     * @return array<int, array<string, mixed>>
+     * @return array{calendars: array<int, array<string, mixed>>, events: array<int, array<string, mixed>>, needs_reconnect: bool}
      */
-    public function getEvents(CalendarIntegration $integration, Carbon $start, Carbon $end, ?array $credentials = null): array
+    public function getEventsForMailAccount(OutlookMailAccount $account, Carbon $start, Carbon $end): array
     {
-        $creds = $credentials ?? $this->oauthSettings->getCredentials('outlook', $integration->user?->company_id);
-        $integration = $this->refreshTokenIfNeeded($integration, $creds);
+        $account = $this->mailService->refreshTokenIfNeeded($account);
 
-        $response = Http::withToken($integration->access_token)
-            ->get(self::GRAPH_BASE.'/me/calendar/calendarView', [
-                'startDateTime' => $start->toIso8601String(),
-                'endDateTime' => $end->toIso8601String(),
-                '$orderby' => 'start/dateTime',
-                '$select' => 'id,subject,bodyPreview,start,end,location,isAllDay',
+        $calendarsResponse = Http::withToken($account->access_token)
+            ->acceptJson()
+            ->get(self::GRAPH_BASE.'/me/calendars', [
+                '$select' => 'id,name,hexColor,color,isDefaultCalendar',
+                '$top' => 50,
             ]);
 
-        if (! $response->successful()) {
-            Log::warning('Outlook Calendar API error', [
-                'status' => $response->status(),
-                'body' => $response->body(),
+        if ($this->isAuthFailure($calendarsResponse->status(), $calendarsResponse->json('error.code'), true)) {
+            Log::warning('Outlook Calendar list forbidden or unauthorized', [
+                'account_id' => $account->id,
+                'status' => $calendarsResponse->status(),
+                'body' => $calendarsResponse->body(),
             ]);
 
-            return [];
+            return ['calendars' => [], 'events' => [], 'needs_reconnect' => true];
         }
 
-        $result = [];
-        foreach ($response->json('value') ?? [] as $event) {
-            $result[] = $this->mapEvent($event, 'outlook');
+        if (! $calendarsResponse->successful()) {
+            Log::warning('Outlook Calendar list failed', [
+                'account_id' => $account->id,
+                'status' => $calendarsResponse->status(),
+                'body' => $calendarsResponse->body(),
+            ]);
+
+            return ['calendars' => [], 'events' => [], 'needs_reconnect' => false];
         }
 
-        return $result;
+        $calendars = [];
+        $events = [];
+
+        foreach ($calendarsResponse->json('value') ?? [] as $calendar) {
+            $calendarId = (string) ($calendar['id'] ?? '');
+            if ($calendarId === '') {
+                continue;
+            }
+
+            $mappedCalendar = [
+                'id' => $calendarId,
+                'name' => $calendar['name'] ?? 'Calendar',
+                'color' => $this->calendarColor($calendar),
+                'isDefault' => (bool) ($calendar['isDefaultCalendar'] ?? false),
+            ];
+            $calendars[] = $mappedCalendar;
+
+            $page = $this->fetchCalendarView($account, $calendarId, $mappedCalendar, $start, $end);
+            if ($page['needs_reconnect']) {
+                return ['calendars' => [], 'events' => [], 'needs_reconnect' => true];
+            }
+
+            $events = array_merge($events, $page['events']);
+        }
+
+        return [
+            'calendars' => $calendars,
+            'events' => $events,
+            'needs_reconnect' => false,
+        ];
     }
 
     /**
-     * @param  array{client_id: string, client_secret: string, redirect: string}  $creds
+     * @param  array<string, mixed>  $data
+     * @return array{ok: bool, event: ?array<string, mixed>, needs_reconnect: bool, error: ?string, status: int}
      */
-    public function refreshTokenIfNeeded(CalendarIntegration $integration, array $creds): CalendarIntegration
+    public function createEvent(OutlookMailAccount $account, array $data): array
     {
-        if (! $integration->needsRefresh() || ! $integration->refresh_token) {
-            return $integration;
+        $account = $this->mailService->refreshTokenIfNeeded($account);
+        $calendarId = (string) ($data['calendar_id'] ?? '');
+        if ($calendarId === '') {
+            return $this->writeError('Choose a calendar.', 422);
         }
 
-        $tenant = $this->oauthSettings->getMicrosoftTenant($integration->user?->company_id);
-        $response = Http::asForm()->post(
-            "https://login.microsoftonline.com/{$tenant}/oauth2/v2.0/token",
-            [
-                'client_id' => $creds['client_id'],
-                'client_secret' => $creds['client_secret'],
-                'refresh_token' => $integration->refresh_token,
-                'grant_type' => 'refresh_token',
-            ]
-        );
+        $response = Http::withToken($account->access_token)
+            ->acceptJson()
+            ->withHeaders(['Prefer' => 'outlook.timezone="UTC"'])
+            ->post(self::GRAPH_BASE.'/me/calendars/'.rawurlencode($calendarId).'/events', $this->graphEventBody($data));
 
-        if (! $response->successful()) {
-            Log::warning('Outlook token refresh failed', [
+        return $this->writeResponse($response, $account, $data, $calendarId);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{ok: bool, event: ?array<string, mixed>, needs_reconnect: bool, error: ?string, status: int}
+     */
+    public function updateEvent(OutlookMailAccount $account, string $eventId, array $data): array
+    {
+        $account = $this->mailService->refreshTokenIfNeeded($account);
+        $eventId = trim($eventId);
+        if ($eventId === '') {
+            return $this->writeError('Missing event.', 422);
+        }
+
+        $response = Http::withToken($account->access_token)
+            ->acceptJson()
+            ->withHeaders(['Prefer' => 'outlook.timezone="UTC"'])
+            ->patch(
+                self::GRAPH_BASE.'/me/events/'.rawurlencode($eventId).'?sendUpdates=all',
+                $this->graphEventBody($data)
+            );
+
+        return $this->writeResponse($response, $account, $data, (string) ($data['calendar_id'] ?? ''));
+    }
+
+    /**
+     * @return array{ok: bool, event: ?array<string, mixed>, needs_reconnect: bool, error: ?string, status: int}
+     */
+    public function deleteEvent(OutlookMailAccount $account, string $eventId): array
+    {
+        $account = $this->mailService->refreshTokenIfNeeded($account);
+        $eventId = trim($eventId);
+        if ($eventId === '') {
+            return $this->writeError('Missing event.', 422);
+        }
+
+        $response = Http::withToken($account->access_token)
+            ->acceptJson()
+            ->delete(self::GRAPH_BASE.'/me/events/'.rawurlencode($eventId).'?sendUpdates=all');
+
+        if ($this->isAuthFailure($response->status(), $response->json('error.code'))) {
+            return $this->writeError('Reconnect Personal MS365 in Inbox to grant calendar edit access.', 403, true);
+        }
+
+        if (! $response->successful() && $response->status() !== 204) {
+            Log::warning('Outlook Calendar delete failed', [
+                'account_id' => $account->id,
                 'status' => $response->status(),
                 'body' => $response->body(),
             ]);
 
-            return $integration;
+            return $this->writeError($this->graphErrorMessage($response) ?? 'Could not delete this event.', $response->status() ?: 502);
         }
 
-        $data = $response->json();
-        $integration->access_token = $data['access_token'];
-        $integration->token_expires_at = now()->addSeconds($data['expires_in'] ?? 3600);
-        if (! empty($data['refresh_token'])) {
-            $integration->refresh_token = $data['refresh_token'];
-        }
-        $integration->save();
+        return ['ok' => true, 'event' => null, 'needs_reconnect' => false, 'error' => null, 'status' => 200];
+    }
 
-        return $integration;
+    /**
+     * @param  array{id: string, name: string, color: string, isDefault: bool}  $mappedCalendar
+     * @return array{events: array<int, array<string, mixed>>, needs_reconnect: bool}
+     */
+    private function fetchCalendarView(
+        OutlookMailAccount $account,
+        string $calendarId,
+        array $mappedCalendar,
+        Carbon $start,
+        Carbon $end
+    ): array {
+        $url = self::GRAPH_BASE.'/me/calendars/'.rawurlencode($calendarId).'/calendarView';
+        $query = [
+            'startDateTime' => $start->utc()->toIso8601String(),
+            'endDateTime' => $end->utc()->toIso8601String(),
+            '$orderby' => 'start/dateTime',
+            '$select' => 'id,subject,bodyPreview,start,end,location,isAllDay,attendees,isReminderOn,reminderMinutesBeforeStart',
+            '$top' => 100,
+        ];
+
+        $events = [];
+
+        for ($page = 0; $page < self::MAX_PAGES_PER_CALENDAR; $page++) {
+            $response = Http::withToken($account->access_token)
+                ->acceptJson()
+                ->withHeaders(['Prefer' => 'outlook.timezone="UTC"'])
+                ->get($url, $query);
+
+            if ($this->isAuthFailure($response->status(), $response->json('error.code'), true)) {
+                return ['events' => [], 'needs_reconnect' => true];
+            }
+
+            if (! $response->successful()) {
+                Log::warning('Outlook Calendar API error', [
+                    'account_id' => $account->id,
+                    'calendar_id' => $calendarId,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+
+                return ['events' => $events, 'needs_reconnect' => false];
+            }
+
+            foreach ($response->json('value') ?? [] as $event) {
+                $events[] = $this->mapEvent($event, $mappedCalendar);
+            }
+
+            $next = $response->json('@odata.nextLink');
+            if (! is_string($next) || $next === '') {
+                break;
+            }
+
+            $url = $next;
+            $query = [];
+        }
+
+        return ['events' => $events, 'needs_reconnect' => false];
+    }
+
+    /**
+     * @param  array<string, mixed>  $calendar
+     */
+    private function calendarColor(array $calendar): string
+    {
+        $hex = $calendar['hexColor'] ?? '';
+        if (is_string($hex) && preg_match('/^#?[0-9A-Fa-f]{6}$/', $hex)) {
+            return str_starts_with($hex, '#') ? $hex : '#'.$hex;
+        }
+
+        return '#0078D4';
     }
 
     /**
      * @param  array<string, mixed>  $event
+     * @param  array{id: string, name: string, color: string, isDefault: bool}  $calendar
      * @return array<string, mixed>
      */
-    private function mapEvent(array $event, string $calendar): array
+    private function mapEvent(array $event, array $calendar): array
     {
         $start = $event['start'] ?? [];
         $end = $event['end'] ?? [];
-        $isAllDay = ($event['isAllDay'] ?? false) || isset($start['date']);
+        $isAllDay = (bool) ($event['isAllDay'] ?? false);
 
-        $startVal = $start['dateTime'] ?? $start['date'] ?? null;
-        $endVal = $end['dateTime'] ?? $end['date'] ?? null;
+        $attendees = [];
+        foreach ($event['attendees'] ?? [] as $attendee) {
+            $email = $attendee['emailAddress']['address'] ?? null;
+            if (is_string($email) && $email !== '') {
+                $attendees[] = $email;
+            }
+        }
+
+        $reminderOn = (bool) ($event['isReminderOn'] ?? false);
 
         return [
             'id' => $event['id'] ?? null,
             'title' => $event['subject'] ?? '(No title)',
-            'start' => $startVal,
-            'end' => $endVal,
+            'start' => $this->normalizeDateTime($start),
+            'end' => $this->normalizeDateTime($end),
             'allDay' => $isAllDay,
-            'calendar' => $calendar,
+            'calendar' => 'outlook',
+            'calendarId' => $calendar['id'],
+            'calendarName' => $calendar['name'],
+            'color' => $calendar['color'],
             'description' => $event['bodyPreview'] ?? null,
             'location' => $event['location']['displayName'] ?? null,
+            'attendees' => $attendees,
+            'reminder' => $reminderOn ? (string) ($event['reminderMinutesBeforeStart'] ?? 15) : 'none',
             'external' => true,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function graphEventBody(array $data): array
+    {
+        $allDay = (bool) ($data['all_day'] ?? false);
+        $timezone = $this->safeTimezone((string) ($data['timezone'] ?? 'UTC'));
+
+        if ($allDay) {
+            $start = Carbon::parse($data['start'], $timezone)->startOfDay();
+            $end = Carbon::parse($data['end'], $timezone)->startOfDay();
+            if ($end->lessThanOrEqualTo($start)) {
+                $end = $start->copy()->addDay();
+            } else {
+                $end = $end->addDay();
+            }
+        } else {
+            $start = Carbon::parse($data['start'])->utc();
+            $end = Carbon::parse($data['end'])->utc();
+            $timezone = 'UTC';
+        }
+
+        $attendees = $data['attendees'] ?? [];
+        if (is_string($attendees)) {
+            $attendees = preg_split('/[\s,;]+/', $attendees, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        }
+
+        $body = [
+            'subject' => $data['title'],
+            'body' => [
+                'contentType' => 'text',
+                'content' => (string) ($data['description'] ?? ''),
+            ],
+            'start' => [
+                'dateTime' => $allDay ? $start->toDateString().'T00:00:00' : $start->format('Y-m-d\TH:i:s'),
+                'timeZone' => $timezone,
+            ],
+            'end' => [
+                'dateTime' => $allDay ? $end->toDateString().'T00:00:00' : $end->format('Y-m-d\TH:i:s'),
+                'timeZone' => $timezone,
+            ],
+            'isAllDay' => $allDay,
+            'location' => [
+                'displayName' => (string) ($data['location'] ?? ''),
+            ],
+            'attendees' => collect($attendees)
+                ->map(fn ($email) => trim((string) $email))
+                ->filter(fn ($email) => filter_var($email, FILTER_VALIDATE_EMAIL))
+                ->unique()
+                ->values()
+                ->map(fn ($email) => [
+                    'emailAddress' => ['address' => $email],
+                    'type' => 'required',
+                ])
+                ->all(),
+        ];
+
+        $reminder = $data['reminder'] ?? 'none';
+        if ($reminder === null || $reminder === '' || $reminder === 'none') {
+            $body['isReminderOn'] = false;
+        } else {
+            $body['isReminderOn'] = true;
+            $body['reminderMinutesBeforeStart'] = (int) $reminder;
+        }
+
+        return $body;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{ok: bool, event: ?array<string, mixed>, needs_reconnect: bool, error: ?string, status: int}
+     */
+    private function writeResponse($response, OutlookMailAccount $account, array $data, string $calendarId): array
+    {
+        if ($this->isAuthFailure($response->status(), $response->json('error.code'))) {
+            return $this->writeError('Reconnect Personal MS365 in Inbox to grant calendar edit access.', 403, true);
+        }
+
+        if (! $response->successful()) {
+            Log::warning('Outlook Calendar write failed', [
+                'account_id' => $account->id,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            return $this->writeError($this->graphErrorMessage($response) ?? 'Could not save this event.', $response->status() ?: 502);
+        }
+
+        $calendar = [
+            'id' => $calendarId !== '' ? $calendarId : (string) ($response->json('id') ?? ''),
+            'name' => (string) ($data['calendar_name'] ?? 'Calendar'),
+            'color' => (string) ($data['calendar_color'] ?? '#0078D4'),
+            'isDefault' => false,
+        ];
+
+        return [
+            'ok' => true,
+            'event' => $this->mapEvent($response->json() ?? [], $calendar),
+            'needs_reconnect' => false,
+            'error' => null,
+            'status' => 200,
+        ];
+    }
+
+    /**
+     * @return array{ok: bool, event: ?array<string, mixed>, needs_reconnect: bool, error: ?string, status: int}
+     */
+    private function writeError(string $message, int $status, bool $needsReconnect = false): array
+    {
+        return [
+            'ok' => false,
+            'event' => null,
+            'needs_reconnect' => $needsReconnect,
+            'error' => $message,
+            'status' => $status,
+        ];
+    }
+
+    private function graphErrorMessage($response): ?string
+    {
+        $message = $response->json('error.message');
+
+        return is_string($message) && $message !== '' ? $message : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $value
+     */
+    private function normalizeDateTime(array $value): ?string
+    {
+        $raw = $value['dateTime'] ?? $value['date'] ?? null;
+        if (! is_string($raw) || $raw === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($raw, 'UTC')->toIso8601String();
+        } catch (\Throwable) {
+            $trimmed = preg_replace('/\.\d+/', '', $raw) ?: $raw;
+            try {
+                return Carbon::parse($trimmed, 'UTC')->toIso8601String();
+            } catch (\Throwable) {
+                return $raw;
+            }
+        }
+    }
+
+    private function safeTimezone(string $timezone): string
+    {
+        $timezone = trim($timezone);
+        if ($timezone === '') {
+            return 'UTC';
+        }
+
+        try {
+            new \DateTimeZone($timezone);
+
+            return $timezone;
+        } catch (\Throwable) {
+            return 'UTC';
+        }
+    }
+
+    private function isAuthFailure(int $status, mixed $errorCode = null, bool $anyForbidden = false): bool
+    {
+        if ($status === 401) {
+            return true;
+        }
+
+        if ($status !== 403) {
+            return false;
+        }
+
+        if ($anyForbidden) {
+            return true;
+        }
+
+        return in_array($errorCode, ['ErrorAccessDenied', 'Authorization_RequestDenied'], true);
     }
 }

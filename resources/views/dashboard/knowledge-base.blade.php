@@ -369,11 +369,12 @@
                         <summary class="default-guide-summary">Calendar</summary>
                         <div class="default-guide-steps">
                             <ol>
-                                <li>Configure Calendar OAuth in <strong>Integrations</strong> (Google and/or Outlook) so users can connect their personal calendars.</li>
+                                <li>Connect your personal Microsoft 365 account in <strong>Inbox</strong> (Connect Personal MS365).</li>
                                 <li>Go to <strong>Calendar</strong> from the sidebar.</li>
-                                <li>Click <strong>Google</strong> or <strong>Outlook</strong> in the toolbar to connect your personal account.</li>
-                                <li>View events, leave, and project milestones in Month, Week, or Day view.</li>
-                                <li>Use sidebar filters to show/hide calendar types.</li>
+                                <li>Your Outlook calendars and events load from that same personal Inbox account.</li>
+                                <li>If events do not appear, or create/edit fails, reconnect Personal MS365 in Inbox so calendar access (Calendars.ReadWrite) is granted.</li>
+                                <li>Use <strong>Create</strong> to add events, edit an event to update it, and Share with emails to send Outlook invitations.</li>
+                                <li>Use Month, Week, or Day view, and the sidebar to show or hide individual Outlook calendars.</li>
                             </ol>
                         </div>
                     </details>

@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\CalendarIntegration;
+use App\Models\OutlookMailAccount;
+use App\Models\SharedInbox;
+use App\Models\User;
 use App\Services\CalendarOauthSettingsService;
 use App\Services\GoogleCalendarService;
 use App\Services\OutlookCalendarService;
@@ -186,27 +189,26 @@ class CalendarController extends Controller
     }
 
     /**
-     * Get calendar connection status and external events.
+     * Get calendar connection status from the user's Inbox personal Outlook account.
      */
     public function status(Request $request): JsonResponse
     {
-        $integrations = CalendarIntegration::where('user_id', auth()->id())
-            ->where('is_active', true)
-            ->get()
-            ->map(fn (CalendarIntegration $i) => [
-                'provider' => $i->provider,
-                'email' => $i->email,
-            ]);
+        $user = $request->user();
+        $account = $this->personalMailAccount($user);
+        $companyId = $user?->company_id;
 
         return response()->json([
-            'google' => $integrations->firstWhere('provider', 'google') ? true : false,
-            'outlook' => $integrations->firstWhere('provider', 'outlook') ? true : false,
-            'integrations' => $integrations->values(),
+            'connected' => (bool) $account,
+            'email' => $account?->email,
+            'needs_reconnect' => false,
+            'outlook_configured' => $this->oauthSettings->isConfigured('outlook', $companyId),
+            'inbox_url' => route('inbox'),
+            'connect_url' => route('inbox.connect.outlook'),
         ]);
     }
 
     /**
-     * Get events from connected calendars (merged).
+     * Get events from the personal Outlook account connected in Inbox.
      */
     public function events(Request $request): JsonResponse
     {
@@ -215,38 +217,141 @@ class CalendarController extends Controller
             'end' => 'required|date|after_or_equal:start',
         ]);
 
-        $start = Carbon::parse($validated['start']);
-        $end = Carbon::parse($validated['end']);
-
-        $events = [];
-
-        $companyId = auth()->user()?->company_id;
-
-        $integrations = CalendarIntegration::where('user_id', auth()->id())
-            ->where('is_active', true)
-            ->with('user')
-            ->get();
-
-        foreach ($integrations as $integration) {
-            $creds = $this->oauthSettings->getCredentials($integration->provider, $companyId);
-            if (empty($creds['client_id']) || empty($creds['client_secret'])) {
-                continue;
-            }
-
-            if ($integration->provider === CalendarIntegration::PROVIDER_GOOGLE) {
-                $events = array_merge(
-                    $events,
-                    $this->googleCalendar->getEvents($integration, $start, $end, $creds)
-                );
-            } elseif ($integration->provider === CalendarIntegration::PROVIDER_OUTLOOK) {
-                $events = array_merge(
-                    $events,
-                    $this->outlookCalendar->getEvents($integration, $start, $end, $creds)
-                );
-            }
+        $account = $this->personalMailAccount($request->user());
+        if (! $account) {
+            return response()->json([
+                'events' => [],
+                'calendars' => [],
+                'connected' => false,
+                'needs_reconnect' => false,
+            ]);
         }
 
-        return response()->json(['events' => $events]);
+        $result = $this->outlookCalendar->getEventsForMailAccount(
+            $account,
+            Carbon::parse($validated['start']),
+            Carbon::parse($validated['end'])
+        );
+
+        return response()->json([
+            'events' => $result['events'],
+            'calendars' => $result['calendars'],
+            'connected' => true,
+            'needs_reconnect' => $result['needs_reconnect'],
+        ]);
+    }
+
+    public function storeEvent(Request $request): JsonResponse
+    {
+        $account = $this->personalMailAccount($request->user());
+        if (! $account) {
+            return response()->json(['message' => 'Connect your personal Microsoft 365 account in Inbox first.'], 422);
+        }
+
+        $result = $this->outlookCalendar->createEvent($account, $this->validatedEventPayload($request));
+
+        return $this->eventWriteResponse($result, 201);
+    }
+
+    public function updateEvent(Request $request, string $event): JsonResponse
+    {
+        $account = $this->personalMailAccount($request->user());
+        if (! $account) {
+            return response()->json(['message' => 'Connect your personal Microsoft 365 account in Inbox first.'], 422);
+        }
+
+        $result = $this->outlookCalendar->updateEvent($account, $event, $this->validatedEventPayload($request));
+
+        return $this->eventWriteResponse($result);
+    }
+
+    public function destroyEvent(Request $request, string $event): JsonResponse
+    {
+        $account = $this->personalMailAccount($request->user());
+        if (! $account) {
+            return response()->json(['message' => 'Connect your personal Microsoft 365 account in Inbox first.'], 422);
+        }
+
+        $result = $this->outlookCalendar->deleteEvent($account, $event);
+
+        return $this->eventWriteResponse($result);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function validatedEventPayload(Request $request): array
+    {
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:255'],
+            'start' => ['required', 'date'],
+            'end' => ['required', 'date', 'after_or_equal:start'],
+            'all_day' => ['sometimes', 'boolean'],
+            'description' => ['nullable', 'string', 'max:5000'],
+            'location' => ['nullable', 'string', 'max:500'],
+            'calendar_id' => ['nullable', 'string', 'max:512'],
+            'calendar_name' => ['nullable', 'string', 'max:255'],
+            'calendar_color' => ['nullable', 'string', 'max:20'],
+            'attendees' => ['nullable'],
+            'reminder' => ['nullable', 'string', 'max:20'],
+            'timezone' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $attendees = $validated['attendees'] ?? [];
+        if (is_string($attendees)) {
+            $attendees = preg_split('/[\s,;]+/', $attendees, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        }
+        if (! is_array($attendees)) {
+            $attendees = [];
+        }
+        $validated['attendees'] = collect($attendees)
+            ->map(fn ($email) => strtolower(trim((string) $email)))
+            ->filter(fn ($email) => filter_var($email, FILTER_VALIDATE_EMAIL))
+            ->unique()
+            ->values()
+            ->all();
+
+        return $validated;
+    }
+
+    /**
+     * @param  array{ok: bool, event: ?array<string, mixed>, needs_reconnect: bool, error: ?string, status: int}  $result
+     */
+    private function eventWriteResponse(array $result, int $successStatus = 200): JsonResponse
+    {
+        if (! $result['ok']) {
+            return response()->json([
+                'message' => $result['error'] ?? 'Could not save this event.',
+                'needs_reconnect' => $result['needs_reconnect'],
+            ], $result['status'] >= 400 ? $result['status'] : 422);
+        }
+
+        return response()->json([
+            'event' => $result['event'],
+            'needs_reconnect' => false,
+        ], $successStatus);
+    }
+
+    private function personalMailAccount(?User $user): ?OutlookMailAccount
+    {
+        if (! $user) {
+            return null;
+        }
+
+        $inbox = SharedInbox::query()
+            ->where('company_id', $user->company_id)
+            ->where('type', SharedInbox::TYPE_PERSONAL)
+            ->where('created_by', $user->id)
+            ->where('is_active', true)
+            ->with('account')
+            ->first();
+
+        $account = $inbox?->account;
+        if (! $account || ! $account->is_active) {
+            return null;
+        }
+
+        return $account;
     }
 
     /**

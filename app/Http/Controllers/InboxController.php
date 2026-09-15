@@ -269,7 +269,7 @@ class InboxController extends Controller
             'response_type' => 'code',
             'redirect_uri' => $creds['redirect'],
             'response_mode' => 'query',
-            'scope' => 'openid profile email User.Read Mail.ReadWrite Mail.Send Mail.ReadWrite.Shared offline_access',
+            'scope' => OutlookMailService::GRAPH_SCOPES,
             'state' => $state,
             // Always show account picker so shared vs personal can use different MS365 accounts.
             'prompt' => 'select_account',
