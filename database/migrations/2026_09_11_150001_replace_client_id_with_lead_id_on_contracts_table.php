@@ -12,6 +12,12 @@ return new class extends Migration
             $table->foreignId('lead_id')->nullable()->after('client_id')->constrained()->nullOnDelete();
         });
 
+        // SQLite cannot DROP client_id while the original table-level foreign key remains
+        // (table rebuild keeps FOREIGN KEY(client_id) in sqlite_master). MySQL is fine.
+        if (Schema::getConnection()->getDriverName() === 'sqlite') {
+            return;
+        }
+
         Schema::table('contracts', function (Blueprint $table) {
             $table->dropForeign(['client_id']);
             $table->dropColumn('client_id');

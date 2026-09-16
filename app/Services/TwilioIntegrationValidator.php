@@ -156,7 +156,7 @@ class TwilioIntegrationValidator
 
             // Twilio Test Credentials (Account → API keys → Test Credentials) cannot call live APIs.
             if ((int) $e->getCode() === 20008 || str_contains($e->getMessage(), 'Test Account Credentials')) {
-                $errors['auth_token'] = 'Those look like Twilio Test Credentials. Use your live Account SID + Auth Token from Account → API keys & tokens (not the Test Credentials section). WhatsApp Sandbox still uses live credentials.';
+                $errors['auth_token'] = 'Those look like Twilio Test Credentials. Use your live Account SID + Auth Token from Account → API keys & tokens (not the Test Credentials section).';
 
                 return ['valid' => false, 'errors' => $errors];
             }

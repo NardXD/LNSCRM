@@ -17,6 +17,7 @@ use App\Models\FrontIntegration;
 use App\Models\WhatsAppIntegration;
 use App\Models\WiseIntegration;
 use App\Services\FacebookGraphMessagingService;
+use App\Services\WhatsAppCloudApiService;
 use App\Services\Front\FrontApiClient;
 use App\Services\Front\FrontCommentImportService;
 use App\Services\Front\FrontTagImportService;
@@ -360,7 +361,7 @@ class IntegrationController extends Controller
     }
 
     /**
-     * Get WhatsApp (Twilio Messaging) integration for the current company.
+     * Get WhatsApp Cloud API integration for the current company.
      */
     public function getWhatsAppIntegration(Request $request): JsonResponse
     {
@@ -371,39 +372,44 @@ class IntegrationController extends Controller
         }
 
         $integration = WhatsAppIntegration::where('company_id', $company->id)->first();
-        $twilioReady = (bool) app(TwilioCompanyService::class)->getActiveIntegration($company);
 
         if ($integration) {
-            $connected = $integration->is_active && $integration->from_number && $twilioReady;
+            if (! $integration->webhook_verify_token) {
+                $integration->webhook_verify_token = Str::random(40);
+                $integration->save();
+            }
 
             return response()->json([
                 'integration' => [
                     'id' => $integration->id,
                     'company_id' => $integration->company_id,
+                    'phone_number_id' => $integration->phone_number_id,
+                    'waba_id' => $integration->waba_id,
                     'from_number' => $integration->from_number,
                     'display_phone_number' => $integration->display_phone_number ?: $integration->from_number,
                     'business_name' => $integration->business_name,
                     'welcome_message' => $integration->welcome_message,
                     'webhook_url' => $integration->webhookUrl(),
+                    'webhook_verify_token' => $integration->webhook_verify_token,
                     'webhook_set_at' => $integration->webhook_set_at,
                     'is_active' => $integration->is_active,
-                    'twilio_connected' => $twilioReady,
+                    'has_access_token' => (bool) $integration->getDecryptedAccessToken(),
+                    'has_app_secret' => (bool) $integration->getDecryptedAppSecret(),
                     'created_at' => $integration->created_at,
                     'updated_at' => $integration->updated_at,
                 ],
-                'status' => $connected ? 'connected' : 'disconnected',
+                'status' => $integration->isCloudConnected() ? 'connected' : 'disconnected',
             ]);
         }
 
         return response()->json([
             'integration' => null,
             'status' => 'disconnected',
-            'twilio_connected' => $twilioReady,
         ]);
     }
 
     /**
-     * Store or update WhatsApp (Twilio Messaging) integration for the current company.
+     * Store or update WhatsApp Cloud API (Meta Developer app) integration.
      */
     public function storeWhatsAppIntegration(Request $request): JsonResponse
     {
@@ -413,14 +419,14 @@ class IntegrationController extends Controller
             return response()->json(['error' => 'Company not found'], 404);
         }
 
-        if (! app(TwilioCompanyService::class)->getActiveIntegration($company)) {
-            return response()->json([
-                'error' => 'Connect Twilio first under Integrations, then configure your WhatsApp sender.',
-            ], 422);
-        }
+        $existing = WhatsAppIntegration::where('company_id', $company->id)->first();
+        $hasToken = $request->filled('access_token') || (bool) $existing?->getDecryptedAccessToken();
 
         $validator = Validator::make($request->all(), [
-            'from_number' => ['required', 'string', 'max:32'],
+            'phone_number_id' => ['required', 'string', 'max:64'],
+            'waba_id' => ['nullable', 'string', 'max:64'],
+            'access_token' => [$existing?->getDecryptedAccessToken() ? 'nullable' : 'required', 'string', 'max:4000'],
+            'app_secret' => ['nullable', 'string', 'max:255'],
             'business_name' => ['nullable', 'string', 'max:255'],
             'welcome_message' => ['nullable', 'string', 'max:1000'],
         ]);
@@ -429,35 +435,94 @@ class IntegrationController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $existing = WhatsAppIntegration::where('company_id', $company->id)->first();
+        if (! $hasToken) {
+            return response()->json([
+                'error' => 'Paste a WhatsApp Cloud API access token from your Meta Developer app.',
+            ], 422);
+        }
+
         $webhookKey = $existing?->webhook_key ?: Str::random(40);
-        $fromNumber = app(TwilioCompanyService::class)->normalizePhone((string) $request->input('from_number'));
+        $verifyToken = $existing?->webhook_verify_token ?: Str::random(40);
+        $phoneNumberId = trim((string) $request->input('phone_number_id'));
+        $wabaId = trim((string) $request->input('waba_id', '')) ?: ($existing?->waba_id);
+        $accessToken = $request->filled('access_token')
+            ? trim((string) $request->input('access_token'))
+            : $existing?->getDecryptedAccessToken();
+        $businessName = $request->input('business_name') ?: ($existing?->business_name);
+        $displayPhone = $existing?->display_phone_number ?: $existing?->from_number;
+        $fromNumber = $existing?->from_number;
+
+        if ($accessToken) {
+            try {
+                $cloud = app(WhatsAppCloudApiService::class);
+                $info = $cloud->phoneNumberInfo($phoneNumberId, $accessToken);
+                $displayPhone = $info['display_phone_number'] ?? $displayPhone;
+                $businessName = $businessName ?: ($info['verified_name'] ?? null);
+                if ($displayPhone) {
+                    $fromNumber = app(TwilioCompanyService::class)->normalizePhone((string) $displayPhone);
+                }
+            } catch (\Throwable $e) {
+                $cloud = app(WhatsAppCloudApiService::class);
+                $raw = (string) WhatsAppCloudApiService::sanitizeGraphError($e->getMessage());
+                $message = $cloud->isExpiredTokenError($raw) ? $cloud->expiredTokenMessage() : $raw;
+
+                return response()->json(['error' => $message], 422);
+            }
+        }
+
+        $payload = [
+            'phone_number_id' => $phoneNumberId,
+            'waba_id' => $wabaId ?: null,
+            'from_number' => $fromNumber,
+            'display_phone_number' => $displayPhone,
+            'webhook_key' => $webhookKey,
+            'webhook_verify_token' => $verifyToken,
+            'business_name' => $businessName,
+            'welcome_message' => $request->has('welcome_message')
+                ? $request->input('welcome_message')
+                : ($existing?->welcome_message),
+            'is_active' => true,
+        ];
+
+        if ($request->filled('access_token') && $accessToken) {
+            $payload['access_token'] = Crypt::encryptString($accessToken);
+        }
+
+        if ($request->filled('app_secret')) {
+            $payload['app_secret'] = Crypt::encryptString(trim((string) $request->input('app_secret')));
+        }
 
         $integration = WhatsAppIntegration::updateOrCreate(
             ['company_id' => $company->id],
-            [
-                'from_number' => $fromNumber,
-                'display_phone_number' => $fromNumber,
-                'webhook_key' => $webhookKey,
-                'business_name' => $request->input('business_name') ?: ($existing?->business_name),
-                'welcome_message' => $request->has('welcome_message')
-                    ? $request->input('welcome_message')
-                    : ($existing?->welcome_message),
-                'is_active' => true,
-            ]
+            $payload
         );
 
+        if ($accessToken && $wabaId) {
+            try {
+                app(WhatsAppCloudApiService::class)->subscribeWaba((string) $wabaId, $accessToken);
+            } catch (\Throwable $e) {
+                Log::warning('WhatsApp WABA subscribe failed', [
+                    'error' => WhatsAppCloudApiService::sanitizeGraphError($e->getMessage()),
+                ]);
+            }
+        }
+
         return response()->json([
-            'message' => 'WhatsApp integration saved successfully',
+            'message' => 'WhatsApp Cloud API integration saved successfully',
             'integration' => [
                 'id' => $integration->id,
+                'phone_number_id' => $integration->phone_number_id,
+                'waba_id' => $integration->waba_id,
                 'from_number' => $integration->from_number,
                 'display_phone_number' => $integration->display_phone_number,
                 'business_name' => $integration->business_name,
                 'welcome_message' => $integration->welcome_message,
                 'webhook_url' => $integration->webhookUrl(),
+                'webhook_verify_token' => $integration->webhook_verify_token,
                 'webhook_set_at' => $integration->webhook_set_at,
                 'is_active' => $integration->is_active,
+                'has_access_token' => (bool) $integration->getDecryptedAccessToken(),
+                'has_app_secret' => (bool) $integration->getDecryptedAppSecret(),
             ],
             'status' => 'connected',
         ]);
