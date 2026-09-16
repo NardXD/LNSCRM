@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\FacebookIntegration;
 use App\Models\WhatsAppIntegration;
 use Illuminate\Support\Facades\Log;
 
@@ -54,24 +55,56 @@ class WhatsAppMessageSyncService
             }
         }
 
-        try {
-            $this->cloud->registerWebhooks(
-                $token,
-                $integration->webhookUrl(),
-                (string) ($integration->webhook_verify_token ?: ''),
-                $wabaId !== '' ? $wabaId : null,
-                $phoneNumberId,
-                $integration->getDecryptedAppSecret()
-            );
-        } catch (\Throwable $e) {
-            $message = (string) WhatsAppCloudApiService::sanitizeGraphError($e->getMessage());
-            Log::warning('WhatsApp webhook registration failed', [
-                'company_id' => $integration->company_id,
-                'error' => $message,
-            ]);
+        $facebook = FacebookIntegration::query()
+            ->where('company_id', $integration->company_id)
+            ->where('is_active', true)
+            ->first();
 
-            throw new \RuntimeException($message);
+        $appSecret = $integration->getDecryptedAppSecret() ?: $facebook?->getDecryptedAppSecret();
+        $appId = is_string($facebook?->app_id ?? null) && $facebook->app_id !== ''
+            ? (string) $facebook->app_id
+            : null;
+
+        $attempts = [[
+            $integration->webhookUrl(),
+            (string) ($integration->webhook_verify_token ?: ''),
+        ]];
+
+        // Same Meta app already delivers Facebook/Instagram to this callback.
+        // Register WhatsApp there too so inbound chats are not dropped.
+        if ($facebook) {
+            $facebookUrl = $facebook->webhookUrl();
+            $facebookToken = (string) ($facebook->webhook_verify_token ?: '');
+            if ($facebookUrl !== '' && $facebookToken !== '' && $facebookUrl !== $attempts[0][0]) {
+                $attempts[] = [$facebookUrl, $facebookToken];
+            }
         }
+
+        $lastError = null;
+        foreach ($attempts as [$callbackUrl, $verifyToken]) {
+            try {
+                $this->cloud->registerWebhooks(
+                    $token,
+                    $callbackUrl,
+                    $verifyToken,
+                    $wabaId !== '' ? $wabaId : null,
+                    $phoneNumberId,
+                    $appSecret,
+                    $appId
+                );
+
+                return;
+            } catch (\Throwable $e) {
+                $lastError = (string) WhatsAppCloudApiService::sanitizeGraphError($e->getMessage());
+                Log::warning('WhatsApp webhook registration failed', [
+                    'company_id' => $integration->company_id,
+                    'callback_url' => $callbackUrl,
+                    'error' => $lastError,
+                ]);
+            }
+        }
+
+        throw new \RuntimeException($lastError ?: 'Could not register the WhatsApp webhook with Meta.');
     }
 
     /**

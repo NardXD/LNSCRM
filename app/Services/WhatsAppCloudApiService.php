@@ -58,7 +58,8 @@ class WhatsAppCloudApiService
         string $verifyToken,
         ?string $wabaId = null,
         ?string $phoneNumberId = null,
-        ?string $appSecret = null
+        ?string $appSecret = null,
+        ?string $appId = null
     ): void {
         $callbackUrl = trim($callbackUrl);
         $verifyToken = trim($verifyToken);
@@ -74,7 +75,7 @@ class WhatsAppCloudApiService
 
         if ($appSecret) {
             try {
-                $this->subscribeAppCallback($accessToken, $appSecret, $callbackUrl, $verifyToken);
+                $this->subscribeAppCallback($accessToken, $appSecret, $callbackUrl, $verifyToken, $appId);
                 $registeredCallback = true;
             } catch (\Throwable $e) {
                 $errors[] = $e->getMessage();
@@ -172,10 +173,10 @@ class WhatsAppCloudApiService
         }
     }
 
-    protected function subscribeAppCallback(string $accessToken, string $appSecret, string $callbackUrl, string $verifyToken): void
+    protected function subscribeAppCallback(string $accessToken, string $appSecret, string $callbackUrl, string $verifyToken, ?string $appId = null): void
     {
-        $appId = $this->appIdFromToken($accessToken);
-        if (! $appId) {
+        $appId = $appId ? trim($appId) : ($this->appIdFromToken($accessToken) ?: '');
+        if ($appId === '') {
             throw new \RuntimeException('Could not resolve the Meta app ID from the access token.');
         }
 

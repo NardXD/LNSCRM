@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\FacebookIntegration;
 use App\Models\LeadLabel;
 use App\Models\MessageTemplate;
 use App\Models\User;
@@ -477,6 +478,11 @@ class WhatsAppController extends Controller
             return $this->verifyMetaWebhook($request, $integration);
         }
 
+        return $this->acceptMetaInbound($integration, $request);
+    }
+
+    public function acceptMetaInbound(WhatsAppIntegration $integration, Request $request): Response
+    {
         if (! $this->metaSignatureIsValid($request, $integration)) {
             Log::error('WhatsApp webhook signature invalid; processing anyway because the callback URL is unique', [
                 'integration_id' => $integration->id,
@@ -508,8 +514,15 @@ class WhatsAppController extends Controller
         $token = (string) ($request->query('hub.verify_token') ?? $request->input('hub_verify_token', ''));
         $challenge = (string) ($request->query('hub.challenge') ?? $request->input('hub_challenge', ''));
         $expected = (string) ($integration->webhook_verify_token ?? '');
+        $facebookToken = (string) (FacebookIntegration::query()
+            ->where('company_id', $integration->company_id)
+            ->where('is_active', true)
+            ->value('webhook_verify_token') ?: '');
 
-        if ($mode === 'subscribe' && $expected !== '' && hash_equals($expected, $token)) {
+        $tokenOk = ($expected !== '' && hash_equals($expected, $token))
+            || ($facebookToken !== '' && hash_equals($facebookToken, $token));
+
+        if ($mode === 'subscribe' && $tokenOk) {
             if (! $integration->webhook_set_at) {
                 $integration->webhook_set_at = now();
                 $integration->save();
@@ -523,8 +536,16 @@ class WhatsAppController extends Controller
 
     protected function metaSignatureIsValid(Request $request, WhatsAppIntegration $integration): bool
     {
-        $secret = $integration->getDecryptedAppSecret();
-        if (! $secret) {
+        $secrets = array_values(array_filter([
+            $integration->getDecryptedAppSecret(),
+            FacebookIntegration::query()
+                ->where('company_id', $integration->company_id)
+                ->where('is_active', true)
+                ->first()
+                ?->getDecryptedAppSecret(),
+        ]));
+
+        if ($secrets === []) {
             return true;
         }
 
@@ -533,9 +554,15 @@ class WhatsAppController extends Controller
             return false;
         }
 
-        $expected = 'sha256='.hash_hmac('sha256', $request->getContent(), $secret);
+        $body = $request->getContent();
+        foreach ($secrets as $secret) {
+            $expected = 'sha256='.hash_hmac('sha256', $body, (string) $secret);
+            if (hash_equals($expected, $header)) {
+                return true;
+            }
+        }
 
-        return hash_equals($expected, $header);
+        return false;
     }
 
     protected function handleMetaWebhook(WhatsAppIntegration $integration, Request $request): void

@@ -10,6 +10,7 @@ use App\Models\FacebookMessage;
 use App\Models\LeadLabel;
 use App\Models\MessageTemplate;
 use App\Models\User;
+use App\Models\WhatsAppIntegration;
 use App\Notifications\FacebookMessageNotification;
 use App\Services\FacebookGraphHistoryService;
 use App\Services\FacebookGraphMessagingService;
@@ -595,7 +596,24 @@ class FacebookController extends Controller
             return $this->verifyMetaWebhook($request, $integration);
         }
 
-        $object = strtolower((string) $request->input('object', ''));
+        $object = $this->metaObject($request);
+        if ($object === 'whatsapp_business_account') {
+            $whatsapp = WhatsAppIntegration::query()
+                ->where('company_id', $integration->company_id)
+                ->where('is_active', true)
+                ->first();
+
+            if ($whatsapp) {
+                return app(WhatsAppController::class)->acceptMetaInbound($whatsapp, $request);
+            }
+
+            Log::info('WhatsApp Cloud API webhook arrived on the Facebook callback, but WhatsApp is not connected', [
+                'company_id' => $integration->company_id,
+            ]);
+
+            return response('EVENT_RECEIVED', 200);
+        }
+
         if (in_array($object, ['instagram', 'page'], true)) {
             if (! $this->metaSignatureIsValid($request, $integration)) {
                 Log::error('Meta webhook signature invalid; event dropped', [
@@ -677,8 +695,15 @@ class FacebookController extends Controller
         $token = (string) ($request->query('hub.verify_token') ?? $request->input('hub_verify_token', ''));
         $challenge = (string) ($request->query('hub.challenge') ?? $request->input('hub_challenge', ''));
         $expected = (string) ($integration->webhook_verify_token ?? '');
+        $whatsappToken = (string) (WhatsAppIntegration::query()
+            ->where('company_id', $integration->company_id)
+            ->where('is_active', true)
+            ->value('webhook_verify_token') ?: '');
 
-        if ($mode === 'subscribe' && $expected !== '' && hash_equals($expected, $token)) {
+        $tokenOk = ($expected !== '' && hash_equals($expected, $token))
+            || ($whatsappToken !== '' && hash_equals($whatsappToken, $token));
+
+        if ($mode === 'subscribe' && $tokenOk) {
             if (! $integration->webhook_set_at) {
                 $integration->webhook_set_at = now();
                 $integration->save();
@@ -705,6 +730,18 @@ class FacebookController extends Controller
         $expected = 'sha256='.hash_hmac('sha256', $request->getContent(), $secret);
 
         return hash_equals($expected, $header);
+    }
+
+    protected function metaObject(Request $request): string
+    {
+        $object = strtolower((string) $request->input('object', ''));
+        if ($object !== '') {
+            return $object;
+        }
+
+        $decoded = json_decode($request->getContent(), true);
+
+        return is_array($decoded) ? strtolower((string) ($decoded['object'] ?? '')) : '';
     }
 
     protected function handleMetaWebhook(FacebookIntegration $integration, Request $request, string $object): void
