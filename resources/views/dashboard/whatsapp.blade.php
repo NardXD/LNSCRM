@@ -736,7 +736,7 @@
         const failed = lastOut.classList.contains('failed') || st === 'failed' || st === 'undelivered';
         let label = 'Sent';
         if (failed) label = 'Not Delivered';
-        else if (st === 'queued' || st === 'accepted' || st === 'sending') label = 'Sending';
+        else if (st === 'queued' || st === 'sending') label = 'Sending';
         else if (st === 'delivered' || st === 'read') label = 'Delivered';
         lastOut.insertAdjacentHTML('afterend', `<div class="wa-delivered${failed ? ' is-failed' : ''}">${label}</div>`);
     }
