@@ -134,7 +134,7 @@ class WhatsAppCloudApiService
 
         return [
             'wamid' => $wamid,
-            'status' => 'sent',
+            'status' => (string) ($json['messages'][0]['message_status'] ?? 'accepted'),
             'raw' => $json,
         ];
     }

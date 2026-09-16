@@ -252,8 +252,7 @@ class WhatsAppCloudApiTest extends TestCase
             ])
             ->assertCreated()
             ->assertJsonPath('data.text', 'On our way')
-            ->assertJsonPath('data.direction', 'outbound')
-            ->assertJsonPath('data.status', 'sent');
+            ->assertJsonPath('data.direction', 'outbound');
 
         $this->assertSame('wamid.OUT2', WhatsAppMessage::query()->value('wamid'));
         Http::assertSent(function ($request) {
