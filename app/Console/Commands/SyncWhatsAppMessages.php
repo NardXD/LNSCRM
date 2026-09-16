@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\WhatsAppIntegration;
 use App\Services\WhatsAppCloudApiService;
+use App\Services\WhatsAppMessageSyncService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -13,9 +14,9 @@ class SyncWhatsAppMessages extends Command
     protected $signature = 'whatsapp:sync-messages
                             {--company= : Check only this company id}';
 
-    protected $description = 'Verify WhatsApp Cloud API tokens (inbound messages arrive via Meta webhooks)';
+    protected $description = 'Verify WhatsApp Cloud API tokens and re-register inbound Meta webhooks';
 
-    public function handle(WhatsAppCloudApiService $cloud): int
+    public function handle(WhatsAppCloudApiService $cloud, WhatsAppMessageSyncService $sync): int
     {
         $query = WhatsAppIntegration::query()
             ->where('is_active', true)
@@ -45,6 +46,7 @@ class SyncWhatsAppMessages extends Command
 
             try {
                 $info = $cloud->phoneNumberInfo((string) $integration->phone_number_id, $token);
+                $sync->ensureWebhooks($integration, $token);
                 $ok++;
                 $label = $info['verified_name'] ?? $info['display_phone_number'] ?? $integration->phone_number_id;
                 $this->line('[whatsapp] company '.$integration->company_id.': '.$label);

@@ -630,6 +630,17 @@ class WhatsAppController extends Controller
     {
         $wamid = (string) ($message['id'] ?? '');
         $from = (string) ($message['from'] ?? '');
+        if ($from === '') {
+            foreach ($contacts as $contact) {
+                if (! is_array($contact)) {
+                    continue;
+                }
+                $from = (string) ($contact['wa_id'] ?? '');
+                if ($from !== '') {
+                    break;
+                }
+            }
+        }
         if ($wamid === '' || $from === '') {
             return;
         }

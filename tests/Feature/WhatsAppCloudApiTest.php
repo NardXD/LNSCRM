@@ -163,7 +163,13 @@ class WhatsAppCloudApiTest extends TestCase
     public function test_saving_whatsapp_integration_verifies_the_meta_token(): void
     {
         Http::fake(function ($request) {
-            if (str_contains($request->url(), 'subscribed_apps')) {
+            if (str_contains($request->url(), 'debug_token')) {
+                return Http::response(['data' => ['app_id' => '1234567890']], 200);
+            }
+            if (str_contains($request->url(), '/subscriptions') || str_contains($request->url(), 'subscribed_apps')) {
+                return Http::response(['success' => true], 200);
+            }
+            if ($request->method() === 'POST') {
                 return Http::response(['success' => true], 200);
             }
 
@@ -171,6 +177,7 @@ class WhatsAppCloudApiTest extends TestCase
                 'id' => '106540352242922',
                 'display_phone_number' => '+15551234567',
                 'verified_name' => 'Acme Support',
+                'whatsapp_business_account' => ['id' => '102290129340398'],
             ], 200);
         });
 
@@ -189,13 +196,24 @@ class WhatsAppCloudApiTest extends TestCase
             ->assertJsonPath('integration.phone_number_id', '106540352242922')
             ->assertJsonPath('integration.business_name', 'Acme Support')
             ->assertJsonPath('integration.has_access_token', true)
-            ->assertJsonPath('integration.has_app_secret', true);
+            ->assertJsonPath('integration.has_app_secret', true)
+            ->assertJsonPath('webhook_registered', true);
 
         $integration = WhatsAppIntegration::query()->first();
         $this->assertNotNull($integration);
         $this->assertTrue($integration->isCloudConnected());
         $this->assertNotEmpty($integration->webhook_verify_token);
         $this->assertSame('+15551234567', $integration->from_number);
+
+        Http::assertSent(function ($request) {
+            return $request->method() === 'POST'
+                && str_contains($request->url(), '/102290129340398/subscribed_apps');
+        });
+        Http::assertSent(function ($request) {
+            return $request->method() === 'POST'
+                && str_contains($request->url(), '/106540352242922')
+                && data_get($request->data(), 'webhook_configuration.override_callback_uri');
+        });
     }
 
     public function test_saving_whatsapp_integration_rejects_an_invalid_token(): void
@@ -213,6 +231,49 @@ class WhatsAppCloudApiTest extends TestCase
             ])
             ->assertStatus(422)
             ->assertJsonFragment(['error' => 'Your WhatsApp Cloud API access token expired. Open Integrations → WhatsApp Business, paste a permanent System User token from Meta for Developers → WhatsApp → API Setup (or Business Settings → System Users), then Save.']);
+    }
+
+    public function test_cloud_api_webhook_stores_inbound_when_from_is_only_on_the_contact(): void
+    {
+        Notification::fake();
+        $company = $this->makeCompany();
+        $integration = $this->makeIntegration($company, ['webhook_key' => 'wa-from-contact']);
+        $payload = $this->inboundTextPayload('wamid.CONTACTFROM', '15559876543', 'Hi from contact wa_id');
+        unset($payload['entry'][0]['changes'][0]['value']['messages'][0]['from']);
+
+        $this->postJson('/webhooks/whatsapp/'.$integration->webhook_key, $payload)
+            ->assertOk();
+
+        $this->assertSame('Hi from contact wa_id', WhatsAppMessage::query()->where('wamid', 'wamid.CONTACTFROM')->value('text'));
+    }
+
+    public function test_manual_sync_registers_the_meta_webhook_callback(): void
+    {
+        Http::fake(function ($request) {
+            if (str_contains($request->url(), 'subscribed_apps') || $request->method() === 'POST') {
+                return Http::response(['success' => true], 200);
+            }
+
+            return Http::response([
+                'id' => '106540352242922',
+                'display_phone_number' => '+15551234567',
+                'verified_name' => 'Acme Support',
+            ], 200);
+        });
+
+        [$user, $company] = $this->userWithPermissions(['view_whatsapp']);
+        $this->makeIntegration($company);
+
+        $this->actingAs($user)
+            ->postJson('/api/whatsapp/sync', ['days' => 30])
+            ->assertOk()
+            ->assertJsonPath('data.mode', 'webhook')
+            ->assertJsonPath('data.webhook_registered', true);
+
+        Http::assertSent(function ($request) {
+            return $request->method() === 'POST'
+                && data_get($request->data(), 'webhook_configuration.override_callback_uri');
+        });
     }
 
     public function test_bootstrap_is_connected_only_with_cloud_api_credentials(): void

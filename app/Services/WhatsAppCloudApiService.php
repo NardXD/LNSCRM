@@ -4,7 +4,6 @@ namespace App\Services;
 
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 
 class WhatsAppCloudApiService
 {
@@ -36,19 +35,183 @@ class WhatsAppCloudApiService
         return $response->json() ?: [];
     }
 
+    public function wabaIdForPhoneNumber(string $phoneNumberId, string $accessToken): ?string
+    {
+        $response = Http::timeout(30)
+            ->withToken($accessToken)
+            ->get($this->baseUrl.'/'.$phoneNumberId, [
+                'fields' => 'whatsapp_business_account{id}',
+            ]);
+
+        $id = $response->json('whatsapp_business_account.id');
+
+        return is_string($id) && $id !== '' ? $id : null;
+    }
+
+    /**
+     * Point Meta at this CRM so inbound customer messages are delivered.
+     * Subscribe-only is not enough: without a callback URL, Cloud API never posts chats.
+     */
+    public function registerWebhooks(
+        string $accessToken,
+        string $callbackUrl,
+        string $verifyToken,
+        ?string $wabaId = null,
+        ?string $phoneNumberId = null,
+        ?string $appSecret = null
+    ): void {
+        $callbackUrl = trim($callbackUrl);
+        $verifyToken = trim($verifyToken);
+        $wabaId = $wabaId ? trim($wabaId) : '';
+        $phoneNumberId = $phoneNumberId ? trim($phoneNumberId) : '';
+
+        if ($callbackUrl === '' || $verifyToken === '') {
+            throw new \RuntimeException('A WhatsApp webhook URL and verify token are required to receive inbound messages.');
+        }
+
+        $registeredCallback = false;
+        $errors = [];
+
+        if ($appSecret) {
+            try {
+                $this->subscribeAppCallback($accessToken, $appSecret, $callbackUrl, $verifyToken);
+                $registeredCallback = true;
+            } catch (\Throwable $e) {
+                $errors[] = $e->getMessage();
+            }
+        }
+
+        if ($wabaId !== '') {
+            try {
+                $this->subscribeWaba($wabaId, $accessToken);
+            } catch (\Throwable $e) {
+                $errors[] = $e->getMessage();
+            }
+        }
+
+        if ($phoneNumberId !== '') {
+            try {
+                $this->overridePhoneCallback($phoneNumberId, $accessToken, $callbackUrl, $verifyToken);
+                $registeredCallback = true;
+            } catch (\Throwable $e) {
+                $errors[] = $e->getMessage();
+            }
+        }
+
+        if ($wabaId !== '' && ! $registeredCallback) {
+            try {
+                $this->overrideWabaCallback($wabaId, $accessToken, $callbackUrl, $verifyToken);
+                $registeredCallback = true;
+            } catch (\Throwable $e) {
+                $errors[] = $e->getMessage();
+            }
+        }
+
+        if ($registeredCallback) {
+            return;
+        }
+
+        $detail = $errors !== [] ? implode(' ', array_unique($errors)) : 'Meta did not accept the webhook callback URL.';
+
+        throw new \RuntimeException(
+            $detail.' Paste the CRM Callback URL and Verify Token under Meta for Developers → WhatsApp → Configuration, then subscribe to messages.'
+        );
+    }
+
     public function subscribeWaba(string $wabaId, string $accessToken): void
     {
         $response = Http::timeout(30)
             ->withToken($accessToken)
-            ->asForm()
+            ->acceptJson()
+            ->asJson()
             ->post($this->baseUrl.'/'.$wabaId.'/subscribed_apps');
 
         if (! $response->successful()) {
-            Log::warning('WhatsApp WABA webhook subscription failed', [
-                'waba_id' => $wabaId,
-                'error' => $this->errorMessage($response, 'subscribe failed'),
-            ]);
+            $response = Http::timeout(30)
+                ->withToken($accessToken)
+                ->asForm()
+                ->post($this->baseUrl.'/'.$wabaId.'/subscribed_apps');
         }
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($this->errorMessage($response, 'Could not subscribe the WhatsApp Business Account to this app.'));
+        }
+    }
+
+    protected function overrideWabaCallback(string $wabaId, string $accessToken, string $callbackUrl, string $verifyToken): void
+    {
+        $response = Http::timeout(30)
+            ->withToken($accessToken)
+            ->acceptJson()
+            ->asJson()
+            ->post($this->baseUrl.'/'.$wabaId.'/subscribed_apps', [
+                'override_callback_uri' => $callbackUrl,
+                'verify_token' => $verifyToken,
+            ]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($this->errorMessage($response, 'Could not set the WhatsApp webhook callback URL on the WABA.'));
+        }
+    }
+
+    protected function overridePhoneCallback(string $phoneNumberId, string $accessToken, string $callbackUrl, string $verifyToken): void
+    {
+        $response = Http::timeout(30)
+            ->withToken($accessToken)
+            ->acceptJson()
+            ->asJson()
+            ->post($this->baseUrl.'/'.$phoneNumberId, [
+                'webhook_configuration' => [
+                    'override_callback_uri' => $callbackUrl,
+                    'verify_token' => $verifyToken,
+                ],
+            ]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($this->errorMessage($response, 'Could not set the WhatsApp webhook callback URL on the phone number.'));
+        }
+    }
+
+    protected function subscribeAppCallback(string $accessToken, string $appSecret, string $callbackUrl, string $verifyToken): void
+    {
+        $appId = $this->appIdFromToken($accessToken);
+        if (! $appId) {
+            throw new \RuntimeException('Could not resolve the Meta app ID from the access token.');
+        }
+
+        $response = Http::timeout(30)
+            ->asForm()
+            ->post($this->baseUrl.'/'.$appId.'/subscriptions', [
+                'object' => 'whatsapp_business_account',
+                'callback_url' => $callbackUrl,
+                'verify_token' => $verifyToken,
+                'fields' => 'messages',
+                'include_values' => 'true',
+                'access_token' => $appId.'|'.$appSecret,
+            ]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($this->errorMessage($response, 'Could not register the WhatsApp webhook on the Meta app.'));
+        }
+    }
+
+    protected function appIdFromToken(string $accessToken): ?string
+    {
+        $response = Http::timeout(20)
+            ->get($this->baseUrl.'/debug_token', [
+                'input_token' => $accessToken,
+                'access_token' => $accessToken,
+            ]);
+
+        $appId = $response->json('data.app_id');
+        if (is_string($appId) && $appId !== '') {
+            return $appId;
+        }
+        if (is_numeric($appId)) {
+            return (string) $appId;
+        }
+
+        return null;
     }
 
     /**
