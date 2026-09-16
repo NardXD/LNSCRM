@@ -458,6 +458,10 @@ class IntegrationController extends Controller
                 $info = $cloud->phoneNumberInfo($phoneNumberId, $accessToken);
                 $displayPhone = $info['display_phone_number'] ?? $displayPhone;
                 $businessName = $businessName ?: ($info['verified_name'] ?? null);
+                $graphWaba = $info['whatsapp_business_account']['id'] ?? null;
+                if (! $wabaId && is_string($graphWaba) && $graphWaba !== '') {
+                    $wabaId = $graphWaba;
+                }
                 if ($displayPhone) {
                     $fromNumber = app(TwilioCompanyService::class)->normalizePhone((string) $displayPhone);
                 }

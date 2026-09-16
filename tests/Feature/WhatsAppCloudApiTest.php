@@ -126,19 +126,38 @@ class WhatsAppCloudApiTest extends TestCase
         $this->assertSame('delivered', WhatsAppMessage::query()->where('wamid', 'wamid.OUT1')->value('status'));
     }
 
-    public function test_cloud_api_webhook_rejects_an_invalid_signature_when_app_secret_is_set(): void
+    public function test_cloud_api_webhook_still_stores_inbound_when_app_secret_signature_is_wrong(): void
     {
+        Notification::fake();
         $company = $this->makeCompany();
         $integration = $this->makeIntegration($company, [
             'webhook_key' => 'wa-sig-key',
             'app_secret' => 'meta-app-secret',
         ]);
 
-        $this->postJson('/webhooks/whatsapp/'.$integration->webhook_key, $this->inboundTextPayload('wamid.SIG', '15559876543', 'Nope'), [
+        $this->postJson('/webhooks/whatsapp/'.$integration->webhook_key, $this->inboundTextPayload('wamid.SIG', '15559876543', 'Hello'), [
             'X-Hub-Signature-256' => 'sha256=deadbeef',
-        ])->assertStatus(403);
+        ])->assertOk()
+            ->assertSee('EVENT_RECEIVED', false);
 
-        $this->assertSame(0, WhatsAppMessage::query()->count());
+        $this->assertSame('Hello', WhatsAppMessage::query()->where('wamid', 'wamid.SIG')->value('text'));
+    }
+
+    public function test_cloud_api_webhook_stores_inbound_when_phone_number_id_differs(): void
+    {
+        Notification::fake();
+        $company = $this->makeCompany();
+        $integration = $this->makeIntegration($company, [
+            'webhook_key' => 'wa-mismatch-key',
+            'phone_number_id' => '106540352242922',
+        ]);
+
+        $payload = $this->inboundTextPayload('wamid.MISMATCH', '15559876543', 'Still import me', '999999999999');
+
+        $this->postJson('/webhooks/whatsapp/'.$integration->webhook_key, $payload)
+            ->assertOk();
+
+        $this->assertSame('Still import me', WhatsAppMessage::query()->where('wamid', 'wamid.MISMATCH')->value('text'));
     }
 
     public function test_saving_whatsapp_integration_verifies_the_meta_token(): void

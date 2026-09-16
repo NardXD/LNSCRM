@@ -1118,7 +1118,7 @@
             if (imported > 0) {
                 showSyncNote(`Imported ${imported} message${imported === 1 ? '' : 's'}.`);
             } else if (mode === 'webhook') {
-                showSyncNote('Connection OK. Live chats arrive from Meta webhooks. Cloud API does not provide inbox history to backfill.');
+                showSyncNote('WhatsApp is connected. Old chats cannot be imported. Send a new message to your business number — it should appear here on its own.');
             } else {
                 showSyncNote('No new WhatsApp messages to import.');
             }
