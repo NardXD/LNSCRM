@@ -23,7 +23,7 @@
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="14" y2="12"/><line x1="4" y1="18" x2="10" y2="18"/><circle cx="18" cy="15" r="3"/><path d="m20.5 17.5 1.5 1.5"/></svg>
                         </a>
                     @endif
-                    <button type="button" class="wa-icon-btn" id="waSyncBtn" title="Verify the Meta Cloud API connection (live chats arrive via webhooks)">
+                    <button type="button" class="wa-icon-btn" id="waSyncBtn" title="Sync WhatsApp messages from Twilio (also auto-syncs every 45s)">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     </button>
                     <button type="button" class="wa-icon-btn" id="waRefreshBtn" title="Refresh">
@@ -807,7 +807,7 @@
             }
             if (!connected) {
                 els.emptyTitle.textContent = 'Connect WhatsApp';
-                els.emptyText.textContent = 'Connect WhatsApp Cloud API under Integrations (Meta Developer app Phone Number ID + access token) to start chatting.';
+                els.emptyText.textContent = 'Connect Twilio, then add your WhatsApp sender under Integrations to start chatting.';
                 els.connectLink.style.display = '';
             } else {
                 els.connectLink.style.display = 'none';
@@ -1106,7 +1106,7 @@
         syncInFlight = true;
         els.syncBtn.disabled = true;
         els.syncBtn.classList.add('is-syncing');
-        showSyncNote('Checking WhatsApp Cloud API connection...');
+        showSyncNote('Checking Twilio for messages missed by the CRM...');
         try {
             const data = await api('/sync', {
                 method: 'POST',
@@ -1114,14 +1114,10 @@
             });
             const result = data.data || {};
             const imported = Number(result.imported || 0);
-            const mode = result.mode || '';
-            if (imported > 0) {
-                showSyncNote(`Imported ${imported} message${imported === 1 ? '' : 's'}.`);
-            } else if (mode === 'webhook') {
-                showSyncNote('Connection OK. Live chats arrive from Meta webhooks. Cloud API does not provide inbox history to backfill.');
-            } else {
-                showSyncNote('No new WhatsApp messages to import.');
-            }
+            const scanned = Number(result.scanned || 0);
+            showSyncNote(imported
+                ? `Imported ${imported} message${imported === 1 ? '' : 's'} from Twilio.`
+                : (scanned ? `No new messages. Found ${scanned} already in the CRM.` : 'No WhatsApp history found on Twilio for the last 30 days.'));
             await loadConversations({ merge: true });
             if (activeId) await pollActiveMessages();
         } catch (e) {

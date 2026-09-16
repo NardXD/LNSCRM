@@ -2,8 +2,11 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Company;
 use App\Models\WhatsAppIntegration;
-use App\Services\WhatsAppCloudApiService;
+use App\Services\TwilioCompanyService;
+use App\Services\TwilioService;
+use App\Services\WhatsAppMessageSyncService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -11,15 +14,18 @@ use Throwable;
 class SyncWhatsAppMessages extends Command
 {
     protected $signature = 'whatsapp:sync-messages
-                            {--company= : Check only this company id}';
+                            {--company= : Sync only this company id}
+                            {--minutes=45 : How far back to poll Twilio for missed WhatsApp messages}';
 
-    protected $description = 'Verify WhatsApp Cloud API tokens (inbound messages arrive via Meta webhooks)';
+    protected $description = 'Background-sync WhatsApp messages from Twilio (catch-up for missed webhooks)';
 
-    public function handle(WhatsAppCloudApiService $cloud): int
+    public function handle(WhatsAppMessageSyncService $whatsappSync, TwilioCompanyService $twilioCompany): int
     {
+        @set_time_limit(300);
+
         $query = WhatsAppIntegration::query()
             ->where('is_active', true)
-            ->whereNotNull('phone_number_id')
+            ->whereNotNull('from_number')
             ->orderBy('id');
 
         if ($this->option('company')) {
@@ -28,38 +34,54 @@ class SyncWhatsAppMessages extends Command
 
         $integrations = $query->get();
         if ($integrations->isEmpty()) {
-            $this->info('No active WhatsApp Cloud API integrations to verify.');
+            $this->info('No active WhatsApp integrations to sync.');
 
             return self::SUCCESS;
         }
 
-        $ok = 0;
+        $minutes = max(5, (int) $this->option('minutes'));
+        $totalImported = 0;
+        $synced = 0;
         $failed = 0;
 
         foreach ($integrations as $integration) {
-            $token = $integration->getDecryptedAccessToken();
-            if (! $token) {
-                $failed++;
+            $company = Company::find($integration->company_id);
+            if (! $company) {
                 continue;
             }
 
             try {
-                $info = $cloud->phoneNumberInfo((string) $integration->phone_number_id, $token);
-                $ok++;
-                $label = $info['verified_name'] ?? $info['display_phone_number'] ?? $integration->phone_number_id;
-                $this->line('[whatsapp] company '.$integration->company_id.': '.$label);
+                $twilioIntegration = $twilioCompany->getActiveIntegration($company);
+                if (! $twilioIntegration) {
+                    continue;
+                }
+
+                $credentials = $twilioCompany->getCredentials($twilioIntegration);
+                if (! $credentials) {
+                    continue;
+                }
+
+                $twilio = new TwilioService($credentials['sid'], $credentials['token']);
+                $imported = $whatsappSync->ingestRecent($integration, $twilio, $minutes, 150);
+                $totalImported += $imported;
+                $synced++;
+
+                if ($imported > 0) {
+                    $this->line("[whatsapp] {$company->name}: +{$imported}");
+                }
             } catch (Throwable $e) {
                 $failed++;
-                Log::warning('WhatsApp Cloud API token check failed', [
-                    'company_id' => $integration->company_id,
-                    'message' => WhatsAppCloudApiService::sanitizeGraphError($e->getMessage()),
+                Log::warning('Background WhatsApp sync failed', [
+                    'company_id' => $company->id,
+                    'message' => $e->getMessage(),
                 ]);
-                $this->warn('[whatsapp] company '.$integration->company_id.': '.$e->getMessage());
+                $this->warn('[whatsapp] '.$company->name.': '.$e->getMessage());
             }
         }
 
-        $this->info("Checked {$ok} WhatsApp Cloud API integration(s)".($failed ? ", {$failed} failed" : '').'.');
+        $this->info("Synced WhatsApp for {$synced} company(ies), imported {$totalImported} message(s)"
+            .($failed ? ", {$failed} failed" : '').'.');
 
-        return $failed > 0 && $ok === 0 ? self::FAILURE : self::SUCCESS;
+        return $failed > 0 && $synced === 0 ? self::FAILURE : self::SUCCESS;
     }
 }

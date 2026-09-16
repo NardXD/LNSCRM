@@ -125,8 +125,8 @@ Route::prefix('twilio')->group(function () {
 Route::post('/webhooks/viber/{webhookKey}', [ViberController::class, 'webhook'])
     ->name('webhooks.viber');
 
-// WhatsApp Cloud API webhooks (public, CSRF-exempt; GET = verify, POST = events)
-Route::match(['get', 'post'], '/webhooks/whatsapp/{webhookKey}', [WhatsAppController::class, 'webhook'])
+// WhatsApp (Twilio Messaging) inbound webhook (public, CSRF-exempt)
+Route::post('/webhooks/whatsapp/{webhookKey}', [WhatsAppController::class, 'webhook'])
     ->name('webhooks.whatsapp');
 
 // Facebook / Instagram Messenger webhooks (public, CSRF-exempt; GET = verify, POST = events)

@@ -51,8 +51,7 @@ class LeadChannelMessageService
         protected SmsConversationService $smsConversations,
         protected LeadAutoCreateService $leadAutoCreate,
         protected InboxReplyService $inboxReplies,
-        protected FacebookGraphMessagingService $graphMessaging,
-        protected WhatsAppCloudApiService $whatsappCloud
+        protected FacebookGraphMessagingService $graphMessaging
     ) {}
 
     /**
@@ -508,23 +507,22 @@ class LeadChannelMessageService
             ->where('company_id', $lead->company_id)
             ->where('is_active', true)
             ->first();
-        if (! $channel || ! $channel->isCloudConnected()) {
-            throw new \RuntimeException('WhatsApp is not connected. Configure the Meta Cloud API under Integrations.');
+        if (! $channel || ! $channel->from_number) {
+            throw new \RuntimeException('WhatsApp is not connected. Configure it under Integrations.');
         }
 
         $to = $conversation->wa_id ?: $conversation->phone;
-        $token = $channel->getDecryptedAccessToken();
+        $twilio = $this->twilioFor($user);
 
         try {
-            $sent = $this->whatsappCloud->send(
-                (string) $channel->phone_number_id,
-                (string) $token,
+            $sent = $twilio->sendWhatsApp(
+                (string) $channel->from_number,
                 (string) $to,
-                'text',
-                $body
+                $body,
+                $channel->statusCallbackUrl()
             );
         } catch (\Throwable $e) {
-            throw new \RuntimeException((string) WhatsAppCloudApiService::sanitizeGraphError($e->getMessage()));
+            throw new \RuntimeException($e->getMessage());
         }
 
         $message = WhatsAppMessage::create([
@@ -532,11 +530,11 @@ class LeadChannelMessageService
             'whatsapp_conversation_id' => $conversation->id,
             'user_id' => $user->id,
             'direction' => 'outbound',
-            'wamid' => $sent['wamid'],
+            'wamid' => $sent->sid,
             'type' => 'text',
             'text' => $body,
-            'status' => $sent['status'] ?? 'sent',
-            'raw_payload' => $sent['raw'],
+            'status' => $sent->status ?? 'sent',
+            'raw_payload' => ['sid' => $sent->sid, 'status' => $sent->status],
             'sent_at' => now(),
         ]);
         $conversation->last_message_preview = Str::limit(trim($body), 480);
