@@ -478,12 +478,13 @@ class WhatsAppController extends Controller
         }
 
         if (! $this->metaSignatureIsValid($request, $integration)) {
-            Log::error('WhatsApp webhook signature invalid; processing anyway because the callback URL is unique', [
+            Log::error('WhatsApp webhook signature invalid; event dropped', [
                 'integration_id' => $integration->id,
                 'company_id' => $integration->company_id,
                 'has_app_secret' => (bool) $integration->getDecryptedAppSecret(),
-                'content_length' => strlen($request->getContent()),
             ]);
+
+            return response('Invalid signature', 403);
         }
 
         try {
@@ -540,25 +541,12 @@ class WhatsAppController extends Controller
 
     protected function handleMetaWebhook(WhatsAppIntegration $integration, Request $request): void
     {
-        $payload = $this->webhookPayload($request);
-        $object = strtolower((string) ($payload['object'] ?? ''));
+        $object = strtolower((string) $request->input('object', ''));
         if ($object !== '' && $object !== 'whatsapp_business_account') {
-            Log::info('WhatsApp webhook ignored non-WABA object', ['object' => $object]);
-
             return;
         }
 
-        $entries = $payload['entry'] ?? [];
-        if (! is_array($entries) || $entries === []) {
-            Log::info('WhatsApp webhook POST had no entry[] payload', [
-                'integration_id' => $integration->id,
-                'keys' => array_keys($payload),
-            ]);
-
-            return;
-        }
-
-        foreach ($entries as $entry) {
+        foreach ($request->input('entry', []) as $entry) {
             if (! is_array($entry)) {
                 continue;
             }
@@ -571,55 +559,23 @@ class WhatsAppController extends Controller
                 $value = is_array($change['value'] ?? null) ? $change['value'] : [];
                 $phoneNumberId = (string) ($value['metadata']['phone_number_id'] ?? '');
                 if ($phoneNumberId !== '' && (string) $integration->phone_number_id !== '' && $phoneNumberId !== (string) $integration->phone_number_id) {
-                    Log::info('WhatsApp webhook phone_number_id differed from the saved integration; still importing because this callback URL is unique', [
-                        'integration_id' => $integration->id,
-                        'saved' => $integration->phone_number_id,
-                        'payload' => $phoneNumberId,
-                    ]);
+                    continue;
                 }
 
                 $contacts = is_array($value['contacts'] ?? null) ? $value['contacts'] : [];
-                $messages = is_array($value['messages'] ?? null) ? $value['messages'] : [];
-                $statuses = is_array($value['statuses'] ?? null) ? $value['statuses'] : [];
-
-                Log::info('WhatsApp webhook event', [
-                    'integration_id' => $integration->id,
-                    'field' => $change['field'] ?? null,
-                    'messages' => count($messages),
-                    'statuses' => count($statuses),
-                ]);
-
-                foreach ($messages as $message) {
+                foreach ($value['messages'] ?? [] as $message) {
                     if (is_array($message)) {
                         $this->storeInboundCloudMessage($integration, $message, $contacts);
                     }
                 }
 
-                foreach ($statuses as $status) {
+                foreach ($value['statuses'] ?? [] as $status) {
                     if (is_array($status)) {
                         $this->applyCloudStatus($status);
                     }
                 }
             }
         }
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    protected function webhookPayload(Request $request): array
-    {
-        $raw = $request->getContent();
-        if (is_string($raw) && $raw !== '') {
-            $decoded = json_decode($raw, true);
-            if (is_array($decoded)) {
-                return $decoded;
-            }
-        }
-
-        $all = $request->all();
-
-        return is_array($all) ? $all : [];
     }
 
     /**

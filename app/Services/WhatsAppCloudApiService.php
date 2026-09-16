@@ -18,16 +18,8 @@ class WhatsAppCloudApiService
         $response = Http::timeout(30)
             ->withToken($accessToken)
             ->get($this->baseUrl.'/'.$phoneNumberId, [
-                'fields' => 'id,display_phone_number,verified_name,quality_rating,code_verification_status,whatsapp_business_account{id}',
+                'fields' => 'id,display_phone_number,verified_name,quality_rating,code_verification_status',
             ]);
-
-        if (! $response->successful()) {
-            $response = Http::timeout(30)
-                ->withToken($accessToken)
-                ->get($this->baseUrl.'/'.$phoneNumberId, [
-                    'fields' => 'id,display_phone_number,verified_name,quality_rating,code_verification_status',
-                ]);
-        }
 
         if (! $response->successful()) {
             throw new \RuntimeException($this->errorMessage($response, 'Could not verify the WhatsApp Cloud API token or Phone Number ID.'));
