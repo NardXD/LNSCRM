@@ -190,7 +190,7 @@ class FacebookGraphMessagingService
         $response = Http::timeout(45)->asJson()->post($this->baseUrl.'/'.$pageId.'/messages', $payload);
 
         if (! $response->successful()) {
-            throw new \RuntimeException($this->errorMessage($response, 'Could not send the Instagram message.'));
+            throw new \RuntimeException($this->errorMessage($response, 'Could not send the Facebook message.'));
         }
 
         $json = $response->json() ?: [];

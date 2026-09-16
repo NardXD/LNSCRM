@@ -415,37 +415,10 @@ class FacebookController extends Controller
         $raw = [];
 
         try {
-            if ((string) $conversation->channel === 'instagram') {
-                $token = $channel->getDecryptedPageAccessToken();
-                if (! $token) {
-                    return response()->json([
-                        'message' => 'Add a Facebook Page Access Token under Integrations to send Instagram Direct messages.',
-                    ], 422);
-                }
-                $sent = $this->graphMessaging->send(
-                    (string) $channel->page_id,
-                    $token,
-                    (string) $conversation->peer_id,
-                    $type,
-                    $body,
-                    $mediaUrl
-                );
-                $mid = $sent['message_id'];
-                $raw = $sent['raw'];
-            } else {
-                $twilio = $this->twilioClientForCompany(Auth::user()->company);
-                $sent = $twilio->sendMessenger(
-                    $channel->senderIdForChannel((string) $conversation->channel),
-                    (string) $conversation->peer_id,
-                    (string) $conversation->channel,
-                    $body,
-                    $channel->statusCallbackUrl(),
-                    $mediaUrl
-                );
-                $mid = $sent->sid;
-                $status = $sent->status ?? 'sent';
-                $raw = ['sid' => $sent->sid, 'status' => $sent->status];
-            }
+            $sent = $this->deliverOutbound($channel, $conversation, $type, $body, $mediaUrl);
+            $mid = $sent['mid'];
+            $status = $sent['status'];
+            $raw = $sent['raw'];
         } catch (\Throwable $e) {
             // A Graph HTTP timeout embeds the full request URL, including the live
             // access_token query param — never return that raw to the browser.
@@ -1066,34 +1039,10 @@ class FacebookController extends Controller
         }
 
         try {
-            if ((string) $conversation->channel === 'instagram') {
-                $token = $integration->getDecryptedPageAccessToken();
-                if (! $token) {
-                    return;
-                }
-                $sent = $this->graphMessaging->send(
-                    (string) $integration->page_id,
-                    $token,
-                    (string) $conversation->peer_id,
-                    'text',
-                    $welcome
-                );
-                $mid = $sent['message_id'];
-                $status = 'sent';
-                $raw = $sent['raw'];
-            } else {
-                $twilio = $this->twilioClientForCompany($company);
-                $sent = $twilio->sendMessenger(
-                    $integration->senderIdForChannel((string) $conversation->channel),
-                    (string) $conversation->peer_id,
-                    (string) $conversation->channel,
-                    $welcome,
-                    $integration->statusCallbackUrl()
-                );
-                $mid = $sent->sid;
-                $status = $sent->status ?? 'sent';
-                $raw = ['sid' => $sent->sid, 'status' => $sent->status];
-            }
+            $sent = $this->deliverOutbound($integration, $conversation, 'text', $welcome, null, $company);
+            $mid = $sent['mid'];
+            $status = $sent['status'];
+            $raw = $sent['raw'];
 
             $message = FacebookMessage::create([
                 'company_id' => $integration->company_id,
@@ -1277,6 +1226,70 @@ class FacebookController extends Controller
                 'never_expires' => false,
             ];
         });
+    }
+
+    /**
+     * @return array{mid: string, status: string, raw: array<string, mixed>}
+     */
+    protected function deliverOutbound(
+        FacebookIntegration $integration,
+        FacebookConversation $conversation,
+        string $type,
+        ?string $body,
+        ?string $mediaUrl = null,
+        ?Company $company = null
+    ): array {
+        $token = $integration->getDecryptedPageAccessToken();
+        if ($token) {
+            $sent = $this->graphMessaging->send(
+                (string) $integration->page_id,
+                $token,
+                (string) $conversation->peer_id,
+                $type,
+                $body,
+                $mediaUrl
+            );
+
+            return [
+                'mid' => $sent['message_id'],
+                'status' => 'sent',
+                'raw' => $sent['raw'],
+            ];
+        }
+
+        if ((string) $conversation->channel === 'instagram') {
+            throw new \RuntimeException('Add a Facebook Page Access Token under Integrations to send Instagram Direct messages.');
+        }
+
+        try {
+            $twilio = $this->twilioClientForCompany($company ?? Auth::user()?->company);
+            $sent = $twilio->sendMessenger(
+                $integration->senderIdForChannel((string) $conversation->channel),
+                (string) $conversation->peer_id,
+                (string) $conversation->channel,
+                $body,
+                $integration->statusCallbackUrl(),
+                $mediaUrl
+            );
+        } catch (\Throwable $e) {
+            throw new \RuntimeException($this->friendlyMessengerSendError($e->getMessage()));
+        }
+
+        return [
+            'mid' => (string) $sent->sid,
+            'status' => $sent->status ?? 'sent',
+            'raw' => ['sid' => $sent->sid, 'status' => $sent->status],
+        ];
+    }
+
+    protected function friendlyMessengerSendError(string $message): string
+    {
+        $haystack = strtolower($message);
+        if (str_contains($haystack, 'could not find a channel') || str_contains($haystack, 'specified from address')) {
+            return 'Twilio has no Facebook Messenger sender for this Page. Add a Page Access Token under Integrations → Facebook & Instagram (the same long-lived Page token used for Instagram) and try again.';
+        }
+
+        return $message;
     }
 
     protected function optionalTwilioClient(?Company $company): ?TwilioService

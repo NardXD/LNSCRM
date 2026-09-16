@@ -12,6 +12,16 @@ return new class extends Migration
             $table->foreignId('lead_id')->nullable()->after('client_id')->constrained()->nullOnDelete();
         });
 
+        foreach (Schema::getIndexes('contracts') as $index) {
+            $name = $index['name'] ?? '';
+            $columns = $index['columns'] ?? [];
+            if ($name !== '' && in_array('client_id', $columns, true) && empty($index['primary'])) {
+                Schema::table('contracts', function (Blueprint $table) use ($name) {
+                    $table->dropIndex($name);
+                });
+            }
+        }
+
         Schema::table('contracts', function (Blueprint $table) {
             $table->dropForeign(['client_id']);
             $table->dropColumn('client_id');

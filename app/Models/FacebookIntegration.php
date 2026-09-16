@@ -69,6 +69,13 @@ class FacebookIntegration extends Model
             && (bool) $this->getDecryptedPageAccessToken();
     }
 
+    public function hasPageGraph(): bool
+    {
+        return $this->is_active
+            && (bool) $this->page_id
+            && (bool) $this->getDecryptedPageAccessToken();
+    }
+
     protected function decryptValue(?string $value): ?string
     {
         if (! $value) {

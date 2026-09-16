@@ -628,11 +628,8 @@ class LeadChannelMessageService
         $raw = [];
 
         try {
-            if ((string) $conversation->channel === 'instagram') {
-                $token = $channel->getDecryptedPageAccessToken();
-                if (! $token) {
-                    throw new \RuntimeException('Add a Facebook Page Access Token under Integrations to send Instagram Direct messages.');
-                }
+            $token = $channel->getDecryptedPageAccessToken();
+            if ($token) {
                 $sent = $this->graphMessaging->send(
                     (string) $channel->page_id,
                     $token,
@@ -643,6 +640,8 @@ class LeadChannelMessageService
                 );
                 $mid = $sent['message_id'] ?? null;
                 $raw = $sent['raw'] ?? [];
+            } elseif ((string) $conversation->channel === 'instagram') {
+                throw new \RuntimeException('Add a Facebook Page Access Token under Integrations to send Instagram Direct messages.');
             } else {
                 $twilio = $this->twilioFor($user);
                 $sent = $twilio->sendMessenger(
@@ -657,7 +656,12 @@ class LeadChannelMessageService
                 $raw = ['sid' => $sent->sid, 'status' => $sent->status];
             }
         } catch (\Throwable $e) {
-            throw new \RuntimeException($e->getMessage());
+            $message = $e->getMessage();
+            $haystack = strtolower($message);
+            if (str_contains($haystack, 'could not find a channel') || str_contains($haystack, 'specified from address')) {
+                $message = 'Twilio has no Facebook Messenger sender for this Page. Add a Page Access Token under Integrations → Facebook & Instagram and try again.';
+            }
+            throw new \RuntimeException($message);
         }
 
         $message = FacebookMessage::create([
