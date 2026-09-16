@@ -73,114 +73,53 @@ class InboxController extends Controller
         $user = $request->user();
         $companyId = $user->company_id;
 
-        // Opportunistic send-later + snooze reopen when the inbox is opened (throttled).
+        // Scheduled send/snooze already run every minute via the scheduler.
+        // Flush after the HTTP response so opening Inbox is never blocked by Graph.
         if (Cache::add('inbox:flush-scheduled-sends', 1, now()->addMinute())) {
-            try {
-                $this->replyService->processDue(20);
-            } catch (\Throwable $e) {
-                Log::warning('Inbox bootstrap scheduled send flush failed', [
-                    'message' => $e->getMessage(),
-                ]);
-            }
-            try {
-                $this->reopenService->processDue(100);
-            } catch (\Throwable $e) {
-                Log::warning('Inbox bootstrap snooze reopen flush failed', [
-                    'message' => $e->getMessage(),
-                ]);
-            }
+            dispatch(function () {
+                try {
+                    app(InboxReplyService::class)->processDue(20);
+                } catch (\Throwable $e) {
+                    Log::warning('Inbox bootstrap scheduled send flush failed', [
+                        'message' => $e->getMessage(),
+                    ]);
+                }
+                try {
+                    app(InboxReopenService::class)->processDue(100);
+                } catch (\Throwable $e) {
+                    Log::warning('Inbox bootstrap snooze reopen flush failed', [
+                        'message' => $e->getMessage(),
+                    ]);
+                }
+            })->afterResponse();
         }
 
-        $inboxesQuery = $this->accessibleInboxes($user)->with(['members:id,name,email', 'account']);
-
-        // Unlink accounts that do not match each inbox's configured email (clears polluted mail).
-        foreach ($inboxesQuery->get() as $inbox) {
-            $this->mailService->repairInboxBinding($inbox);
-        }
-
-        $inboxes = $this->accessibleInboxes($user)
-            ->withCount([
-                'conversations as open_count' => fn ($q) => $q->notMerged()->where('folder', 'inbox')->where('status', 'open'),
-                'conversations as assigned_to_me_count' => function ($q) use ($user) {
-                    $q->notMerged();
-                    $this->constrainInboxBucket($q, 'open');
-                    $this->constrainAssignedToLoggedInUser($q, $user);
-                },
-                'conversations as unread_count' => function ($q) use ($user) {
-                    $q->notMerged()
-                        ->where('folder', 'inbox')
-                        ->where('status', 'open')
-                        ->join('shared_inboxes as si', 'si.id', '=', 'inbox_conversations.shared_inbox_id')
-                        ->leftJoin('inbox_conversation_user_reads as ir', function ($join) use ($user) {
-                            $join->on('ir.inbox_conversation_id', '=', 'inbox_conversations.id')
-                                ->where('ir.user_id', '=', $user->id);
-                        })
-                        ->where(function ($w) {
-                            $w->where('si.type', SharedInbox::TYPE_SHARED)
-                                ->whereRaw('COALESCE(ir.is_read, 0) = 0')
-                                ->orWhere(function ($w2) {
-                                    $w2->where('si.type', '!=', SharedInbox::TYPE_SHARED)
-                                        ->where('inbox_conversations.is_read', false);
-                                });
-                        });
-                },
-                'conversations as archived_count' => function ($q) use ($user) {
-                    $q->notMerged();
-                    $this->constrainInboxBucket($q, 'archived');
-                    $this->constrainAssignedToLoggedInUser($q, $user);
-                },
-                'conversations as snoozed_count' => function ($q) use ($user) {
-                    $q->notMerged();
-                    $this->constrainInboxBucket($q, 'snoozed');
-                    $this->constrainAssignedToLoggedInUser($q, $user);
-                },
-                'conversations as drafts_count' => fn ($q) => $q->notMerged()->where('folder', 'drafts'),
-                'conversations as sent_count' => fn ($q) => $q->notMerged()->where('folder', 'sent'),
-                'conversations as trash_count' => fn ($q) => $q->notMerged()->where('folder', 'trash'),
-                'conversations as spam_count' => fn ($q) => $q->notMerged()->where('folder', 'spam'),
-            ])
+        $inboxModels = $this->accessibleInboxes($user)
             ->with(['members:id,name,email', 'account'])
             ->orderByRaw("CASE WHEN type = 'personal' THEN 0 ELSE 1 END")
             ->orderBy('name')
-            ->get()
-            ->map(fn (SharedInbox $inbox) => $this->formatInbox($inbox));
+            ->get();
 
-        $inboxIds = $this->accessibleInboxes($user)->pluck('id');
+        foreach ($inboxModels as $inbox) {
+            $this->mailService->repairInboxBinding($inbox);
+        }
+
+        $counts = $this->conversationCountsByInbox($user, $inboxModels->pluck('id'));
+        $inboxes = $inboxModels->map(function (SharedInbox $inbox) use ($counts) {
+            foreach ($counts['by_inbox'][(int) $inbox->id] ?? [] as $key => $value) {
+                $inbox->setAttribute($key, $value);
+            }
+
+            return $this->formatInbox($inbox);
+        });
 
         $tags = InboxTag::where('company_id', $companyId)
-            ->withCount([
-                'conversations as unread_count' => function ($q) use ($inboxIds, $user) {
-                    if ($inboxIds->isEmpty()) {
-                        $q->whereRaw('0 = 1');
-
-                        return;
-                    }
-                    $q->whereIn('shared_inbox_id', $inboxIds)
-                        ->whereNull('merged_into_id')
-                        ->where('folder', 'inbox')
-                        ->where('status', 'open')
-                        ->join('shared_inboxes as si', 'si.id', '=', 'inbox_conversations.shared_inbox_id')
-                        ->leftJoin('inbox_conversation_user_reads as ir', function ($join) use ($user) {
-                            $join->on('ir.inbox_conversation_id', '=', 'inbox_conversations.id')
-                                ->where('ir.user_id', '=', $user->id);
-                        })
-                        ->where(function ($w) {
-                            $w->where('si.type', SharedInbox::TYPE_SHARED)
-                                ->whereRaw('COALESCE(ir.is_read, 0) = 0')
-                                ->orWhere(function ($w2) {
-                                    $w2->where('si.type', '!=', SharedInbox::TYPE_SHARED)
-                                        ->where('inbox_conversations.is_read', false);
-                                });
-                        });
-                },
-            ])
             ->orderBy('name')
-            ->get()
+            ->get(['id', 'name', 'color'])
             ->map(fn (InboxTag $tag) => [
                 'id' => $tag->id,
                 'name' => $tag->name,
                 'color' => $tag->color,
-                'unread_count' => (int) ($tag->unread_count ?? 0),
             ]);
         $templates = InboxTemplate::where('company_id', $companyId)
             ->orderBy('name')
@@ -206,8 +145,7 @@ class InboxController extends Controller
             ->values()
             ->all();
 
-        // Keep only pins for tags that still exist in this company.
-        $validTagIds = InboxTag::where('company_id', $companyId)->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $validTagIds = $tags->pluck('id')->map(fn ($id) => (int) $id)->all();
         $pinnedTagIds = array_values(array_intersect($pinnedTagIds, $validTagIds));
         if ($pinnedTagIds !== ($settings->pinned_tag_ids ?? [])) {
             $settings->pinned_tag_ids = $pinnedTagIds;
@@ -220,9 +158,9 @@ class InboxController extends Controller
             'mail_email' => $account?->email,
             'connect_url' => route('inbox.connect.outlook'),
             'user_id' => $user->id,
-            'assigned_to_me_count' => $this->countAssignedToLoggedInUser($user, 'open'),
-            'archived_count' => $this->countAssignedToLoggedInUser($user, 'archived'),
-            'snoozed_count' => $this->countAssignedToLoggedInUser($user, 'snoozed'),
+            'assigned_to_me_count' => $counts['assigned_to_me'],
+            'archived_count' => $counts['archived'],
+            'snoozed_count' => $counts['snoozed'],
             'inboxes' => $inboxes,
             'tags' => $tags,
             'lead_labels' => LeadLabel::query()
@@ -581,8 +519,15 @@ class InboxController extends Controller
             $inboxIds = collect([(int) $validated['inbox_id']]);
         }
 
-        $query = InboxConversation::with(['assignee:id,name,email', 'tags', 'leadLabels', 'inbox:id,name,type,color', 'lead.identities', 'lead.assignedUser:id,name', 'lead.labels'])
-            ->withCount('mergedConversations')
+        $query = InboxConversation::with([
+            'assignee:id,name,email',
+            'tags:id,name,color',
+            'leadLabels:id,name,color',
+            'inbox:id,name,type,color',
+            'lead:id,company_id,name,status,assigned_to',
+            'lead.assignedUser:id,name',
+            'lead.labels:id,name,color',
+        ])
             ->notMerged()
             ->whereIn('shared_inbox_id', $inboxIds);
 
@@ -598,7 +543,8 @@ class InboxController extends Controller
             ->selectRaw(
                 'CASE WHEN si.type = ? THEN COALESCE(ir.is_read, 0) ELSE inbox_conversations.is_read END as user_is_read',
                 [SharedInbox::TYPE_SHARED]
-            );
+            )
+            ->withExists('mergedConversations');
 
         // Advanced folder=any searches across all folders; otherwise apply sidebar view
         // or an explicit advanced folder filter.
@@ -710,17 +656,29 @@ class InboxController extends Controller
             });
         }
 
-        $paginator = $query->orderByDesc('last_message_at')->paginate(40);
+        $page = max(1, (int) ($validated['page'] ?? 1));
+        $perPage = 40;
+        $rows = $query->orderByDesc('inbox_conversations.last_message_at')
+            ->orderByDesc('inbox_conversations.id')
+            ->skip(($page - 1) * $perPage)
+            ->take($perPage + 1)
+            ->get();
+
+        $hasMore = $rows->count() > $perPage;
+        if ($hasMore) {
+            $rows = $rows->take($perPage);
+        }
 
         return response()->json([
-            'conversations' => collect($paginator->items())->map(function ($c) {
+            'conversations' => $rows->map(function ($c) {
                 $c->is_read = (bool) ($c->user_is_read ?? $c->is_read);
+
                 return $this->formatConversation($c);
-            }),
+            })->values(),
             'meta' => [
-                'current_page' => $paginator->currentPage(),
-                'last_page' => $paginator->lastPage(),
-                'total' => $paginator->total(),
+                'current_page' => $page,
+                'has_more' => $hasMore,
+                'last_page' => $hasMore ? $page + 1 : $page,
             ],
         ]);
     }
@@ -2725,6 +2683,117 @@ class InboxController extends Controller
     }
 
     /**
+     * Folder / assignment counts for the sidebar, grouped by mailbox.
+     *
+     * @param  Collection<int, int|string>  $inboxIds
+     * @return array{by_inbox: array<int, array<string, int>>, assigned_to_me: int, archived: int, snoozed: int}
+     */
+    private function conversationCountsByInbox(User $user, Collection $inboxIds): array
+    {
+        $empty = [
+            'open_count' => 0,
+            'assigned_to_me_count' => 0,
+            'unread_count' => 0,
+            'archived_count' => 0,
+            'snoozed_count' => 0,
+            'drafts_count' => 0,
+            'sent_count' => 0,
+            'trash_count' => 0,
+            'spam_count' => 0,
+        ];
+
+        $byInbox = [];
+        foreach ($inboxIds as $id) {
+            $byInbox[(int) $id] = $empty;
+        }
+
+        if ($inboxIds->isEmpty()) {
+            return [
+                'by_inbox' => $byInbox,
+                'assigned_to_me' => 0,
+                'archived' => 0,
+                'snoozed' => 0,
+            ];
+        }
+
+        $folderRows = InboxConversation::query()
+            ->notMerged()
+            ->whereIn('shared_inbox_id', $inboxIds)
+            ->selectRaw('shared_inbox_id')
+            ->selectRaw("SUM(CASE WHEN folder = 'inbox' AND status = 'open' THEN 1 ELSE 0 END) as open_count")
+            ->selectRaw("SUM(CASE WHEN folder = 'drafts' THEN 1 ELSE 0 END) as drafts_count")
+            ->selectRaw("SUM(CASE WHEN folder = 'sent' THEN 1 ELSE 0 END) as sent_count")
+            ->selectRaw("SUM(CASE WHEN folder = 'trash' THEN 1 ELSE 0 END) as trash_count")
+            ->selectRaw("SUM(CASE WHEN folder = 'spam' THEN 1 ELSE 0 END) as spam_count")
+            ->groupBy('shared_inbox_id')
+            ->get();
+
+        foreach ($folderRows as $row) {
+            $id = (int) $row->shared_inbox_id;
+            $byInbox[$id]['open_count'] = (int) $row->open_count;
+            $byInbox[$id]['drafts_count'] = (int) $row->drafts_count;
+            $byInbox[$id]['sent_count'] = (int) $row->sent_count;
+            $byInbox[$id]['trash_count'] = (int) $row->trash_count;
+            $byInbox[$id]['spam_count'] = (int) $row->spam_count;
+        }
+
+        $assignmentBuckets = [
+            'assigned_to_me_count' => 'open',
+            'archived_count' => 'archived',
+            'snoozed_count' => 'snoozed',
+        ];
+        foreach ($assignmentBuckets as $countKey => $bucket) {
+            $query = InboxConversation::query()
+                ->notMerged()
+                ->whereIn('shared_inbox_id', $inboxIds);
+            $this->constrainInboxBucket($query, $bucket);
+            $this->constrainAssignedToLoggedInUser($query, $user);
+            $rows = $query
+                ->selectRaw('shared_inbox_id, COUNT(*) as aggregate_count')
+                ->groupBy('shared_inbox_id')
+                ->get();
+
+            foreach ($rows as $row) {
+                $byInbox[(int) $row->shared_inbox_id][$countKey] = (int) $row->aggregate_count;
+            }
+        }
+
+        $unreadRows = InboxConversation::query()
+            ->notMerged()
+            ->whereIn('inbox_conversations.shared_inbox_id', $inboxIds)
+            ->where('inbox_conversations.folder', 'inbox')
+            ->where('inbox_conversations.status', 'open')
+            ->join('shared_inboxes as si', 'si.id', '=', 'inbox_conversations.shared_inbox_id')
+            ->leftJoin('inbox_conversation_user_reads as ir', function ($join) use ($user) {
+                $join->on('ir.inbox_conversation_id', '=', 'inbox_conversations.id')
+                    ->where('ir.user_id', '=', $user->id);
+            })
+            ->where(function ($w) {
+                $w->where(function ($shared) {
+                    $shared->where('si.type', SharedInbox::TYPE_SHARED)
+                        ->whereRaw('COALESCE(ir.is_read, 0) = 0');
+                })->orWhere(function ($personal) {
+                    $personal->where('si.type', '!=', SharedInbox::TYPE_SHARED)
+                        ->where('inbox_conversations.is_read', false);
+                });
+            })
+            ->selectRaw('inbox_conversations.shared_inbox_id, COUNT(*) as unread_count')
+            ->groupBy('inbox_conversations.shared_inbox_id')
+            ->get();
+
+        foreach ($unreadRows as $row) {
+            $byInbox[(int) $row->shared_inbox_id]['unread_count'] = (int) $row->unread_count;
+        }
+
+        return [
+            'by_inbox' => $byInbox,
+            'assigned_to_me' => (int) array_sum(array_column($byInbox, 'assigned_to_me_count')),
+            'archived' => (int) array_sum(array_column($byInbox, 'archived_count')),
+            'snoozed' => (int) array_sum(array_column($byInbox, 'snoozed_count')),
+        ];
+    }
+
+    /**
      * Inbox mail owned by the logged-in user: assigned on the thread, or
      * unassigned on the thread with a linked lead assigned to that user.
      * Never includes a thread assigned to someone else.
@@ -2737,8 +2806,11 @@ class InboxController extends Controller
             $q->where('inbox_conversations.assigned_to', $userId)
                 ->orWhere(function ($unowned) use ($userId) {
                     $unowned->whereNull('inbox_conversations.assigned_to')
-                        ->whereHas('lead', function ($lead) use ($userId) {
-                            $lead->where('leads.assigned_to', $userId);
+                        ->whereExists(function ($sub) use ($userId) {
+                            $sub->selectRaw('1')
+                                ->from('leads')
+                                ->whereColumn('leads.id', 'inbox_conversations.lead_id')
+                                ->where('leads.assigned_to', $userId);
                         });
                 });
         });
@@ -2769,21 +2841,16 @@ class InboxController extends Controller
         });
     }
 
-    private function countAssignedToLoggedInUser(User $user, string $bucket = 'open'): int
+    private function conversationMergedCount(InboxConversation $c): int
     {
-        $inboxIds = $this->accessibleInboxes($user)->pluck('id');
-        if ($inboxIds->isEmpty()) {
-            return 0;
+        if (isset($c->merged_conversations_count)) {
+            return (int) $c->merged_conversations_count;
+        }
+        if ($c->relationLoaded('mergedConversations')) {
+            return $c->mergedConversations->count();
         }
 
-        $query = InboxConversation::query()
-            ->notMerged()
-            ->whereIn('shared_inbox_id', $inboxIds);
-
-        $this->constrainInboxBucket($query, $bucket);
-        $this->constrainAssignedToLoggedInUser($query, $user);
-
-        return $query->count();
+        return ! empty($c->merged_conversations_exists) ? 1 : 0;
     }
 
     /**
@@ -3020,9 +3087,8 @@ class InboxController extends Controller
             'lead_labels' => $c->relationLoaded('leadLabels')
                 ? $c->leadLabels->map(fn ($l) => ['id' => $l->id, 'name' => $l->name, 'color' => $l->color])
                 : [],
-            'lead' => $this->conversationLeadPayload($c),
-            'merged_count' => (int) ($c->merged_conversations_count
-                ?? ($c->relationLoaded('mergedConversations') ? $c->mergedConversations->count() : 0)),
+            'lead' => $this->conversationLeadPayload($c, $withMessages),
+            'merged_count' => $this->conversationMergedCount($c),
             'merged_threads' => $c->relationLoaded('mergedConversations')
                 ? $c->mergedConversations->map(fn (InboxConversation $m) => $this->formatMergeCandidate($m))->values()->all()
                 : [],
@@ -3695,13 +3761,17 @@ class InboxController extends Controller
     /**
      * @return array<string, mixed>|null
      */
-    private function conversationLeadPayload(InboxConversation $c): ?array
+    private function conversationLeadPayload(InboxConversation $c, bool $matchUnattached = false): ?array
     {
         if ($c->lead_id) {
             $lead = $c->relationLoaded('lead') ? $c->lead : Lead::query()->where('company_id', $c->company_id)->find($c->lead_id);
             if ($lead) {
-                return $this->crmLookup->serializeLead($lead);
+                return $this->crmLookup->leadPayload($lead);
             }
+        }
+
+        if (! $matchUnattached) {
+            return null;
         }
 
         return $this->crmLookup->matchAssignedLead(

@@ -5850,7 +5850,11 @@
 
         const page = append ? state.listPage + 1 : 1;
         state.listLoading = true;
-        if (append) updateListFooter();
+        if (append) {
+            updateListFooter();
+        } else if (!state.conversations.length) {
+            el('conversationList').innerHTML = '<div class="inbox-empty" id="listEmpty">Loading conversations…</div>';
+        }
 
         try {
             const params = new URLSearchParams({ view: state.view, page: String(page) });
@@ -5879,8 +5883,8 @@
             const meta = data.meta || {};
 
             state.listPage = meta.current_page || page;
-            state.listLastPage = meta.last_page || 1;
-            state.listHasMore = state.listPage < state.listLastPage;
+            state.listLastPage = meta.last_page || state.listPage;
+            state.listHasMore = meta.has_more === true || state.listPage < state.listLastPage;
 
             if (append) {
                 const seen = new Set(state.conversations.map(c => c.id));
@@ -7005,7 +7009,7 @@
         return String(str ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
     }
 
-    async function loadBootstrap() {
+    async function loadBootstrap({ conversations = true } = {}) {
         const data = await api('/bootstrap');
         state.inboxes = data.inboxes || [];
         state.assignedToMeCount = Number(data.assigned_to_me_count || 0);
@@ -7033,7 +7037,9 @@
         await migrateLocalTemplatesIfNeeded();
         renderNav();
         refreshTemplateSelects();
-        await loadConversations();
+        if (conversations) {
+            await loadConversations();
+        }
     }
 
     async function migrateLocalTemplatesIfNeeded() {
@@ -8965,7 +8971,11 @@
         }
     });
     loadLocalTools();
-    loadBootstrap().then(async () => {
+    el('conversationList').innerHTML = '<div class="inbox-empty" id="listEmpty">Loading conversations…</div>';
+    Promise.all([
+        loadBootstrap({ conversations: false }),
+        loadConversations(),
+    ]).then(async () => {
         const params = new URLSearchParams(window.location.search);
         const conversationId = Number(params.get('conversation') || 0);
         if (conversationId) {

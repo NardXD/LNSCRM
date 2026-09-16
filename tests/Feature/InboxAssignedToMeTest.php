@@ -238,6 +238,69 @@ class InboxAssignedToMeTest extends TestCase
             ->assertJsonPath('assigned_to_me_count', 1);
     }
 
+    public function test_conversation_list_includes_attached_lead_and_skips_unattached_fuzzy_match(): void
+    {
+        [$user, $other, $inbox] = $this->inboxWithTwoAgents();
+
+        $lead = Lead::query()->create([
+            'company_id' => $user->company_id,
+            'name' => 'Jane Doe',
+            'status' => 'new',
+            'assigned_to' => $user->id,
+        ]);
+        $attached = $this->makeConversation($inbox, [
+            'subject' => 'Attached lead',
+            'from_email' => 'attached@example.com',
+            'lead_id' => $lead->id,
+        ]);
+        $unattached = $this->makeConversation($inbox, [
+            'subject' => 'Same sender as a lead, but not linked',
+            'from_email' => 'jane@example.com',
+            'from_name' => 'Jane Doe',
+        ]);
+
+        $rows = collect($this->actingAs($user)
+            ->getJson('/api/inbox/conversations?view=open')
+            ->assertOk()
+            ->assertJsonPath('meta.has_more', false)
+            ->json('conversations'));
+
+        $attachedRow = $rows->firstWhere('id', $attached->id);
+        $unattachedRow = $rows->firstWhere('id', $unattached->id);
+
+        $this->assertNotNull($attachedRow);
+        $this->assertSame($lead->id, $attachedRow['lead']['id'] ?? null);
+        $this->assertSame('Jane Doe', $attachedRow['lead']['name'] ?? null);
+        $this->assertNull($unattachedRow['lead'] ?? null);
+    }
+
+    public function test_conversation_list_uses_has_more_instead_of_counting_every_thread(): void
+    {
+        [$user, $other, $inbox] = $this->inboxWithTwoAgents();
+
+        for ($i = 0; $i < 41; $i++) {
+            $this->makeConversation($inbox, [
+                'subject' => 'Thread '.$i,
+                'from_email' => 'customer'.$i.'@example.com',
+                'last_message_at' => now()->subMinutes($i),
+            ]);
+        }
+
+        $this->actingAs($user)
+            ->getJson('/api/inbox/conversations?view=open&page=1')
+            ->assertOk()
+            ->assertJsonPath('meta.current_page', 1)
+            ->assertJsonPath('meta.has_more', true)
+            ->assertJsonCount(40, 'conversations');
+
+        $this->actingAs($user)
+            ->getJson('/api/inbox/conversations?view=open&page=2')
+            ->assertOk()
+            ->assertJsonPath('meta.current_page', 2)
+            ->assertJsonPath('meta.has_more', false)
+            ->assertJsonCount(1, 'conversations');
+    }
+
     /**
      * @return list<int>
      */

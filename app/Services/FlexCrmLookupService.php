@@ -230,16 +230,19 @@ class FlexCrmLookupService
             return null;
         }
 
-        $serialized = $this->serializeLead($lead);
+        $lead->loadMissing(['assignedUser:id,name', 'labels']);
 
         return [
-            'id' => $serialized['id'],
-            'name' => $serialized['name'],
-            'status' => $serialized['status'],
-            'crm_url' => $serialized['crm_url'],
-            'assigned_to' => $serialized['assigned_to'],
-            'assigned_user' => $serialized['assigned_user'],
-            'labels' => $serialized['labels'],
+            'id' => (int) $lead->id,
+            'name' => $lead->name,
+            'status' => $lead->status,
+            'crm_url' => url('/leads?lead='.$lead->id),
+            'assigned_to' => $lead->assigned_to ? (int) $lead->assigned_to : null,
+            'assigned_user' => $lead->assignedUser ? [
+                'id' => $lead->assignedUser->id,
+                'name' => $lead->assignedUser->name,
+            ] : null,
+            'labels' => $this->serializeLabels($lead),
         ];
     }
 
