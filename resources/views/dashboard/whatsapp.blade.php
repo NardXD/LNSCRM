@@ -805,9 +805,6 @@
             } else if (data.account?.display_phone_number) {
                 els.accountLabel.textContent = data.account.display_phone_number;
             }
-            if (connected && data.account && !data.account.webhook_set_at) {
-                showSyncNote('Inbound WhatsApp chats have not reached this CRM yet. Click the download button to register the Meta webhook, then send a test message to your business number.');
-            }
             if (!connected) {
                 els.emptyTitle.textContent = 'Connect WhatsApp';
                 els.emptyText.textContent = 'Connect WhatsApp Cloud API under Integrations (Meta Developer app Phone Number ID + access token) to start chatting.';
@@ -1121,9 +1118,7 @@
             if (imported > 0) {
                 showSyncNote(`Imported ${imported} message${imported === 1 ? '' : 's'}.`);
             } else if (mode === 'webhook') {
-                showSyncNote(result.webhook_registered === false
-                    ? (result.message || 'WhatsApp is connected, but Meta has not accepted the inbound webhook yet. Paste the Callback URL from Integrations → WhatsApp Business.')
-                    : 'WhatsApp inbound webhook registered. Send a new message to your business number — it should appear here on its own.');
+                showSyncNote('WhatsApp is connected. Old chats cannot be imported. Send a new message to your business number — it should appear here on its own.');
             } else {
                 showSyncNote('No new WhatsApp messages to import.');
             }

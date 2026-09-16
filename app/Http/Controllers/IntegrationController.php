@@ -501,45 +501,18 @@ class IntegrationController extends Controller
             $payload
         );
 
-        $webhookError = null;
-        if ($accessToken) {
-            $cloud = app(WhatsAppCloudApiService::class);
-            if (! $wabaId) {
-                try {
-                    $wabaId = $cloud->wabaIdForPhoneNumber($phoneNumberId, $accessToken) ?: $wabaId;
-                    if ($wabaId && $integration->waba_id !== $wabaId) {
-                        $integration->waba_id = $wabaId;
-                        $integration->save();
-                    }
-                } catch (\Throwable $e) {
-                    Log::warning('WhatsApp WABA id lookup failed', [
-                        'error' => WhatsAppCloudApiService::sanitizeGraphError($e->getMessage()),
-                    ]);
-                }
-            }
-
+        if ($accessToken && $wabaId) {
             try {
-                $cloud->registerWebhooks(
-                    $accessToken,
-                    $integration->webhookUrl(),
-                    (string) $integration->webhook_verify_token,
-                    $wabaId ?: null,
-                    $phoneNumberId,
-                    $integration->getDecryptedAppSecret()
-                );
+                app(WhatsAppCloudApiService::class)->subscribeWaba((string) $wabaId, $accessToken);
             } catch (\Throwable $e) {
-                $webhookError = (string) WhatsAppCloudApiService::sanitizeGraphError($e->getMessage());
-                Log::warning('WhatsApp webhook registration failed', [
-                    'company_id' => $company->id,
-                    'error' => $webhookError,
+                Log::warning('WhatsApp WABA subscribe failed', [
+                    'error' => WhatsAppCloudApiService::sanitizeGraphError($e->getMessage()),
                 ]);
             }
         }
 
         return response()->json([
-            'message' => $webhookError
-                ? 'WhatsApp Cloud API credentials were saved, but inbound messages are not registered with Meta yet.'
-                : 'WhatsApp Cloud API integration saved successfully',
+            'message' => 'WhatsApp Cloud API integration saved successfully',
             'integration' => [
                 'id' => $integration->id,
                 'phone_number_id' => $integration->phone_number_id,
@@ -556,8 +529,6 @@ class IntegrationController extends Controller
                 'has_app_secret' => (bool) $integration->getDecryptedAppSecret(),
             ],
             'status' => 'connected',
-            'webhook_registered' => $webhookError === null,
-            'webhook_error' => $webhookError,
         ]);
     }
 

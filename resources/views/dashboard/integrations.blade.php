@@ -1732,7 +1732,7 @@
                     <ol style="margin:0;padding-left:1.2rem;color:var(--text-secondary);">
                         <li>In <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">Meta for Developers</a>, open your app and add the <strong>WhatsApp</strong> product.</li>
                         <li>On <strong>WhatsApp → API Setup</strong>, copy Phone Number ID, WABA ID, and a permanent access token.</li>
-                        <li>Save this form. The CRM will register the Webhook URL with Meta automatically. If inbound chats still do not appear, paste the Webhook URL and Verify Token under <strong>WhatsApp → Configuration</strong> and subscribe to <code>messages</code>.</li>
+                        <li>Save this form, then paste the Webhook URL and Verify Token under <strong>WhatsApp → Configuration</strong>. Subscribe to <code>messages</code>.</li>
                         <li>Customer chats appear in <a href="${TWILIO_SETUP.whatsappChatUrl}">WhatsApp</a>. Free-form replies work within the 24-hour window.</li>
                     </ol>
                 </div>
@@ -3506,9 +3506,6 @@
                     if (response.ok) {
                         currentIntegration.status = 'connected';
                         let msg = 'WhatsApp Business is connected to your Meta Developer app.';
-                        if (data.webhook_registered === false && data.webhook_error) {
-                            msg += '\n\nInbound messages are not registered yet:\n' + data.webhook_error;
-                        }
                         if (data.integration?.webhook_url) {
                             msg += '\n\nCallback URL:\n' + data.integration.webhook_url;
                         }
