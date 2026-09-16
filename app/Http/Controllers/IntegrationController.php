@@ -18,7 +18,6 @@ use App\Models\WhatsAppIntegration;
 use App\Models\WiseIntegration;
 use App\Services\FacebookGraphMessagingService;
 use App\Services\WhatsAppCloudApiService;
-use App\Services\WhatsAppMessageSyncService;
 use App\Services\Front\FrontApiClient;
 use App\Services\Front\FrontCommentImportService;
 use App\Services\Front\FrontTagImportService;
@@ -504,8 +503,30 @@ class IntegrationController extends Controller
 
         $webhookError = null;
         if ($accessToken) {
+            $cloud = app(WhatsAppCloudApiService::class);
+            if (! $wabaId) {
+                try {
+                    $wabaId = $cloud->wabaIdForPhoneNumber($phoneNumberId, $accessToken) ?: $wabaId;
+                    if ($wabaId && $integration->waba_id !== $wabaId) {
+                        $integration->waba_id = $wabaId;
+                        $integration->save();
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('WhatsApp WABA id lookup failed', [
+                        'error' => WhatsAppCloudApiService::sanitizeGraphError($e->getMessage()),
+                    ]);
+                }
+            }
+
             try {
-                app(WhatsAppMessageSyncService::class)->ensureWebhooks($integration, $accessToken);
+                $cloud->registerWebhooks(
+                    $accessToken,
+                    $integration->webhookUrl(),
+                    (string) $integration->webhook_verify_token,
+                    $wabaId ?: null,
+                    $phoneNumberId,
+                    $integration->getDecryptedAppSecret()
+                );
             } catch (\Throwable $e) {
                 $webhookError = (string) WhatsAppCloudApiService::sanitizeGraphError($e->getMessage());
                 Log::warning('WhatsApp webhook registration failed', [

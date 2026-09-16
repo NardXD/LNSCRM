@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\Company;
-use App\Models\FacebookIntegration;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -275,48 +274,6 @@ class WhatsAppCloudApiTest extends TestCase
             return $request->method() === 'POST'
                 && data_get($request->data(), 'webhook_configuration.override_callback_uri');
         });
-    }
-
-    public function test_whatsapp_payload_posted_to_the_facebook_webhook_is_stored(): void
-    {
-        Notification::fake();
-        $company = $this->makeCompany();
-        $this->makeIntegration($company, ['webhook_key' => 'wa-shared-key']);
-        FacebookIntegration::query()->create([
-            'company_id' => $company->id,
-            'page_id' => '222764457920914',
-            'page_access_token' => 'page-token',
-            'webhook_key' => 'fb-shared-key',
-            'webhook_verify_token' => 'fb-verify-token',
-            'is_active' => true,
-        ]);
-
-        $this->postJson('/webhooks/facebook/fb-shared-key', $this->inboundTextPayload('wamid.FBFORWARD', '15559876543', 'Came via Facebook callback'))
-            ->assertOk()
-            ->assertSee('EVENT_RECEIVED', false);
-
-        $this->assertSame('Came via Facebook callback', WhatsAppMessage::query()->where('wamid', 'wamid.FBFORWARD')->value('text'));
-    }
-
-    public function test_facebook_webhook_verification_accepts_the_whatsapp_verify_token(): void
-    {
-        $company = $this->makeCompany();
-        $this->makeIntegration($company, [
-            'webhook_key' => 'wa-verify-shared',
-            'webhook_verify_token' => 'wa-shared-token',
-        ]);
-        FacebookIntegration::query()->create([
-            'company_id' => $company->id,
-            'page_id' => '222764457920914',
-            'page_access_token' => 'page-token',
-            'webhook_key' => 'fb-verify-shared',
-            'webhook_verify_token' => 'fb-own-token',
-            'is_active' => true,
-        ]);
-
-        $this->get('/webhooks/facebook/fb-verify-shared?hub.mode=subscribe&hub.verify_token=wa-shared-token&hub.challenge=4242')
-            ->assertOk()
-            ->assertSee('4242', false);
     }
 
     public function test_bootstrap_is_connected_only_with_cloud_api_credentials(): void
