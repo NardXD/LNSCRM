@@ -7,8 +7,6 @@ use App\Models\MessageTemplate;
 use App\Models\ViberConversation;
 use App\Models\ViberIntegration;
 use App\Models\ViberMessage;
-use App\Notifications\ViberMessageNotification;
-use App\Services\ChannelUnreadNotifier;
 use App\Services\FlexCrmLookupService;
 use App\Services\LeadAutoCreateService;
 use App\Services\LeadRuleEngine;
@@ -29,8 +27,7 @@ class ViberController extends Controller
     public function __construct(
         protected TwilioCompanyService $twilioCompany,
         protected LeadAutoCreateService $leadAutoCreate,
-        protected FlexCrmLookupService $crmLookup,
-        protected ChannelUnreadNotifier $unreadNotifier
+        protected FlexCrmLookupService $crmLookup
     ) {}
 
     public function index()
@@ -157,11 +154,6 @@ class ViberController extends Controller
 
         if ($beforeId <= 0) {
             $conversation->update(['unread_count' => 0]);
-            $this->unreadNotifier->markConversationRead(
-                Auth::user(),
-                ViberMessageNotification::class,
-                (int) $conversation->id
-            );
         }
 
         return response()->json([
@@ -456,13 +448,6 @@ class ViberController extends Controller
 
         $conversation->unread_count = (int) $conversation->unread_count + 1;
         $this->touchConversation($conversation, $record);
-        $this->unreadNotifier->notifyCompanyUsers(
-            (int) $conversation->company_id,
-            'view_viber',
-            ViberMessageNotification::class,
-            (int) $conversation->id,
-            new ViberMessageNotification($conversation, $record)
-        );
 
         $lead = $this->leadAutoCreate->fromPhoneChannel(
             (int) $conversation->company_id,

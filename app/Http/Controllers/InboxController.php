@@ -17,10 +17,8 @@ use App\Models\ScheduledInboxReply;
 use App\Models\SharedInbox;
 use App\Models\SharedInboxMember;
 use App\Models\User;
-use App\Notifications\InboxMessageNotification;
 use App\Notifications\InboxThreadUpdateNotification;
 use App\Services\CalendarOauthSettingsService;
-use App\Services\ChannelUnreadNotifier;
 use App\Services\FlexCrmLookupService;
 use App\Services\InboxReopenService;
 use App\Services\InboxReplyService;
@@ -54,7 +52,6 @@ class InboxController extends Controller
         protected CalendarOauthSettingsService $oauthSettings,
         protected FlexCrmLookupService $crmLookup,
         protected LeadActivityService $leadActivity,
-        protected ChannelUnreadNotifier $unreadNotifier,
         protected LeadAutoCreateService $leadAutoCreate,
         protected InboxThreadMergeService $threadMerge,
         protected LeadInboxAttachService $inboxAttach,
@@ -849,11 +846,6 @@ class InboxController extends Controller
                 $conversation->update(['is_read' => true]);
             }
         }
-        $this->unreadNotifier->markConversationRead(
-            $request->user(),
-            InboxMessageNotification::class,
-            (int) $conversation->id
-        );
 
         return response()->json([
             'conversation' => $this->formatConversation($conversation, true),

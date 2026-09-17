@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\PhoneContact;
 use App\Models\SmsConversation;
 use App\Models\SmsMessage;
-use App\Notifications\SmsMessageNotification;
 use App\Services\LeadRuleEngine;
 use Illuminate\Support\Str;
 
@@ -13,8 +12,7 @@ class SmsConversationService
 {
     public function __construct(
         protected TwilioCompanyService $twilioCompany,
-        protected LeadAutoCreateService $leadAutoCreate,
-        protected ChannelUnreadNotifier $unreadNotifier
+        protected LeadAutoCreateService $leadAutoCreate
     ) {}
 
     public function upsert(
@@ -62,13 +60,6 @@ class SmsConversationService
         $conversation->save();
 
         if ($incrementUnread) {
-            $this->unreadNotifier->notifyCompanyUsers(
-                (int) $conversation->company_id,
-                'view_sms',
-                SmsMessageNotification::class,
-                (int) $conversation->id,
-                new SmsMessageNotification($conversation, $message)
-            );
             $isNew = SmsMessage::query()->where('sms_conversation_id', $conversation->id)->count() <= 1;
             $this->leadAutoCreate->applyRules(
                 $this->leadAutoCreate->fromPhoneChannel(

@@ -7,7 +7,6 @@ use App\Models\InboxConversationUserRead;
 use App\Models\InboxMessage;
 use App\Models\OutlookMailAccount;
 use App\Models\SharedInbox;
-use App\Notifications\InboxMessageNotification;
 use App\Support\EmailQuotedHistory;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
@@ -79,7 +78,6 @@ class OutlookMailService
 
     public function __construct(
         protected CalendarOauthSettingsService $oauthSettings,
-        protected ChannelUnreadNotifier $unreadNotifier,
         protected LeadAutoCreateService $leadAutoCreate
     ) {}
 
@@ -747,18 +745,6 @@ class OutlookMailService
                             'inbox_conversation_id' => $fresh->id,
                         ]
                     );
-                }
-
-                if (! $conversation->is_read) {
-                    $fresh = $conversation->fresh(['inbox']);
-                    if ($fresh) {
-                        $this->unreadNotifier->notifyUsers(
-                            $this->unreadNotifier->inboxRecipients($fresh),
-                            InboxMessageNotification::class,
-                            (int) $fresh->id,
-                            new InboxMessageNotification($fresh)
-                        );
-                    }
                 }
             }
 

@@ -9,8 +9,6 @@ use App\Models\FacebookIntegration;
 use App\Models\FacebookMessage;
 use App\Models\LeadLabel;
 use App\Models\MessageTemplate;
-use App\Models\User;
-use App\Notifications\FacebookMessageNotification;
 use App\Services\FacebookGraphHistoryService;
 use App\Services\FacebookGraphMessagingService;
 use App\Services\FacebookMessageSyncService;
@@ -251,7 +249,6 @@ class FacebookController extends Controller
         $extracted = ['phones' => [], 'emails' => [], 'names' => []];
         if ($beforeId <= 0) {
             $conversation->update(['unread_count' => 0]);
-            $this->markConversationNotificationsRead($conversation);
             $extracted = $this->messageContacts->applyToConversation($conversation);
 
             if (! $isPoll) {
@@ -875,8 +872,6 @@ class FacebookController extends Controller
         }
 
         $extracted = $this->messageContacts->applyToConversation($conversation);
-        $this->notifyUnread($conversation, $record);
-
         $lead = $this->leadAutoCreate->fromFacebookConversation($conversation, $extracted, createIfMissing: false);
         $this->leadAutoCreate->applyRules($lead, 'facebook', LeadRuleEngine::inboundTriggers($isNewConversation), [
             'company_id' => $conversation->company_id,
@@ -1012,8 +1007,6 @@ class FacebookController extends Controller
         $this->resetConversationReadState($conversation);
         $this->touchConversation($conversation, $record);
         $extracted = $this->messageContacts->applyToConversation($conversation);
-        $this->notifyUnread($conversation, $record);
-
         $lead = $this->leadAutoCreate->fromFacebookConversation($conversation, $extracted, createIfMissing: false);
         $this->leadAutoCreate->applyRules($lead, 'facebook', LeadRuleEngine::inboundTriggers($isNewConversation), [
             'company_id' => $conversation->company_id,
@@ -1139,55 +1132,6 @@ class FacebookController extends Controller
             ->where('facebook_conversation_id', $conversation->id)
             ->where('is_read', true)
             ->update(['is_read' => false]);
-    }
-
-    protected function notifyUnread(FacebookConversation $conversation, FacebookMessage $message): void
-    {
-        $recipients = User::query()
-            ->where('company_id', $conversation->company_id)
-            ->where(function ($query) {
-                $query->whereHas('role.permissions', fn ($q) => $q->where('slug', 'view_facebook'))
-                    ->orWhereHas('roles.permissions', fn ($q) => $q->where('slug', 'view_facebook'));
-            })
-            ->get();
-
-        foreach ($recipients as $recipient) {
-            try {
-                $existing = $recipient->unreadNotifications()
-                    ->where('type', FacebookMessageNotification::class)
-                    ->get()
-                    ->first(fn ($n) => (int) ($n->data['conversation_id'] ?? 0) === (int) $conversation->id);
-
-                if ($existing) {
-                    $existing->delete();
-                }
-
-                $recipient->notify(new FacebookMessageNotification($conversation, $message));
-            } catch (\Throwable $e) {
-                Log::warning('Failed to notify Facebook unread', [
-                    'conversation_id' => $conversation->id,
-                    'user_id' => $recipient->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-    }
-
-    protected function markConversationNotificationsRead(FacebookConversation $conversation): void
-    {
-        $user = Auth::user();
-        if (! $user) {
-            return;
-        }
-
-        $user->unreadNotifications()
-            ->where('type', FacebookMessageNotification::class)
-            ->get()
-            ->each(function ($notification) use ($conversation) {
-                if ((int) ($notification->data['conversation_id'] ?? 0) === (int) $conversation->id) {
-                    $notification->markAsRead();
-                }
-            });
     }
 
     protected function touchConversation(FacebookConversation $conversation, FacebookMessage $message): void

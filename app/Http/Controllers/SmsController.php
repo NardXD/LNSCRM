@@ -5,8 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\MessageTemplate;
 use App\Models\SmsConversation;
 use App\Models\SmsMessage;
-use App\Notifications\SmsMessageNotification;
-use App\Services\ChannelUnreadNotifier;
 use App\Services\FlexCrmLookupService;
 use App\Services\LeadAutoCreateService;
 use App\Services\LeadRuleEngine;
@@ -24,8 +22,7 @@ class SmsController extends Controller
         protected TwilioCompanyService $twilioCompany,
         protected SmsConversationService $conversations,
         protected LeadAutoCreateService $leadAutoCreate,
-        protected FlexCrmLookupService $crmLookup,
-        protected ChannelUnreadNotifier $unreadNotifier
+        protected FlexCrmLookupService $crmLookup
     ) {}
 
     public function index()
@@ -149,11 +146,6 @@ class SmsController extends Controller
 
         if ($beforeId <= 0) {
             $conversation->update(['unread_count' => 0]);
-            $this->unreadNotifier->markConversationRead(
-                Auth::user(),
-                SmsMessageNotification::class,
-                (int) $conversation->id
-            );
         }
 
         return response()->json([

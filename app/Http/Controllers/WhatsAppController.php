@@ -5,11 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\Company;
 use App\Models\LeadLabel;
 use App\Models\MessageTemplate;
-use App\Models\User;
 use App\Models\WhatsAppConversation;
 use App\Models\WhatsAppIntegration;
 use App\Models\WhatsAppMessage;
-use App\Notifications\WhatsAppMessageNotification;
 use App\Services\FlexCrmLookupService;
 use App\Services\LeadAutoCreateService;
 use App\Services\LeadRuleEngine;
@@ -21,7 +19,6 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -171,7 +168,6 @@ class WhatsAppController extends Controller
         if ($beforeId <= 0) {
             if (! $isPoll) {
                 $conversation->update(['unread_count' => 0]);
-                $this->markConversationNotificationsRead($conversation);
             }
             $extracted = $this->messageContacts->applyToWhatsAppConversation($conversation);
         }
@@ -582,7 +578,6 @@ class WhatsAppController extends Controller
 
         $conversation->unread_count = (int) $conversation->unread_count + 1;
         $this->touchConversation($conversation, $record);
-        $this->notifyUnread($conversation, $record);
 
         $lead = $this->leadAutoCreate->fromPhoneChannel(
             (int) $conversation->company_id,
@@ -599,69 +594,6 @@ class WhatsAppController extends Controller
         if ($isNewConversation) {
             $this->maybeSendWelcome($integration, $conversation);
         }
-    }
-
-    protected function notifyUnread(WhatsAppConversation $conversation, WhatsAppMessage $message): void
-    {
-        $recipients = $this->whatsappNotifyRecipients((int) $conversation->company_id);
-
-        foreach ($recipients as $recipient) {
-            try {
-                // Keep one unread notification per conversation per user
-                $existing = $recipient->unreadNotifications()
-                    ->where('type', WhatsAppMessageNotification::class)
-                    ->get()
-                    ->first(function ($notification) use ($conversation) {
-                        return (int) ($notification->data['conversation_id'] ?? 0) === (int) $conversation->id;
-                    });
-
-                if ($existing) {
-                    $existing->delete();
-                }
-
-                $recipient->notify(new WhatsAppMessageNotification($conversation, $message));
-            } catch (\Throwable $e) {
-                Log::warning('Failed to notify WhatsApp unread', [
-                    'conversation_id' => $conversation->id,
-                    'user_id' => $recipient->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-    }
-
-    /**
-     * @return Collection<int, User>
-     */
-    protected function whatsappNotifyRecipients(int $companyId)
-    {
-        return User::query()
-            ->where('company_id', $companyId)
-            ->where(function ($query) {
-                $query->whereHas('role.permissions', function ($q) {
-                    $q->where('slug', 'view_whatsapp');
-                })->orWhereHas('roles.permissions', function ($q) {
-                    $q->where('slug', 'view_whatsapp');
-                });
-            })
-            ->get();
-    }
-
-    protected function markConversationNotificationsRead(WhatsAppConversation $conversation): void
-    {
-        $user = Auth::user();
-        if (! $user) {
-            return;
-        }
-
-        $user->unreadNotifications()
-            ->where('type', WhatsAppMessageNotification::class)
-            ->get()
-            ->each(function ($notification) use ($conversation) {
-                if ((int) ($notification->data['conversation_id'] ?? 0) === (int) $conversation->id) {
-                    $notification->markAsRead();
-                }
-            });
     }
 
     protected function maybeSendWelcome(WhatsAppIntegration $integration, WhatsAppConversation $conversation): void
