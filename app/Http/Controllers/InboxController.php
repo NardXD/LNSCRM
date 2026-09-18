@@ -523,7 +523,7 @@ class InboxController extends Controller
             'view' => ['nullable', 'string', 'in:open,assigned_to_me,unassigned,archived,snoozed,drafts,sent,trash,spam,all'],
             'tag_id' => ['nullable', 'integer'],
             'label_id' => ['nullable', 'integer'],
-            'search' => ['nullable', 'string', 'max:200'],
+            'search' => ['nullable', 'string', 'max:512'],
             'from' => ['nullable', 'string', 'max:255'],
             'to' => ['nullable', 'string', 'max:255'],
             'subject' => ['nullable', 'string', 'max:255'],
@@ -538,9 +538,11 @@ class InboxController extends Controller
 
         $view = $validated['view'] ?? 'open';
         $folderFilter = $validated['folder'] ?? null;
+        $search = trim((string) ($validated['search'] ?? ''));
+        $idQuery = $this->parseInboxIdQuery($search);
         $inboxIds = $this->accessibleInboxes($user)->pluck('id');
 
-        if (! empty($validated['inbox_id'])) {
+        if (! $idQuery && ! empty($validated['inbox_id'])) {
             if (! $inboxIds->contains((int) $validated['inbox_id'])) {
                 return response()->json(['message' => 'Inbox not found.'], 404);
             }
@@ -574,9 +576,12 @@ class InboxController extends Controller
             )
             ->withExists('mergedConversations');
 
+        // Message/conversation ID lookup should find the thread in any folder.
         // Advanced folder=any searches across all folders; otherwise apply sidebar view
         // or an explicit advanced folder filter.
-        if ($folderFilter === 'any') {
+        if ($idQuery) {
+            // no folder/status lock
+        } elseif ($folderFilter === 'any') {
             // no folder/status lock
         } elseif ($folderFilter) {
             $query->where('folder', $folderFilter);
@@ -603,11 +608,11 @@ class InboxController extends Controller
             $query->where('folder', 'spam');
         }
 
-        if (! empty($validated['tag_id'])) {
+        if (! $idQuery && ! empty($validated['tag_id'])) {
             $query->whereHas('tags', fn ($q) => $q->where('inbox_tags.id', $validated['tag_id']));
         }
 
-        if (! empty($validated['label_id'])) {
+        if (! $idQuery && ! empty($validated['label_id'])) {
             $labelId = (int) $validated['label_id'];
             $label = LeadLabel::query()
                 ->where('company_id', $user->company_id)
@@ -619,7 +624,7 @@ class InboxController extends Controller
             $this->constrainByLeadLabel($query, $labelId);
         }
 
-        if (! in_array($view, ['assigned_to_me', 'archived', 'snoozed'], true) && isset($validated['assigned_to'])) {
+        if (! $idQuery && ! in_array($view, ['assigned_to_me', 'archived', 'snoozed'], true) && isset($validated['assigned_to'])) {
             if ((int) $validated['assigned_to'] === 0) {
                 $query->whereNull('inbox_conversations.assigned_to');
             } else {
@@ -627,7 +632,7 @@ class InboxController extends Controller
             }
         }
 
-        if (isset($validated['is_read']) && $validated['is_read'] !== '') {
+        if (! $idQuery && isset($validated['is_read']) && $validated['is_read'] !== '') {
             $read = filter_var($validated['is_read'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
             if ($read !== null) {
                 $query->whereRaw(
@@ -637,14 +642,14 @@ class InboxController extends Controller
             }
         }
 
-        if (! empty($validated['date_from'])) {
+        if (! $idQuery && ! empty($validated['date_from'])) {
             $query->whereDate('last_message_at', '>=', $validated['date_from']);
         }
-        if (! empty($validated['date_to'])) {
+        if (! $idQuery && ! empty($validated['date_to'])) {
             $query->whereDate('last_message_at', '<=', $validated['date_to']);
         }
 
-        if (! empty($validated['from'])) {
+        if (! $idQuery && ! empty($validated['from'])) {
             $from = $validated['from'];
             $query->where(function ($q) use ($from) {
                 $q->where('from_email', 'like', "%{$from}%")
@@ -656,12 +661,12 @@ class InboxController extends Controller
             });
         }
 
-        if (! empty($validated['to'])) {
+        if (! $idQuery && ! empty($validated['to'])) {
             $to = $validated['to'];
             $query->whereHas('messages', fn ($mq) => $mq->where('to_emails', 'like', "%{$to}%"));
         }
 
-        if (! empty($validated['subject'])) {
+        if (! $idQuery && ! empty($validated['subject'])) {
             $subject = $validated['subject'];
             $query->where(function ($q) use ($subject) {
                 $q->where('subject', 'like', "%{$subject}%")
@@ -669,7 +674,7 @@ class InboxController extends Controller
             });
         }
 
-        if (! empty($validated['body'])) {
+        if (! $idQuery && ! empty($validated['body'])) {
             $body = $validated['body'];
             $query->where(function ($q) use ($body) {
                 $q->where('snippet', 'like', "%{$body}%")
@@ -680,8 +685,24 @@ class InboxController extends Controller
             });
         }
 
-        if (! empty($validated['search'])) {
-            $s = $validated['search'];
+        if ($idQuery) {
+            $query->where(function ($q) use ($idQuery) {
+                if (! empty($idQuery['conversation_id'])) {
+                    $q->orWhere('inbox_conversations.id', $idQuery['conversation_id']);
+                }
+                if (! empty($idQuery['message_id'])) {
+                    $q->orWhereHas('messages', function ($mq) use ($idQuery) {
+                        $mq->where('inbox_messages.id', $idQuery['message_id']);
+                    });
+                }
+                if (! empty($idQuery['external_message_id'])) {
+                    $q->orWhereHas('messages', function ($mq) use ($idQuery) {
+                        $mq->where('external_message_id', $idQuery['external_message_id']);
+                    });
+                }
+            });
+        } elseif ($search !== '') {
+            $s = $search;
             $query->where(function ($q) use ($s) {
                 $q->where('subject', 'like', "%{$s}%")
                     ->orWhere('from_email', 'like', "%{$s}%")
@@ -691,8 +712,15 @@ class InboxController extends Controller
                         $mq->where('subject', 'like', "%{$s}%")
                             ->orWhere('from_email', 'like', "%{$s}%")
                             ->orWhere('to_emails', 'like', "%{$s}%")
-                            ->orWhere('body_text', 'like', "%{$s}%");
+                            ->orWhere('body_text', 'like', "%{$s}%")
+                            ->orWhere('external_message_id', 'like', "%{$s}%");
+                        if (ctype_digit($s)) {
+                            $mq->orWhere('inbox_messages.id', (int) $s);
+                        }
                     });
+                if (ctype_digit($s)) {
+                    $q->orWhere('inbox_conversations.id', (int) $s);
+                }
             });
         }
 
@@ -709,6 +737,21 @@ class InboxController extends Controller
             $rows = $rows->take($perPage);
         }
 
+        $matchedMessageId = null;
+        if ($idQuery && $rows->isNotEmpty()) {
+            $messageQuery = InboxMessage::query()->whereIn('inbox_conversation_id', $rows->pluck('id'));
+            if (! empty($idQuery['message_id'])) {
+                $messageQuery->where('inbox_messages.id', $idQuery['message_id']);
+            } elseif (! empty($idQuery['external_message_id'])) {
+                $messageQuery->where('external_message_id', $idQuery['external_message_id']);
+            } else {
+                $messageQuery = null;
+            }
+            if ($messageQuery) {
+                $matchedMessageId = $messageQuery->value('id');
+            }
+        }
+
         return response()->json([
             'conversations' => $rows->map(function ($c) {
                 $c->is_read = (bool) ($c->user_is_read ?? $c->is_read);
@@ -719,6 +762,7 @@ class InboxController extends Controller
                 'current_page' => $page,
                 'has_more' => $hasMore,
                 'last_page' => $hasMore ? $page + 1 : $page,
+                'matched_message_id' => $matchedMessageId,
             ],
         ]);
     }
@@ -3369,6 +3413,55 @@ class InboxController extends Controller
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    /**
+     * Detect a pasted conversation/message ID, Outlook Graph id, or inbox deep link.
+     *
+     * @return array{conversation_id: ?int, message_id: ?int, external_message_id: ?string}|null
+     */
+    private function parseInboxIdQuery(string $search): ?array
+    {
+        $s = trim($search);
+        if ($s === '') {
+            return null;
+        }
+
+        $conversationId = null;
+        $messageId = null;
+        if (preg_match('/(?:^|[?&])conversation=(\d+)/', $s, $matches)) {
+            $conversationId = (int) $matches[1];
+        }
+        if (preg_match('/(?:^|[?&])message=(\d+)/', $s, $matches)) {
+            $messageId = (int) $matches[1];
+        }
+        if ($conversationId || $messageId) {
+            return [
+                'conversation_id' => $conversationId,
+                'message_id' => $messageId,
+                'external_message_id' => null,
+            ];
+        }
+
+        if (ctype_digit($s) && strlen($s) <= 18) {
+            $id = (int) $s;
+
+            return [
+                'conversation_id' => $id,
+                'message_id' => $id,
+                'external_message_id' => null,
+            ];
+        }
+
+        if (! str_contains($s, '@') && ! str_contains($s, ' ') && preg_match('/^[A-Za-z0-9\-._\/=+]{8,512}$/', $s)) {
+            return [
+                'conversation_id' => null,
+                'message_id' => null,
+                'external_message_id' => $s,
+            ];
+        }
+
+        return null;
     }
 
     private function authorizeConversation(User $user, InboxConversation $conversation): void

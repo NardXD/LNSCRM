@@ -120,7 +120,7 @@
                 </div>
                 <div class="inbox-search">
                     <div class="inbox-search-row">
-                        <input type="search" id="inboxSearch" placeholder="Quick search…" autocomplete="off">
+                        <input type="search" id="inboxSearch" placeholder="Quick search or message ID…" autocomplete="off">
                         <button type="button" class="inbox-btn ghost" id="btnToggleAdvancedSearch" title="Advanced search">Filters</button>
                     </div>
                     <div class="inbox-adv-chips" id="advFilterChips"></div>
@@ -822,6 +822,7 @@
     color: var(--inbox-text);
     font-family: "Segoe UI", "IBM Plex Sans", system-ui, sans-serif;
     overflow: hidden;
+    position: relative;
 }
 .inbox-toast {
     position: absolute; top: 12px; right: 16px; z-index: 50;
@@ -2089,7 +2090,13 @@
 }
 .inbox-msg-head-actions button:hover { background: #f3f4f6; color: var(--inbox-text); }
 .inbox-msg-head-actions svg { width: 15px; height: 15px; }
-.inbox-msg-head-actions button.is-danger:hover { background: #fef2f2; color: #b91c1c; }
+.inbox-msg-head-actions button.is-copied {
+    color: var(--inbox-accent);
+    background: var(--inbox-accent-soft);
+}
+.inbox-msg.is-target {
+    box-shadow: inset 3px 0 0 var(--inbox-accent);
+}
 .inbox-msg.internal { background: #fffbeb; border-color: #f3e8c8; }
 .inbox-msg.internal .inbox-msg-from { color: #92400e; }
 .inbox-comment-editor { display: none; margin-top: 0.35rem; }
@@ -3334,6 +3341,7 @@
         composerExpanded: false,
         propsOpen: false,
         expandedMessageIds: {},
+        focusMessageId: null,
         replyAll: false,
         replyCcEmails: [],
         replyDraftId: null,
@@ -6388,6 +6396,14 @@
         updateAdvancedToggleState();
     }
 
+    function isInboxIdQuery(q) {
+        const s = String(q || '').trim();
+        if (!s) return false;
+        if (/(?:^|[?&])(?:conversation|message)=\d+/.test(s)) return true;
+        if (/^\d{1,18}$/.test(s)) return true;
+        return !s.includes('@') && !s.includes(' ') && /^[A-Za-z0-9\-._\/=+]{8,}$/.test(s);
+    }
+
     async function loadConversations({ append = false } = {}) {
         if (state.listLoading) return;
         if (append && !state.listHasMore) return;
@@ -6449,6 +6465,16 @@
                 renderConversations();
                 const list = el('conversationList');
                 if (list) list.scrollTop = 0;
+                const matchedMessageId = data.meta?.matched_message_id || null;
+                if (batch.length === 1 && isInboxIdQuery(q)) {
+                    const convId = batch[0].id;
+                    const opts = matchedMessageId ? { messageId: matchedMessageId } : {};
+                    if (Number(state.selectedId) === Number(convId) && state.conversation) {
+                        if (matchedMessageId) focusThreadMessage(matchedMessageId);
+                    } else {
+                        await openConversation(convId, opts);
+                    }
+                }
             }
         } catch (err) {
             if (!append) {
@@ -6474,6 +6500,10 @@
             if (el('replyTo')) el('replyTo').value = '';
             if (el('replyCc')) el('replyCc').value = '';
             state.expandedMessageIds = {};
+            state.focusMessageId = options.messageId ? String(options.messageId) : null;
+            if (state.focusMessageId) {
+                state.expandedMessageIds[state.focusMessageId] = true;
+            }
             state.composerExpanded = false;
             renderAttachChips('reply');
             renderAttachChips('comment');
@@ -6514,6 +6544,9 @@
             }
         }
         renderThread();
+        if (options.messageId) {
+            focusThreadMessage(options.messageId);
+        }
         const draftMsg = [...(data.conversation?.messages || [])].reverse().find(m => m.is_draft);
         if (draftMsg) {
             if (isComposeOnlyDraft(data.conversation)) {
@@ -6523,6 +6556,77 @@
             }
         }
         window.updateHeaderNotificationsBadge?.();
+    }
+
+    function focusThreadMessage(messageId) {
+        const id = String(messageId || '');
+        if (!id) return;
+        const card = el('threadMessages')?.querySelector('.inbox-msg[data-msg-id="' + id.replace(/"/g, '') + '"]');
+        if (!card) return;
+        card.classList.add('is-expanded', 'is-target');
+        state.expandedMessageIds[id] = true;
+        state.focusMessageId = id;
+        const host = card.querySelector('[data-email-body="' + id.replace(/"/g, '') + '"]');
+        if (host && state.conversation) {
+            const msg = (state.conversation.messages || []).find(m => String(m.id) === id);
+            if (msg) mountEmailBody(host, msg);
+        }
+        card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+
+    function messageLinkFor(messageId) {
+        const url = new URL(window.location.origin + window.location.pathname);
+        const conversationId = state.selectedId || state.conversation?.id;
+        if (conversationId) url.searchParams.set('conversation', String(conversationId));
+        if (messageId) url.searchParams.set('message', String(messageId));
+        return url.toString();
+    }
+
+    async function copyText(value) {
+        const text = String(value || '');
+        if (!text) return false;
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(text);
+                return true;
+            }
+        } catch (_) {}
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (_) {}
+        ta.remove();
+        return ok;
+    }
+
+    function showInboxToast(message) {
+        document.querySelectorAll('.inbox-toast.js-toast').forEach(n => n.remove());
+        const node = document.createElement('div');
+        node.className = 'inbox-toast js-toast success';
+        node.textContent = message;
+        el('inboxApp')?.appendChild(node);
+        setTimeout(() => node.remove(), 1800);
+    }
+
+    async function copyMessageId(messageId, button) {
+        const ok = await copyText(String(messageId || ''));
+        if (!ok) return alert('Could not copy message ID.');
+        button?.classList.add('is-copied');
+        setTimeout(() => button?.classList.remove('is-copied'), 1200);
+        showInboxToast('Message ID copied');
+    }
+
+    async function copyMessageLink(messageId, button) {
+        const ok = await copyText(messageLinkFor(messageId));
+        if (!ok) return alert('Could not copy message link.');
+        button?.classList.add('is-copied');
+        setTimeout(() => button?.classList.remove('is-copied'), 1200);
+        showInboxToast('Message link copied');
     }
 
     function formatThreadTime(iso) {
@@ -7178,6 +7282,14 @@
         return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
     }
 
+    function copyIconHtml() {
+        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    }
+
+    function linkIconHtml() {
+        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
+    }
+
     const MEDIA_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
     const MEDIA_VIDEO_EXTS = ['mp4', 'webm', 'mov', 'm4v', 'ogv'];
 
@@ -7245,6 +7357,7 @@
         const email = m.from_email || '';
         const preview = messagePreviewText(m);
         const isDraft = !!m.is_draft;
+        const isTarget = String(state.focusMessageId || '') === String(m.id);
         const toList = parseEmailList(m.to || m.to_emails);
         const ccList = parseEmailList(m.cc || m.cc_emails);
         const replyToList = parseEmailList(m.reply_to || m.reply_to_emails);
@@ -7257,9 +7370,18 @@
             toList.length ? `<div><strong>To</strong> ${escapeHtml(toList.join(', '))}</div>` : '',
             ccList.length ? `<div><strong>Cc</strong> ${escapeHtml(ccList.join(', '))}</div>` : '',
             replyToList.length ? `<div><strong>Reply-To</strong> ${escapeHtml(replyToList.join(', '))}</div>` : '',
+            `<div><strong>ID</strong> ${escapeHtml(String(m.id))}</div>`,
         ].join('');
+        const copyActions = `
+            <button type="button" data-copy-msg-id="${escapeHtml(String(m.id))}" title="Copy message ID">
+                ${copyIconHtml()}
+            </button>
+            <button type="button" data-copy-msg-link="${escapeHtml(String(m.id))}" title="Copy message link">
+                ${linkIconHtml()}
+            </button>
+        `;
         return `
-            <div class="inbox-msg ${m.direction} ${expanded ? 'is-expanded' : ''} ${isDraft ? 'scheduled' : ''}" data-msg-id="${escapeHtml(String(m.id))}">
+            <div class="inbox-msg ${m.direction} ${expanded ? 'is-expanded' : ''} ${isDraft ? 'scheduled' : ''} ${isTarget ? 'is-target' : ''}" data-msg-id="${escapeHtml(String(m.id))}">
                 <div class="inbox-msg-row">
                     <span class="inbox-avatar" style="background:${avatarHue(email || name)}">${escapeHtml(initials(name))}</span>
                     <div class="inbox-msg-summary">
@@ -7288,6 +7410,7 @@
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                                 </button>` : ''}
                             `}
+                            ${copyActions}
                         </div>
                     </div>
                 </div>
@@ -8994,6 +9117,20 @@
             if (msg) openResendModal(msg);
             return;
         }
+        const copyIdBtn = e.target.closest('[data-copy-msg-id]');
+        if (copyIdBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            copyMessageId(copyIdBtn.dataset.copyMsgId, copyIdBtn);
+            return;
+        }
+        const copyLinkBtn = e.target.closest('[data-copy-msg-link]');
+        if (copyLinkBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            copyMessageLink(copyLinkBtn.dataset.copyMsgLink, copyLinkBtn);
+            return;
+        }
         const editDraftBtn = e.target.closest('[data-edit-draft]');
         if (editDraftBtn) {
             e.preventDefault();
@@ -10176,6 +10313,7 @@
     ]).then(async () => {
         const params = new URLSearchParams(window.location.search);
         const conversationId = Number(params.get('conversation') || 0);
+        const messageId = Number(params.get('message') || 0);
         const labelId = Number(params.get('label') || 0);
         if (labelId) {
             state.selectedLabelId = labelId;
@@ -10186,8 +10324,9 @@
             params.delete('label');
         }
         if (conversationId) {
-            await openConversation(conversationId);
+            await openConversation(conversationId, messageId ? { messageId } : {});
             params.delete('conversation');
+            params.delete('message');
             const next = params.toString();
             window.history.replaceState({}, '', window.location.pathname + (next ? '?' + next : ''));
         }
