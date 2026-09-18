@@ -10,10 +10,12 @@ class InboxUserSetting extends Model
     protected $fillable = [
         'user_id',
         'pinned_tag_ids',
+        'sidebar_label_ids',
     ];
 
     protected $casts = [
         'pinned_tag_ids' => 'array',
+        'sidebar_label_ids' => 'array',
     ];
 
     public function user(): BelongsTo

@@ -37,6 +37,7 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -149,6 +150,37 @@ class InboxController extends Controller
             $settings->save();
         }
 
+        $labelRows = LeadLabel::query()
+            ->where('company_id', $companyId)
+            ->orderBy('name')
+            ->get(['id', 'name', 'color']);
+        $labelCounts = $this->leadLabelCounts($inboxModels->pluck('id'));
+        $leadLabels = $labelRows->map(fn (LeadLabel $label) => [
+            'id' => (int) $label->id,
+            'name' => $label->name,
+            'color' => $label->color,
+            'count' => (int) ($labelCounts[(int) $label->id] ?? 0),
+            'shared' => true,
+        ]);
+
+        $validLabelIds = $labelRows->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $sidebarLabelIds = $settings->sidebar_label_ids;
+        if (is_array($sidebarLabelIds)) {
+            $ordered = collect($sidebarLabelIds)
+                ->map(fn ($id) => (int) $id)
+                ->filter(fn ($id) => in_array($id, $validLabelIds, true))
+                ->unique()
+                ->values()
+                ->all();
+            if ($ordered !== array_values(array_map('intval', $sidebarLabelIds))) {
+                $settings->sidebar_label_ids = $ordered;
+                $settings->save();
+            }
+            $sidebarLabelIds = $ordered;
+        } else {
+            $sidebarLabelIds = null;
+        }
+
         return response()->json([
             'outlook_configured' => $this->oauthSettings->isConfigured('outlook', $companyId),
             'mail_connected' => (bool) $account,
@@ -160,10 +192,8 @@ class InboxController extends Controller
             'snoozed_count' => $counts['snoozed'],
             'inboxes' => $inboxes,
             'tags' => $tags,
-            'lead_labels' => LeadLabel::query()
-                ->where('company_id', $companyId)
-                ->orderBy('name')
-                ->get(['id', 'name', 'color']),
+            'lead_labels' => $leadLabels,
+            'sidebar_label_ids' => $sidebarLabelIds,
             'templates' => $templates,
             'members' => $members,
             'pinned_tag_ids' => $pinnedTagIds,
@@ -492,6 +522,7 @@ class InboxController extends Controller
             'inbox_id' => ['nullable', 'integer'],
             'view' => ['nullable', 'string', 'in:open,assigned_to_me,unassigned,archived,snoozed,drafts,sent,trash,spam,all'],
             'tag_id' => ['nullable', 'integer'],
+            'label_id' => ['nullable', 'integer'],
             'search' => ['nullable', 'string', 'max:200'],
             'from' => ['nullable', 'string', 'max:255'],
             'to' => ['nullable', 'string', 'max:255'],
@@ -574,6 +605,18 @@ class InboxController extends Controller
 
         if (! empty($validated['tag_id'])) {
             $query->whereHas('tags', fn ($q) => $q->where('inbox_tags.id', $validated['tag_id']));
+        }
+
+        if (! empty($validated['label_id'])) {
+            $labelId = (int) $validated['label_id'];
+            $label = LeadLabel::query()
+                ->where('company_id', $user->company_id)
+                ->whereKey($labelId)
+                ->first();
+            if (! $label) {
+                return response()->json(['message' => 'Label not found.'], 404);
+            }
+            $this->constrainByLeadLabel($query, $labelId);
         }
 
         if (! in_array($view, ['assigned_to_me', 'archived', 'snoozed'], true) && isset($validated['assigned_to'])) {
@@ -2710,6 +2753,39 @@ class InboxController extends Controller
         ]);
     }
 
+    public function syncSidebarLabels(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'label_ids' => ['present', 'array', 'max:300'],
+            'label_ids.*' => ['integer'],
+        ]);
+
+        $user = $request->user();
+        $labelIds = collect($validated['label_ids'] ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+
+        $validIds = LeadLabel::query()
+            ->where('company_id', $user->company_id)
+            ->whereIn('id', $labelIds)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $ordered = $labelIds->filter(fn ($id) => in_array($id, $validIds, true))->values()->all();
+
+        $settings = InboxUserSetting::updateOrCreate(
+            ['user_id' => $user->id],
+            ['sidebar_label_ids' => $ordered]
+        );
+
+        return response()->json([
+            'sidebar_label_ids' => $settings->sidebar_label_ids ?? [],
+        ]);
+    }
+
     public function storeTemplate(Request $request): JsonResponse
     {
         if ($denied = $this->denyUnlessPermission($request, 'create_inbox_templates')) {
@@ -3032,6 +3108,54 @@ class InboxController extends Controller
             'archived' => (int) array_sum(array_column($byInbox, 'archived_count')),
             'snoozed' => (int) array_sum(array_column($byInbox, 'snoozed_count')),
         ];
+    }
+
+    /**
+     * Open-inbox conversation counts per lead label for the sidebar.
+     *
+     * @param  Collection<int, int|string>  $inboxIds
+     * @return array<int, int>
+     */
+    private function leadLabelCounts(Collection $inboxIds): array
+    {
+        if ($inboxIds->isEmpty()) {
+            return [];
+        }
+
+        $base = fn () => InboxConversation::query()
+            ->from('inbox_conversations')
+            ->notMerged()
+            ->whereIn('inbox_conversations.shared_inbox_id', $inboxIds)
+            ->where('inbox_conversations.folder', 'inbox')
+            ->where('inbox_conversations.status', 'open');
+
+        $fromConversation = $base()
+            ->join('inbox_conversation_lead_label as cl', 'cl.inbox_conversation_id', '=', 'inbox_conversations.id')
+            ->select('cl.lead_label_id', 'inbox_conversations.id as conversation_id');
+
+        $fromLead = $base()
+            ->whereNotNull('inbox_conversations.lead_id')
+            ->join('lead_lead_label as ll', 'll.lead_id', '=', 'inbox_conversations.lead_id')
+            ->select('ll.lead_label_id', 'inbox_conversations.id as conversation_id');
+
+        return DB::query()
+            ->fromSub($fromConversation->union($fromLead), 'inbox_label_hits')
+            ->selectRaw('lead_label_id, COUNT(DISTINCT conversation_id) as aggregate_count')
+            ->groupBy('lead_label_id')
+            ->pluck('aggregate_count', 'lead_label_id')
+            ->map(fn ($count) => (int) $count)
+            ->all();
+    }
+
+    private function constrainByLeadLabel($query, int $labelId): void
+    {
+        $query->where(function ($q) use ($labelId) {
+            $q->whereHas('leadLabels', fn ($labels) => $labels->where('lead_labels.id', $labelId))
+                ->orWhereHas('lead', fn ($lead) => $lead->whereHas(
+                    'labels',
+                    fn ($labels) => $labels->where('lead_labels.id', $labelId)
+                ));
+        });
     }
 
     /**

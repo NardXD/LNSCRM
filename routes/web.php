@@ -690,6 +690,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/tags', [InboxController::class, 'storeTag'])->name('api.inbox.tags.store');
         Route::delete('/tags/{tag}', [InboxController::class, 'destroyTag'])->name('api.inbox.tags.destroy');
         Route::put('/pinned-tags', [InboxController::class, 'syncPinnedTags'])->name('api.inbox.pinned-tags');
+        Route::put('/sidebar-labels', [InboxController::class, 'syncSidebarLabels'])->name('api.inbox.sidebar-labels');
         Route::post('/templates', [InboxController::class, 'storeTemplate'])->name('api.inbox.templates.store');
         Route::put('/templates/{template}', [InboxController::class, 'updateTemplate'])->name('api.inbox.templates.update');
         Route::delete('/templates/{template}', [InboxController::class, 'destroyTemplate'])->name('api.inbox.templates.destroy');

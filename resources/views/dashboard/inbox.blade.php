@@ -54,6 +54,17 @@
                 </button>
             </div>
 
+            <div class="inbox-nav-section inbox-labels-section">
+                <div class="inbox-nav-label-row">
+                    <div class="inbox-nav-label">Pinned</div>
+                    <button type="button" class="inbox-mini-btn" id="btnCustomizeLabels" title="Customize labels">+</button>
+                </div>
+                <div class="inbox-labels-search">
+                    <input type="search" id="sidebarLabelSearch" placeholder="Search labels…" autocomplete="off" aria-label="Search labels">
+                </div>
+                <div id="sidebarLabelList"></div>
+            </div>
+
             <div class="inbox-nav-section">
                 <div class="inbox-nav-label-row">
                     <div class="inbox-nav-label">Inboxes</div>
@@ -589,6 +600,38 @@
         </div>
     </div>
 
+    <div class="inbox-modal inbox-modal-list inbox-modal-sidebar-labels" id="modalSidebarLabels" style="display:none;" role="dialog" aria-labelledby="sidebarLabelsTitle">
+        <div class="inbox-tpl-list-head">
+            <div class="inbox-tpl-list-head-text">
+                <h3 id="sidebarLabelsTitle">Pinned labels</h3>
+                <p class="inbox-modal-help">Choose which labels appear in your sidebar.</p>
+            </div>
+            <button type="button" class="inbox-tpl-close-btn" data-close-modal aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+        <div class="inbox-tpl-list-toolbar">
+            <div class="inbox-tpl-search-wrap">
+                <svg class="inbox-tpl-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="search" id="sidebarLabelPickerSearch" class="inbox-tpl-search" placeholder="Search labels…" autocomplete="off" aria-label="Search labels to pin">
+            </div>
+        </div>
+        <div class="inbox-label-picker-meta">
+            <span id="sidebarLabelPickerCount">0 selected</span>
+            <div class="inbox-label-picker-meta-actions">
+                <button type="button" class="inbox-tpl-link-btn" id="btnSidebarLabelsSelectAll">Select all</button>
+                <button type="button" class="inbox-tpl-link-btn muted" id="btnSidebarLabelsClear">Clear</button>
+            </div>
+        </div>
+        <div class="inbox-label-picker-shell">
+            <div class="inbox-label-picker" id="sidebarLabelPickerList"></div>
+        </div>
+        <div class="inbox-modal-actions">
+            <button type="button" class="inbox-btn ghost" data-close-modal>Cancel</button>
+            <button type="button" class="inbox-btn primary" id="btnSaveSidebarLabels">Save</button>
+        </div>
+    </div>
+
     <div class="inbox-modal" id="modalMembers" style="display:none;">
         <h3>Inbox members</h3>
         <p class="inbox-modal-help" id="membersInboxName"></p>
@@ -1083,6 +1126,178 @@
     padding: 0.05rem 0.4rem; font-size: 0.7rem; font-weight: 600;
 }
 .inbox-nav-item.active .inbox-count { background: #fff; color: var(--inbox-accent); }
+.inbox-labels-search {
+    padding: 0 0.2rem 0.35rem;
+}
+.inbox-labels-search input {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--inbox-border);
+    border-radius: 8px;
+    padding: 0.32rem 0.5rem;
+    font: inherit;
+    font-size: 0.78rem;
+    background: #fff;
+    color: var(--inbox-text);
+}
+.inbox-labels-search input:focus {
+    outline: none;
+    border-color: var(--inbox-accent, #4f46e5);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.12);
+}
+.inbox-label-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 22px;
+    align-items: center;
+    border-radius: 8px;
+}
+.inbox-label-item:hover { background: var(--inbox-bg); }
+.inbox-label-item.is-active { background: var(--inbox-accent-soft); }
+.inbox-label-item.is-dragging { opacity: 0.55; }
+.inbox-label-row {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) 12px auto;
+    align-items: center;
+    gap: 0.4rem;
+    border: none;
+    background: transparent;
+    text-align: left;
+    padding: 0.32rem 0.4rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.82rem;
+    color: var(--inbox-text);
+}
+.inbox-label-item.is-active .inbox-label-row { color: var(--inbox-accent); font-weight: 600; }
+.inbox-label-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+.inbox-label-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.inbox-label-lock {
+    width: 11px;
+    height: 11px;
+    color: var(--inbox-muted);
+    opacity: 0.85;
+}
+.inbox-label-item.is-active .inbox-label-lock { color: var(--inbox-accent); }
+.inbox-label-unpin {
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    color: var(--inbox-muted);
+    border-radius: 6px;
+    cursor: pointer;
+    opacity: 0;
+    font-size: 0.95rem;
+    line-height: 1;
+}
+.inbox-label-item:hover .inbox-label-unpin,
+.inbox-label-item:focus-within .inbox-label-unpin { opacity: 1; }
+.inbox-label-unpin:hover { background: #fff; color: var(--inbox-text); }
+.inbox-label-empty {
+    padding: 0.4rem 0.5rem;
+    font-size: 0.75rem;
+    color: var(--inbox-muted);
+}
+.inbox-label-picker-shell {
+    min-height: 0;
+    max-height: min(52vh, 420px);
+    overflow: auto;
+    border: 1px solid var(--inbox-border);
+    border-radius: 10px;
+    background: #fff;
+}
+.inbox-label-picker {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    margin: 0;
+    border: none;
+    max-height: none;
+    overflow: visible;
+    background: transparent;
+}
+.inbox-modal-sidebar-labels .inbox-modal-actions {
+    margin-top: 0;
+    position: static;
+    padding-top: 0.15rem;
+}
+.inbox-label-picker-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    min-height: 28px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--inbox-muted);
+}
+.inbox-label-picker-meta-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.1rem;
+    flex-shrink: 0;
+}
+.inbox-modal label.inbox-label-picker-option {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0;
+    padding: 0.62rem 0.85rem;
+    border: 0;
+    border-bottom: 1px solid var(--inbox-border);
+    border-radius: 0;
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--inbox-text);
+    cursor: pointer;
+    background: #fff;
+}
+.inbox-modal label.inbox-label-picker-option:last-child {
+    border-bottom: 0;
+}
+.inbox-modal label.inbox-label-picker-option:hover {
+    background: #f9fafb;
+}
+.inbox-modal label.inbox-label-picker-option.is-checked {
+    background: var(--inbox-accent-soft);
+}
+.inbox-label-picker-option input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    flex-shrink: 0;
+    accent-color: var(--inbox-accent, #2f6fed);
+}
+.inbox-label-picker-option .inbox-label-icon {
+    flex-shrink: 0;
+}
+.inbox-label-picker-option .inbox-label-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 700;
+}
+.inbox-label-picker-option .inbox-label-lock {
+    flex-shrink: 0;
+}
+.inbox-label-picker-empty {
+    padding: 2.5rem 1rem;
+    font-size: 0.84rem;
+    color: var(--inbox-muted);
+    text-align: center;
+}
 .inbox-inbox-row, .inbox-rule-row {
     display: flex; align-items: center; gap: 0.45rem; width: 100%;
     border: none; background: transparent; text-align: left; padding: 0.4rem 0.55rem;
@@ -2852,6 +3067,9 @@
     width: min(1200px, 92vw);
     max-width: 92vw;
 }
+.inbox-modal#modalSidebarLabels {
+    overflow: hidden;
+}
 .inbox-modal#modalReply {
     width: min(880px, 94vw);
     max-width: 94vw;
@@ -3078,6 +3296,10 @@
         },
         members: [],
         leadLabels: [],
+        sidebarLabelIds: null,
+        selectedLabelId: null,
+        sidebarLabelSearch: '',
+        sidebarLabelPickerDraft: [],
         assignedToMeCount: 0,
         archivedCount: 0,
         snoozedCount: 0,
@@ -4930,6 +5152,11 @@
     }
 
     function updateListTitle() {
+        if (state.selectedLabelId) {
+            const label = (state.leadLabels || []).find(l => Number(l.id) === Number(state.selectedLabelId));
+            el('listTitle').textContent = label?.name || 'Label';
+            return;
+        }
         if (state.selectedInboxId) {
             const inbox = state.inboxes.find(i => i.id === state.selectedInboxId);
             el('listTitle').textContent = (inbox?.name || 'Inbox') + ' · ' + folderLabel(state.view);
@@ -5067,7 +5294,7 @@
 
     function openModal(id) {
         el('modalBackdrop').style.display = 'flex';
-        ['modalCompose','modalReply','modalInbox','modalTemplateList','modalTemplate','modalSignatureList','modalSignature','modalRule','modalMembers','modalMerge','modalAdvancedSearch'].forEach(m => {
+        ['modalCompose','modalReply','modalInbox','modalTemplateList','modalTemplate','modalSignatureList','modalSignature','modalRule','modalMembers','modalMerge','modalAdvancedSearch','modalSidebarLabels'].forEach(m => {
             const node = el(m);
             if (node) node.style.display = m === id ? 'grid' : 'none';
         });
@@ -5299,13 +5526,149 @@
         setTimeout(() => el('composeTo').focus(), 50);
     }
 
+    function allLeadLabelsSorted() {
+        return (state.leadLabels || []).slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+    }
+
+    function currentSidebarLabelIds() {
+        if (Array.isArray(state.sidebarLabelIds)) {
+            return state.sidebarLabelIds.map(id => Number(id)).filter(id => id > 0);
+        }
+        return allLeadLabelsSorted().map(l => Number(l.id));
+    }
+
+    function visibleSidebarLabels() {
+        const byId = Object.fromEntries((state.leadLabels || []).map(l => [Number(l.id), l]));
+        let list = currentSidebarLabelIds().map(id => byId[id]).filter(Boolean);
+        const q = String(state.sidebarLabelSearch || '').trim().toLowerCase();
+        if (q) {
+            list = list.filter(l => (l.name || '').toLowerCase().includes(q));
+        }
+        return list;
+    }
+
+    function labelTagIcon(color) {
+        const fill = escapeHtml(color || '#64748b');
+        return `<svg class="inbox-label-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="${fill}" d="M2.2 3.4A1.4 1.4 0 0 1 3.6 2h4.95c.37 0 .73.15 1 .41l4.04 4.04a1.4 1.4 0 0 1 0 1.98L9.43 12.6a1.4 1.4 0 0 1-1.98 0L3.41 8.55A1.4 1.4 0 0 1 3 7.56V3.4z"/><circle cx="5.6" cy="5.4" r="1.05" fill="#fff"/></svg>`;
+    }
+
+    function labelLockIcon() {
+        return `<svg class="inbox-label-lock" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5.25 6.5V5.2a2.75 2.75 0 0 1 5.5 0v1.3h.5A1.25 1.25 0 0 1 12.5 7.75v4A1.25 1.25 0 0 1 11.25 13h-6.5A1.25 1.25 0 0 1 3.5 11.75v-4A1.25 1.25 0 0 1 4.75 6.5h.5zm1.25-1.3a1.5 1.5 0 0 1 3 0v1.3h-3V5.2z"/></svg>`;
+    }
+
+    function renderSidebarLabels() {
+        const list = el('sidebarLabelList');
+        if (!list) return;
+        const labels = visibleSidebarLabels();
+        const searching = String(state.sidebarLabelSearch || '').trim() !== '';
+        if (!labels.length) {
+            const empty = (state.leadLabels || []).length
+                ? (searching ? 'No matching labels' : 'No pinned labels. Click + to add some.')
+                : 'No labels yet. Create them on a lead or import Front tags.';
+            list.innerHTML = `<div class="inbox-label-empty">${empty}</div>`;
+            return;
+        }
+        list.innerHTML = labels.map(label => {
+            const active = Number(state.selectedLabelId) === Number(label.id);
+            const count = Number(label.count || 0);
+            return `
+                <div class="inbox-label-item ${active ? 'is-active' : ''}" data-label-item="${label.id}" ${searching ? '' : 'draggable="true"'}>
+                    <button type="button" class="inbox-label-row" data-sidebar-label="${label.id}" title="${escapeHtml(label.name)}">
+                        ${labelTagIcon(label.color)}
+                        <span class="inbox-label-name">${escapeHtml(label.name)}</span>
+                        ${label.shared === false ? '' : labelLockIcon()}
+                        ${count ? `<span class="inbox-count">${count}</span>` : '<span></span>'}
+                    </button>
+                    <button type="button" class="inbox-label-unpin" data-unpin-label="${label.id}" title="Remove from sidebar">×</button>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function persistSidebarLabels(ids) {
+        const next = ids.map(id => Number(id)).filter(id => id > 0);
+        state.sidebarLabelIds = next;
+        renderSidebarLabels();
+        try {
+            const data = await api('/sidebar-labels', { method: 'PUT', body: { label_ids: next } });
+            if (Array.isArray(data.sidebar_label_ids)) {
+                state.sidebarLabelIds = data.sidebar_label_ids.map(id => Number(id));
+                renderSidebarLabels();
+            }
+        } catch (err) {
+            alert(err.message || 'Could not save sidebar labels.');
+        }
+    }
+
+    async function openSidebarLabel(id) {
+        state.selectedLabelId = Number(id);
+        state.selectedInboxId = null;
+        state.view = 'open';
+        renderNav();
+        await loadConversations();
+    }
+
+    async function unpinSidebarLabel(id) {
+        const next = currentSidebarLabelIds().filter(item => Number(item) !== Number(id));
+        if (Number(state.selectedLabelId) === Number(id)) {
+            state.selectedLabelId = null;
+        }
+        await persistSidebarLabels(next);
+        renderNav();
+        if (!state.selectedLabelId) await loadConversations();
+    }
+
+    function openSidebarLabelPicker() {
+        state.sidebarLabelPickerDraft = currentSidebarLabelIds();
+        const search = el('sidebarLabelPickerSearch');
+        if (search) search.value = '';
+        renderSidebarLabelPicker();
+        openModal('modalSidebarLabels');
+        setTimeout(() => search?.focus(), 50);
+    }
+
+    function updateSidebarLabelPickerCount() {
+        const countEl = el('sidebarLabelPickerCount');
+        if (!countEl) return;
+        const selected = (state.sidebarLabelPickerDraft || []).length;
+        const total = (state.leadLabels || []).length;
+        countEl.textContent = selected + ' of ' + total + ' selected';
+    }
+
+    function renderSidebarLabelPicker() {
+        const list = el('sidebarLabelPickerList');
+        if (!list) return;
+        const selected = new Set((state.sidebarLabelPickerDraft || []).map(id => Number(id)));
+        const q = String(el('sidebarLabelPickerSearch')?.value || '').trim().toLowerCase();
+        const labels = allLeadLabelsSorted().filter(l => !q || (l.name || '').toLowerCase().includes(q));
+        updateSidebarLabelPickerCount();
+        if (!labels.length) {
+            list.innerHTML = `<div class="inbox-label-picker-empty">${q ? 'No matching labels' : 'No labels yet'}</div>`;
+            return;
+        }
+        list.innerHTML = labels.map(l => `
+            <label class="inbox-label-picker-option ${selected.has(Number(l.id)) ? 'is-checked' : ''}">
+                <input type="checkbox" data-pick-label="${l.id}" ${selected.has(Number(l.id)) ? 'checked' : ''}>
+                ${labelTagIcon(l.color)}
+                <span class="inbox-label-name">${escapeHtml(l.name)}</span>
+                ${labelLockIcon()}
+            </label>
+        `).join('');
+    }
+
+    async function saveSidebarLabelPicker() {
+        await persistSidebarLabels(state.sidebarLabelPickerDraft || []);
+        closeModal();
+        renderNav();
+    }
+
     function renderNav() {
         const inboxList = el('inboxList');
         inboxList.innerHTML = state.inboxes.map(inbox => {
             const expanded = !!state.expandedInboxIds[inbox.id] || state.selectedInboxId === inbox.id;
             if (state.selectedInboxId === inbox.id) state.expandedInboxIds[inbox.id] = true;
             const folders = MAILBOX_FOLDERS.map(folder => {
-                const active = state.selectedInboxId === inbox.id && state.view === folder.view;
+                const active = !state.selectedLabelId && state.selectedInboxId === inbox.id && state.view === folder.view;
                 const count = inbox[folder.countKey] || 0;
                 return `
                     <button type="button" class="inbox-folder-row ${active ? 'active' : ''}"
@@ -5318,7 +5681,7 @@
 
             return `
             <div class="inbox-mailbox ${expanded ? 'is-expanded' : ''}" data-mailbox-id="${inbox.id}">
-                <div class="inbox-mailbox-head ${state.selectedInboxId === inbox.id ? 'is-selected' : ''}" data-inbox-toggle="${inbox.id}">
+                <div class="inbox-mailbox-head ${!state.selectedLabelId && state.selectedInboxId === inbox.id ? 'is-selected' : ''}" data-inbox-toggle="${inbox.id}">
                     <svg class="inbox-mailbox-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
                     <span class="inbox-dot" style="background:${inbox.color || '#2f6fed'}"></span>
                     <span class="inbox-mailbox-meta">
@@ -5369,9 +5732,10 @@
 
         // Highlight global views only when not scoped to a mailbox folder
         document.querySelectorAll('[data-view][data-scope="all"]').forEach(btn => {
-            const active = !state.selectedInboxId && state.view === btn.dataset.view;
+            const active = !state.selectedInboxId && !state.selectedLabelId && state.view === btn.dataset.view;
             btn.classList.toggle('active', active);
         });
+        renderSidebarLabels();
 
         const assign = el('assignSelect');
         const current = assign.value;
@@ -6012,7 +6376,9 @@
         try {
             const params = new URLSearchParams({ view: state.view, page: String(page) });
 
-            const filterInboxId = state.filters.inbox_id || state.selectedInboxId;
+            if (state.selectedLabelId) params.set('label_id', String(state.selectedLabelId));
+
+            const filterInboxId = state.selectedLabelId ? null : (state.filters.inbox_id || state.selectedInboxId);
             if (filterInboxId) params.set('inbox_id', String(filterInboxId));
 
             const q = el('inboxSearch').value.trim();
@@ -7389,6 +7755,7 @@
         state.rules = data.rules || [];
         state.members = data.members || [];
         state.leadLabels = data.lead_labels || [];
+        state.sidebarLabelIds = Array.isArray(data.sidebar_label_ids) ? data.sidebar_label_ids.map(id => Number(id)) : null;
         state.permissions = {
             create_templates: !!(data.permissions && data.permissions.create_templates),
             create_rules: !!(data.permissions && data.permissions.create_rules),
@@ -7451,9 +7818,109 @@
         btn.addEventListener('click', async () => {
             state.view = btn.dataset.view;
             state.selectedInboxId = null;
+            state.selectedLabelId = null;
             renderNav();
             await loadConversations();
         });
+    });
+
+    el('sidebarLabelSearch')?.addEventListener('input', () => {
+        state.sidebarLabelSearch = el('sidebarLabelSearch').value || '';
+        renderSidebarLabels();
+    });
+    el('btnCustomizeLabels')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openSidebarLabelPicker();
+    });
+    el('sidebarLabelPickerSearch')?.addEventListener('input', () => renderSidebarLabelPicker());
+    el('sidebarLabelPickerList')?.addEventListener('change', (e) => {
+        const input = e.target.closest('[data-pick-label]');
+        if (!input) return;
+        const id = Number(input.dataset.pickLabel);
+        const selected = new Set((state.sidebarLabelPickerDraft || []).map(n => Number(n)));
+        if (input.checked) selected.add(id);
+        else selected.delete(id);
+        const ordered = (state.sidebarLabelPickerDraft || []).filter(item => selected.has(Number(item)));
+        allLeadLabelsSorted().forEach(label => {
+            if (selected.has(Number(label.id)) && !ordered.some(item => Number(item) === Number(label.id))) {
+                ordered.push(Number(label.id));
+            }
+        });
+        state.sidebarLabelPickerDraft = ordered;
+        renderSidebarLabelPicker();
+    });
+    el('btnSidebarLabelsSelectAll')?.addEventListener('click', () => {
+        const q = String(el('sidebarLabelPickerSearch')?.value || '').trim().toLowerCase();
+        const visible = allLeadLabelsSorted().filter(l => !q || (l.name || '').toLowerCase().includes(q));
+        const selected = new Set((state.sidebarLabelPickerDraft || []).map(id => Number(id)));
+        visible.forEach(label => selected.add(Number(label.id)));
+        const ordered = (state.sidebarLabelPickerDraft || []).filter(id => selected.has(Number(id)));
+        visible.forEach(label => {
+            if (!ordered.some(id => Number(id) === Number(label.id))) ordered.push(Number(label.id));
+        });
+        state.sidebarLabelPickerDraft = ordered;
+        renderSidebarLabelPicker();
+    });
+    el('btnSidebarLabelsClear')?.addEventListener('click', () => {
+        const q = String(el('sidebarLabelPickerSearch')?.value || '').trim().toLowerCase();
+        if (!q) {
+            state.sidebarLabelPickerDraft = [];
+        } else {
+            const hide = new Set(allLeadLabelsSorted()
+                .filter(l => (l.name || '').toLowerCase().includes(q))
+                .map(l => Number(l.id)));
+            state.sidebarLabelPickerDraft = (state.sidebarLabelPickerDraft || []).filter(id => !hide.has(Number(id)));
+        }
+        renderSidebarLabelPicker();
+    });
+    el('btnSaveSidebarLabels')?.addEventListener('click', async () => {
+        await saveSidebarLabelPicker();
+    });
+
+    let sidebarLabelDragId = null;
+    el('sidebarLabelList')?.addEventListener('click', async (e) => {
+        const unpin = e.target.closest('[data-unpin-label]');
+        if (unpin) {
+            e.preventDefault();
+            e.stopPropagation();
+            await unpinSidebarLabel(unpin.dataset.unpinLabel);
+            return;
+        }
+        const btn = e.target.closest('[data-sidebar-label]');
+        if (btn) await openSidebarLabel(btn.dataset.sidebarLabel);
+    });
+    el('sidebarLabelList')?.addEventListener('dragstart', (e) => {
+        const item = e.target.closest('[data-label-item]');
+        if (!item || item.getAttribute('draggable') !== 'true') return;
+        sidebarLabelDragId = item.dataset.labelItem;
+        item.classList.add('is-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(sidebarLabelDragId));
+    });
+    el('sidebarLabelList')?.addEventListener('dragend', (e) => {
+        e.target.closest('[data-label-item]')?.classList.remove('is-dragging');
+        sidebarLabelDragId = null;
+    });
+    el('sidebarLabelList')?.addEventListener('dragover', (e) => {
+        if (!sidebarLabelDragId) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    });
+    el('sidebarLabelList')?.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        const target = e.target.closest('[data-label-item]');
+        const fromId = Number(sidebarLabelDragId);
+        const toId = Number(target?.dataset.labelItem);
+        sidebarLabelDragId = null;
+        document.querySelectorAll('.inbox-label-item.is-dragging').forEach(n => n.classList.remove('is-dragging'));
+        if (!fromId || !toId || fromId === toId) return;
+        const ids = currentSidebarLabelIds();
+        const fromIndex = ids.indexOf(fromId);
+        const toIndex = ids.indexOf(toId);
+        if (fromIndex < 0 || toIndex < 0) return;
+        ids.splice(fromIndex, 1);
+        ids.splice(toIndex, 0, fromId);
+        await persistSidebarLabels(ids);
     });
 
     el('inboxList').addEventListener('click', async (e) => {
@@ -7483,6 +7950,7 @@
         if (folderBtn) {
             const id = Number(folderBtn.dataset.inboxId);
             state.selectedInboxId = id;
+            state.selectedLabelId = null;
             state.view = folderBtn.dataset.folderView;
             state.expandedInboxIds[id] = true;
             renderNav();
@@ -7500,6 +7968,7 @@
             }
             state.expandedInboxIds[id] = true;
             state.selectedInboxId = id;
+            state.selectedLabelId = null;
             state.view = 'open';
             renderNav();
             await loadConversations();
@@ -9522,6 +9991,15 @@
     ]).then(async () => {
         const params = new URLSearchParams(window.location.search);
         const conversationId = Number(params.get('conversation') || 0);
+        const labelId = Number(params.get('label') || 0);
+        if (labelId) {
+            state.selectedLabelId = labelId;
+            state.selectedInboxId = null;
+            state.view = 'open';
+            renderNav();
+            await loadConversations();
+            params.delete('label');
+        }
         if (conversationId) {
             await openConversation(conversationId);
             params.delete('conversation');
