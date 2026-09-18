@@ -22,6 +22,7 @@ class Message extends Model
         'user_id',
         'reply_to_id',
         'body',
+        'mentioned_user_ids',
         'attachment_path',
         'attachment_name',
         'attachment_type',
@@ -31,6 +32,7 @@ class Message extends Model
 
     protected $casts = [
         'edited_at' => 'datetime',
+        'mentioned_user_ids' => 'array',
     ];
 
     /**

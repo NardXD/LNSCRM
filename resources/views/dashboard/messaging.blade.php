@@ -4,7 +4,7 @@
 
 @section('content')
 <div class="msg-page-wrapper">
-<div class="msg-page" id="messagingApp" data-api-base="{{ url('api/messaging') }}" data-csrf="{{ csrf_token() }}">
+<div class="msg-page" id="messagingApp" data-api-base="{{ url('api/messaging') }}" data-csrf="{{ csrf_token() }}" data-user-id="{{ auth()->id() }}">
     <div class="msg-layout">
         <aside class="msg-sidebar" id="msgSidebar">
             <div class="msg-sidebar-header">
@@ -94,7 +94,11 @@
                         <button type="button" class="msg-icon-btn" onclick="window.showEmojiPicker()" title="Emoji">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
                         </button>
+                        <button type="button" class="msg-icon-btn" id="msgMentionBtn" onclick="window.insertMentionTrigger()" title="Mention member" hidden>
+                            <span class="msg-mention-at">@</span>
+                        </button>
                     </div>
+                    <div class="msg-mention-popup" id="msgMentionPopup" hidden></div>
                     <div class="attachment-preview-bar" id="attachmentPreviewBar" style="display: none;"></div>
                     <div class="emoji-picker-popover" id="emojiPickerPopover">
                         <div class="emoji-picker-grid" id="emojiPickerGrid"></div>
@@ -671,7 +675,7 @@
         border: 0; background: none; color: #8e8e93; cursor: pointer; font-size: 0.78rem;
     }
     .msg-edit-banner button:hover { color: #111; }
-    .msg-composer.editing .msg-composer-tools { opacity: 0.45; pointer-events: none; }
+    .msg-composer.editing .msg-composer-tools > :not(#msgMentionBtn) { opacity: 0.45; pointer-events: none; }
     .msg-sender {
         display: none;
         font-size: 11px;
@@ -830,6 +834,58 @@
         font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
     }
     .msg-composer textarea::placeholder { color: #8e8e93; }
+    .msg-mention-at {
+        font-size: 1.05rem;
+        font-weight: 700;
+        line-height: 1;
+    }
+    .msg-mention-popup {
+        position: absolute;
+        left: 0.85rem;
+        right: 0.85rem;
+        bottom: calc(100% - 0.15rem);
+        z-index: 120;
+        max-height: 220px;
+        overflow: auto;
+        background: #fff;
+        border: 1px solid #e5e5ea;
+        border-radius: 12px;
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+        padding: 0.25rem;
+    }
+    .msg-mention-popup[hidden] { display: none !important; }
+    .msg-mention-item {
+        width: 100%;
+        text-align: left;
+        border: none;
+        background: transparent;
+        border-radius: 8px;
+        padding: 0.45rem 0.55rem;
+        cursor: pointer;
+        display: grid;
+        gap: 0.1rem;
+        font: inherit;
+    }
+    .msg-mention-item:hover,
+    .msg-mention-item.is-active { background: #eef4ff; }
+    .msg-mention-name { font-size: 0.82rem; font-weight: 600; color: #111; }
+    .msg-mention-email { font-size: 0.72rem; color: #8e8e93; }
+    .msg-mention {
+        font-weight: 700;
+        border-radius: 4px;
+        padding: 0 2px;
+    }
+    .msg-bubble.inbound .msg-mention {
+        color: #007aff;
+        background: rgba(0, 122, 255, 0.12);
+    }
+    .msg-bubble.outbound .msg-mention {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.22);
+    }
+    .msg-row.mentions-me .msg-bubble.inbound {
+        background: #dceeff;
+    }
     .msg-send-btn {
         width: 32px; height: 32px; border: 0; border-radius: 50%; padding: 0;
         background: var(--msg-green); color: #fff; cursor: pointer;
@@ -1570,8 +1626,10 @@
     const app = document.getElementById('messagingApp');
     const baseUrl = app.dataset.apiBase;
     const csrf = app.dataset.csrf;
+    const currentUserId = Number(app.dataset.userId || 0);
     let currentConversationId = null;
     let currentConversationType = 'direct';
+    let currentGroupMembers = [];
     let conversationReceipts = [];
     let editingMessageId = null;
     let replyingTo = null;
@@ -1747,6 +1805,19 @@
     let messagesOldestId = null;
     let loadOlderInProgress = false;
 
+    function formatBodyWithMentions(text, mentions) {
+        let html = escapeHtml(text || '');
+        const list = [...(mentions || [])]
+            .filter(m => m && m.name)
+            .sort((a, b) => String(b.name).length - String(a.name).length);
+        list.forEach(m => {
+            const token = escapeHtml('@' + m.name);
+            const pattern = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            html = html.replace(new RegExp(pattern + '(?![\\w])', 'gi'), '<span class="msg-mention">' + token + '</span>');
+        });
+        return html;
+    }
+
     function stampMarkup(iso) {
         const el = document.createElement('div');
         el.className = 'msg-stamp';
@@ -1774,7 +1845,9 @@
         row.dataset.seenBy = JSON.stringify(m.seen_by || []);
         row.dataset.reactions = JSON.stringify(m.reactions || []);
         row.dataset.myReaction = m.my_reaction || '';
+        row.dataset.mentions = JSON.stringify(m.mentions || []);
         if ((m.reactions || []).length) row.classList.add('has-reactions');
+        if (m.mentions_me) row.classList.add('mentions-me');
 
         let quote = '';
         if (m.reply_to && m.reply_to.id) {
@@ -1784,7 +1857,7 @@
                 '</button>';
         }
         let body = quote;
-        if (m.body) body += '<div class="msg-bubble-text">' + escapeHtml(m.body) + '</div>';
+        if (m.body) body += '<div class="msg-bubble-text">' + formatBodyWithMentions(m.body, m.mentions || []) + '</div>';
         if (m.attachment_path) {
             if (m.attachment_type === 'image') {
                 body += '<img class="msg-inline-image" src="' + escapeHtml(m.attachment_path) + '" alt="" onclick="window.openMessageImagePreview(this.src, event)">';
@@ -2124,6 +2197,8 @@
         const { conversation, messages, has_more, receipts } = json.data;
         conversationReceipts = receipts || [];
         currentConversationType = conversation.type || 'direct';
+        currentGroupMembers = conversation.members || [];
+        setMentionUiForConversation(currentConversationType);
         messagesHasMore = has_more ?? false;
         messagesOldestId = messages.length > 0 ? messages[0].id : null;
         document.getElementById('chatHeaderName').textContent = conversation.name;
@@ -2190,7 +2265,134 @@
     // Send message
     const messageInput = document.getElementById('messageInput');
     const sendBtn = document.getElementById('sendBtn');
+    const mentionPopup = document.getElementById('msgMentionPopup');
+    const mentionBtn = document.getElementById('msgMentionBtn');
+    const defaultComposerPlaceholder = messageInput ? messageInput.getAttribute('placeholder') : 'Message or paste an image';
     let pendingAttachment = null;
+
+    function setMentionUiForConversation(type) {
+        if (mentionBtn) mentionBtn.hidden = type !== 'group';
+        if (messageInput) {
+            messageInput.placeholder = type === 'group'
+                ? 'Message, @mention, or paste an image'
+                : defaultComposerPlaceholder;
+        }
+        hideMentionPopup();
+    }
+
+    function hideMentionPopup() {
+        if (!mentionPopup) return;
+        mentionPopup.hidden = true;
+        mentionPopup.innerHTML = '';
+    }
+
+    function mentionPopupIsOpen() {
+        return !!(mentionPopup && !mentionPopup.hidden && mentionPopup.querySelector('[data-mention-id]'));
+    }
+
+    function mentionQueryAtCursor() {
+        if (currentConversationType !== 'group' || !messageInput) return null;
+        const start = messageInput.selectionStart;
+        const before = messageInput.value.slice(0, start);
+        const match = before.match(/(^|[\s\n])@([a-zA-Z0-9._\- ]*)$/);
+        if (!match) return null;
+        return {
+            query: match[2] || '',
+            start: start - (match[2] || '').length - 1,
+            end: start
+        };
+    }
+
+    function filteredGroupMembers(query) {
+        const q = String(query || '').trim().toLowerCase();
+        return (currentGroupMembers || []).filter(m => {
+            if (m.is_me || Number(m.id) === currentUserId) return false;
+            if (!q) return true;
+            return (m.name || '').toLowerCase().includes(q) || (m.email || '').toLowerCase().includes(q);
+        }).slice(0, 8);
+    }
+
+    function renderMentionPopup(query) {
+        if (!mentionPopup || currentConversationType !== 'group') {
+            hideMentionPopup();
+            return;
+        }
+        const members = filteredGroupMembers(query);
+        if (!members.length) {
+            hideMentionPopup();
+            return;
+        }
+        mentionPopup.innerHTML = members.map((m, idx) => `
+            <button type="button" class="msg-mention-item ${idx === 0 ? 'is-active' : ''}" data-mention-id="${m.id}">
+                <span class="msg-mention-name">${escapeHtml(m.name)}</span>
+                <span class="msg-mention-email">${escapeHtml(m.email || '')}</span>
+            </button>
+        `).join('');
+        mentionPopup.hidden = false;
+    }
+
+    function updateMentionPopup() {
+        const info = mentionQueryAtCursor();
+        if (!info) {
+            hideMentionPopup();
+            return;
+        }
+        renderMentionPopup(info.query);
+    }
+
+    function applyMention(member) {
+        if (!member || !messageInput) return;
+        const info = mentionQueryAtCursor();
+        const start = info ? info.start : messageInput.selectionStart;
+        const end = info ? info.end : messageInput.selectionEnd;
+        const value = messageInput.value;
+        const insert = '@' + member.name + ' ';
+        messageInput.value = value.slice(0, start) + insert + value.slice(end);
+        const pos = start + insert.length;
+        messageInput.selectionStart = messageInput.selectionEnd = pos;
+        hideMentionPopup();
+        messageInput.focus();
+        messageInput.dispatchEvent(new Event('input'));
+    }
+
+    function applyMentionById(id) {
+        const member = (currentGroupMembers || []).find(m => String(m.id) === String(id));
+        applyMention(member);
+    }
+
+    function mentionedIdsInBody(text) {
+        if (currentConversationType !== 'group') return [];
+        const body = text || '';
+        return (currentGroupMembers || []).filter(m => {
+            if (m.is_me || Number(m.id) === currentUserId || !m.name) return false;
+            const token = '@' + m.name;
+            const pattern = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return new RegExp(pattern + '(?![\\w])', 'i').test(body);
+        }).map(m => Number(m.id));
+    }
+
+    window.insertMentionTrigger = function() {
+        if (currentConversationType !== 'group' || !messageInput) return;
+        const start = messageInput.selectionStart;
+        const before = messageInput.value.slice(0, start);
+        const needsSpace = before.length > 0 && !/[\s\n]$/.test(before);
+        insertTextAtCursor(messageInput, needsSpace ? ' @' : '@');
+        messageInput.focus();
+        updateMentionPopup();
+    };
+
+    mentionPopup?.addEventListener('click', function(e) {
+        const item = e.target.closest('[data-mention-id]');
+        if (!item) return;
+        e.preventDefault();
+        applyMentionById(item.dataset.mentionId);
+    });
+
+    document.addEventListener('click', function(e) {
+        if (!mentionPopupIsOpen()) return;
+        if (e.target.closest('#msgMentionPopup') || e.target.closest('#msgMentionBtn') || e.target === messageInput) return;
+        hideMentionPopup();
+    });
 
     function updateSendButtonState() {
         if (editingMessageId) {
@@ -2208,6 +2410,11 @@
         this.style.height = 'auto';
         this.style.height = Math.min(this.scrollHeight, 110) + 'px';
         updateSendButtonState();
+        updateMentionPopup();
+    });
+    messageInput.addEventListener('click', updateMentionPopup);
+    messageInput.addEventListener('keyup', function(e) {
+        if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) updateMentionPopup();
     });
 
     function setPendingAttachment(att) {
@@ -2420,6 +2627,7 @@
         sendBtn.setAttribute('aria-label', 'Send');
         messageInput.value = '';
         messageInput.style.height = 'auto';
+        hideMentionPopup();
         updateSendButtonState();
     };
 
@@ -2431,7 +2639,10 @@
         if (!text && !hasAttachment) return;
         const res = await api(baseUrl + '/conversations/' + currentConversationId + '/messages/' + editingMessageId + '/update', {
             method: 'POST',
-            body: { body: text || null }
+            body: {
+                body: text || null,
+                mentioned_user_ids: currentConversationType === 'group' ? mentionedIdsInBody(text) : []
+            }
         });
         const json = await res.json();
         if (!json.success) {
@@ -2453,6 +2664,9 @@
         const text = messageInput.value.trim();
         if ((!text && !pendingAttachment) || !currentConversationId) return;
         const body = { body: text || null };
+        if (currentConversationType === 'group') {
+            body.mentioned_user_ids = mentionedIdsInBody(text);
+        }
         if (pendingAttachment) {
             body.attachment_path = pendingAttachment.path;
             body.attachment_name = pendingAttachment.name;
@@ -2489,6 +2703,37 @@
     }
 
     function handleMessageInput(event) {
+        if (mentionPopupIsOpen()) {
+            const items = [...mentionPopup.querySelectorAll('[data-mention-id]')];
+            const active = mentionPopup.querySelector('.is-active') || items[0];
+            let idx = Math.max(0, items.indexOf(active));
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                items[idx]?.classList.remove('is-active');
+                idx = (idx + 1) % items.length;
+                items[idx]?.classList.add('is-active');
+                items[idx]?.scrollIntoView({ block: 'nearest' });
+                return;
+            }
+            if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                items[idx]?.classList.remove('is-active');
+                idx = (idx - 1 + items.length) % items.length;
+                items[idx]?.classList.add('is-active');
+                items[idx]?.scrollIntoView({ block: 'nearest' });
+                return;
+            }
+            if (event.key === 'Enter' || event.key === 'Tab') {
+                event.preventDefault();
+                if (items[idx]) applyMentionById(items[idx].dataset.mentionId);
+                return;
+            }
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                hideMentionPopup();
+                return;
+            }
+        }
         if (event.key === 'Escape' && editingMessageId) {
             event.preventDefault();
             window.cancelEditMessage();
@@ -2710,6 +2955,8 @@
         const json = await res.json();
         if (json.success) {
             currentConversationId = null;
+            currentGroupMembers = [];
+            setMentionUiForConversation('direct');
             emptyEl.style.display = 'flex';
             chatEl.style.display = 'none';
             document.querySelectorAll('.msg-thread').forEach(i => i.classList.remove('active'));
@@ -2733,6 +2980,9 @@
             return;
         }
         chatInfoData = json.data;
+        if (chatInfoData.type === 'group') {
+            currentGroupMembers = chatInfoData.members || [];
+        }
         document.getElementById('chatInfoDirect').style.display = 'none';
         document.getElementById('chatInfoGroup').style.display = 'none';
         if (chatInfoData.type === 'direct') {
@@ -2866,6 +3116,7 @@
         const json = await res.json();
         if (json.success) {
             chatInfoData.members = chatInfoData.members.filter(m => m.id !== userId);
+            currentGroupMembers = chatInfoData.members;
             const row = document.querySelector('.chat-info-member[data-user-id="' + userId + '"]');
             if (row) row.remove();
             loadConversations(document.getElementById('conversationSearch').value);
@@ -3069,7 +3320,10 @@
         }
     }
 
-    loadConversations();
+    loadConversations().then(() => {
+        const openId = new URLSearchParams(window.location.search).get('conversation');
+        if (openId) selectConversation(openId);
+    });
 
     // Poll for new chats, unread, edits, and seen-by updates
     setInterval(function() {

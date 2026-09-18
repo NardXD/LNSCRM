@@ -6,9 +6,11 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageReaction;
 use App\Models\User;
+use App\Notifications\MessagingMentionNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -290,9 +292,11 @@ class MessagingController extends Controller
         }
         $messages = $messages->reverse()->values();
         $receipts = $this->formatReceipts($conversation, $user);
-        $messages = $messages->map(fn ($m) => $this->formatMessage($m, $user, $receipts));
+        $mentionUsers = $this->mentionUsersById($messages);
+        $messages = $messages->map(fn ($m) => $this->formatMessage($m, $user, $receipts, $mentionUsers));
 
-        $otherParticipant = $conversation->participants()->where('users.id', '!=', $user->id)->first();
+        $conversation->load('participants');
+        $otherParticipant = $conversation->participants->firstWhere('id', '!=', $user->id);
         $displayName = $conversation->type === 'group'
             ? $conversation->name
             : ($otherParticipant?->name ?? 'Unknown');
@@ -312,6 +316,9 @@ class MessagingController extends Controller
                     'avatar_photo' => $avatarPhoto,
                     'avatar_initials' => $this->getInitials($displayName),
                     'is_creator' => $isCreator,
+                    'members' => $conversation->type === 'group'
+                        ? $this->formatConversationMembers($conversation, $user)
+                        : [],
                 ],
                 'messages' => $messages,
                 'has_more' => $hasMore,
@@ -341,6 +348,8 @@ class MessagingController extends Controller
             'attachment_name' => ['nullable', 'string'],
             'attachment_type' => ['nullable', 'string', 'in:file,image'],
             'reply_to_id' => ['nullable', 'integer'],
+            'mentioned_user_ids' => ['nullable', 'array', 'max:20'],
+            'mentioned_user_ids.*' => ['integer'],
         ]);
 
         if (empty($validated['body']) && empty($validated['attachment_path'])) {
@@ -355,18 +364,33 @@ class MessagingController extends Controller
             }
         }
 
+        $mentionIds = $this->resolveMentionIds(
+            $conversation,
+            $user,
+            $validated['body'] ?? null,
+            $validated['mentioned_user_ids'] ?? []
+        );
+
         $message = $conversation->messages()->create([
             'user_id' => $user->id,
             'reply_to_id' => $replyToId,
             'body' => $validated['body'] ?? null,
+            'mentioned_user_ids' => $mentionIds ?: null,
             'attachment_path' => $validated['attachment_path'] ?? null,
             'attachment_name' => $validated['attachment_name'] ?? null,
             'attachment_type' => $validated['attachment_type'] ?? null,
         ]);
 
+        $this->notifyMentions($conversation, $message, $user, $mentionIds);
+
         return response()->json([
             'success' => true,
-            'data' => $this->formatMessage($message->load(['user', 'replyTo.user', 'reactions.user']), $user),
+            'data' => $this->formatMessage(
+                $message->load(['user', 'replyTo.user', 'reactions.user']),
+                $user,
+                [],
+                $this->mentionUsersById(collect([$message]))
+            ),
         ]);
     }
 
@@ -395,6 +419,8 @@ class MessagingController extends Controller
 
         $validated = $request->validate([
             'body' => ['nullable', 'string', 'max:10000'],
+            'mentioned_user_ids' => ['nullable', 'array', 'max:20'],
+            'mentioned_user_ids.*' => ['integer'],
         ]);
 
         $body = isset($validated['body']) ? trim($validated['body']) : '';
@@ -404,10 +430,25 @@ class MessagingController extends Controller
             return response()->json(['success' => false, 'message' => 'Message body or attachment required'], 422);
         }
 
-        if (($message->body ?? null) !== $body) {
+        $previousMentionIds = collect($message->mentioned_user_ids ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->sort()
+            ->values()
+            ->all();
+        $mentionIds = $this->resolveMentionIds(
+            $conversation,
+            $user,
+            $body,
+            $validated['mentioned_user_ids'] ?? []
+        );
+        $sortedMentionIds = collect($mentionIds)->sort()->values()->all();
+
+        if (($message->body ?? null) !== $body || $previousMentionIds !== $sortedMentionIds) {
             $message->body = $body;
+            $message->mentioned_user_ids = $mentionIds ?: null;
             $message->edited_at = now();
             $message->save();
+            $this->notifyMentions($conversation, $message, $user, $mentionIds, $previousMentionIds);
         }
 
         return response()->json([
@@ -415,7 +456,8 @@ class MessagingController extends Controller
             'data' => $this->formatMessage(
                 $message->load(['user', 'replyTo.user', 'reactions.user']),
                 $user,
-                $this->formatReceipts($conversation, $user)
+                $this->formatReceipts($conversation, $user),
+                $this->mentionUsersById(collect([$message]))
             ),
         ]);
     }
@@ -763,6 +805,130 @@ class MessagingController extends Controller
         return response()->json(['success' => true]);
     }
 
+    /**
+     * @param  list<int>  $requestedIds
+     * @return list<int>
+     */
+    private function resolveMentionIds(Conversation $conversation, User $sender, ?string $body, array $requestedIds): array
+    {
+        if ($conversation->type !== 'group') {
+            return [];
+        }
+
+        if (! $conversation->relationLoaded('participants')) {
+            $conversation->load('participants');
+        }
+
+        $others = $conversation->participants->where('id', '!=', $sender->id)->values();
+        $validIds = $others->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        $ids = collect($requestedIds)
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => in_array($id, $validIds, true));
+
+        if (is_string($body) && $body !== '') {
+            foreach ($others->sortByDesc(fn ($participant) => mb_strlen((string) $participant->name)) as $participant) {
+                if ($this->bodyMentionsName($body, (string) $participant->name)) {
+                    $ids->push((int) $participant->id);
+                }
+            }
+        }
+
+        return $ids->unique()->values()->take(20)->all();
+    }
+
+    private function bodyMentionsName(string $body, string $name): bool
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return false;
+        }
+
+        $needle = '@'.$name;
+        $offset = 0;
+        $length = mb_strlen($needle);
+
+        while (($pos = mb_stripos($body, $needle, $offset)) !== false) {
+            $after = mb_substr($body, $pos + $length, 1);
+            if ($after === '' || ! preg_match('/[\p{L}\p{N}_]/u', $after)) {
+                return true;
+            }
+            $offset = $pos + 1;
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  list<int>  $mentionIds
+     * @param  list<int>  $previousIds
+     */
+    private function notifyMentions(
+        Conversation $conversation,
+        Message $message,
+        User $actor,
+        array $mentionIds,
+        array $previousIds = []
+    ): void {
+        $newIds = array_values(array_diff($mentionIds, $previousIds));
+        if ($newIds === []) {
+            return;
+        }
+
+        User::query()
+            ->whereIn('id', $newIds)
+            ->get()
+            ->each(fn (User $recipient) => $recipient->notify(
+                new MessagingMentionNotification($conversation, $message, $actor)
+            ));
+    }
+
+    /**
+     * @param  Collection<int, Message>|iterable<Message>  $messages
+     * @return array<int, User>
+     */
+    private function mentionUsersById(iterable $messages): array
+    {
+        $ids = collect($messages)
+            ->flatMap(fn (Message $message) => $message->mentioned_user_ids ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($ids === []) {
+            return [];
+        }
+
+        return User::query()
+            ->whereIn('id', $ids)
+            ->get(['id', 'name'])
+            ->keyBy('id')
+            ->all();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function formatConversationMembers(Conversation $conversation, User $currentUser): array
+    {
+        $creatorId = $conversation->created_by;
+
+        return $conversation->participants
+            ->map(fn ($participant) => [
+                'id' => $participant->id,
+                'name' => $participant->name,
+                'email' => $participant->email,
+                'photo' => $participant->photo ? public_media_url($participant->photo) : null,
+                'initials' => $this->getInitials($participant->name),
+                'is_me' => $participant->id === $currentUser->id,
+                'is_creator' => $participant->id === $creatorId,
+            ])
+            ->values()
+            ->all();
+    }
+
     private function formatConversation(Conversation $conv): array
     {
         $user = Auth::user();
@@ -799,9 +965,26 @@ class MessagingController extends Controller
             ->all();
     }
 
-    private function formatMessage(Message $m, $currentUser, array $receipts = []): array
+    private function formatMessage(Message $m, $currentUser, array $receipts = [], array $mentionUsersById = []): array
     {
         $isMe = $m->user_id === $currentUser->id;
+        $mentionIds = collect($m->mentioned_user_ids ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+        $mentions = $mentionIds
+            ->map(function ($id) use ($mentionUsersById) {
+                $user = $mentionUsersById[$id] ?? null;
+
+                return $user ? [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                ] : null;
+            })
+            ->filter()
+            ->values()
+            ->all();
 
         return [
             'id' => $m->id,
@@ -811,6 +994,9 @@ class MessagingController extends Controller
             'author_initials' => $this->getInitials($m->user->name),
             'author_photo' => $m->user->photo ? public_media_url($m->user->photo) : null,
             'body' => $m->body,
+            'mentioned_user_ids' => $mentionIds->all(),
+            'mentions' => $mentions,
+            'mentions_me' => $mentionIds->contains((int) $currentUser->id),
             'attachment_path' => $m->attachment_path ? public_media_url($m->attachment_path) : null,
             'attachment_name' => $m->attachment_name,
             'attachment_type' => $m->attachment_type,

@@ -211,7 +211,7 @@
                         : `${data.contact_name || 'A lead'} was assigned to you`);
                 } else if (data.type === 'lead_rule') {
                     title = data.summary || `Lead rule: ${data.contact_name || 'a lead'}`;
-                } else if (isMention) {
+                } else if (isMention || data.type === 'messaging_mention') {
                     title = `${data.author_name || 'Someone'} mentioned you`;
                 } else {
                     title = data.summary || `${data.author_name || 'Someone'} updated a conversation`;
