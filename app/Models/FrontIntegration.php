@@ -20,6 +20,9 @@ class FrontIntegration extends Model
         'last_comment_import_stats',
         'last_comment_import_at',
         'last_comment_import_dry_run',
+        'last_discussion_import_stats',
+        'last_discussion_import_at',
+        'last_discussion_import_dry_run',
     ];
 
     protected $casts = [
@@ -30,6 +33,9 @@ class FrontIntegration extends Model
         'last_comment_import_stats' => 'array',
         'last_comment_import_at' => 'datetime',
         'last_comment_import_dry_run' => 'boolean',
+        'last_discussion_import_stats' => 'array',
+        'last_discussion_import_at' => 'datetime',
+        'last_discussion_import_dry_run' => 'boolean',
         'verified_at' => 'datetime',
     ];
 

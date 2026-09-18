@@ -826,6 +826,8 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::delete('/front/import-progress', [IntegrationController::class, 'resetFrontImportProgress'])->name('api.integrations.front.reset-progress');
         Route::post('/front/import-comments', [IntegrationController::class, 'runFrontCommentImport'])->name('api.integrations.front.import-comments');
         Route::delete('/front/comment-import-progress', [IntegrationController::class, 'resetFrontCommentImportProgress'])->name('api.integrations.front.reset-comment-progress');
+        Route::post('/front/import-discussions', [IntegrationController::class, 'runFrontDiscussionImport'])->name('api.integrations.front.import-discussions');
+        Route::delete('/front/discussion-import-progress', [IntegrationController::class, 'resetFrontDiscussionImportProgress'])->name('api.integrations.front.reset-discussion-progress');
     });
 
     Route::get('/billing-plan', function () {

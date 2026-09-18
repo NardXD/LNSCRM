@@ -857,11 +857,11 @@
         {
             id: 'front',
             name: 'Front.com',
-            description: 'One-time import of Front conversation tags and internal comments into LNSCRM shared inboxes. Connect your Front API token, map inboxes, and run the imports.',
+            description: 'One-time import of Front conversation tags, internal comments, and discussion threads into LNSCRM. Connect your Front API token, map inboxes, and run the imports.',
             category: 'communication',
             icon: '🏷️',
             status: 'disconnected',
-            features: ['Import inbox tags', 'Import internal comments', 'Inbox mapping', 'Dry-run preview', 'Import history']
+            features: ['Import inbox tags', 'Import internal comments', 'Import discussion threads', 'Inbox mapping', 'Dry-run preview', 'Import history']
         }
     ];
 
@@ -1503,7 +1503,7 @@
                 <div class="form-group">
                     <label class="form-label">Front API token</label>
                     <input type="password" class="form-input" id="front-api-token" placeholder="${existingData && existingData.has_token ? 'Leave blank to keep current token' : 'Paste bearer token'}">
-                    <span class="form-help">Create a token in Front → Settings → Developers with scopes <code>tags:read</code>, <code>conversations:read</code>, and optionally <code>inboxes:read</code>. <code>conversations:read</code> is required to import internal comments. Paste the token only — do not include <code>Bearer</code>.</span>
+                    <span class="form-help">Create a token in Front → Settings → Developers with scopes <code>tags:read</code>, <code>conversations:read</code>, <code>comments:read</code>, and optionally <code>inboxes:read</code> and <code>teammates:read</code>. <code>conversations:read</code> and <code>comments:read</code> are required to import internal comments and discussion threads. Paste the token only — do not include <code>Bearer</code>.</span>
                     <div id="front-token-error" class="form-help" style="color:#b91c1c;display:none;margin-top:0.5rem;"></div>
                 </div>
                 <div id="front-import-panel" class="front-import-panel" ${existingData && existingData.status === 'connected' ? '' : 'hidden'}>
@@ -1545,6 +1545,23 @@
                             </div>
                         </div>
                         <div id="front-comment-import-results"></div>
+                    </div>
+                    <div class="front-import-section">
+                        <h4 style="font-size:0.9375rem;font-weight:600;margin:0 0 0.5rem;">Import discussion threads</h4>
+                        <p class="form-help" style="margin-bottom:0.75rem;">Copies Front discussion threads into <strong>/messaging</strong> as group chats. Comment authors and followers become participants when they match a CRM user by email or name. Unmatched comments are posted as you, with the original Front author name prefixed.</p>
+                        <div class="front-import-actions" style="margin-top:0;">
+                            <button type="button" class="btn-secondary" id="front-discussion-dry-run-btn" onclick="handleFrontDiscussionImport(true)">Preview discussions</button>
+                            <button type="button" class="btn-primary" id="front-discussion-import-btn" onclick="handleFrontDiscussionImport(false)">Import discussions</button>
+                            <button type="button" class="btn-secondary" id="front-discussion-reset-progress-btn" onclick="handleFrontDiscussionResetProgress()" title="Forget which discussion threads were already scanned, so the next run rescans everything.">Reset discussion progress</button>
+                        </div>
+                        <div id="front-discussion-import-loading" class="front-import-loading" hidden>
+                            <div class="front-import-spinner" aria-hidden="true"></div>
+                            <div style="flex:1;">
+                                <div id="front-discussion-import-loading-label">Processing…</div>
+                                <div class="front-import-loading-bar" aria-hidden="true"><span id="front-discussion-import-loading-fill"></span></div>
+                            </div>
+                        </div>
+                        <div id="front-discussion-import-results"></div>
                     </div>
                 </div>
             `,
@@ -2470,15 +2487,22 @@
         return target;
     }
 
+    function frontImportActionButtons() {
+        return [
+            document.getElementById('front-dry-run-btn'),
+            document.getElementById('front-import-btn'),
+            document.getElementById('front-comment-dry-run-btn'),
+            document.getElementById('front-comment-import-btn'),
+            document.getElementById('front-discussion-dry-run-btn'),
+            document.getElementById('front-discussion-import-btn'),
+        ];
+    }
+
     function setFrontImportLoading(isLoading, message = 'Processing…', percent = null) {
         const loading = document.getElementById('front-import-loading');
         const label = document.getElementById('front-import-loading-label');
         const fill = document.getElementById('front-import-loading-fill');
-        const dryRunBtn = document.getElementById('front-dry-run-btn');
-        const importBtn = document.getElementById('front-import-btn');
-        const commentDryRunBtn = document.getElementById('front-comment-dry-run-btn');
-        const commentImportBtn = document.getElementById('front-comment-import-btn');
-        [dryRunBtn, importBtn, commentDryRunBtn, commentImportBtn].forEach(btn => { if (btn) btn.disabled = !!isLoading; });
+        frontImportActionButtons().forEach(btn => { if (btn) btn.disabled = !!isLoading; });
         const pct = percent === null || percent === undefined ? null : Math.max(0, Math.min(100, Math.round(percent)));
         if (label) label.textContent = pct === null ? message : `${message} ${pct}%`;
         if (loading) loading.hidden = !isLoading;
@@ -2609,6 +2633,14 @@
                 existingIntegration.last_comment_import_stats,
                 !!existingIntegration.last_comment_import_dry_run,
                 existingIntegration.last_comment_import_at || null
+            );
+        }
+
+        if (existingIntegration?.last_discussion_import_stats) {
+            renderFrontDiscussionImportResults(
+                existingIntegration.last_discussion_import_stats,
+                !!existingIntegration.last_discussion_import_dry_run,
+                existingIntegration.last_discussion_import_at || null
             );
         }
 
@@ -2975,11 +3007,7 @@
         const loading = document.getElementById('front-comment-import-loading');
         const label = document.getElementById('front-comment-import-loading-label');
         const fill = document.getElementById('front-comment-import-loading-fill');
-        const dryRunBtn = document.getElementById('front-dry-run-btn');
-        const importBtn = document.getElementById('front-import-btn');
-        const commentDryRunBtn = document.getElementById('front-comment-dry-run-btn');
-        const commentImportBtn = document.getElementById('front-comment-import-btn');
-        [dryRunBtn, importBtn, commentDryRunBtn, commentImportBtn].forEach(btn => { if (btn) btn.disabled = !!isLoading; });
+        frontImportActionButtons().forEach(btn => { if (btn) btn.disabled = !!isLoading; });
         const pct = percent === null || percent === undefined ? null : Math.max(0, Math.min(100, Math.round(percent)));
         if (label) label.textContent = pct === null ? message : `${message} ${pct}%`;
         if (loading) loading.hidden = !isLoading;
@@ -3160,6 +3188,234 @@
             renderFrontCommentImportError(error.message || 'Front comment import failed. Please try again.');
         } finally {
             setFrontCommentImportLoading(false);
+        }
+    }
+
+    function renderFrontDiscussionImportResults(stats, dryRun = false, lastImportAt = null) {
+        const wrap = document.getElementById('front-discussion-import-results');
+        if (!wrap || !stats) return;
+
+        const samples = Array.isArray(stats.unmatched_samples) ? stats.unmatched_samples : [];
+        const when = lastImportAt ? new Date(lastImportAt).toLocaleString() : new Date().toLocaleString();
+
+        wrap.innerHTML = `
+            <div class="front-import-results">
+                <h4>${dryRun ? 'Discussion preview' : 'Discussion import results'} <span style="font-weight:400;color:var(--text-secondary);">· ${when}</span></h4>
+                ${dryRun && stats.preview_limit ? `<p class="form-help" style="margin:0 0 0.75rem;color:#b45309;">Preview shows the first ${stats.preview_limit} Front conversations only. Run import to process all.</p>` : ''}
+                <dl>
+                    <dt>Conversations scanned</dt><dd>${stats.conversations_scanned ?? 0}</dd>
+                    <dt>Skipped (not discussions)</dt><dd>${stats.conversations_skipped ?? 0}</dd>
+                    ${!dryRun && stats.discussions_already_synced ? `<dt>Already scanned (skipped)</dt><dd>${stats.discussions_already_synced}</dd>` : ''}
+                    <dt>Discussions found</dt><dd>${stats.discussions_found ?? 0}</dd>
+                    <dt>Discussions ${dryRun ? 'would import' : 'imported'}</dt><dd>${stats.discussions_imported ?? 0}</dd>
+                    <dt>Discussions with comments</dt><dd>${stats.discussions_with_comments ?? 0}</dd>
+                    <dt>Messages ${dryRun ? 'would import' : 'imported'}</dt><dd>${stats.messages_imported ?? 0}</dd>
+                    <dt>Already imported (skipped)</dt><dd>${stats.messages_existing ?? 0}</dd>
+                    ${stats.messages_unmatched_author ? `<dt>Authors not matched to CRM users</dt><dd>${stats.messages_unmatched_author}</dd>` : ''}
+                    ${stats.discussions_skipped_no_users ? `<dt>Skipped (no matching users)</dt><dd>${stats.discussions_skipped_no_users}</dd>` : ''}
+                </dl>
+                ${samples.length ? `<ul class="front-unmatched-list">${samples.map(s => `<li>${escapeHtml(String(s))}</li>`).join('')}</ul>` : ''}
+            </div>
+        `;
+    }
+
+    function renderFrontDiscussionImportError(message) {
+        const wrap = document.getElementById('front-discussion-import-results');
+        if (!wrap) return;
+
+        wrap.innerHTML = `
+            <div class="front-import-results" style="border-color:#fecaca;">
+                <h4 style="color:#b91c1c;margin-bottom:0.5rem;">Discussion import failed</h4>
+                <p class="form-help" style="margin:0;color:#b91c1c;">${escapeHtml(String(message || 'Unknown error'))}</p>
+            </div>
+        `;
+    }
+
+    function emptyFrontDiscussionImportStats() {
+        return {
+            conversations_scanned: 0,
+            conversations_skipped: 0,
+            discussions_found: 0,
+            discussions_already_synced: 0,
+            discussions_imported: 0,
+            discussions_with_comments: 0,
+            discussions_skipped_no_users: 0,
+            messages_imported: 0,
+            messages_existing: 0,
+            messages_unmatched_author: 0,
+            messages_skipped_no_user: 0,
+            unmatched_samples: [],
+        };
+    }
+
+    function mergeFrontDiscussionImportStats(target, source) {
+        if (!source) return target;
+        [
+            'conversations_scanned',
+            'conversations_skipped',
+            'discussions_found',
+            'discussions_already_synced',
+            'discussions_imported',
+            'discussions_with_comments',
+            'discussions_skipped_no_users',
+            'messages_imported',
+            'messages_existing',
+            'messages_unmatched_author',
+            'messages_skipped_no_user',
+        ].forEach(key => {
+            target[key] = (Number(target[key]) || 0) + (Number(source[key]) || 0);
+        });
+        if (source.preview_limit) target.preview_limit = source.preview_limit;
+        if (source.preview_limited) target.preview_limited = source.preview_limited;
+        if (source.comment_errors?.length) {
+            target.comment_errors = [...(target.comment_errors || []), ...source.comment_errors];
+        }
+        const samples = source.unmatched_samples || [];
+        samples.forEach(sample => {
+            if ((target.unmatched_samples || []).length < 10 && !(target.unmatched_samples || []).includes(sample)) {
+                target.unmatched_samples = [...(target.unmatched_samples || []), sample];
+            }
+        });
+        return target;
+    }
+
+    function setFrontDiscussionImportLoading(isLoading, message = 'Processing…', percent = null) {
+        const loading = document.getElementById('front-discussion-import-loading');
+        const label = document.getElementById('front-discussion-import-loading-label');
+        const fill = document.getElementById('front-discussion-import-loading-fill');
+        frontImportActionButtons().forEach(btn => { if (btn) btn.disabled = !!isLoading; });
+        const pct = percent === null || percent === undefined ? null : Math.max(0, Math.min(100, Math.round(percent)));
+        if (label) label.textContent = pct === null ? message : `${message} ${pct}%`;
+        if (loading) loading.hidden = !isLoading;
+        if (fill) {
+            if (pct === null) {
+                fill.classList.remove('determinate');
+                fill.style.width = '';
+            } else {
+                fill.classList.add('determinate');
+                fill.style.width = `${pct}%`;
+            }
+        }
+    }
+
+    async function runFrontDiscussionImportRequest(dryRun, persistResults = true, pageUrl = null, resultStats = null) {
+        const payload = {
+            dry_run: dryRun,
+            persist_results: persistResults,
+        };
+        if (pageUrl) {
+            payload.page_url = pageUrl;
+        }
+        if (resultStats) {
+            payload.result_stats = resultStats;
+        }
+
+        const response = await fetch('/api/integrations/front/import-discussions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+            },
+            body: JSON.stringify(payload)
+        });
+
+        return parseFrontImportResponse(response);
+    }
+
+    async function handleFrontDiscussionResetProgress() {
+        if (!confirm('Reset Front discussion sync progress? The next run will rescan every conversation for discussion threads instead of resuming or skipping ones already scanned. Existing imported chats are kept.')) {
+            return;
+        }
+
+        const btn = document.getElementById('front-discussion-reset-progress-btn');
+        if (btn) btn.disabled = true;
+
+        try {
+            const response = await fetch('/api/integrations/front/discussion-import-progress', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                }
+            });
+            if (response.ok) {
+                document.getElementById('front-discussion-import-results')?.replaceChildren();
+            } else {
+                alert('Error resetting Front discussion sync progress.');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error resetting Front discussion sync progress.');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async function handleFrontDiscussionImport(dryRun = false) {
+        const hasExisting = window.existingIntegration && window.existingIntegration.has_token;
+        const apiToken = document.getElementById('front-api-token')?.value?.trim() || '';
+
+        if (!hasExisting && !apiToken) {
+            showFrontTokenError('Save your Front API token first.');
+            return;
+        }
+
+        if (apiToken) {
+            const saved = await handleFrontSave(false);
+            if (!saved) return;
+        }
+
+        const actionLabel = dryRun ? 'Previewing discussions' : 'Importing discussions';
+        const aggregated = emptyFrontDiscussionImportStats();
+
+        setFrontDiscussionImportLoading(true, `${actionLabel}…`, 0);
+        document.getElementById('front-discussion-import-results')?.replaceChildren();
+
+        try {
+            if (dryRun) {
+                setFrontDiscussionImportLoading(true, `${actionLabel} (first 100)…`, 20);
+                const data = await runFrontDiscussionImportRequest(true, false);
+                mergeFrontDiscussionImportStats(aggregated, data.stats || {});
+            } else {
+                let pageUrl = null;
+                let page = 0;
+                let resumeNote = '';
+
+                do {
+                    page += 1;
+                    const currentPercent = Math.min(95, 100 - (100 / (page + 1)));
+                    setFrontDiscussionImportLoading(
+                        true,
+                        `${actionLabel} – page ${page}${resumeNote}…`,
+                        currentPercent
+                    );
+                    const data = await runFrontDiscussionImportRequest(false, false, pageUrl);
+                    mergeFrontDiscussionImportStats(aggregated, data.stats || {});
+                    if (data.stats?.resumed_from) {
+                        resumeNote = ` (resuming after ${data.stats.resumed_from} already done)`;
+                    }
+                    pageUrl = data.has_more && data.next_page_url ? data.next_page_url : null;
+                } while (pageUrl);
+            }
+
+            setFrontDiscussionImportLoading(true, 'Finishing…', 100);
+            await runFrontDiscussionImportRequest(dryRun, true, null, aggregated);
+
+            const finishedAt = new Date().toISOString();
+            renderFrontDiscussionImportResults(aggregated, dryRun, finishedAt);
+            window.existingIntegration = {
+                ...(window.existingIntegration || {}),
+                last_discussion_import_stats: aggregated,
+                last_discussion_import_dry_run: dryRun,
+                last_discussion_import_at: finishedAt,
+            };
+        } catch (error) {
+            console.error('Front discussion import error:', error);
+            renderFrontDiscussionImportError(error.message || 'Front discussion import failed. Please try again.');
+        } finally {
+            setFrontDiscussionImportLoading(false);
         }
     }
 

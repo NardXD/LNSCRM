@@ -149,6 +149,28 @@ class FrontApiClient
         ];
     }
 
+    public function fetchCompanyConversationPage(?string $pageUrl = null, array $statuses = ['archived', 'assigned', 'unassigned'], int $limit = 20): array
+    {
+        return $this->fetchConversationPage('/conversations', $pageUrl, $statuses, $limit);
+    }
+
+    /**
+     * @param  list<string>  $statuses
+     * @return \Generator<int, array<string, mixed>>
+     */
+    public function listCompanyConversations(array $statuses = ['archived', 'assigned', 'unassigned']): \Generator
+    {
+        yield from $this->paginateConversations('/conversations', $statuses);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function listConversationFollowers(string $conversationId): array
+    {
+        return iterator_to_array($this->paginate('/conversations/'.rawurlencode($conversationId).'/followers'));
+    }
+
     public function fetchInboxConversationPage(string $inboxId, ?string $pageUrl = null, array $statuses = ['archived', 'assigned', 'unassigned'], int $limit = 20): array
     {
         return $this->fetchConversationPage(
@@ -307,7 +329,7 @@ class FrontApiClient
             return 'Front API request failed ('.$response->status().'): '.$body;
         }
 
-        return 'Front API request failed with HTTP '.$response->status().'. Check that your token is valid and has tags:read, inboxes:read, and conversations:read scopes.';
+        return 'Front API request failed with HTTP '.$response->status().'. Check that your token is valid and has tags:read, inboxes:read, conversations:read, and comments:read scopes.';
     }
 
     private function absoluteUrl(string $path): string

@@ -26,6 +26,7 @@ class Message extends Model
         'attachment_name',
         'attachment_type',
         'edited_at',
+        'front_comment_id',
     ];
 
     protected $casts = [

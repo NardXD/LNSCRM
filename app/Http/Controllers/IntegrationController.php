@@ -19,6 +19,7 @@ use App\Models\WiseIntegration;
 use App\Services\FacebookGraphMessagingService;
 use App\Services\Front\FrontApiClient;
 use App\Services\Front\FrontCommentImportService;
+use App\Services\Front\FrontDiscussionImportService;
 use App\Services\Front\FrontTagImportService;
 use App\Services\OutlookMailService;
 use App\Services\StoreganiseService;
@@ -1770,6 +1771,9 @@ class IntegrationController extends Controller
                 'last_comment_import_at' => $integration->last_comment_import_at?->toIso8601String(),
                 'last_comment_import_dry_run' => $integration->last_comment_import_dry_run,
                 'last_comment_import_stats' => $integration->last_comment_import_stats,
+                'last_discussion_import_at' => $integration->last_discussion_import_at?->toIso8601String(),
+                'last_discussion_import_dry_run' => $integration->last_discussion_import_dry_run,
+                'last_discussion_import_stats' => $integration->last_discussion_import_stats,
             ],
             'status' => $integration->isConnected() ? 'connected' : 'disconnected',
         ]);
@@ -1841,8 +1845,12 @@ class IntegrationController extends Controller
         ]);
     }
 
-    public function deleteFrontIntegration(Request $request, FrontTagImportService $importService, FrontCommentImportService $commentImportService): JsonResponse
-    {
+    public function deleteFrontIntegration(
+        Request $request,
+        FrontTagImportService $importService,
+        FrontCommentImportService $commentImportService,
+        FrontDiscussionImportService $discussionImportService
+    ): JsonResponse {
         $company = $this->getCompany($request);
         if (! $company) {
             return response()->json(['error' => 'Company not found'], 404);
@@ -1851,6 +1859,7 @@ class IntegrationController extends Controller
         FrontIntegration::query()->where('company_id', $company->id)->delete();
         $importService->resetProgress($company);
         $commentImportService->resetProgress($company);
+        $discussionImportService->resetProgress($company);
 
         return response()->json(['message' => 'Front integration deleted successfully']);
     }
@@ -1881,6 +1890,18 @@ class IntegrationController extends Controller
         $commentImportService->resetProgress($company);
 
         return response()->json(['message' => 'Front comment sync progress has been reset.']);
+    }
+
+    public function resetFrontDiscussionImportProgress(Request $request, FrontDiscussionImportService $discussionImportService): JsonResponse
+    {
+        $company = $this->getCompany($request);
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $discussionImportService->resetProgress($company);
+
+        return response()->json(['message' => 'Front discussion sync progress has been reset.']);
     }
 
     public function getFrontMappingOptions(Request $request, FrontTagImportService $importService): JsonResponse
@@ -2149,6 +2170,100 @@ class IntegrationController extends Controller
             'next_page_url' => $stats['next_page_url'] ?? null,
             'last_import_at' => $options['persist_results']
                 ? $integration->last_comment_import_at?->toIso8601String()
+                : now()->toIso8601String(),
+        ]);
+    }
+
+    public function runFrontDiscussionImport(Request $request, FrontDiscussionImportService $discussionImportService): JsonResponse
+    {
+        @set_time_limit(0);
+
+        $company = $this->getCompany($request);
+        if (! $company) {
+            return response()->json(['error' => 'Company not found'], 404);
+        }
+
+        $integration = FrontIntegration::query()->where('company_id', $company->id)->first();
+        if (! $integration?->hasToken()) {
+            return response()->json(['error' => 'Front is not connected. Save your API token first.'], 400);
+        }
+        if (! $integration->isConnected()) {
+            return response()->json([
+                'error' => 'Front token is saved but not verified: '.($integration->verify_error ?: 'unknown error').'. Paste a fresh token and save to reconnect.',
+            ], 400);
+        }
+
+        $token = $integration->getDecryptedApiToken();
+        if (! $token) {
+            return response()->json([
+                'error' => 'Front token could not be read. Disconnect and save your API token again.',
+            ], 400);
+        }
+
+        $validated = $request->validate([
+            'dry_run' => ['sometimes', 'boolean'],
+            'page_url' => ['nullable', 'string', 'max:2048'],
+            'persist_results' => ['sometimes', 'boolean'],
+            'result_stats' => ['sometimes', 'array'],
+        ]);
+
+        $options = [
+            'dry_run' => (bool) ($validated['dry_run'] ?? false),
+            'persist_results' => (bool) ($validated['persist_results'] ?? true),
+            'fallback_user_id' => $request->user()?->id,
+        ];
+
+        $pageUrl = isset($validated['page_url']) ? trim((string) $validated['page_url']) : null;
+        if ($pageUrl === '') {
+            $pageUrl = null;
+        }
+
+        $resultStats = $validated['result_stats'] ?? null;
+
+        if ($resultStats !== null && $pageUrl === null) {
+            if ($options['persist_results']) {
+                $integration->forceFill([
+                    'last_discussion_import_stats' => $resultStats,
+                    'last_discussion_import_at' => now(),
+                    'last_discussion_import_dry_run' => (bool) $options['dry_run'],
+                ])->save();
+            }
+
+            return response()->json([
+                'message' => $options['dry_run'] ? 'Dry run completed.' : 'Front discussion import completed.',
+                'dry_run' => $options['dry_run'],
+                'stats' => $resultStats,
+                'last_import_at' => $integration->last_discussion_import_at?->toIso8601String(),
+            ]);
+        }
+
+        try {
+            $stats = $discussionImportService->importPageBatch(
+                $company,
+                new FrontApiClient($token),
+                $options,
+                $pageUrl
+            );
+        } catch (\Throwable $e) {
+            return response()->json(['error' => $e->getMessage()], 422);
+        }
+
+        if ($options['persist_results']) {
+            $integration->forceFill([
+                'last_discussion_import_stats' => $stats,
+                'last_discussion_import_at' => now(),
+                'last_discussion_import_dry_run' => (bool) $options['dry_run'],
+            ])->save();
+        }
+
+        return response()->json([
+            'message' => $options['dry_run'] ? 'Dry run completed.' : 'Front discussion import completed.',
+            'dry_run' => $options['dry_run'],
+            'stats' => $stats,
+            'has_more' => (bool) ($stats['has_more'] ?? false),
+            'next_page_url' => $stats['next_page_url'] ?? null,
+            'last_import_at' => $options['persist_results']
+                ? $integration->last_discussion_import_at?->toIso8601String()
                 : now()->toIso8601String(),
         ]);
     }

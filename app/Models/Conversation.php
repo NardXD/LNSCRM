@@ -30,6 +30,7 @@ class Conversation extends Model
         'name',
         'photo',
         'created_by',
+        'front_conversation_id',
     ];
 
     /**
