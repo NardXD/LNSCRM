@@ -1531,7 +1531,7 @@
                     <div id="front-import-results"></div>
                     <div class="front-import-section">
                         <h4 style="font-size:0.9375rem;font-weight:600;margin:0 0 0.5rem;">Import internal comments</h4>
-                        <p class="form-help" style="margin-bottom:0.75rem;">Copies Front conversation comments onto matched LNSCRM threads. Authors are matched to CRM users by email or name; unmatched comments keep the original Front author name.</p>
+                        <p class="form-help" style="margin-bottom:0.75rem;">Copies Front conversation comments onto matched LNSCRM threads, including attached files and images. Authors are matched to CRM users by email or name; unmatched comments keep the original Front author name. If comments were imported earlier without files, reset comment progress and run again to backfill attachments.</p>
                         <div class="front-import-actions" style="margin-top:0;">
                             <button type="button" class="btn-secondary" id="front-comment-dry-run-btn" onclick="handleFrontCommentImport(true)">Preview comments</button>
                             <button type="button" class="btn-primary" id="front-comment-import-btn" onclick="handleFrontCommentImport(false)">Import comments</button>
@@ -2938,6 +2938,8 @@
                     <dt>Unmatched conversations</dt><dd>${stats.conversations_unmatched ?? 0}</dd>
                     <dt>Conversations with comments</dt><dd>${stats.conversations_with_comments ?? 0}</dd>
                     <dt>Comments ${dryRun ? 'would import' : 'imported'}</dt><dd>${stats.comments_imported ?? 0}</dd>
+                    <dt>Attachments ${dryRun ? 'would import' : 'imported'}</dt><dd>${stats.attachments_imported ?? 0}</dd>
+                    ${stats.attachments_failed ? `<dt>Attachments skipped</dt><dd>${stats.attachments_failed}</dd>` : ''}
                     <dt>Already imported (skipped)</dt><dd>${stats.comments_existing ?? 0}</dd>
                     ${stats.comments_unmatched_author ? `<dt>Authors not matched to CRM users</dt><dd>${stats.comments_unmatched_author}</dd>` : ''}
                 </dl>
@@ -2969,6 +2971,8 @@
             comments_imported: 0,
             comments_existing: 0,
             comments_unmatched_author: 0,
+            attachments_imported: 0,
+            attachments_failed: 0,
             unmatched_samples: [],
         };
     }
@@ -2985,6 +2989,8 @@
             'comments_imported',
             'comments_existing',
             'comments_unmatched_author',
+            'attachments_imported',
+            'attachments_failed',
         ].forEach(key => {
             target[key] = (Number(target[key]) || 0) + (Number(source[key]) || 0);
         });

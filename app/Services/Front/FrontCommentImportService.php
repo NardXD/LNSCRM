@@ -11,11 +11,17 @@ use App\Models\SharedInbox;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 class FrontCommentImportService
 {
     public const DRY_RUN_LIMIT = 100;
+
+    private const MAX_COMMENT_ATTACHMENTS = 20;
+
+    private const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 
     /** @var array<int, array{by_email: array<string, User>, by_name: array<string, User>, fallback: User|null}> */
     private array $userLookupCache = [];
@@ -365,7 +371,7 @@ class FrontCommentImportService
                 continue;
             }
 
-            $this->importFrontComment($company, $localConversation, $frontComment, $options, $stats);
+            $this->importFrontComment($company, $client, $localConversation, $frontComment, $options, $stats);
         }
 
         if (! $dryRun) {
@@ -398,24 +404,40 @@ class FrontCommentImportService
      */
     private function importFrontComment(
         Company $company,
+        ?FrontApiClient $client,
         InboxConversation $localConversation,
         array $frontComment,
         array $options,
         array &$stats
     ): void {
+        $frontAttachments = $this->frontAttachments($frontComment);
         $body = trim((string) ($frontComment['body'] ?? ''));
-        if ($body === '') {
+        if ($body === '' && $frontAttachments === []) {
             return;
         }
 
         $frontCommentId = trim((string) ($frontComment['id'] ?? ''));
-        if ($frontCommentId !== '' && InboxConversationComment::query()->where('front_comment_id', $frontCommentId)->exists()) {
+        $existing = $frontCommentId !== ''
+            ? InboxConversationComment::query()->where('front_comment_id', $frontCommentId)->first()
+            : null;
+
+        if ($existing) {
             $stats['comments_existing'] = ((int) ($stats['comments_existing'] ?? 0)) + 1;
+            if ($options['dry_run'] ?? false) {
+                $this->countAttachmentPreview($frontAttachments, $existing, $stats);
+            } else {
+                $this->storeFrontCommentAttachments($client, $existing, $frontAttachments, $stats);
+            }
 
             return;
         }
 
         [$html, $plain] = $this->commentBodies($body);
+        if ($plain === '') {
+            $plain = $this->attachmentFallbackText($frontAttachments);
+            $html = $plain !== '' ? nl2br(e($plain), false) : '';
+        }
+
         if ($plain === '') {
             return;
         }
@@ -440,6 +462,7 @@ class FrontCommentImportService
 
         if ($options['dry_run'] ?? false) {
             $stats['comments_imported'] = ((int) ($stats['comments_imported'] ?? 0)) + 1;
+            $this->countAttachmentPreview($frontAttachments, null, $stats);
 
             return;
         }
@@ -460,7 +483,199 @@ class FrontCommentImportService
         $comment->updated_at = $postedAt ?? now();
         $comment->save();
 
+        $this->storeFrontCommentAttachments($client, $comment, $frontAttachments, $stats);
+
         $stats['comments_imported'] = ((int) ($stats['comments_imported'] ?? 0)) + 1;
+    }
+
+    /**
+     * @param  array<string, mixed>  $frontComment
+     * @return list<array<string, mixed>>
+     */
+    private function frontAttachments(array $frontComment): array
+    {
+        $items = [];
+        foreach ($frontComment['attachments'] ?? [] as $attachment) {
+            if (is_array($attachment)) {
+                $items[] = $attachment;
+            }
+        }
+
+        return array_slice($items, 0, self::MAX_COMMENT_ATTACHMENTS);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $frontAttachments
+     */
+    private function attachmentFallbackText(array $frontAttachments): string
+    {
+        $names = [];
+        foreach ($frontAttachments as $attachment) {
+            $name = trim((string) ($attachment['filename'] ?? $attachment['name'] ?? ''));
+            if ($name !== '') {
+                $names[] = $name;
+            }
+        }
+
+        if ($names === []) {
+            return $frontAttachments !== [] ? 'Attachment' : '';
+        }
+
+        return implode(', ', $names);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $frontAttachments
+     * @param  array<string, mixed>  $stats
+     */
+    private function countAttachmentPreview(array $frontAttachments, ?InboxConversationComment $existing, array &$stats): void
+    {
+        if ($existing && $this->commentHasStoredAttachments($existing)) {
+            return;
+        }
+
+        foreach ($frontAttachments as $attachment) {
+            if ($this->attachmentHasImportableSource($attachment)) {
+                $stats['attachments_imported'] = ((int) ($stats['attachments_imported'] ?? 0)) + 1;
+            } else {
+                $stats['attachments_failed'] = ((int) ($stats['attachments_failed'] ?? 0)) + 1;
+            }
+        }
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $frontAttachments
+     * @param  array<string, mixed>  $stats
+     */
+    private function storeFrontCommentAttachments(
+        ?FrontApiClient $client,
+        InboxConversationComment $comment,
+        array $frontAttachments,
+        array &$stats
+    ): void {
+        if ($frontAttachments === [] || $this->commentHasStoredAttachments($comment)) {
+            return;
+        }
+
+        $stored = [];
+        foreach ($frontAttachments as $index => $attachment) {
+            $file = $this->resolveAttachmentBinary($client, $attachment);
+            if ($file === null) {
+                $stats['attachments_failed'] = ((int) ($stats['attachments_failed'] ?? 0)) + 1;
+
+                continue;
+            }
+
+            $safeName = Str::slug(pathinfo($file['name'], PATHINFO_FILENAME)) ?: 'file';
+            $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
+            $filename = $safeName.($ext !== '' ? '.'.$ext : '');
+            $path = "inbox-comments/{$comment->id}/{$index}_{$filename}";
+            Storage::disk('local')->put($path, $file['binary']);
+            $stored[] = [
+                'name' => $file['name'],
+                'content_type' => $file['content_type'],
+                'size' => strlen($file['binary']),
+                'path' => $path,
+                'index' => $index,
+            ];
+            $stats['attachments_imported'] = ((int) ($stats['attachments_imported'] ?? 0)) + 1;
+        }
+
+        if ($stored !== []) {
+            $comment->update(['attachments' => $stored]);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $attachment
+     * @return array{name: string, content_type: string, binary: string}|null
+     */
+    private function resolveAttachmentBinary(?FrontApiClient $client, array $attachment): ?array
+    {
+        $name = trim((string) ($attachment['filename'] ?? $attachment['name'] ?? ''));
+        if ($name === '') {
+            $name = 'attachment';
+        }
+
+        $contentType = trim((string) ($attachment['content_type'] ?? $attachment['contentType'] ?? ''));
+        $reportedSize = (int) ($attachment['size'] ?? 0);
+        if ($reportedSize > self::MAX_ATTACHMENT_BYTES) {
+            return null;
+        }
+
+        $embedded = $attachment['content'] ?? $attachment['content_bytes'] ?? $attachment['contentBytes'] ?? $attachment['data'] ?? null;
+        if (is_string($embedded) && $embedded !== '') {
+            $binary = base64_decode($embedded, true);
+            if ($binary === false || $binary === '' || strlen($binary) > self::MAX_ATTACHMENT_BYTES) {
+                return null;
+            }
+
+            return [
+                'name' => $name,
+                'content_type' => $contentType !== '' ? $contentType : 'application/octet-stream',
+                'binary' => $binary,
+            ];
+        }
+
+        $url = $this->attachmentDownloadUrl($attachment);
+        if (! $client || $url === '') {
+            return null;
+        }
+
+        try {
+            $downloaded = $client->download($url);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $binary = $downloaded['body'];
+        if ($binary === '' || strlen($binary) > self::MAX_ATTACHMENT_BYTES) {
+            return null;
+        }
+
+        return [
+            'name' => $name,
+            'content_type' => $contentType !== '' ? $contentType : $downloaded['content_type'],
+            'binary' => $binary,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $attachment
+     */
+    private function attachmentHasImportableSource(array $attachment): bool
+    {
+        $embedded = $attachment['content'] ?? $attachment['content_bytes'] ?? $attachment['contentBytes'] ?? $attachment['data'] ?? null;
+        if (is_string($embedded) && $embedded !== '') {
+            return true;
+        }
+
+        return $this->attachmentDownloadUrl($attachment) !== '';
+    }
+
+    /**
+     * @param  array<string, mixed>  $attachment
+     */
+    private function attachmentDownloadUrl(array $attachment): string
+    {
+        $url = trim((string) ($attachment['url'] ?? ''));
+        if ($url !== '') {
+            return $url;
+        }
+
+        $id = trim((string) ($attachment['id'] ?? ''));
+        if ($id === '') {
+            return '';
+        }
+
+        return '/download/'.rawurlencode($id);
+    }
+
+    private function commentHasStoredAttachments(InboxConversationComment $comment): bool
+    {
+        $attachments = $comment->attachments ?? [];
+
+        return is_array($attachments) && $attachments !== [];
     }
 
     /**
@@ -605,6 +820,8 @@ class FrontCommentImportService
             'comments_existing' => 0,
             'comments_unmatched_author' => 0,
             'comments_skipped_no_user' => 0,
+            'attachments_imported' => 0,
+            'attachments_failed' => 0,
             'unmatched_samples' => [],
         ];
     }

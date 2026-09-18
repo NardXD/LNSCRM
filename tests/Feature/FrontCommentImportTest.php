@@ -12,6 +12,7 @@ use App\Services\Front\FrontCommentImportService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class FrontCommentImportTest extends TestCase
@@ -306,6 +307,255 @@ class FrontCommentImportTest extends TestCase
         ]);
     }
 
+    public function test_imports_comment_attachments_and_images_from_front_api(): void
+    {
+        Storage::fake('local');
+
+        [$company, $sharedInbox] = $this->seedInboxConversation(
+            subject: 'Pricing request',
+            fromEmail: 'pat@example.com'
+        );
+
+        User::query()->create([
+            'name' => 'Pat Staff',
+            'email' => 'staff@lns.test',
+            'password' => Hash::make('password'),
+            'company_id' => $company->id,
+            'is_active' => true,
+        ]);
+
+        $png = $this->tinyPng();
+
+        Http::fake([
+            'https://api2.frontapp.com/inboxes' => Http::response([
+                '_results' => [
+                    ['id' => 'inb_1', 'name' => $sharedInbox->name],
+                ],
+            ]),
+            'https://api2.frontapp.com/inboxes/inb_1/conversations*' => Http::response([
+                '_results' => [
+                    [
+                        'id' => 'cnv_9',
+                        'subject' => 'Pricing request',
+                        'recipient' => ['handle' => 'pat@example.com'],
+                    ],
+                ],
+            ]),
+            'https://api2.frontapp.com/conversations/cnv_9/comments*' => Http::response([
+                '_results' => [
+                    [
+                        'id' => 'com_files',
+                        'body' => 'See screenshot.',
+                        'posted_at' => 1710000200,
+                        'author' => [
+                            'email' => 'staff@lns.test',
+                            'first_name' => 'Pat',
+                            'last_name' => 'Staff',
+                        ],
+                        'attachments' => [
+                            [
+                                'id' => 'fil_photo',
+                                'filename' => 'unit-photo.png',
+                                'content_type' => 'image/png',
+                                'url' => 'https://api2.frontapp.com/download/fil_photo',
+                                'size' => strlen($png),
+                            ],
+                            [
+                                'id' => 'fil_notes',
+                                'filename' => 'notes.txt',
+                                'content_type' => 'text/plain',
+                                'url' => 'https://api2.frontapp.com/download/fil_notes',
+                                'size' => 5,
+                            ],
+                        ],
+                    ],
+                ],
+            ]),
+            'https://api2.frontapp.com/download/fil_photo' => Http::response($png, 200, ['Content-Type' => 'image/png']),
+            'https://api2.frontapp.com/download/fil_notes' => Http::response('hello', 200, ['Content-Type' => 'text/plain']),
+        ]);
+
+        $stats = app(FrontCommentImportService::class)->importFromApi(
+            $company,
+            new FrontApiClient('front-test-token'),
+            ['inbox_map' => ['inb_1' => $sharedInbox->id]]
+        );
+
+        $this->assertSame(1, $stats['comments_imported']);
+        $this->assertSame(2, $stats['attachments_imported']);
+        $this->assertSame(0, $stats['attachments_failed']);
+
+        $comment = InboxConversationComment::query()->where('front_comment_id', 'com_files')->first();
+        $this->assertNotNull($comment);
+        $this->assertCount(2, $comment->attachments ?? []);
+        $this->assertSame('unit-photo.png', $comment->attachments[0]['name']);
+        $this->assertSame('image/png', $comment->attachments[0]['content_type']);
+        $this->assertSame('notes.txt', $comment->attachments[1]['name']);
+        Storage::disk('local')->assertExists($comment->attachments[0]['path']);
+        Storage::disk('local')->assertExists($comment->attachments[1]['path']);
+        $this->assertSame($png, Storage::disk('local')->get($comment->attachments[0]['path']));
+    }
+
+    public function test_imports_image_only_comment_from_json_export(): void
+    {
+        Storage::fake('local');
+
+        [$company, $sharedInbox] = $this->seedInboxConversation(
+            subject: 'Storage inquiry',
+            fromEmail: 'jane@example.com'
+        );
+
+        User::query()->create([
+            'name' => 'Alex Agent',
+            'email' => 'alex@lns.test',
+            'password' => Hash::make('password'),
+            'company_id' => $company->id,
+            'is_active' => true,
+        ]);
+
+        $png = $this->tinyPng();
+        $path = $this->writeExport([
+            'inboxes' => [
+                [
+                    'id' => 'inb_sales',
+                    'name' => $sharedInbox->name,
+                    'conversations' => [
+                        [
+                            'id' => 'cnv_1',
+                            'subject' => 'Storage inquiry',
+                            'recipient' => ['handle' => 'jane@example.com'],
+                            'comments' => [
+                                [
+                                    'id' => 'com_image',
+                                    'body' => '',
+                                    'posted_at' => 1710000000,
+                                    'author' => ['email' => 'alex@lns.test'],
+                                    'attachments' => [
+                                        [
+                                            'filename' => 'gate.png',
+                                            'content_type' => 'image/png',
+                                            'content_bytes' => base64_encode($png),
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $stats = app(FrontCommentImportService::class)->importFromFile($company, $path, [
+            'inbox_map' => ['inb_sales' => $sharedInbox->id],
+        ]);
+
+        $this->assertSame(1, $stats['comments_imported']);
+        $this->assertSame(1, $stats['attachments_imported']);
+
+        $comment = InboxConversationComment::query()->where('front_comment_id', 'com_image')->first();
+        $this->assertNotNull($comment);
+        $this->assertSame('gate.png', $comment->body_text);
+        $this->assertSame('gate.png', $comment->attachments[0]['name'] ?? null);
+        Storage::disk('local')->assertExists($comment->attachments[0]['path']);
+    }
+
+    public function test_backfills_attachments_on_already_imported_comments(): void
+    {
+        Storage::fake('local');
+
+        [$company, $sharedInbox] = $this->seedInboxConversation(
+            subject: 'Storage inquiry',
+            fromEmail: 'jane@example.com'
+        );
+
+        User::query()->create([
+            'name' => 'Alex Agent',
+            'email' => 'alex@lns.test',
+            'password' => Hash::make('password'),
+            'company_id' => $company->id,
+            'is_active' => true,
+        ]);
+
+        $firstPath = $this->writeExport([
+            'inboxes' => [
+                [
+                    'id' => 'inb_sales',
+                    'name' => $sharedInbox->name,
+                    'conversations' => [
+                        [
+                            'id' => 'cnv_1',
+                            'subject' => 'Storage inquiry',
+                            'recipient' => ['handle' => 'jane@example.com'],
+                            'updated_at' => 1710000000,
+                            'comments' => [
+                                [
+                                    'id' => 'com_1',
+                                    'body' => 'See attached.',
+                                    'author' => ['email' => 'alex@lns.test'],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $service = app(FrontCommentImportService::class);
+        $service->importFromFile($company, $firstPath, [
+            'inbox_map' => ['inb_sales' => $sharedInbox->id],
+        ]);
+
+        $comment = InboxConversationComment::query()->where('front_comment_id', 'com_1')->first();
+        $this->assertNotNull($comment);
+        $this->assertSame([], $comment->attachments ?? []);
+
+        $png = $this->tinyPng();
+        $secondPath = $this->writeExport([
+            'inboxes' => [
+                [
+                    'id' => 'inb_sales',
+                    'name' => $sharedInbox->name,
+                    'conversations' => [
+                        [
+                            'id' => 'cnv_1',
+                            'subject' => 'Storage inquiry',
+                            'recipient' => ['handle' => 'jane@example.com'],
+                            'updated_at' => 1710000000,
+                            'comments' => [
+                                [
+                                    'id' => 'com_1',
+                                    'body' => 'See attached.',
+                                    'author' => ['email' => 'alex@lns.test'],
+                                    'attachments' => [
+                                        [
+                                            'filename' => 'photo.png',
+                                            'content_type' => 'image/png',
+                                            'content_bytes' => base64_encode($png),
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $service->resetProgress($company);
+        $stats = $service->importFromFile($company, $secondPath, [
+            'inbox_map' => ['inb_sales' => $sharedInbox->id],
+        ]);
+
+        $this->assertSame(0, $stats['comments_imported']);
+        $this->assertSame(1, $stats['comments_existing']);
+        $this->assertSame(1, $stats['attachments_imported']);
+        $this->assertSame(1, InboxConversationComment::query()->count());
+
+        $comment->refresh();
+        $this->assertSame('photo.png', $comment->attachments[0]['name'] ?? null);
+        Storage::disk('local')->assertExists($comment->attachments[0]['path']);
+    }
+
     /**
      * @return array{0: Company, 1: SharedInbox, 2: InboxConversation}
      */
@@ -356,5 +606,10 @@ class FrontCommentImportTest extends TestCase
         file_put_contents($path, json_encode($payload, JSON_THROW_ON_ERROR));
 
         return $path;
+    }
+
+    private function tinyPng(): string
+    {
+        return (string) base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', true);
     }
 }

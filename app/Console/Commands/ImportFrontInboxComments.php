@@ -68,6 +68,8 @@ class ImportFrontInboxComments extends Command
                 ['Unmatched conversations', (string) ($stats['conversations_unmatched'] ?? 0)],
                 ['Conversations with comments', (string) ($stats['conversations_with_comments'] ?? 0)],
                 ['Comments imported', (string) ($stats['comments_imported'] ?? 0)],
+                ['Attachments imported', (string) ($stats['attachments_imported'] ?? 0)],
+                ['Attachments skipped', (string) ($stats['attachments_failed'] ?? 0)],
                 ['Existing comments skipped', (string) ($stats['comments_existing'] ?? 0)],
                 ['Unmatched authors', (string) ($stats['comments_unmatched_author'] ?? 0)],
             ]

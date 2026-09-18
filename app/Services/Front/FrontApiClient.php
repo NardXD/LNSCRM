@@ -200,6 +200,31 @@ class FrontApiClient
     }
 
     /**
+     * Download a Front attachment (or any authenticated Front URL) as binary.
+     *
+     * @return array{body: string, content_type: string}
+     */
+    public function download(string $url): array
+    {
+        $response = Http::timeout(60)
+            ->withToken($this->token)
+            ->withHeaders(['Accept' => '*/*'])
+            ->get($this->absoluteUrl($url));
+
+        $this->assertSuccessful($response);
+
+        $contentType = trim((string) $response->header('Content-Type'));
+        if (str_contains($contentType, ';')) {
+            $contentType = trim(explode(';', $contentType, 2)[0]);
+        }
+
+        return [
+            'body' => $response->body(),
+            'content_type' => $contentType !== '' ? $contentType : 'application/octet-stream',
+        ];
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public function listTeammates(): array
