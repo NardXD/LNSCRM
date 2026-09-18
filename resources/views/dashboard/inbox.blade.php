@@ -1710,7 +1710,49 @@
 }
 .inbox-pop-menu button:hover,
 .inbox-pop-menu button.is-active { background: var(--inbox-accent-soft); color: var(--inbox-accent); }
-.inbox-assign-menu { min-width: 240px; max-height: 280px; overflow: auto; }
+.inbox-assign-menu {
+    min-width: 260px;
+    max-height: none;
+    overflow: hidden;
+    padding: 0.3rem;
+}
+.inbox-assign-search {
+    padding: 0.15rem 0.15rem 0.35rem;
+}
+.inbox-assign-search input {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--inbox-border);
+    border-radius: 7px;
+    padding: 0.4rem 0.55rem;
+    font: inherit;
+    font-size: 0.8rem;
+    background: #fff;
+    color: var(--inbox-text);
+}
+.inbox-assign-search input:focus {
+    outline: none;
+    border-color: var(--inbox-accent, #4f46e5);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.12);
+}
+.inbox-assign-list {
+    display: grid;
+    gap: 0.08rem;
+    max-height: 240px;
+    overflow: auto;
+}
+.inbox-assign-empty {
+    padding: 0.55rem 0.55rem 0.4rem;
+    font-size: 0.78rem;
+    color: var(--inbox-muted);
+}
+.inbox-assign-name { display: block; }
+.inbox-assign-email {
+    display: block;
+    margin-top: 0.08rem;
+    font-size: 0.7rem;
+    color: var(--inbox-muted);
+}
 .inbox-snooze-custom {
     display: grid;
     gap: 0.25rem;
@@ -6151,14 +6193,63 @@
         }
     }
 
+    function matchingAssignMembers(query) {
+        const q = String(query || '').trim().toLowerCase();
+        return (state.members || []).filter(m => {
+            if (!q) return true;
+            return (m.name || '').toLowerCase().includes(q) || (m.email || '').toLowerCase().includes(q);
+        });
+    }
+
+    function renderAssignMemberList(query) {
+        const list = el('assignMemberList');
+        if (!list) return;
+        const q = String(query || '').trim().toLowerCase();
+        const current = conversationAssigneeId() || '';
+        const members = matchingAssignMembers(q);
+        const showUnassigned = !q || 'unassigned'.includes(q);
+        const parts = [];
+        if (showUnassigned) {
+            parts.push('<button type="button" data-assign="">Unassigned</button>');
+        }
+        members.forEach(m => {
+            parts.push(
+                `<button type="button" data-assign="${m.id}" class="${Number(m.id) === Number(current) ? 'is-active' : ''}">` +
+                `<span class="inbox-assign-name">${escapeHtml(m.name)}</span>` +
+                (m.email ? `<span class="inbox-assign-email">${escapeHtml(m.email)}</span>` : '') +
+                `</button>`
+            );
+        });
+        if (!parts.length) {
+            parts.push('<div class="inbox-assign-empty">No matching teammates</div>');
+        }
+        list.innerHTML = parts.join('');
+    }
+
     function renderAssignMenu() {
         const menu = el('assignMenu');
         if (!menu) return;
-        const current = conversationAssigneeId() || '';
-        menu.innerHTML = '<button type="button" data-assign="">Unassigned</button>' +
-            state.members.map(m =>
-                `<button type="button" data-assign="${m.id}" class="${Number(m.id) === Number(current) ? 'is-active' : ''}">${escapeHtml(m.name)}</button>`
-            ).join('');
+        const previous = String(el('assignMemberSearch')?.value || '');
+        menu.innerHTML = `
+            <div class="inbox-assign-search">
+                <input type="search" id="assignMemberSearch" placeholder="Search team members…" value="${escapeHtml(previous)}" autocomplete="off" aria-label="Search team members">
+            </div>
+            <div class="inbox-assign-list" id="assignMemberList"></div>
+        `;
+        renderAssignMemberList(previous);
+    }
+
+    function openAssignMenu(btn) {
+        renderAssignMenu();
+        togglePop('assignMenu', btn);
+        if (!el('assignMenu')?.hidden) {
+            const input = el('assignMemberSearch');
+            if (input) {
+                input.value = '';
+                renderAssignMemberList('');
+                input.focus();
+            }
+        }
     }
 
     function snoozeUntilDate(preset) {
@@ -7795,14 +7886,34 @@
     });
     el('btnAssignToggle')?.addEventListener('click', (e) => {
         e.stopPropagation();
-        renderAssignMenu();
-        togglePop('assignMenu', e.currentTarget);
+        openAssignMenu(e.currentTarget);
     });
     el('assignMenu')?.addEventListener('click', async (e) => {
+        if (e.target.closest('#assignMemberSearch, .inbox-assign-search')) {
+            e.stopPropagation();
+            return;
+        }
         const btn = e.target.closest('[data-assign]');
         if (!btn) return;
         closeThreadPops();
         await assignConversation(btn.dataset.assign || null);
+    });
+    el('assignMenu')?.addEventListener('input', (e) => {
+        if (e.target.id !== 'assignMemberSearch') return;
+        renderAssignMemberList(e.target.value);
+    });
+    el('assignMenu')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeThreadPops();
+            el('btnAssignToggle')?.focus();
+            return;
+        }
+        if (e.key === 'Enter' && e.target.id === 'assignMemberSearch') {
+            e.preventDefault();
+            const first = el('assignMemberList')?.querySelector('[data-assign]');
+            if (first) first.click();
+        }
     });
     el('snoozeMenu')?.addEventListener('click', async (e) => {
         const btn = e.target.closest('[data-snooze]');
@@ -7916,8 +8027,7 @@
         }
         if (!e.target.closest('#btnAddParticipant')) return;
         e.stopPropagation();
-        renderAssignMenu();
-        togglePop('assignMenu', el('btnAssignToggle'));
+        openAssignMenu(el('btnAssignToggle'));
     });
     el('threadMessages')?.addEventListener('click', (e) => {
         const mediaBtn = e.target.closest('[data-media-open]');
