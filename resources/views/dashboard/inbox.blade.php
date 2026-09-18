@@ -329,10 +329,16 @@
                 <div class="inbox-pop-menu inbox-send-menu inbox-compose-send-menu" id="composeSendMenu" hidden>
                     <button type="button" data-compose-send-mode="send">Send</button>
                     <button type="button" data-compose-send-mode="later">Send later…</button>
+                    <button type="button" data-compose-send-mode="share-draft">Share as draft…</button>
                     <div class="inbox-send-later" id="composeSendLaterFields" hidden>
                         Send at
                         <input type="datetime-local" id="composeSendLaterAt">
                         <button type="button" class="inbox-btn primary" id="btnConfirmComposeSendLater">Schedule send</button>
+                    </div>
+                    <div class="inbox-share-draft" id="composeShareDraftFields" hidden>
+                        <input type="search" id="composeShareDraftSearch" placeholder="Search teammates…" autocomplete="off" aria-label="Search teammates">
+                        <div class="inbox-share-draft-list" id="composeShareDraftList"></div>
+                        <button type="button" class="inbox-btn primary" id="btnConfirmComposeShareDraft">Share draft</button>
                     </div>
                 </div>
             </div>
@@ -385,10 +391,16 @@
                     <button type="button" data-send-mode="archive">Send and archive</button>
                     <button type="button" data-send-mode="later">Send later…</button>
                     <button type="button" data-send-mode="draft">Save as draft</button>
+                    <button type="button" data-send-mode="share-draft">Share as draft…</button>
                     <div class="inbox-send-later" id="sendLaterFields" hidden>
                         Send at
                         <input type="datetime-local" id="sendLaterAt">
                         <button type="button" class="inbox-btn primary" id="btnConfirmSendLater">Schedule send</button>
+                    </div>
+                    <div class="inbox-share-draft" id="replyShareDraftFields" hidden>
+                        <input type="search" id="replyShareDraftSearch" placeholder="Search teammates…" autocomplete="off" aria-label="Search teammates">
+                        <div class="inbox-share-draft-list" id="replyShareDraftList"></div>
+                        <button type="button" class="inbox-btn primary" id="btnConfirmReplyShareDraft">Share draft</button>
                     </div>
                 </div>
             </div>
@@ -2701,6 +2713,49 @@
     margin-top: 0.15rem;
 }
 .inbox-send-later[hidden] { display: none !important; }
+.inbox-share-draft {
+    display: grid;
+    gap: 0.3rem;
+    padding: 0.4rem 0.55rem 0.5rem;
+    border-top: 1px solid var(--inbox-border);
+    margin-top: 0.15rem;
+}
+.inbox-share-draft[hidden] { display: none !important; }
+.inbox-share-draft input[type="search"] {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--inbox-border);
+    border-radius: 7px;
+    padding: 0.35rem 0.45rem;
+    font: inherit;
+    font-size: 0.78rem;
+}
+.inbox-share-draft-list {
+    display: grid;
+    gap: 0.08rem;
+    max-height: 180px;
+    overflow: auto;
+}
+.inbox-share-draft-list button {
+    display: block;
+    text-align: left;
+}
+.inbox-share-draft-list button.is-active {
+    background: var(--inbox-accent-soft);
+    color: var(--inbox-accent);
+}
+.inbox-share-draft-list .inbox-assign-email { display: block; font-size: 0.68rem; color: var(--inbox-muted); }
+.inbox-share-draft-empty {
+    padding: 0.4rem 0.45rem;
+    font-size: 0.75rem;
+    color: var(--inbox-muted);
+}
+.inbox-send-menu .inbox-share-draft .inbox-btn {
+    width: 100%;
+    margin-top: 0.15rem;
+    text-align: center;
+    justify-content: center;
+}
 .inbox-send-later input {
     width: 100%;
     border: 1px solid var(--inbox-border);
@@ -3057,6 +3112,8 @@
         replyAll: false,
         replyCcEmails: [],
         replyDraftId: null,
+        composeDraftConversationId: null,
+        shareDraftSelected: { compose: {}, reply: {} },
         editingTemplateId: null,
         templateSearch: '',
         templateListPage: 1,
@@ -3653,6 +3710,7 @@
         const force = !!opts.force;
         state.replyAll = replyAll;
         if (force) state.replyDraftId = null;
+        state.shareDraftSelected.reply = {};
         const titleEl = el('replyModalTitle');
         if (titleEl) titleEl.textContent = replyAll ? 'Reply all' : 'Reply';
         hideMentionPopup('reply');
@@ -3665,6 +3723,7 @@
     function openDraftReplyModal(message) {
         if (!message || !state.composerCanReply) return;
         state.replyAll = false;
+        state.shareDraftSelected.reply = {};
         state.replyDraftId = (message.external_message_id && !String(message.external_message_id).startsWith('local-'))
             ? message.external_message_id
             : null;
@@ -3678,6 +3737,45 @@
         setComposerHtml('reply', message.body_html || '');
         el('composerHint').textContent = 'Send draft via Outlook';
         el('replyBody')?.focus();
+    }
+
+    function isComposeOnlyDraft(conversation) {
+        const c = conversation || state.conversation;
+        if (!c) return false;
+        const folder = c.folder || c.status;
+        if (folder !== 'drafts') return false;
+        return !(c.messages || []).some(m => m.direction === 'inbound');
+    }
+
+    function fillComposeFromSelect(preferredId) {
+        const preferred = preferredId ? Number(preferredId) : Number(state.selectedInboxId || 0);
+        const connected = (state.inboxes || []).filter(i => i.connected);
+        const current = (state.inboxes || []).find(i => Number(i.id) === preferred);
+        const list = connected.slice();
+        if (current && !list.some(i => Number(i.id) === Number(current.id))) list.unshift(current);
+        if (!list.length) list.push(...(state.inboxes || []));
+        if (!el('composeFrom')) return;
+        el('composeFrom').innerHTML = list.map(i =>
+            `<option value="${i.id}" ${Number(i.id) === preferred ? 'selected' : ''}>${escapeHtml(i.name)} (${escapeHtml(i.email || 'Outlook')})</option>`
+        ).join('');
+    }
+
+    function openComposeDraftModal(message) {
+        if (!message) return;
+        const inboxId = state.conversation?.inbox_id || state.conversation?.inbox?.id;
+        fillComposeFromSelect(inboxId);
+        if (el('composeTo')) el('composeTo').value = parseEmailList(message.to || message.to_emails).join(', ');
+        if (el('composeCc')) el('composeCc').value = parseEmailList(message.cc || message.cc_emails).join(', ');
+        if (el('composeSubject')) el('composeSubject').value = message.subject || state.conversation?.subject || '';
+        setComposerHtml('compose', message.body_html || '');
+        state.composeDraftConversationId = state.conversation?.id || null;
+        state.composeAttachments = [];
+        state.shareDraftSelected.compose = {};
+        renderAttachChips('compose');
+        hideMentionPopup('compose');
+        refreshTemplateSelects();
+        openModal('modalCompose');
+        setTimeout(() => el('composeTo')?.focus(), 50);
     }
 
     function getComposerHtml(kind) {
@@ -5192,6 +5290,8 @@
         el('composeSubject').value = '';
         applyComposerSignature('compose');
         state.composeAttachments = [];
+        state.composeDraftConversationId = null;
+        state.shareDraftSelected.compose = {};
         renderAttachChips('compose');
         hideMentionPopup('compose');
         refreshTemplateSelects();
@@ -6022,8 +6122,12 @@
         }
         renderThread();
         const draftMsg = [...(data.conversation?.messages || [])].reverse().find(m => m.is_draft);
-        if (draftMsg && state.composerCanReply) {
-            openDraftReplyModal(draftMsg);
+        if (draftMsg) {
+            if (isComposeOnlyDraft(data.conversation)) {
+                openComposeDraftModal(draftMsg);
+            } else if (state.composerCanReply) {
+                openDraftReplyModal(draftMsg);
+            }
         }
         window.updateHeaderNotificationsBadge?.();
     }
@@ -6179,6 +6283,10 @@
         if (laterFields) laterFields.hidden = true;
         const composeLater = el('composeSendLaterFields');
         if (composeLater) composeLater.hidden = true;
+        const replyShare = el('replyShareDraftFields');
+        if (replyShare) replyShare.hidden = true;
+        const composeShare = el('composeShareDraftFields');
+        if (composeShare) composeShare.hidden = true;
     }
 
     function togglePop(menuId, btn) {
@@ -6237,6 +6345,138 @@
             <div class="inbox-assign-list" id="assignMemberList"></div>
         `;
         renderAssignMemberList(previous);
+    }
+
+    function shareDraftKindIds(kind) {
+        return kind === 'compose'
+            ? { fields: 'composeShareDraftFields', search: 'composeShareDraftSearch', list: 'composeShareDraftList' }
+            : { fields: 'replyShareDraftFields', search: 'replyShareDraftSearch', list: 'replyShareDraftList' };
+    }
+
+    function shareDraftMembers(kind) {
+        const inboxId = Number(el(kind === 'compose' ? 'composeFrom' : 'replyFrom')?.value || 0);
+        const inbox = (state.inboxes || []).find(i => Number(i.id) === inboxId);
+        const pool = (inbox?.members && inbox.members.length)
+            ? inbox.members
+            : [];
+        return pool.filter(m => Number(m.id) !== USER_ID);
+    }
+
+    function selectedShareDraftIds(kind) {
+        const selected = state.shareDraftSelected[kind] || {};
+        return Object.keys(selected).filter(id => selected[id]).map(id => Number(id)).filter(id => id > 0);
+    }
+
+    function toggleShareDraftUser(kind, userId) {
+        const id = Number(userId);
+        if (!id) return;
+        state.shareDraftSelected[kind] = state.shareDraftSelected[kind] || {};
+        state.shareDraftSelected[kind][id] = !state.shareDraftSelected[kind][id];
+        renderShareDraftList(kind, el(shareDraftKindIds(kind).search)?.value);
+    }
+
+    function renderShareDraftList(kind, query) {
+        const list = el(shareDraftKindIds(kind).list);
+        if (!list) return;
+        const q = String(query || '').trim().toLowerCase();
+        const selected = state.shareDraftSelected[kind] || {};
+        const members = shareDraftMembers(kind).filter(m => {
+            if (!q) return true;
+            return (m.name || '').toLowerCase().includes(q) || (m.email || '').toLowerCase().includes(q);
+        });
+        if (!members.length) {
+            list.innerHTML = `<div class="inbox-share-draft-empty">${q ? 'No matching teammates' : 'No teammates to share with'}</div>`;
+            return;
+        }
+        list.innerHTML = members.map(m => `
+            <button type="button" data-share-kind="${kind}" data-share-user="${m.id}" class="${selected[m.id] ? 'is-active' : ''}">
+                <span class="inbox-assign-name">${escapeHtml(m.name)}</span>
+                ${m.email ? `<span class="inbox-assign-email">${escapeHtml(m.email)}</span>` : ''}
+            </button>
+        `).join('');
+    }
+
+    function openShareDraftPicker(kind) {
+        const ids = shareDraftKindIds(kind);
+        const later = el(kind === 'compose' ? 'composeSendLaterFields' : 'sendLaterFields');
+        if (later) later.hidden = true;
+        const fields = el(ids.fields);
+        if (!fields) return;
+        fields.hidden = false;
+        state.shareDraftSelected[kind] = state.shareDraftSelected[kind] || {};
+        const search = el(ids.search);
+        if (search) search.value = '';
+        renderShareDraftList(kind, '');
+        search?.focus();
+    }
+
+    async function submitSharedDraft(kind) {
+        const ids = selectedShareDraftIds(kind);
+        if (!ids.length) return alert('Select at least one teammate.');
+        const isCompose = kind === 'compose';
+        const html = getComposerHtml(kind);
+        if (isComposerEmpty(kind)) return alert('Write a message first.');
+        const to = (el(isCompose ? 'composeTo' : 'replyTo')?.value || '').trim();
+        const cc = (el(isCompose ? 'composeCc' : 'replyCc')?.value || '').trim();
+        const inboxId = Number(el(isCompose ? 'composeFrom' : 'replyFrom')?.value || 0);
+        const subject = isCompose ? (el('composeSubject')?.value || '').trim() : '';
+        if (!to) return alert('Add at least one To recipient.');
+        if (isCompose && !inboxId) return alert('Select a From inbox.');
+        if (isCompose && !subject) return alert('Subject is required.');
+        if (!isCompose && !state.selectedId) return;
+
+        const sendBtn = el(isCompose ? 'btnSendCompose' : 'btnSendReply');
+        const menuBtn = el(isCompose ? 'btnSendComposeMenu' : 'btnSendReplyMenu');
+        const confirmBtn = el(isCompose ? 'btnConfirmComposeShareDraft' : 'btnConfirmReplyShareDraft');
+        if (sendBtn) sendBtn.disabled = true;
+        if (menuBtn) menuBtn.disabled = true;
+        if (confirmBtn) confirmBtn.disabled = true;
+        try {
+            const files = isCompose ? state.composeAttachments : state.replyAttachments;
+            const prepared = prepareEmailSendPayload(html, files);
+            const payload = {
+                body: prepared.body,
+                to,
+                cc: cc || null,
+                share_with_user_ids: ids,
+                attachments: prepared.attachments,
+            };
+            if (inboxId) payload.inbox_id = inboxId;
+            if (isCompose) {
+                payload.subject = subject;
+                if (state.composeDraftConversationId) payload.draft_conversation_id = state.composeDraftConversationId;
+            }
+            const path = isCompose
+                ? '/compose/share-draft'
+                : '/conversations/' + state.selectedId + '/share-draft';
+            const data = await api(path, { method: 'POST', body: payload });
+            closeThreadPops();
+            if (isCompose) {
+                state.composeAttachments = [];
+                state.composeDraftConversationId = data.conversation?.id || null;
+                renderAttachChips('compose');
+                hideMentionPopup('compose');
+                closeModal();
+                if (inboxId) {
+                    state.view = 'drafts';
+                    state.selectedInboxId = inboxId;
+                    state.expandedInboxIds[inboxId] = true;
+                }
+                await loadBootstrap();
+                await loadConversations();
+                if (data.conversation?.id) await openConversation(data.conversation.id);
+            } else {
+                if (el('modalReply')?.style.display === 'grid') closeModal();
+                await openConversation(data.conversation?.id || state.selectedId);
+                await loadConversations();
+            }
+        } catch (err) {
+            alert(err.message || 'Could not share draft.');
+        } finally {
+            if (sendBtn) sendBtn.disabled = false;
+            if (menuBtn) menuBtn.disabled = false;
+            if (confirmBtn) confirmBtn.disabled = false;
+        }
     }
 
     function openAssignMenu(btn) {
@@ -8107,7 +8347,9 @@
             e.preventDefault();
             e.stopPropagation();
             const msg = (state.conversation?.messages || []).find(m => String(m.id) === String(editDraftBtn.dataset.editDraft));
-            if (msg) openDraftReplyModal(msg);
+            if (!msg) return;
+            if (isComposeOnlyDraft(state.conversation)) openComposeDraftModal(msg);
+            else openDraftReplyModal(msg);
             return;
         }
         if (e.target.closest('a, button')) return;
@@ -8407,6 +8649,8 @@
         e.stopPropagation();
         const mode = btn.dataset.sendMode;
         if (mode === 'later') {
+            const share = el('replyShareDraftFields');
+            if (share) share.hidden = true;
             const fields = el('sendLaterFields');
             if (fields) {
                 fields.hidden = false;
@@ -8416,6 +8660,10 @@
                 }
                 input?.focus();
             }
+            return;
+        }
+        if (mode === 'share-draft') {
+            openShareDraftPicker('reply');
             return;
         }
         closeThreadPops();
@@ -8437,6 +8685,21 @@
         }
         closeThreadPops();
         await sendReply({ sendAt: datetimeLocalToApi(raw) });
+    });
+
+    el('replyShareDraftSearch')?.addEventListener('input', (e) => {
+        renderShareDraftList('reply', e.target.value);
+    });
+    el('replyShareDraftSearch')?.addEventListener('click', (e) => e.stopPropagation());
+    el('replyShareDraftList')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-share-user]');
+        if (!btn) return;
+        e.stopPropagation();
+        toggleShareDraftUser('reply', btn.dataset.shareUser);
+    });
+    el('btnConfirmReplyShareDraft')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await submitSharedDraft('reply');
     });
 
     async function sendReply(opts = {}) {
@@ -8959,6 +9222,8 @@
         e.stopPropagation();
         const mode = btn.dataset.composeSendMode;
         if (mode === 'later') {
+            const share = el('composeShareDraftFields');
+            if (share) share.hidden = true;
             const fields = el('composeSendLaterFields');
             if (fields) {
                 fields.hidden = false;
@@ -8968,6 +9233,10 @@
                 }
                 input?.focus();
             }
+            return;
+        }
+        if (mode === 'share-draft') {
+            openShareDraftPicker('compose');
             return;
         }
         closeThreadPops();
@@ -8983,6 +9252,21 @@
         }
         closeThreadPops();
         await sendCompose({ sendAt: datetimeLocalToApi(raw) });
+    });
+
+    el('composeShareDraftSearch')?.addEventListener('input', (e) => {
+        renderShareDraftList('compose', e.target.value);
+    });
+    el('composeShareDraftSearch')?.addEventListener('click', (e) => e.stopPropagation());
+    el('composeShareDraftList')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-share-user]');
+        if (!btn) return;
+        e.stopPropagation();
+        toggleShareDraftUser('compose', btn.dataset.shareUser);
+    });
+    el('btnConfirmComposeShareDraft')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await submitSharedDraft('compose');
     });
 
     async function sendCompose(opts = {}) {
@@ -9013,11 +9297,13 @@
                 })),
             };
             if (sendAt) payload.send_at = sendAt;
+            if (state.composeDraftConversationId) payload.draft_conversation_id = state.composeDraftConversationId;
             const prepared = prepareEmailSendPayload(payload.body, state.composeAttachments);
             payload.body = prepared.body;
             payload.attachments = prepared.attachments;
             const data = await api('/compose', { method: 'POST', body: payload });
             state.composeAttachments = [];
+            state.composeDraftConversationId = null;
             renderAttachChips('compose');
             hideMentionPopup('compose');
             setComposerHtml('compose', '');

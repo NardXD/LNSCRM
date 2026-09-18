@@ -676,6 +676,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::delete('/conversations/{conversation}/lead', [InboxController::class, 'detachLead'])->name('api.inbox.conversations.lead.detach');
         Route::post('/conversations/{conversation}/reply', [InboxController::class, 'reply'])->name('api.inbox.conversations.reply');
         Route::post('/conversations/{conversation}/save-draft', [InboxController::class, 'saveDraft'])->name('api.inbox.conversations.save-draft');
+        Route::post('/conversations/{conversation}/share-draft', [InboxController::class, 'shareReplyDraft'])->name('api.inbox.conversations.share-draft');
         Route::delete('/conversations/{conversation}/scheduled-replies/{scheduledReply}', [InboxController::class, 'cancelScheduledReply'])->name('api.inbox.conversations.scheduled-replies.cancel');
         Route::post('/conversations/{conversation}/comments', [InboxController::class, 'storeComment'])->name('api.inbox.conversations.comments.store');
         Route::patch('/conversations/{conversation}/comments/{comment}', [InboxController::class, 'updateComment'])->name('api.inbox.conversations.comments.update');
@@ -683,6 +684,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::get('/conversations/{conversation}/comments/{comment}/attachments/{index}', [InboxController::class, 'downloadCommentAttachment'])->name('api.inbox.conversations.comments.attachments');
         Route::get('/conversations/{conversation}/messages/{message}/attachments/{index}', [InboxController::class, 'downloadMessageAttachment'])->name('api.inbox.conversations.messages.attachments')->whereNumber('index');
         Route::post('/compose', [InboxController::class, 'compose'])->name('api.inbox.compose');
+        Route::post('/compose/share-draft', [InboxController::class, 'shareComposeDraft'])->name('api.inbox.compose.share-draft');
         Route::post('/inboxes', [InboxController::class, 'storeInbox'])->name('api.inbox.inboxes.store');
         Route::put('/inboxes/{sharedInbox}/members', [InboxController::class, 'updateInboxMembers'])->name('api.inbox.inboxes.members');
         Route::post('/tags', [InboxController::class, 'storeTag'])->name('api.inbox.tags.store');

@@ -857,14 +857,28 @@ class InboxController extends Controller
         InboxConversation $conversation,
         InboxMessage $message,
         int $index
-    ): Response|JsonResponse {
+    ): Response|StreamedResponse|JsonResponse {
         $this->authorizeConversation($request->user(), $conversation);
         if ((int) $message->inbox_conversation_id !== (int) $conversation->id) {
             return response()->json(['message' => 'Message not found.'], 404);
         }
 
-        $meta = collect($message->attachments ?? [])->values()->get($index);
-        if (! is_array($meta) || empty($meta['id'])) {
+        $meta = collect($message->attachments ?? [])->values()->get($index)
+            ?? collect($message->attachments ?? [])->firstWhere('index', $index);
+        if (! is_array($meta) || empty($meta['name'])) {
+            return response()->json(['message' => 'Attachment not found.'], 404);
+        }
+
+        $localPath = (string) ($meta['path'] ?? '');
+        if ($localPath !== '' && Storage::disk('local')->exists($localPath)) {
+            return Storage::disk('local')->download(
+                $localPath,
+                $meta['name'] ?? 'attachment',
+                ['Content-Type' => $meta['content_type'] ?? $meta['contentType'] ?? 'application/octet-stream']
+            );
+        }
+
+        if (empty($meta['id'])) {
             return response()->json(['message' => 'Attachment not found.'], 404);
         }
 
@@ -1667,6 +1681,123 @@ class InboxController extends Controller
         ]);
     }
 
+    public function shareComposeDraft(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $validated = $request->validate($this->shareDraftRules(true));
+
+        $inbox = $this->accessibleInboxes($user)
+            ->where('id', $validated['inbox_id'])
+            ->with('account')
+            ->first();
+        if (! $inbox) {
+            return response()->json(['message' => 'Inbox not found.'], 404);
+        }
+
+        $shareWith = $this->resolveShareDraftUsers($user, $validated['share_with_user_ids'] ?? [], $inbox);
+        if ($shareWith->isEmpty()) {
+            return response()->json(['message' => 'Select at least one teammate to share this draft with.'], 422);
+        }
+
+        $parsed = $this->validatedComposeRecipients($validated);
+        if ($parsed instanceof JsonResponse) {
+            return $parsed;
+        }
+
+        $prepared = $this->prepareShareDraftContent($validated);
+        if ($prepared instanceof JsonResponse) {
+            return $prepared;
+        }
+
+        $draftConversation = null;
+        if (! empty($validated['draft_conversation_id'])) {
+            $draftConversation = InboxConversation::query()
+                ->where('company_id', $user->company_id)
+                ->whereKey($validated['draft_conversation_id'])
+                ->first();
+            if (! $draftConversation) {
+                return response()->json(['message' => 'Draft not found.'], 404);
+            }
+            $this->authorizeConversation($user, $draftConversation);
+        }
+
+        $result = $this->replyService->shareDraft($inbox, $user, [
+            'to' => $parsed['to'],
+            'cc' => $parsed['cc'],
+            'subject' => $validated['subject'],
+            'body' => $prepared['body'],
+            'attachments' => $prepared['attachments'],
+            'share_with_users' => $shareWith,
+        ], $draftConversation);
+
+        $this->recordSharedDraftActivity($result['conversation'], $user, $shareWith, $prepared['plain']);
+
+        return response()->json([
+            'shared' => true,
+            'conversation' => $this->formatConversation($result['conversation'], true),
+            'message' => $this->formatMessage($result['message']),
+        ], 201);
+    }
+
+    public function shareReplyDraft(Request $request, InboxConversation $conversation): JsonResponse
+    {
+        $this->authorizeConversation($request->user(), $conversation);
+        $validated = $request->validate($this->shareDraftRules(false));
+
+        $inbox = $conversation->inbox;
+        if (! empty($validated['inbox_id']) && (int) $validated['inbox_id'] !== (int) $inbox?->id) {
+            $requestedInbox = $this->accessibleInboxes($request->user())
+                ->where('id', $validated['inbox_id'])
+                ->with('account')
+                ->first();
+            if (! $requestedInbox) {
+                return response()->json(['message' => 'From inbox not found.'], 404);
+            }
+            $inbox = $requestedInbox;
+        }
+        if (! $inbox) {
+            return response()->json(['message' => 'Inbox not found.'], 404);
+        }
+
+        $shareWith = $this->resolveShareDraftUsers($request->user(), $validated['share_with_user_ids'] ?? [], $inbox);
+        if ($shareWith->isEmpty()) {
+            return response()->json(['message' => 'Select at least one teammate to share this draft with.'], 422);
+        }
+
+        $targets = $this->resolveReplyRecipients($request, $conversation, $inbox, $validated);
+        if ($targets instanceof JsonResponse) {
+            return $targets;
+        }
+
+        $prepared = $this->prepareShareDraftContent($validated);
+        if ($prepared instanceof JsonResponse) {
+            return $prepared;
+        }
+
+        $result = $this->replyService->shareDraft($inbox, $request->user(), [
+            'to' => $targets['to'],
+            'cc' => $targets['cc'],
+            'subject' => $conversation->subject,
+            'body' => $prepared['body'],
+            'attachments' => $prepared['attachments'],
+            'share_with_users' => $shareWith,
+        ], $conversation);
+
+        $this->recordSharedDraftActivity($result['conversation'], $request->user(), $shareWith, $prepared['plain']);
+
+        return response()->json([
+            'shared' => true,
+            'conversation' => $this->formatConversation($result['conversation']->fresh([
+                'assignee',
+                'tags',
+                'leadLabels',
+                'inbox',
+                'messages',
+            ]) ?? $result['conversation'], true),
+            'message' => $this->formatMessage($result['message']),
+        ]);
+    }
+
     /**
      * @param  array{body: string, to?: ?string, cc?: ?string, reply_all?: mixed}  $validated
      * @return array{to: string, cc: ?string}|JsonResponse
@@ -2025,6 +2156,7 @@ class InboxController extends Controller
             'subject' => ['required', 'string', 'max:500'],
             'body' => ['required', 'string', 'max:5000000'],
             'send_at' => ['nullable', 'date', 'after:now'],
+            'draft_conversation_id' => ['nullable', 'integer'],
             'attachments' => ['nullable', 'array', 'max:10'],
             'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
@@ -2086,6 +2218,31 @@ class InboxController extends Controller
         }
         $htmlBody = $prepared['body'];
         $attachments = $prepared['attachments'];
+
+        $draftConversation = null;
+        if (! empty($validated['draft_conversation_id'])) {
+            $draftConversation = InboxConversation::query()
+                ->where('company_id', $user->company_id)
+                ->whereKey($validated['draft_conversation_id'])
+                ->first();
+            if (! $draftConversation) {
+                return response()->json(['message' => 'Draft not found.'], 404);
+            }
+            $this->authorizeConversation($user, $draftConversation);
+            if ($draftConversation->folder !== 'drafts' && $draftConversation->status !== 'drafts') {
+                return response()->json(['message' => 'That conversation is not a draft.'], 422);
+            }
+            if ($attachments === []) {
+                $existingDraft = InboxMessage::query()
+                    ->where('inbox_conversation_id', $draftConversation->id)
+                    ->where('is_draft', true)
+                    ->orderByDesc('id')
+                    ->first();
+                if ($existingDraft) {
+                    $attachments = $this->replyService->loadDraftAttachmentsForSend($existingDraft);
+                }
+            }
+        }
 
         $to = $toEmails->implode(', ');
         $cc = $ccEmails->isNotEmpty() ? $ccEmails->implode(', ') : null;
@@ -2169,7 +2326,7 @@ class InboxController extends Controller
                 'subject' => $validated['subject'],
                 'body' => $htmlBody,
                 'attachments' => $attachments,
-            ]);
+            ], $draftConversation);
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 502);
         }
@@ -3430,21 +3587,26 @@ class InboxController extends Controller
 
         $attachments = $allAttachments
             ->map(function ($file, $index) use ($m) {
-                if (! is_array($file) || empty($file['id']) || empty($file['name'])) {
+                if (! is_array($file) || empty($file['name'])) {
                     return null;
                 }
-                // Inline/cid images are shown inside the HTML body, not as chips.
-                if (! empty($file['is_inline'])) {
+                $hasGraphId = ! empty($file['id']);
+                $hasPath = ! empty($file['path']);
+                if (! $hasGraphId && ! $hasPath) {
+                    return null;
+                }
+                if (! empty($file['is_inline']) || ! empty($file['isInline'])) {
                     return null;
                 }
 
                 return [
-                    'id' => $file['id'],
+                    'id' => $file['id'] ?? null,
                     'name' => $file['name'] ?? 'file',
-                    'content_type' => $file['content_type'] ?? 'application/octet-stream',
+                    'content_type' => $file['content_type'] ?? $file['contentType'] ?? 'application/octet-stream',
                     'size' => $file['size'] ?? null,
-                    'index' => $index,
-                    'download_url' => url('/api/inbox/conversations/'.$m->inbox_conversation_id.'/messages/'.$m->id.'/attachments/'.$index),
+                    'index' => $file['index'] ?? $index,
+                    'local' => $hasPath && ! $hasGraphId,
+                    'download_url' => url('/api/inbox/conversations/'.$m->inbox_conversation_id.'/messages/'.$m->id.'/attachments/'.($file['index'] ?? $index)),
                 ];
             })
             ->filter()
@@ -3537,6 +3699,164 @@ class InboxController extends Controller
         }
 
         return $html;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function shareDraftRules(bool $compose): array
+    {
+        $rules = [
+            'body' => ['required', 'string', 'max:5000000'],
+            'to' => [$compose ? 'required' : 'nullable', 'string', 'max:2000'],
+            'cc' => ['nullable', 'string', 'max:2000'],
+            'inbox_id' => [$compose ? 'required' : 'nullable', 'integer'],
+            'share_with_user_ids' => ['required', 'array', 'min:1', 'max:20'],
+            'share_with_user_ids.*' => ['integer'],
+            'attachments' => ['nullable', 'array', 'max:10'],
+            'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
+            'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
+            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:5000000'],
+            'attachments.*.isInline' => ['nullable', 'boolean'],
+            'attachments.*.contentId' => ['nullable', 'string', 'max:120'],
+        ];
+        if ($compose) {
+            $rules['subject'] = ['required', 'string', 'max:500'];
+            $rules['draft_conversation_id'] = ['nullable', 'integer'];
+        }
+
+        return $rules;
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return array{to: string, cc: ?string}|JsonResponse
+     */
+    private function validatedComposeRecipients(array $validated): array|JsonResponse
+    {
+        $toEmails = collect(explode(',', (string) ($validated['to'] ?? '')))
+            ->map(fn ($e) => trim($e))
+            ->filter()
+            ->values();
+        if ($toEmails->isEmpty()) {
+            return response()->json(['message' => 'Add at least one recipient.'], 422);
+        }
+        foreach ($toEmails as $email) {
+            if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return response()->json(['message' => "Invalid recipient: {$email}"], 422);
+            }
+        }
+        $ccEmails = $this->normalizeRecipientEmails($validated['cc'] ?? null)
+            ->reject(fn ($email) => $toEmails->contains($email))
+            ->values();
+        foreach ($ccEmails as $email) {
+            if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return response()->json(['message' => "Invalid recipient: {$email}"], 422);
+            }
+        }
+
+        return [
+            'to' => $toEmails->implode(', '),
+            'cc' => $ccEmails->isNotEmpty() ? $ccEmails->implode(', ') : null,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return array{body: string, attachments: array<int, mixed>, plain: string}|JsonResponse
+     */
+    private function prepareShareDraftContent(array $validated): array|JsonResponse
+    {
+        $htmlBody = $validated['body'];
+        if (! str_contains($htmlBody, '<')) {
+            $htmlBody = nl2br(e($htmlBody));
+        }
+        $attachments = $this->normalizeAttachments($validated['attachments'] ?? []);
+        if ($attachments === false) {
+            return response()->json(['message' => 'Attachments are too large. Keep each file under 3 MB.'], 422);
+        }
+        $prepared = $this->prepareTemplateContent($htmlBody, $attachments);
+        if (count($prepared['attachments']) > 10) {
+            return response()->json(['message' => 'Too many attachments. Use up to 5 files plus a few inline images.'], 422);
+        }
+        $plain = trim(strip_tags($prepared['body']));
+        if ($plain === '' && $prepared['attachments'] === []) {
+            return response()->json(['message' => 'Write a message first.'], 422);
+        }
+
+        return [
+            'body' => $prepared['body'],
+            'attachments' => $prepared['attachments'],
+            'plain' => $plain,
+        ];
+    }
+
+    /**
+     * @param  array<int, mixed>  $ids
+     * @return Collection<int, User>
+     */
+    private function resolveShareDraftUsers(User $actor, array $ids, SharedInbox $inbox): Collection
+    {
+        $wanted = collect($ids)
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0 && $id !== (int) $actor->id)
+            ->unique()
+            ->values();
+        if ($wanted->isEmpty()) {
+            return collect();
+        }
+
+        $users = User::query()
+            ->where('company_id', $actor->company_id)
+            ->whereIn('id', $wanted->all())
+            ->get()
+            ->keyBy('id');
+
+        return $wanted
+            ->map(fn ($id) => $users->get($id))
+            ->filter(fn ($user) => $user instanceof User && $inbox->userCanAccess($user))
+            ->values();
+    }
+
+    /**
+     * @param  Collection<int, User>  $shareWith
+     */
+    private function recordSharedDraftActivity(
+        InboxConversation $conversation,
+        User $actor,
+        Collection $shareWith,
+        string $snippet
+    ): void {
+        $names = $shareWith->pluck('name')->filter()->implode(', ');
+        $this->recordActivity(
+            $conversation,
+            $actor,
+            'draft_shared',
+            $actor->name.' shared a draft with '.$names,
+            [
+                'shared_with_user_ids' => $shareWith->pluck('id')->all(),
+                'snippet' => $snippet,
+            ],
+            false
+        );
+
+        foreach ($shareWith as $recipient) {
+            try {
+                $recipient->notify(new InboxThreadUpdateNotification(
+                    conversation: $conversation,
+                    action: 'draft_shared',
+                    summary: $actor->name.' shared a draft with you on "'.($conversation->subject ?: 'a conversation').'"',
+                    actor: $actor,
+                    snippet: $snippet,
+                ));
+            } catch (\Throwable $e) {
+                Log::warning('Failed to notify shared inbox draft', [
+                    'conversation_id' => $conversation->id,
+                    'user_id' => $recipient->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     private function assertCommentOnConversation(

@@ -68,6 +68,8 @@ class InboxReplyService
             'sent_at' => now(),
         ]);
 
+        $this->consumeDraftMessages($conversation);
+
         $conversation->update([
             'last_message_at' => now(),
             'snippet' => EmailQuotedHistory::snippet($body),
@@ -196,6 +198,7 @@ class InboxReplyService
         $snippet = EmailQuotedHistory::snippet($body);
 
         if ($draft) {
+            $this->consumeDraftMessages($draft);
             $draft->update([
                 'folder' => 'sent',
                 'external_conversation_id' => $draft->external_conversation_id ?: $localId,
@@ -477,6 +480,194 @@ class InboxReplyService
             'attachments' => [],
             'error_message' => null,
         ]);
+    }
+
+    /**
+     * Save a compose or reply as a CRM draft and hand it to teammates.
+     *
+     * @param  array{
+     *     to: string,
+     *     cc?: ?string,
+     *     subject?: ?string,
+     *     body: string,
+     *     attachments?: array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>,
+     *     share_with_users: \Illuminate\Support\Collection<int, User>,
+     * }  $payload
+     * @return array{conversation: InboxConversation, message: InboxMessage}
+     */
+    public function shareDraft(
+        SharedInbox $inbox,
+        User $actor,
+        array $payload,
+        ?InboxConversation $conversation = null
+    ): array {
+        $to = (string) $payload['to'];
+        $cc = $payload['cc'] ?? null;
+        $body = (string) $payload['body'];
+        $shareWith = collect($payload['share_with_users'] ?? []);
+        $assignee = $shareWith->first();
+        $fromEmail = $inbox->email ?? $inbox->account?->email;
+        $subject = trim((string) ($payload['subject'] ?? $conversation?->subject ?? ''));
+
+        if (! $conversation) {
+            $conversation = InboxConversation::create([
+                'company_id' => $actor->company_id,
+                'shared_inbox_id' => $inbox->id,
+                'folder' => 'drafts',
+                'external_conversation_id' => 'local-draft-'.uniqid(),
+                'subject' => $subject,
+                'snippet' => EmailQuotedHistory::snippet($body),
+                'from_name' => $actor->name,
+                'from_email' => $fromEmail,
+                'status' => 'drafts',
+                'assigned_to' => $assignee?->id,
+                'is_read' => true,
+                'message_count' => 1,
+                'last_message_at' => now(),
+            ]);
+        } else {
+            $updates = [
+                'assigned_to' => $assignee?->id ?: $conversation->assigned_to,
+                'last_message_at' => now(),
+                'snippet' => EmailQuotedHistory::snippet($body, $conversation->snippet),
+            ];
+            if ($conversation->folder === 'drafts' || $conversation->status === 'drafts') {
+                $updates['subject'] = $subject !== '' ? $subject : $conversation->subject;
+                $updates['folder'] = 'drafts';
+                $updates['status'] = 'drafts';
+            }
+            $conversation->update($updates);
+        }
+
+        $draft = InboxMessage::query()
+            ->where('inbox_conversation_id', $conversation->id)
+            ->where('is_draft', true)
+            ->orderByDesc('id')
+            ->first();
+
+        $attrs = [
+            'direction' => 'outbound',
+            'is_draft' => true,
+            'from_name' => $actor->name,
+            'from_email' => $fromEmail,
+            'to_emails' => $to,
+            'cc_emails' => $cc,
+            'subject' => $subject !== '' ? $subject : $conversation->subject,
+            'body_html' => $body,
+            'body_text' => strip_tags($body),
+            'is_read' => true,
+            'sent_at' => now(),
+        ];
+
+        if ($draft) {
+            $draft->fill($attrs);
+            $draft->save();
+        } else {
+            $draft = InboxMessage::create($attrs + [
+                'inbox_conversation_id' => $conversation->id,
+                'external_message_id' => 'local-draft-'.uniqid(),
+                'attachments' => [],
+            ]);
+        }
+
+        $incoming = $payload['attachments'] ?? [];
+        if (is_array($incoming) && $incoming !== []) {
+            $this->deleteDraftAttachmentFiles($draft);
+            $draft->update(['attachments' => $this->storeDraftAttachments($draft, $incoming)]);
+        }
+
+        $conversation->update(['message_count' => $conversation->messages()->count()]);
+
+        return [
+            'message' => $draft->fresh() ?? $draft,
+            'conversation' => $conversation->fresh(['assignee', 'tags', 'leadLabels', 'inbox']) ?? $conversation,
+        ];
+    }
+
+    /**
+     * @param  array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>  $attachments
+     * @return array<int, array<string, mixed>>
+     */
+    public function storeDraftAttachments(InboxMessage $message, array $attachments): array
+    {
+        $stored = [];
+        foreach ($attachments as $index => $attachment) {
+            $binary = base64_decode($attachment['contentBytes'] ?? '', true);
+            if ($binary === false) {
+                continue;
+            }
+            $safeName = Str::slug(pathinfo((string) ($attachment['name'] ?? 'file'), PATHINFO_FILENAME)) ?: 'file';
+            $ext = pathinfo((string) ($attachment['name'] ?? ''), PATHINFO_EXTENSION);
+            $filename = $index.'_'.$safeName.($ext !== '' ? '.'.$ext : '');
+            $path = 'inbox-drafts/'.$message->id.'/'.$filename;
+            Storage::disk('local')->put($path, $binary);
+            $item = [
+                'name' => $attachment['name'] ?? $filename,
+                'content_type' => $attachment['contentType'] ?? 'application/octet-stream',
+                'size' => strlen($binary),
+                'path' => $path,
+                'index' => $index,
+            ];
+            if (! empty($attachment['isInline']) && ! empty($attachment['contentId'])) {
+                $item['is_inline'] = true;
+                $item['content_id'] = (string) $attachment['contentId'];
+            }
+            $stored[] = $item;
+        }
+
+        return $stored;
+    }
+
+    /**
+     * @return array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>
+     */
+    public function loadDraftAttachmentsForSend(InboxMessage $message): array
+    {
+        $loaded = [];
+        foreach ($message->attachments ?? [] as $attachment) {
+            $path = (string) ($attachment['path'] ?? '');
+            if ($path === '' || ! Storage::disk('local')->exists($path)) {
+                continue;
+            }
+            $item = [
+                'name' => (string) ($attachment['name'] ?? 'attachment'),
+                'contentType' => (string) ($attachment['content_type'] ?? $attachment['contentType'] ?? 'application/octet-stream'),
+                'contentBytes' => base64_encode((string) Storage::disk('local')->get($path)),
+            ];
+            if (! empty($attachment['is_inline']) && ! empty($attachment['content_id'])) {
+                $item['isInline'] = true;
+                $item['contentId'] = (string) $attachment['content_id'];
+            }
+            $loaded[] = $item;
+        }
+
+        return $loaded;
+    }
+
+    public function deleteDraftAttachmentFiles(InboxMessage $message): void
+    {
+        foreach ($message->attachments ?? [] as $attachment) {
+            $path = (string) ($attachment['path'] ?? '');
+            if ($path !== '' && Storage::disk('local')->exists($path)) {
+                Storage::disk('local')->delete($path);
+            }
+        }
+        $dir = 'inbox-drafts/'.$message->id;
+        if (Storage::disk('local')->exists($dir)) {
+            Storage::disk('local')->deleteDirectory($dir);
+        }
+    }
+
+    public function consumeDraftMessages(InboxConversation $conversation): void
+    {
+        InboxMessage::query()
+            ->where('inbox_conversation_id', $conversation->id)
+            ->where('is_draft', true)
+            ->get()
+            ->each(function (InboxMessage $message) {
+                $this->deleteDraftAttachmentFiles($message);
+                $message->delete();
+            });
     }
 
     /**
