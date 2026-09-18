@@ -205,6 +205,8 @@
                     <div class="inbox-composer-modes">
                         <button type="button" class="inbox-composer-mode is-active" data-composer-mode="comment" id="btnModeComment">Comment</button>
                         <button type="button" class="inbox-composer-mode" data-composer-mode="reply" id="btnModeReply">Reply</button>
+                        <button type="button" class="inbox-composer-mode" data-composer-mode="forward" id="btnModeForward">Forward</button>
+                        <button type="button" class="inbox-composer-mode" data-composer-mode="resend" id="btnModeResend">Resend</button>
                     </div>
 
                     <div class="inbox-composer-card">
@@ -295,8 +297,8 @@
 {{-- Modals --}}
 <div class="inbox-modal-backdrop" id="modalBackdrop" style="display:none;">
     <div class="inbox-modal inbox-modal-wide" id="modalCompose" style="display:none;">
-        <h3>New message</h3>
-        <p class="inbox-modal-help">Send email through a connected Outlook inbox.</p>
+        <h3 id="composeModalTitle">New message</h3>
+        <p class="inbox-modal-help" id="composeModalHelp">Send email through a connected Outlook inbox.</p>
         <label>From
             <select id="composeFrom" class="form-input"></select>
         </label>
@@ -358,7 +360,7 @@
 
     <div class="inbox-modal inbox-modal-wide" id="modalReply" style="display:none;">
         <h3 id="replyModalTitle">Reply</h3>
-        <p class="inbox-modal-help">Email reply via Outlook.</p>
+        <p class="inbox-modal-help" id="replyModalHelp">Email reply via Outlook.</p>
         <label>From
             <select id="replyFrom" class="form-input" aria-label="From"></select>
         </label>
@@ -2162,6 +2164,7 @@
 }
 .inbox-composer-modes {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.15rem;
     margin-bottom: 0.45rem;
 }
@@ -3926,6 +3929,13 @@
         hideMentionPopup('comment');
     }
 
+    function setReplyModalCopy(title, help) {
+        const titleEl = el('replyModalTitle');
+        const helpEl = el('replyModalHelp');
+        if (titleEl) titleEl.textContent = title;
+        if (helpEl) helpEl.textContent = help;
+    }
+
     function openReplyModal(message = null, opts = {}) {
         if (!state.composerCanReply) return;
         const replyAll = !!opts.replyAll;
@@ -3933,12 +3943,12 @@
         state.replyAll = replyAll;
         if (force) state.replyDraftId = null;
         state.shareDraftSelected.reply = {};
-        const titleEl = el('replyModalTitle');
-        if (titleEl) titleEl.textContent = replyAll ? 'Reply all' : 'Reply';
+        setReplyModalCopy(replyAll ? 'Reply all' : 'Reply', 'Email reply via Outlook.');
         hideMentionPopup('reply');
         openModal('modalReply');
         populateReplyHeaders(message, { replyAll, force });
         applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
+        el('composerHint').textContent = 'Reply via Outlook';
         el('replyBody')?.focus();
     }
 
@@ -3949,8 +3959,7 @@
         state.replyDraftId = (message.external_message_id && !String(message.external_message_id).startsWith('local-'))
             ? message.external_message_id
             : null;
-        const titleEl = el('replyModalTitle');
-        if (titleEl) titleEl.textContent = 'Edit draft';
+        setReplyModalCopy('Edit draft', 'Send draft via Outlook.');
         hideMentionPopup('reply');
         openModal('modalReply');
         fillReplyFromSelect();
@@ -3996,6 +4005,7 @@
         renderAttachChips('compose');
         hideMentionPopup('compose');
         refreshTemplateSelects();
+        setComposeModalCopy('Edit draft', 'Send this draft through a connected Outlook inbox.');
         openModal('modalCompose');
         setTimeout(() => el('composeTo')?.focus(), 50);
     }
@@ -5500,30 +5510,47 @@
             });
     }
 
-    function openComposeModal() {
+    function setComposeModalCopy(title, help) {
+        const titleEl = el('composeModalTitle');
+        const helpEl = el('composeModalHelp');
+        if (titleEl) titleEl.textContent = title;
+        if (helpEl) helpEl.textContent = help;
+    }
+
+    function openComposeModal(opts = {}) {
         const connected = state.inboxes.filter(i => i.connected);
         if (!connected.length) {
             alert('Connect an Outlook inbox first.');
             return;
         }
+        const preferred = opts.inboxId ? Number(opts.inboxId) : Number(state.selectedInboxId || state.conversation?.inbox_id || 0);
         el('composeFrom').innerHTML = connected.map(i =>
-            `<option value="${i.id}" ${state.selectedInboxId === i.id ? 'selected' : ''}>${escapeHtml(i.name)} (${escapeHtml(i.email || 'Outlook')})</option>`
+            `<option value="${i.id}" ${Number(i.id) === preferred ? 'selected' : ''}>${escapeHtml(i.name)} (${escapeHtml(i.email || 'Outlook')})</option>`
         ).join('');
         if (!el('composeFrom').value && connected[0]) {
             el('composeFrom').value = String(connected[0].id);
         }
-        el('composeTo').value = '';
-        el('composeCc').value = '';
-        el('composeSubject').value = '';
-        applyComposerSignature('compose');
-        state.composeAttachments = [];
-        state.composeDraftConversationId = null;
+        el('composeTo').value = opts.to || '';
+        el('composeCc').value = opts.cc || '';
+        el('composeSubject').value = opts.subject || '';
+        if (opts.bodyHtml != null) {
+            if (opts.withSignature) applyComposerSignature('compose', opts.bodyHtml);
+            else setComposerHtml('compose', opts.bodyHtml);
+        } else {
+            applyComposerSignature('compose');
+        }
+        state.composeAttachments = opts.attachments || [];
+        state.composeDraftConversationId = opts.draftConversationId || null;
         state.shareDraftSelected.compose = {};
         renderAttachChips('compose');
         hideMentionPopup('compose');
         refreshTemplateSelects();
+        setComposeModalCopy(
+            opts.title || 'New message',
+            opts.help || 'Send email through a connected Outlook inbox.'
+        );
         openModal('modalCompose');
-        setTimeout(() => el('composeTo').focus(), 50);
+        setTimeout(() => el(opts.focus || 'composeTo')?.focus(), 50);
     }
 
     function allLeadLabelsSorted() {
@@ -7017,6 +7044,128 @@
         openReplyModal(message, { replyAll: !!replyAll, force: true });
     }
 
+    function latestThreadMessage() {
+        const messages = (state.conversation?.messages || []).filter(m => !m.is_draft);
+        return messages.length ? messages[messages.length - 1] : null;
+    }
+
+    function latestOutboundMessage() {
+        const messages = (state.conversation?.messages || []).filter(m => !m.is_draft && m.direction === 'outbound');
+        return messages.length ? messages[messages.length - 1] : null;
+    }
+
+    function forwardSubject(subject) {
+        const value = String(subject || state.conversation?.subject || '').trim() || '(no subject)';
+        return /^fwd:\s*/i.test(value) ? value : 'Fwd: ' + value;
+    }
+
+    function quotedForwardHtml(message) {
+        const name = message.from_name || message.from_email || 'Unknown';
+        const email = message.from_email || '';
+        const from = email
+            ? `${escapeHtml(name)} &lt;${escapeHtml(email)}&gt;`
+            : escapeHtml(name);
+        const date = escapeHtml(formatAbsoluteTime(message.sent_at));
+        const subject = escapeHtml(message.subject || state.conversation?.subject || '');
+        const to = escapeHtml(parseEmailList(message.to || message.to_emails).join(', '));
+        const cc = parseEmailList(message.cc || message.cc_emails);
+        const body = sanitizeHtml(message.body_html || plainToHtml(message.body_text || ''));
+        return `
+            <div><br></div>
+            <div>---------- Forwarded message ---------</div>
+            <div>From: ${from}</div>
+            ${date ? `<div>Date: ${date}</div>` : ''}
+            ${subject ? `<div>Subject: ${subject}</div>` : ''}
+            ${to ? `<div>To: ${to}</div>` : ''}
+            ${cc.length ? `<div>Cc: ${escapeHtml(cc.join(', '))}</div>` : ''}
+            <div><br></div>
+            ${body}
+        `;
+    }
+
+    async function loadMessageAttachmentsForCompose(message) {
+        const files = (message?.attachments || []).filter(a => a.download_url);
+        const out = [];
+        for (const a of files) {
+            if (out.length >= MAX_ATTACH_COUNT) break;
+            try {
+                const res = await fetch(a.download_url, { credentials: 'same-origin' });
+                if (!res.ok) continue;
+                const blob = await res.blob();
+                if (blob.size > MAX_ATTACH_BYTES) continue;
+                const file = new File(
+                    [blob],
+                    a.name || 'attachment',
+                    { type: a.content_type || blob.type || 'application/octet-stream' }
+                );
+                out.push(await readFileAsAttachment(file));
+            } catch (_) {}
+        }
+        return out;
+    }
+
+    async function openForwardModal(message) {
+        const source = message || latestThreadMessage();
+        if (!source) {
+            alert('No message to forward.');
+            return;
+        }
+        const inboxId = state.conversation?.inbox_id || state.conversation?.inbox?.id || state.selectedInboxId;
+        openComposeModal({
+            title: 'Forward',
+            help: 'Forward this email as a new message.',
+            to: '',
+            cc: '',
+            subject: forwardSubject(source.subject || state.conversation?.subject),
+            bodyHtml: quotedForwardHtml(source),
+            withSignature: true,
+            inboxId,
+            focus: 'composeTo',
+        });
+        try {
+            const attachments = await loadMessageAttachmentsForCompose(source);
+            if (el('modalCompose')?.style.display === 'grid' && attachments.length) {
+                state.composeAttachments = attachments;
+                renderAttachChips('compose');
+            }
+        } catch (_) {}
+    }
+
+    async function openResendModal(message) {
+        const source = message || latestOutboundMessage();
+        if (!source) {
+            alert('No sent message to resend.');
+            return;
+        }
+        if (!state.composerCanReply) return;
+        const connected = state.inboxes.filter(i => i.connected);
+        if (!connected.length) {
+            alert('Connect an Outlook inbox first.');
+            return;
+        }
+        state.replyAll = false;
+        state.replyDraftId = null;
+        state.shareDraftSelected.reply = {};
+        setReplyModalCopy('Resend', 'Send this message again. You can edit it first.');
+        hideMentionPopup('reply');
+        openModal('modalReply');
+        fillReplyFromSelect();
+        if (el('replyTo')) el('replyTo').value = parseEmailList(source.to || source.to_emails).join(', ');
+        if (el('replyCc')) el('replyCc').value = parseEmailList(source.cc || source.cc_emails).join(', ');
+        setComposerHtml('reply', source.body_html || plainToHtml(source.body_text || ''));
+        state.replyAttachments = [];
+        renderAttachChips('reply');
+        el('composerHint').textContent = 'Resend via Outlook';
+        el('replyBody')?.focus();
+        try {
+            const attachments = await loadMessageAttachmentsForCompose(source);
+            if (el('modalReply')?.style.display === 'grid' && attachments.length) {
+                state.replyAttachments = attachments;
+                renderAttachChips('reply');
+            }
+        } catch (_) {}
+    }
+
     function clipIconHtml() {
         return '<span class="inbox-msg-clip" title="Has attachments"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></span>';
     }
@@ -7131,6 +7280,13 @@
                                 <button type="button" data-reply-msg="${escapeHtml(String(m.id))}" title="Reply all">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
                                 </button>
+                                <button type="button" data-forward-msg="${escapeHtml(String(m.id))}" title="Forward">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 0 1 4-4h12"/></svg>
+                                </button>
+                                ${m.direction === 'outbound' ? `
+                                <button type="button" data-resend-msg="${escapeHtml(String(m.id))}" title="Resend">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                                </button>` : ''}
                             `}
                         </div>
                     </div>
@@ -7306,6 +7462,17 @@
         if (replyModeBtn) {
             replyModeBtn.disabled = !canReply;
             replyModeBtn.title = canReply ? 'Email reply via Outlook' : 'Reply unavailable in this folder';
+        }
+        const forwardModeBtn = el('btnModeForward');
+        if (forwardModeBtn) {
+            forwardModeBtn.disabled = !canReply;
+            forwardModeBtn.title = canReply ? 'Forward this email' : 'Forward unavailable in this folder';
+        }
+        const resendModeBtn = el('btnModeResend');
+        if (resendModeBtn) {
+            const canResend = canReply && (c.messages || []).some(m => !m.is_draft && m.direction === 'outbound');
+            resendModeBtn.disabled = !canResend;
+            resendModeBtn.title = canResend ? 'Resend the last sent message' : (canReply ? 'No sent message to resend' : 'Resend unavailable in this folder');
         }
         setComposerMode();
         if (!state.replyAll) {
@@ -8811,6 +8978,22 @@
             if (msg) startReplyFromMessage(msg, true);
             return;
         }
+        const forwardBtn = e.target.closest('[data-forward-msg]');
+        if (forwardBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const msg = (state.conversation?.messages || []).find(m => String(m.id) === String(forwardBtn.dataset.forwardMsg));
+            if (msg) openForwardModal(msg);
+            return;
+        }
+        const resendBtn = e.target.closest('[data-resend-msg]');
+        if (resendBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const msg = (state.conversation?.messages || []).find(m => String(m.id) === String(resendBtn.dataset.resendMsg));
+            if (msg) openResendModal(msg);
+            return;
+        }
         const editDraftBtn = e.target.closest('[data-edit-draft]');
         if (editDraftBtn) {
             e.preventDefault();
@@ -9279,6 +9462,8 @@
 
     el('btnModeComment')?.addEventListener('click', () => setComposerMode());
     el('btnModeReply')?.addEventListener('click', () => openReplyModal());
+    el('btnModeForward')?.addEventListener('click', () => openForwardModal());
+    el('btnModeResend')?.addEventListener('click', () => openResendModal());
 
     el('btnOpenTemplateList')?.addEventListener('click', openTemplateListModal);
     el('btnCloseTemplateList')?.addEventListener('click', closeModal);

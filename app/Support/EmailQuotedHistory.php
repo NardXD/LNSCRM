@@ -4,6 +4,16 @@ namespace App\Support;
 
 class EmailQuotedHistory
 {
+    public static function forwardedSubject(?string $subject): string
+    {
+        $value = trim((string) $subject);
+        if ($value === '') {
+            $value = '(no subject)';
+        }
+
+        return preg_match('/^fwd:\s*/i', $value) ? $value : 'Fwd: '.$value;
+    }
+
     public static function snippet(?string $html, ?string $text = null, int $limit = 500): string
     {
         $fromHtml = self::collapseWhitespace(self::stripPlain(self::plainFromHtml((string) $html)));
