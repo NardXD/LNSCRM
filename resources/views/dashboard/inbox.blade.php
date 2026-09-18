@@ -1818,8 +1818,19 @@
 }
 .inbox-msg-head-actions button:hover { background: #f3f4f6; color: var(--inbox-text); }
 .inbox-msg-head-actions svg { width: 15px; height: 15px; }
+.inbox-msg-head-actions button.is-danger:hover { background: #fef2f2; color: #b91c1c; }
 .inbox-msg.internal { background: #fffbeb; border-color: #f3e8c8; }
 .inbox-msg.internal .inbox-msg-from { color: #92400e; }
+.inbox-comment-editor { display: none; margin-top: 0.35rem; }
+.inbox-msg.is-editing .inbox-comment-editor { display: block; }
+.inbox-msg.is-editing .inbox-msg-body,
+.inbox-msg.is-editing .inbox-msg-attachments { display: none; }
+.inbox-msg.is-editing .inbox-msg-head-actions { visibility: hidden; }
+.inbox-comment-editor .inbox-composer-editor {
+    min-height: 72px;
+    max-height: 220px;
+    background: #fff;
+}
 .inbox-composer { border-top: 1px solid var(--inbox-border); padding: 0.7rem 0.9rem 0.85rem; background: #fff; position: relative; flex-shrink: 0; }
 .inbox-composer-card {
     border: 1px solid #e6e8ec;
@@ -6317,6 +6328,10 @@
         return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
     }
 
+    function deleteIconHtml() {
+        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+    }
+
     const MEDIA_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
     const MEDIA_VIDEO_EXTS = ['mp4', 'webm', 'mov', 'm4v', 'ogv'];
 
@@ -6441,8 +6456,10 @@
         const name = comment.user?.name || 'Teammate';
         const preview = String(comment.body_text || htmlToPlain(comment.body_html || '') || '').replace(/\s+/g, ' ').trim();
         const attachments = (comment.attachments || []).map(commentAttachmentHtml).join('');
+        const canEdit = !!comment.can_edit;
+        const commentId = escapeHtml(String(comment.id));
         return `
-            <div class="inbox-msg internal ${expanded ? 'is-expanded' : ''}" data-comment-id="${escapeHtml(String(comment.id))}">
+            <div class="inbox-msg internal ${expanded ? 'is-expanded' : ''}" data-comment-id="${commentId}">
                 <div class="inbox-msg-row">
                     <span class="inbox-avatar" style="background:#d97706">${escapeHtml(initials(name))}</span>
                     <div class="inbox-msg-summary">
@@ -6453,11 +6470,28 @@
                     <div class="inbox-msg-meta">
                         ${(comment.attachments || []).length ? clipIconHtml() : ''}
                         <span class="inbox-msg-time" title="${escapeHtml(comment.created_at ? formatAbsoluteTime(comment.created_at) : '')}">${escapeHtml(formatThreadTime(comment.created_at))}</span>
+                        ${canEdit ? `
+                        <div class="inbox-msg-head-actions">
+                            <button type="button" data-edit-comment="${commentId}" title="Edit comment">
+                                ${editIconHtml()}
+                            </button>
+                            <button type="button" class="is-danger" data-delete-comment="${commentId}" title="Delete comment">
+                                ${deleteIconHtml()}
+                            </button>
+                        </div>` : ''}
                     </div>
                 </div>
                 <div class="inbox-msg-expanded">
                     <div class="inbox-msg-body">${formatMessageBodyHtml(comment)}</div>
                     ${attachments ? `<div class="inbox-msg-attachments">${attachments}</div>` : ''}
+                    ${canEdit ? `
+                    <div class="inbox-comment-editor">
+                        <div class="inbox-composer-editor" contenteditable="true" data-comment-edit-body data-placeholder="Edit comment…" role="textbox" aria-multiline="true"></div>
+                        <div class="inbox-scheduled-actions">
+                            <button type="button" class="inbox-btn primary" data-save-comment="${commentId}">Save</button>
+                            <button type="button" class="inbox-btn ghost" data-cancel-edit-comment="${commentId}">Cancel</button>
+                        </div>
+                    </div>` : ''}
                 </div>
             </div>`;
     }
@@ -7922,6 +7956,34 @@
             })();
             return;
         }
+        const editCommentBtn = e.target.closest('[data-edit-comment]');
+        if (editCommentBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            startEditComment(editCommentBtn.dataset.editComment);
+            return;
+        }
+        const deleteCommentBtn = e.target.closest('[data-delete-comment]');
+        if (deleteCommentBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            deleteComment(deleteCommentBtn.dataset.deleteComment);
+            return;
+        }
+        const saveCommentBtn = e.target.closest('[data-save-comment]');
+        if (saveCommentBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            saveCommentEdit(saveCommentBtn.dataset.saveComment);
+            return;
+        }
+        const cancelEditCommentBtn = e.target.closest('[data-cancel-edit-comment]');
+        if (cancelEditCommentBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            cancelCommentEdit(cancelEditCommentBtn.dataset.cancelEditComment);
+            return;
+        }
         const replyBtn = e.target.closest('[data-reply-msg]');
         if (replyBtn) {
             e.preventDefault();
@@ -7949,6 +8011,22 @@
         card.classList.toggle('is-expanded');
         if (card.dataset.msgId) {
             state.expandedMessageIds[card.dataset.msgId] = card.classList.contains('is-expanded');
+        }
+    });
+    el('threadMessages')?.addEventListener('keydown', (e) => {
+        const editor = e.target.closest('[data-comment-edit-body]');
+        if (!editor) return;
+        const card = editor.closest('.inbox-msg[data-comment-id]');
+        const commentId = card?.dataset.commentId;
+        if (!commentId) return;
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            saveCommentEdit(commentId);
+            return;
+        }
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            cancelCommentEdit(commentId);
         }
     });
     el('btnComposerExpand')?.addEventListener('click', () => {
@@ -8091,12 +8169,82 @@
         }
     });
 
-    function extractMentionUserIds(kind) {
-        const editor = getComposerEl(kind);
+    function extractMentionUserIdsFrom(editor) {
         if (!editor) return [];
         return [...editor.querySelectorAll('[data-mention-user-id]')]
             .map(node => Number(node.dataset.mentionUserId))
             .filter(id => Number.isFinite(id));
+    }
+
+    function extractMentionUserIds(kind) {
+        return extractMentionUserIdsFrom(getComposerEl(kind));
+    }
+
+    function commentCardById(commentId) {
+        const id = String(commentId || '');
+        if (!id) return null;
+        return el('threadMessages')?.querySelector(`.inbox-msg[data-comment-id="${CSS.escape(id)}"]`) || null;
+    }
+
+    function findComment(commentId) {
+        return (state.conversation?.comments || []).find(c => String(c.id) === String(commentId)) || null;
+    }
+
+    function cancelCommentEdit(commentId) {
+        commentCardById(commentId)?.classList.remove('is-editing');
+    }
+
+    function startEditComment(commentId) {
+        const comment = findComment(commentId);
+        const card = commentCardById(commentId);
+        const editor = card?.querySelector('[data-comment-edit-body]');
+        if (!comment?.can_edit || !card || !editor) return;
+        document.querySelectorAll('.inbox-msg.internal.is-editing').forEach(node => {
+            if (node !== card) node.classList.remove('is-editing');
+        });
+        editor.innerHTML = sanitizeHtml(comment.body_html || plainToHtml(comment.body_text || ''));
+        if (!htmlToPlain(editor.innerHTML)) editor.innerHTML = '';
+        card.classList.add('is-editing');
+        editor.focus();
+        placeCaretAtEnd(editor);
+    }
+
+    async function saveCommentEdit(commentId) {
+        if (!state.selectedId || !commentId) return;
+        const card = commentCardById(commentId);
+        const editor = card?.querySelector('[data-comment-edit-body]');
+        if (!editor) return;
+        const html = sanitizeHtml(editor.innerHTML || '');
+        if (!htmlToPlain(html) && !(findComment(commentId)?.attachments || []).length) {
+            return alert('Comment cannot be empty.');
+        }
+        const saveBtn = card.querySelector('[data-save-comment]');
+        if (saveBtn) saveBtn.disabled = true;
+        try {
+            await api('/conversations/' + state.selectedId + '/comments/' + commentId, {
+                method: 'PATCH',
+                body: {
+                    body: htmlToPlain(html) ? html : '<p>Attachment</p>',
+                    mentioned_user_ids: extractMentionUserIdsFrom(editor),
+                },
+            });
+            await openConversation(state.selectedId);
+        } catch (err) {
+            alert(err.message || 'Could not save comment.');
+        } finally {
+            if (saveBtn) saveBtn.disabled = false;
+        }
+    }
+
+    async function deleteComment(commentId) {
+        if (!state.selectedId || !commentId) return;
+        if (!confirm('Delete this internal comment?')) return;
+        try {
+            await api('/conversations/' + state.selectedId + '/comments/' + commentId, { method: 'DELETE' });
+            await openConversation(state.selectedId);
+        } catch (err) {
+            alert(err.message || 'Could not delete comment.');
+        }
     }
 
     el('btnSendComment')?.addEventListener('click', async () => {

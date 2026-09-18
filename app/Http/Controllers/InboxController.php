@@ -1897,6 +1897,98 @@ class InboxController extends Controller
         ], 201);
     }
 
+    public function updateComment(
+        Request $request,
+        InboxConversation $conversation,
+        InboxConversationComment $comment
+    ): JsonResponse {
+        $this->authorizeConversation($request->user(), $conversation);
+        $this->assertCommentOnConversation($conversation, $comment);
+        $this->authorizeCommentMutation($request->user(), $comment);
+
+        $validated = $request->validate([
+            'body' => ['required', 'string', 'max:50000'],
+            'mentioned_user_ids' => ['nullable', 'array', 'max:20'],
+            'mentioned_user_ids.*' => ['integer'],
+        ]);
+
+        [$html, $plain] = $this->commentBodiesFromInput($validated['body']);
+        if ($plain === '' && empty($comment->attachments)) {
+            return response()->json(['message' => 'Comment cannot be empty.'], 422);
+        }
+
+        $mentionIds = $this->validatedMentionIds($request->user(), $validated['mentioned_user_ids'] ?? []);
+        $previousMentionIds = collect($comment->mentioned_user_ids ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+
+        $comment->update([
+            'body_html' => $html,
+            'body_text' => $plain,
+            'mentioned_user_ids' => $mentionIds->all(),
+        ]);
+        $comment->load('user:id,name,email');
+
+        $this->recordActivity(
+            $conversation,
+            $request->user(),
+            'comment_updated',
+            $request->user()->name.' edited an internal comment',
+            [
+                'comment_id' => $comment->id,
+                'mentioned_user_ids' => $mentionIds->all(),
+                'snippet' => $plain,
+            ],
+            false
+        );
+
+        $this->notifyNewCommentMentions(
+            $conversation,
+            $request->user(),
+            $mentionIds->diff($previousMentionIds)->values(),
+            $plain
+        );
+
+        return response()->json([
+            'comment' => $this->formatComment($comment),
+        ]);
+    }
+
+    public function destroyComment(
+        Request $request,
+        InboxConversation $conversation,
+        InboxConversationComment $comment
+    ): JsonResponse {
+        $this->authorizeConversation($request->user(), $conversation);
+        $this->assertCommentOnConversation($conversation, $comment);
+        $this->authorizeCommentMutation($request->user(), $comment);
+
+        $commentId = $comment->id;
+        $snippet = trim((string) $comment->body_text);
+
+        Storage::disk('local')->deleteDirectory("inbox-comments/{$commentId}");
+        $comment->delete();
+
+        $this->recordActivity(
+            $conversation,
+            $request->user(),
+            'comment_deleted',
+            $request->user()->name.' deleted an internal comment',
+            [
+                'comment_id' => $commentId,
+                'snippet' => $snippet,
+            ],
+            false
+        );
+
+        return response()->json([
+            'deleted' => true,
+            'comment_id' => $commentId,
+        ]);
+    }
+
     public function downloadCommentAttachment(
         Request $request,
         InboxConversation $conversation,
@@ -3447,6 +3539,115 @@ class InboxController extends Controller
         return $html;
     }
 
+    private function assertCommentOnConversation(
+        InboxConversation $conversation,
+        InboxConversationComment $comment
+    ): void {
+        if ((int) $comment->inbox_conversation_id !== (int) $conversation->id) {
+            abort(404, 'Comment not found.');
+        }
+    }
+
+    private function authorizeCommentMutation(User $user, InboxConversationComment $comment): void
+    {
+        if (! $this->userCanMutateComment($user, $comment)) {
+            abort(403, 'You can only edit or delete your own comments.');
+        }
+    }
+
+    private function userCanMutateComment(User $user, InboxConversationComment $comment): bool
+    {
+        if ((int) $comment->user_id !== (int) $user->id) {
+            return false;
+        }
+
+        $importedEmail = strtolower(trim((string) $comment->imported_author_email));
+        if ($importedEmail === '') {
+            return true;
+        }
+
+        return $importedEmail === strtolower(trim((string) $user->email));
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function commentBodiesFromInput(string $body): array
+    {
+        $html = $body;
+        if (! str_contains($html, '<')) {
+            $html = nl2br(e($html));
+        }
+
+        return [$html, trim(strip_tags($html))];
+    }
+
+    /**
+     * @param  array<int, mixed>  $mentionIds
+     * @return Collection<int, int>
+     */
+    private function validatedMentionIds(User $user, array $mentionIds): Collection
+    {
+        $ids = collect($mentionIds)
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return $ids;
+        }
+
+        return User::where('company_id', $user->company_id)
+            ->whereIn('id', $ids)
+            ->pluck('id');
+    }
+
+    /**
+     * @param  Collection<int, int>  $mentionIds
+     */
+    private function notifyNewCommentMentions(
+        InboxConversation $conversation,
+        User $actor,
+        Collection $mentionIds,
+        string $snippet
+    ): void {
+        $ids = $mentionIds
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0 && $id !== (int) $actor->id)
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return;
+        }
+
+        $subjectLabel = $conversation->subject ?: 'a conversation';
+        $recipients = User::query()
+            ->where('company_id', $conversation->company_id)
+            ->whereIn('id', $ids->all())
+            ->get();
+
+        foreach ($recipients as $recipient) {
+            try {
+                $recipient->notify(new InboxThreadUpdateNotification(
+                    conversation: $conversation,
+                    action: 'mention',
+                    summary: $actor->name.' mentioned you in "'.$subjectLabel.'"',
+                    actor: $actor,
+                    snippet: $snippet,
+                    isMention: true,
+                ));
+            } catch (\Throwable $e) {
+                Log::warning('Failed to notify inbox comment mention', [
+                    'conversation_id' => $conversation->id,
+                    'user_id' => $recipient->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+
     private function formatComment(InboxConversationComment $comment): array
     {
         $attachments = collect($comment->attachments ?? [])->map(function ($file) use ($comment) {
@@ -3461,6 +3662,8 @@ class InboxController extends Controller
             ];
         })->values()->all();
 
+        $actor = auth()->user();
+
         return [
             'id' => $comment->id,
             'body_html' => $comment->body_html,
@@ -3469,6 +3672,8 @@ class InboxController extends Controller
             'attachments' => $attachments,
             'user' => $this->formatCommentUser($comment),
             'created_at' => $comment->created_at?->toIso8601String(),
+            'updated_at' => $comment->updated_at?->toIso8601String(),
+            'can_edit' => $actor instanceof User && $this->userCanMutateComment($actor, $comment),
         ];
     }
 
@@ -3527,7 +3732,8 @@ class InboxController extends Controller
         ?User $actor,
         string $action,
         string $summary,
-        ?array $meta = null
+        ?array $meta = null,
+        bool $notify = true
     ): InboxConversationActivity {
         $activity = InboxConversationActivity::create([
             'inbox_conversation_id' => $conversation->id,
@@ -3537,7 +3743,9 @@ class InboxController extends Controller
             'meta' => $meta,
         ]);
 
-        $this->notifyConversationWatchers($conversation, $actor, $action, $summary, $meta ?? []);
+        if ($notify) {
+            $this->notifyConversationWatchers($conversation, $actor, $action, $summary, $meta ?? []);
+        }
 
         return $activity;
     }
