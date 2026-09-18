@@ -806,10 +806,27 @@ class WhatsAppController extends Controller
 
     protected function formatConversation(WhatsAppConversation $c): array
     {
+        $profileName = $c->name ?: ($c->profile_name ?: 'WhatsApp User');
+        $phone = $c->phone ?: $c->wa_id;
+        $contactName = $c->name ?: $c->profile_name;
+        $lead = $this->crmLookup->matchAssignedLead(
+            $this->crmLookup->assignedLeadIndex((int) $c->company_id),
+            $phone,
+            $c->extracted_email,
+            $contactName
+        );
+        $savedLead = $lead ?: $this->crmLookup->matchAssignedLead(
+            $this->crmLookup->leadIndex((int) $c->company_id),
+            $phone,
+            $c->extracted_email,
+            $contactName
+        );
+        $leadName = trim((string) ($savedLead['name'] ?? ''));
+
         return [
             'id' => $c->id,
             'wa_id' => $c->wa_id,
-            'name' => $c->name ?: ($c->profile_name ?: 'WhatsApp User'),
+            'name' => $leadName !== '' ? $leadName : $profileName,
             'profile_name' => $c->profile_name,
             'phone' => $c->phone,
             'is_subscribed' => (bool) $c->is_subscribed,
@@ -820,12 +837,7 @@ class WhatsAppController extends Controller
             'within_window' => $c->isWithinMessagingWindow(),
             'is_read' => (int) $c->unread_count <= 0,
             'labels' => $this->serializeLabels($c),
-            'lead' => $this->crmLookup->matchAssignedLead(
-                $this->crmLookup->assignedLeadIndex((int) $c->company_id),
-                $c->phone ?: $c->wa_id,
-                $c->extracted_email,
-                $c->name ?: $c->profile_name
-            ),
+            'lead' => $lead,
         ];
     }
 

@@ -525,6 +525,12 @@
         return (name || 'W').split(/\s+/).map(p => p[0]).join('').slice(0, 2).toUpperCase();
     }
 
+    function threadDisplayName(c) {
+        const leadName = String(c?.lead?.name || '').trim();
+        if (leadName) return leadName;
+        return c?.name || 'WhatsApp User';
+    }
+
     function formatListTime(iso) {
         if (!iso) return '';
         const d = new Date(iso);
@@ -620,8 +626,12 @@
         const payload = window.LnsAssignedLead?.compact ? window.LnsAssignedLead.compact(lead) : lead;
         const idx = conversations.findIndex(c => c.id === activeId);
         if (idx < 0) return;
-        conversations[idx] = { ...conversations[idx], lead: payload };
+        const next = { ...conversations[idx], lead: payload };
+        if (payload?.name) next.name = payload.name;
+        conversations[idx] = next;
         const conv = conversations[idx];
+        els.headerName.textContent = threadDisplayName(conv);
+        setAvatar(els.headerAvatar, threadDisplayName(conv));
         renderThreads();
         setHeaderStatus(conv);
     }
@@ -663,10 +673,10 @@
 
         els.list.innerHTML = visible.map(c => `
             <div class="wa-thread ${c.id === activeId ? 'active' : ''} ${!c.is_read ? 'unread' : ''}" data-id="${c.id}">
-                <div class="wa-avatar">${initials(c.name)}</div>
+                <div class="wa-avatar">${initials(threadDisplayName(c))}</div>
                 <div class="wa-thread-body">
                     <div class="wa-thread-top">
-                        <div class="wa-thread-name">${escapeHtml(c.name || 'WhatsApp User')}</div>
+                        <div class="wa-thread-name">${escapeHtml(threadDisplayName(c))}</div>
                         <div class="wa-thread-time">${formatListTime(c.last_message_at)}</div>
                     </div>
                     <div class="wa-thread-preview">${escapeHtml(c.last_message_preview || '')}</div>
@@ -925,9 +935,9 @@
         conv.unread_count = 0;
         els.empty.style.display = 'none';
         els.chat.style.display = 'flex';
-        els.headerName.textContent = conv.name || 'WhatsApp User';
+        els.headerName.textContent = threadDisplayName(conv);
         setHeaderStatus(conv);
-        setAvatar(els.headerAvatar, conv.name);
+        setAvatar(els.headerAvatar, threadDisplayName(conv));
         renderThreads();
         resetMessages();
 
@@ -953,9 +963,9 @@
             const idx = conversations.findIndex(c => c.id === id);
             if (idx >= 0) conversations[idx] = { ...conversations[idx], ...data.conversation, is_read: true, unread_count: 0 };
             Object.assign(conv, conversations[idx] || data.conversation, { is_read: true, unread_count: 0 });
-            els.headerName.textContent = conv.name || 'WhatsApp User';
+            els.headerName.textContent = threadDisplayName(conv);
             setHeaderStatus(conv);
-            setAvatar(els.headerAvatar, conv.name);
+            setAvatar(els.headerAvatar, threadDisplayName(conv));
             renderThreads();
         }
 
@@ -1016,8 +1026,9 @@
         if (data.conversation?.name && activeId) {
             const idx = conversations.findIndex(c => c.id === activeId);
             if (idx >= 0 && conversations[idx].name !== data.conversation.name) {
-                conversations[idx] = { ...conversations[idx], name: data.conversation.name };
-                els.headerName.textContent = data.conversation.name;
+                conversations[idx] = { ...conversations[idx], name: data.conversation.name, lead: data.conversation.lead ?? conversations[idx].lead };
+                els.headerName.textContent = threadDisplayName(conversations[idx]);
+                setAvatar(els.headerAvatar, threadDisplayName(conversations[idx]));
                 renderThreads();
             }
         }
