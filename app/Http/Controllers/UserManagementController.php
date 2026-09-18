@@ -177,8 +177,8 @@ class UserManagementController extends Controller
     public function getEmployees(Request $request)
     {
         $user = Auth::user();
-        $perPage = $request->get('per_page', 10);
-        $page = $request->get('page', 1);
+        $perPage = max(1, min(100, (int) $request->get('per_page', 10)));
+        $page = max(1, (int) $request->get('page', 1));
 
         $query = User::where('company_id', $user->company_id)
             ->with(['role', 'roles', 'department', 'clients', 'salesRep']);
@@ -203,6 +203,8 @@ class UserManagementController extends Controller
         }
 
         $total = $query->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min($page, $lastPage);
         $users = $query->orderBy('name')
             ->skip(($page - 1) * $perPage)
             ->take($perPage)
@@ -251,7 +253,7 @@ class UserManagementController extends Controller
             'total' => $total,
             'per_page' => $perPage,
             'current_page' => $page,
-            'last_page' => ceil($total / $perPage),
+            'last_page' => $lastPage,
         ]);
     }
 
