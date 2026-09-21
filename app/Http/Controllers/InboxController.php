@@ -1384,11 +1384,7 @@ class InboxController extends Controller
         ]);
 
         $lead = $this->matchingLead($conversation, isset($validated['lead_id']) ? (int) $validated['lead_id'] : null);
-        if (! $lead) {
-            return response()->json(['message' => 'Save this contact as a lead before adding labels.'], 422);
-        }
-
-        $companyId = (int) $lead->company_id;
+        $companyId = $lead ? (int) $lead->company_id : (int) $conversation->company_id;
         $label = null;
         if (! empty($validated['label_id'])) {
             $label = LeadLabel::query()
@@ -1416,12 +1412,29 @@ class InboxController extends Controller
             return response()->json(['message' => 'Choose or type a label.'], 422);
         }
 
-        $alreadyAttached = $lead->labels()->where('lead_labels.id', $label->id)->exists();
-        $lead->labels()->syncWithoutDetaching([$label->id]);
-        if (! $alreadyAttached) {
-            $this->leadActivity->recordLabel($lead, $label->name, true, labelId: $label->id);
+        if ($lead) {
+            $alreadyAttached = $lead->labels()->where('lead_labels.id', $label->id)->exists();
+            $lead->labels()->syncWithoutDetaching([$label->id]);
+            if (! $alreadyAttached) {
+                $this->leadActivity->recordLabel($lead, $label->name, true, labelId: $label->id);
+            }
+            $this->crmLookup->forgetLeadIndexes($companyId);
+        } else {
+            $alreadyAttached = $conversation->leadLabels()->where('lead_labels.id', $label->id)->exists();
+            $conversation->leadLabels()->syncWithoutDetaching([$label->id]);
+            if (! $alreadyAttached) {
+                $this->recordActivity(
+                    $conversation,
+                    $request->user(),
+                    'label_added',
+                    $request->user()->name.' added label: '.$label->name,
+                    [
+                        'label_id' => $label->id,
+                        'label_name' => $label->name,
+                    ]
+                );
+            }
         }
-        $this->crmLookup->forgetLeadIndexes($companyId);
 
         return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'leadLabels', 'inbox', 'assignee']))]);
     }
@@ -1431,18 +1444,25 @@ class InboxController extends Controller
         $this->authorizeConversation($request->user(), $conversation);
         $leadId = $request->integer('lead_id') ?: null;
         $lead = $this->matchingLead($conversation, $leadId ?: null);
-        if (! $lead) {
-            return response()->json(['message' => 'No matching lead.'], 422);
+        if ($lead) {
+            if ((int) $leadLabel->company_id !== (int) $lead->company_id) {
+                abort(404);
+            }
+
+            $lead->labels()->detach($leadLabel->id);
+            $this->leadActivity->recordLabel($lead, $leadLabel->name, false);
+            $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
+
+            return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'leadLabels', 'inbox', 'assignee', 'lead.identities', 'lead.assignedUser:id,name', 'lead.labels']))]);
         }
-        if ((int) $leadLabel->company_id !== (int) $lead->company_id) {
+
+        if ((int) $leadLabel->company_id !== (int) $conversation->company_id) {
             abort(404);
         }
 
-        $lead->labels()->detach($leadLabel->id);
-        $this->leadActivity->recordLabel($lead, $leadLabel->name, false);
-        $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
+        $conversation->leadLabels()->detach($leadLabel->id);
 
-        return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'leadLabels', 'inbox', 'assignee', 'lead.identities', 'lead.assignedUser:id,name', 'lead.labels']))]);
+        return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'leadLabels', 'inbox', 'assignee']))]);
     }
 
     /**

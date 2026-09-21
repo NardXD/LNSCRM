@@ -113,6 +113,24 @@ class LeadInboxAttachService
     }
 
     /**
+     * Labels applied while a conversation had no matching lead (inbox UI or
+     * Front import) graduate onto the lead itself once it is saved or attached.
+     *
+     * @param  iterable<int|string>  $conversationIds
+     */
+    public function applyConversationLabels(Lead $lead, iterable $conversationIds): void
+    {
+        foreach (collect($conversationIds)->map(fn ($id) => (int) $id)->filter()->unique() as $id) {
+            $conversation = InboxConversation::query()
+                ->where('company_id', $lead->company_id)
+                ->find($id);
+            if ($conversation) {
+                $this->graduateConversationLabels($lead, $conversation);
+            }
+        }
+    }
+
+    /**
      * Labels applied while this conversation had no matching lead (e.g. Front
      * import) graduate onto the lead itself once the conversation is attached,
      * and no longer need to live directly on the conversation.

@@ -137,8 +137,9 @@ class InboxConversation extends Model
     }
 
     /**
-     * Lead labels applied directly to this conversation (e.g. via Front import)
-     * when the conversation has no matching Lead record.
+     * Lead labels applied directly to this conversation (inbox UI or Front import)
+     * before it has a matching Lead record. They graduate onto the lead when
+     * the thread is saved or attached.
      */
     public function leadLabels(): BelongsToMany
     {

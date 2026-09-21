@@ -372,6 +372,10 @@ class LeadsController extends Controller
             // it's being matched to one that already exists by phone/email.
             if ($conflict->lead) {
                 $this->applyFacebookConversationLabels($conflict->lead, $request);
+                $this->inboxAttach->applyConversationLabels(
+                    $conflict->lead,
+                    $request->input('inbox_conversation_ids', [])
+                );
             }
 
             return $this->conflictResponse($conflict);
@@ -397,6 +401,7 @@ class LeadsController extends Controller
         $this->applyFacebookConversationLabels($lead, $request);
         $this->leadActivity->recordCreated($lead, $request->input('source') ?: 'manual');
         $this->inboxAttach->attachMany($lead, $request->input('inbox_conversation_ids', []), $user);
+        $this->inboxAttach->applyConversationLabels($lead, $request->input('inbox_conversation_ids', []));
         if ($lead->assigned_to) {
             $this->leadActivity->recordAssignment($lead, null, $lead->assigned_to, reason: 'created');
         }

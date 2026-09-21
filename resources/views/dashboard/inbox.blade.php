@@ -7617,24 +7617,20 @@
         }
 
         const tagItems = conversationTagItems(c);
-        const hasLead = !!conversationLead(c);
-        const canManageLeadLabels = hasLead;
         el('conversationTags').innerHTML = tagItems.length
             ? tagItems.map(t => conversationLabelPillHtml(t, { removable: true })).join('')
-            : (canManageLeadLabels
-                ? `<span style="color:var(--inbox-muted);font-size:0.8rem;">No labels</span>`
-                : `<span style="color:var(--inbox-muted);font-size:0.8rem;">Save as a lead to add labels, or run Front import to tag this thread</span>`);
+            : `<span style="color:var(--inbox-muted);font-size:0.8rem;">No labels</span>`;
 
         const used = new Set(tagItems.map(t => Number(t.id)));
         const addSelect = el('addTagSelect');
         if (addSelect) {
-            addSelect.style.display = canManageLeadLabels ? '' : 'none';
+            addSelect.style.display = '';
             addSelect.innerHTML = '<option value="">Add existing label…</option>' +
                 (state.leadLabels || []).filter(t => !used.has(Number(t.id)))
                     .map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
         }
         const leadLabelRow = el('addLeadLabelRow');
-        if (leadLabelRow) leadLabelRow.hidden = !canManageLeadLabels;
+        if (leadLabelRow) leadLabelRow.hidden = false;
         const leadLabelInput = el('addLeadLabelInput');
         if (leadLabelInput) leadLabelInput.value = '';
 
@@ -9238,10 +9234,6 @@
 
     el('addTagSelect').addEventListener('change', async () => {
         if (!state.selectedId || !el('addTagSelect').value) return;
-        if (!conversationLead()) {
-            el('addTagSelect').value = '';
-            return;
-        }
         const labelId = Number(el('addTagSelect').value);
         await attachConversationLabel({ labelId });
     });

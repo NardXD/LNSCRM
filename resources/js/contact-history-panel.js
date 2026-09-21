@@ -729,8 +729,9 @@ async function saveAsLead(bodyEl, opts, contact) {
                 emails,
                 facebook_name: facebookName,
                 instagram_username: instagramUsername,
-                facebook_conversation_id: opts.excludeChannel === 'facebook' ? opts.excludeId : null,
-                source: opts.source || opts.excludeChannel || 'contact-history',
+                    facebook_conversation_id: opts.excludeChannel === 'facebook' ? opts.excludeId : null,
+                    inbox_conversation_ids: opts.excludeChannel === 'inbox' && opts.excludeId ? [opts.excludeId] : [],
+                    source: opts.source || opts.excludeChannel || 'contact-history',
             }),
         });
         const data = await res.json().catch(() => ({}));
