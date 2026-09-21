@@ -52,10 +52,6 @@ class FacebookController extends Controller
             ? (bool) $this->twilioCompany->getActiveIntegration($user->company)
             : false;
 
-        if ($integration) {
-            $this->facebookSync->correctNaiveUtcTimestamps($integration);
-        }
-
         $connected = (bool) ($integration && $integration->page_id && ($twilioReady || $integration->hasInstagramGraph()));
 
         return view('dashboard.facebook', [
@@ -121,6 +117,8 @@ class FacebookController extends Controller
         $readFilter = trim((string) $request->query('read', ''));
         $limit = min(max((int) $request->query('limit', 40), 1), 100);
         $beforeId = (int) $request->query('before_id', 0);
+        $isPoll = $request->boolean('poll');
+        $wantSync = $request->boolean('sync');
 
         $query = FacebookConversation::query()
             ->where('company_id', $user->company_id)
@@ -160,7 +158,8 @@ class FacebookController extends Controller
             if ($before) {
                 $this->constrainConversationsBefore($query, $before);
             }
-        } else {
+        } elseif ($wantSync && ! $isPoll) {
+            // Refresh button only — first paint and 5s polls read the local DB.
             $this->pullRecentChannelMessages($user);
         }
 
@@ -170,11 +169,13 @@ class FacebookController extends Controller
             $rows = $rows->take($limit);
         }
 
+        $leadIndex = $this->crmLookup->assignedLeadIndex((int) $user->company_id);
+
         return response()->json([
-            'data' => $rows->map(function (FacebookConversation $c) {
+            'data' => $rows->map(function (FacebookConversation $c) use ($leadIndex) {
                 $c->setAttribute('is_read', (bool) $c->getAttribute('user_is_read'));
 
-                return $this->formatConversation($c);
+                return $this->formatConversation($c, $leadIndex);
             })->values(),
             'has_more' => $hasMore,
         ]);
@@ -214,8 +215,9 @@ class FacebookController extends Controller
         $limit = min(max((int) $request->query('limit', 40), 1), 100);
         $beforeId = (int) $request->query('before_id', 0);
         $isPoll = $request->boolean('poll');
+        $hydrate = $request->boolean('hydrate');
 
-        if ($beforeId <= 0) {
+        if ($beforeId <= 0 && $hydrate && ! $isPoll) {
             $this->importGraphThread($conversation);
         }
 
@@ -248,8 +250,15 @@ class FacebookController extends Controller
 
         $extracted = ['phones' => [], 'emails' => [], 'names' => []];
         if ($beforeId <= 0) {
-            $conversation->update(['unread_count' => 0]);
-            $extracted = $this->messageContacts->applyToConversation($conversation);
+            if (! $isPoll) {
+                $conversation->update(['unread_count' => 0]);
+            }
+
+            if (! $isPoll && ($hydrate || (! $conversation->extracted_phone && ! $conversation->extracted_email))) {
+                $extracted = $this->messageContacts->applyToConversation($conversation);
+            } else {
+                $extracted = $this->cachedExtractedContacts($conversation);
+            }
 
             if (! $isPoll) {
                 $readRow = FacebookConversationUserRead::firstOrNew([
@@ -272,25 +281,25 @@ class FacebookController extends Controller
                 ->where('facebook_conversation_id', $conversation->id)
                 ->where('user_id', Auth::id())
                 ->value('is_read'));
-        $payload = $this->formatConversation($fresh);
-        if ($beforeId <= 0 && ! ($payload['lead'] ?? null)) {
-            $index = $this->crmLookup->assignedLeadIndex((int) $fresh->company_id);
+        $leadIndex = $this->crmLookup->assignedLeadIndex((int) $fresh->company_id);
+        $payload = $this->formatConversation($fresh, $leadIndex);
+        if ($beforeId <= 0 && ! $isPoll && ! ($payload['lead'] ?? null)) {
             foreach ($extracted['phones'] as $phone) {
-                $payload['lead'] = $this->crmLookup->matchAssignedLead($index, $phone);
+                $payload['lead'] = $this->crmLookup->matchAssignedLead($leadIndex, $phone);
                 if ($payload['lead']) {
                     break;
                 }
             }
             if (! ($payload['lead'] ?? null)) {
                 foreach ($extracted['emails'] as $email) {
-                    $payload['lead'] = $this->crmLookup->matchAssignedLead($index, null, $email);
+                    $payload['lead'] = $this->crmLookup->matchAssignedLead($leadIndex, null, $email);
                     if ($payload['lead']) {
                         break;
                     }
                 }
             }
             if (! ($payload['lead'] ?? null) && ($extracted['names'][0] ?? null)) {
-                $payload['lead'] = $this->crmLookup->matchAssignedLead($index, null, null, $extracted['names'][0]);
+                $payload['lead'] = $this->crmLookup->matchAssignedLead($leadIndex, null, null, $extracted['names'][0]);
             }
         }
 
@@ -328,7 +337,7 @@ class FacebookController extends Controller
         $fresh->setAttribute('is_read', (bool) $validated['is_read']);
 
         return response()->json([
-            'conversation' => $this->formatConversation($fresh),
+            'conversation' => $this->formatConversation($fresh, $this->crmLookup->assignedLeadIndex((int) $fresh->company_id)),
         ]);
     }
 
@@ -1361,8 +1370,13 @@ class FacebookController extends Controller
         });
     }
 
-    protected function formatConversation(FacebookConversation $c): array
+    /**
+     * @param  array{by_phone: array<string, array>, by_email: array<string, array>, by_name: array<string, array>}|null  $leadIndex
+     */
+    protected function formatConversation(FacebookConversation $c, ?array $leadIndex = null): array
     {
+        $index = $leadIndex ?? $this->crmLookup->assignedLeadIndex((int) $c->company_id);
+
         return [
             'id' => $c->id,
             'channel' => $c->channel,
@@ -1375,12 +1389,31 @@ class FacebookController extends Controller
             'last_message_at' => $c->last_message_at?->toIso8601String(),
             'labels' => $this->serializeLabels($c),
             'lead' => $this->crmLookup->matchAssignedLead(
-                $this->crmLookup->assignedLeadIndex((int) $c->company_id),
+                $index,
                 $c->extracted_phone,
                 $c->extracted_email,
                 $c->name,
                 $c->username
             ),
+        ];
+    }
+
+    /**
+     * @return array{phones: list<string>, emails: list<string>, names: list<string>}
+     */
+    protected function cachedExtractedContacts(FacebookConversation $conversation): array
+    {
+        $phones = array_values(array_filter([(string) $conversation->extracted_phone]));
+        $emails = array_values(array_filter([(string) $conversation->extracted_email]));
+        $names = [];
+        if ($conversation->name && ! FacebookConversation::isPlaceholderName($conversation->name)) {
+            $names[] = $conversation->name;
+        }
+
+        return [
+            'phones' => $phones,
+            'emails' => $emails,
+            'names' => $names,
         ];
     }
 

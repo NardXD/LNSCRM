@@ -141,6 +141,21 @@
 .chp-event:last-child { border-bottom: 0; }
 .chp-dir { font-size: 0.72rem; color: var(--text-secondary, #5b6b7c); }
 .chp-empty { font-size: 0.84rem; color: var(--text-secondary, #5b6b7c); margin: 0; line-height: 1.4; }
+.chp-skel { display: flex; flex-direction: column; gap: 0.55rem; padding: 0.15rem 0; }
+.chp-skel-line {
+    display: block; height: 10px; border-radius: 6px;
+    background: linear-gradient(90deg, #eceff3 20%, #f6f7f9 50%, #eceff3 80%);
+    background-size: 200% 100%;
+    animation: chp-skel-shimmer 1.15s ease-in-out infinite;
+}
+.chp-skel-line.w-40 { width: 40%; }
+.chp-skel-line.w-70 { width: 70%; }
+.chp-skel-line.w-90 { width: 90%; }
+.chp-skel-card { height: 44px; border-radius: 8px; background: linear-gradient(90deg, #eceff3 20%, #f6f7f9 50%, #eceff3 80%); background-size: 200% 100%; animation: chp-skel-shimmer 1.15s ease-in-out infinite; }
+@keyframes chp-skel-shimmer {
+    0% { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+}
 .chp-badge {
     display: inline-block;
     font-size: 0.65rem;
@@ -844,7 +859,13 @@
             return null;
         }
 
-        body.innerHTML = '<p class="chp-empty">Loading contact history…</p>';
+        body.innerHTML = `<div class="chp-skel" aria-hidden="true">
+            <span class="chp-skel-line w-40"></span>
+            <span class="chp-skel-line w-70"></span>
+            <div class="chp-skel-card"></div>
+            <div class="chp-skel-card"></div>
+            <span class="chp-skel-line w-90"></span>
+        </div>`;
 
         const q = new URLSearchParams();
         if (phone) q.set('phone', phone);

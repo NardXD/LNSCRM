@@ -7,6 +7,7 @@ use App\Models\FacebookConversationUserRead;
 use App\Models\FacebookIntegration;
 use App\Models\FacebookMessage;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -925,6 +926,11 @@ class FacebookMessageSyncService
      */
     public function correctNaiveUtcTimestamps(FacebookIntegration $integration): int
     {
+        $doneKey = 'facebook-tz-corrected-'.$integration->company_id;
+        if (Cache::get($doneKey)) {
+            return 0;
+        }
+
         $fixed = 0;
         $touched = [];
 
@@ -964,6 +970,8 @@ class FacebookMessageSyncService
                 ->get()
                 ->each(fn (FacebookConversation $conversation) => $this->refreshPreview($conversation));
         }
+
+        Cache::forever($doneKey, true);
 
         return $fixed;
     }

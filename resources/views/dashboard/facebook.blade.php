@@ -59,7 +59,19 @@
                 'prefix' => 'fb',
                 'label' => 'Facebook Templates',
             ])
-            <div class="fb-thread-list" id="fbThreadList"></div>
+            <div class="fb-thread-list" id="fbThreadList" aria-busy="true">
+                <div class="fb-skel-list" aria-hidden="true">
+                    @for ($i = 0; $i < 8; $i++)
+                        <div class="fb-skel-thread">
+                            <div class="fb-skel-avatar"></div>
+                            <div class="fb-skel-lines">
+                                <span class="fb-skel-line w-55"></span>
+                                <span class="fb-skel-line w-80"></span>
+                            </div>
+                        </div>
+                    @endfor
+                </div>
+            </div>
         </aside>
 
         <main class="fb-main">
@@ -247,6 +259,33 @@
     background: var(--fb-accent); flex-shrink: 0;
 }
 .fb-list-hint { text-align: center; padding: 0.7rem; font-size: 0.72rem; color: var(--text-secondary); }
+.fb-skel-list { display: flex; flex-direction: column; gap: 0.1rem; }
+.fb-skel-thread { display: flex; align-items: center; gap: 0.6rem; padding: 0.55rem 0.65rem; }
+.fb-skel-avatar,
+.fb-skel-line,
+.fb-skel-bubble {
+    background: linear-gradient(90deg, #eceff3 20%, #f6f7f9 50%, #eceff3 80%);
+    background-size: 200% 100%;
+    animation: fb-skel-shimmer 1.15s ease-in-out infinite;
+}
+.fb-skel-avatar { width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0; }
+.fb-skel-lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.fb-skel-line { display: block; height: 9px; border-radius: 6px; }
+.fb-skel-line.w-40 { width: 40%; }
+.fb-skel-line.w-55 { width: 55%; }
+.fb-skel-line.w-80 { width: 80%; }
+.fb-skel-messages { display: flex; flex-direction: column; gap: 0.55rem; margin-top: auto; padding: 0.35rem 0 0.2rem; }
+.fb-skel-bubble { height: 34px; border-radius: 18px; max-width: 70%; }
+.fb-skel-bubble.in { align-self: flex-start; width: 58%; }
+.fb-skel-bubble.out { align-self: flex-end; width: 46%; }
+.fb-skel-bubble.short { width: 30%; height: 26px; }
+@keyframes fb-skel-shimmer {
+    0% { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+}
+.fb-avatar img {
+    width: 100%; height: 100%; object-fit: cover; border-radius: inherit; display: block;
+}
 .fb-avatar {
     width: 32px; height: 32px; border-radius: 8px; background: var(--fb-accent); color: #fff;
     display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.7rem; flex-shrink: 0;
@@ -470,10 +509,12 @@
     let uploadKind = 'file';
     let convHasMore = false;
     let convLoading = false;
+    let convPolling = false;
     let messagesHasMore = false;
     let loadOlderInProgress = false;
     let messageIds = new Set();
     let oldestMessageId = null;
+    let hydrateInFlight = null;
 
     const els = {
         list: document.getElementById('fbThreadList'),
@@ -590,12 +631,19 @@
 
     function setAvatar(el, name, pic) {
         if (pic) {
-            el.style.backgroundImage = `url("${pic}")`;
             el.textContent = '';
+            el.innerHTML = `<img src="${escapeHtml(pic)}" alt="" loading="lazy" decoding="async">`;
             return;
         }
-        el.style.backgroundImage = '';
+        el.innerHTML = '';
         el.textContent = initials(name);
+    }
+
+    function avatarMarkup(name, pic) {
+        if (pic) {
+            return `<div class="fb-avatar"><img src="${escapeHtml(pic)}" alt="" loading="lazy" decoding="async"></div>`;
+        }
+        return `<div class="fb-avatar">${escapeHtml(initials(name))}</div>`;
     }
 
     function escapeHtml(str) {
@@ -667,8 +715,45 @@
         return conversations;
     }
 
+    function threadSkeletonMarkup(count = 8) {
+        return `<div class="fb-skel-list" aria-hidden="true">${Array.from({ length: count }, () => `
+            <div class="fb-skel-thread">
+                <div class="fb-skel-avatar"></div>
+                <div class="fb-skel-lines">
+                    <span class="fb-skel-line w-55"></span>
+                    <span class="fb-skel-line w-80"></span>
+                </div>
+            </div>`).join('')}</div>`;
+    }
+
+    function messageSkeletonMarkup() {
+        return `<div class="fb-skel-messages" aria-hidden="true">
+            <div class="fb-skel-bubble in"></div>
+            <div class="fb-skel-bubble in short"></div>
+            <div class="fb-skel-bubble out"></div>
+            <div class="fb-skel-bubble out short"></div>
+            <div class="fb-skel-bubble in"></div>
+        </div>`;
+    }
+
+    function showThreadSkeleton() {
+        els.list.setAttribute('aria-busy', 'true');
+        els.list.innerHTML = threadSkeletonMarkup();
+    }
+
+    function showAppendSkeleton() {
+        if (document.getElementById('fbListMoreSkel')) return;
+        document.getElementById('fbListMore')?.remove();
+        els.list.insertAdjacentHTML('beforeend', `<div id="fbListMoreSkel">${threadSkeletonMarkup(3)}</div>`);
+    }
+
+    function showMessageSkeleton() {
+        els.messageList.innerHTML = messageSkeletonMarkup();
+    }
+
     function renderThreads() {
         const visible = visibleConversations();
+        els.list.removeAttribute('aria-busy');
         if (!visible.length) {
             els.list.innerHTML = `<div class="fb-list-hint">${readFilter ? 'No ' + readFilter + ' conversations.' : 'No conversations yet.'}</div>`;
             return;
@@ -676,7 +761,7 @@
 
         els.list.innerHTML = visible.map(c => `
             <div class="fb-thread ${c.id === activeId ? 'active' : ''} ${!c.is_read ? 'unread' : ''}" data-id="${c.id}">
-                <div class="fb-avatar" style="${c.profile_pic ? `background-image:url('${escapeHtml(c.profile_pic)}')` : ''}">${c.profile_pic ? '' : initials(c.name)}</div>
+                ${avatarMarkup(c.name, c.profile_pic)}
                 <div class="fb-thread-body">
                     <div class="fb-thread-top">
                         <div class="fb-thread-name">${escapeHtml(c.name || channelLabel(c.channel) + ' User')}</div>
@@ -689,10 +774,6 @@
                 ${!c.is_read ? `<span class="fb-unread-dot" aria-hidden="true"></span>` : ''}
             </div>
         `).join('') + (convHasMore ? `<div class="fb-list-hint" id="fbListMore">Scroll for older chats</div>` : '');
-
-        els.list.querySelectorAll('.fb-thread').forEach(node => {
-            node.addEventListener('click', () => openConversation(Number(node.dataset.id)));
-        });
     }
 
     function stampMarkup(iso) {
@@ -701,13 +782,13 @@
 
     function messageBody(m) {
         if (m.type === 'image' && m.media_url) {
-            return `${m.text ? `<div>${escapeHtml(m.text)}</div>` : ''}<img src="${escapeHtml(m.media_url)}" alt="Image">`;
+            return `${m.text ? `<div>${escapeHtml(m.text)}</div>` : ''}<img src="${escapeHtml(m.media_url)}" alt="Image" loading="lazy" decoding="async">`;
         }
         if (m.type === 'video' && m.media_url) {
-            return `<video controls src="${escapeHtml(m.media_url)}"></video>${m.text ? `<div>${escapeHtml(m.text)}</div>` : ''}`;
+            return `<video controls preload="metadata" src="${escapeHtml(m.media_url)}"></video>${m.text ? `<div>${escapeHtml(m.text)}</div>` : ''}`;
         }
         if (m.type === 'audio' && m.media_url) {
-            return `<audio controls src="${escapeHtml(m.media_url)}"></audio>`;
+            return `<audio controls preload="none" src="${escapeHtml(m.media_url)}"></audio>`;
         }
         if (m.type === 'file' && m.media_url) {
             return `<a href="${escapeHtml(m.media_url)}" target="_blank" rel="noopener">${escapeHtml(m.file_name || 'Download file')}</a>`;
@@ -840,23 +921,32 @@
         });
     }
 
-    function conversationParams({ append = false } = {}) {
+    function conversationParams({ append = false, poll = false, sync = false } = {}) {
         const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
         const q = (els.search.value || '').trim();
         if (q) params.set('q', q);
         if (channelFilter) params.set('channel', channelFilter);
         if (readFilter) params.set('read', readFilter);
+        if (poll) params.set('poll', '1');
+        if (sync) params.set('sync', '1');
         if (append && conversations.length) {
             params.set('before_id', String(conversations[conversations.length - 1].id));
         }
         return params;
     }
 
-    async function loadConversations({ append = false, merge = false } = {}) {
-        if (convLoading) return;
-        convLoading = true;
+    async function loadConversations({ append = false, merge = false, poll = false, sync = false } = {}) {
+        if (poll) {
+            if (convPolling || convLoading) return;
+            convPolling = true;
+        } else {
+            if (convLoading) return;
+            convLoading = true;
+            if (!append && !merge) showThreadSkeleton();
+            if (append) showAppendSkeleton();
+        }
         try {
-            const data = await api('/conversations?' + conversationParams({ append }).toString());
+            const data = await api('/conversations?' + conversationParams({ append, poll, sync }).toString());
             const rows = data.data || [];
             if (!merge) convHasMore = !!data.has_more;
             if (append) {
@@ -871,8 +961,15 @@
             }
             renderThreads();
             window.updateSidebarUnreadBadges?.();
+        } catch (e) {
+            console.error(e);
+            if (!append && !merge && !poll) {
+                els.list.removeAttribute('aria-busy');
+                els.list.innerHTML = `<div class="fb-list-hint">${escapeHtml(e.message || 'Could not load conversations.')}</div>`;
+            }
         } finally {
-            convLoading = false;
+            if (poll) convPolling = false;
+            else convLoading = false;
         }
     }
 
@@ -900,7 +997,7 @@
 
     async function fillUntilScrollable() {
         let guard = 0;
-        while (messagesHasMore && els.messages.scrollHeight <= els.messages.clientHeight + 4 && guard < 8) {
+        while (messagesHasMore && els.messages.scrollHeight <= els.messages.clientHeight + 4 && guard < 3) {
             const loaded = await loadOlderMessages();
             if (!loaded) break;
             guard += 1;
@@ -920,62 +1017,21 @@
         return conversations[0];
     }
 
-    async function openConversation(id) {
-        id = Number(id);
-        if (!id) return;
-
-        let conv = conversations.find(c => Number(c.id) === id) || null;
-        let data = null;
-        if (!conv) {
-            try {
-                data = await api(`/conversations/${id}/messages?limit=${PAGE_SIZE}`);
-            } catch (e) {
-                return;
-            }
-            conv = rememberConversation(data.conversation);
-            if (!conv) return;
-        }
-
-        activeId = id;
-        conv.is_read = true;
-        els.empty.style.display = 'none';
-        els.chat.style.display = 'flex';
+    function applyConversationHeader(conv) {
         els.headerName.textContent = conv.name || (channelLabel(conv.channel) + ' User');
         els.headerStatus.textContent = channelLabel(conv.channel) + (conv.username ? ' · @' + conv.username : '') + assignedLeadSuffix(conv);
         setAvatar(els.headerAvatar, conv.name, conv.profile_pic);
-        renderThreads();
-        resetMessages();
+    }
 
-        if (window.matchMedia('(max-width: 900px)').matches) {
-            els.sidebar.classList.add('hidden-mobile');
-            els.main.classList.remove('hidden-mobile');
-        }
+    function mergeIncomingMessages(rows) {
+        const newer = (rows || []).filter(m => !messageIds.has(m.id));
+        if (!newer.length) return;
+        const pin = nearBottom();
+        newer.forEach(appendMessage);
+        if (pin) els.messages.scrollTop = els.messages.scrollHeight;
+    }
 
-        const wasPlaceholder = ['messenger user', 'instagram user', 'facebook user'].includes(String(conv.name || '').trim().toLowerCase());
-        if (!data) {
-            data = await api(`/conversations/${id}/messages?limit=${PAGE_SIZE}`);
-        }
-        messagesHasMore = !!data.has_more;
-        if (els.loadOlder) els.loadOlder.hidden = !messagesHasMore;
-        (data.data || []).forEach(appendMessage);
-        oldestMessageId = firstLoadedMessageId();
-        els.messages.scrollTop = els.messages.scrollHeight;
-        await fillUntilScrollable();
-        els.messages.scrollTop = els.messages.scrollHeight;
-        window.updateHeaderNotificationsBadge?.();
-        window.updateSidebarUnreadBadges?.();
-
-        if (data.conversation) {
-            const idx = conversations.findIndex(c => c.id === id);
-            if (idx >= 0) conversations[idx] = { ...conversations[idx], ...data.conversation, is_read: true };
-            Object.assign(conv, conversations[idx] || data.conversation, { is_read: true });
-            els.headerName.textContent = conv.name || (channelLabel(conv.channel) + ' User');
-            els.headerStatus.textContent = channelLabel(conv.channel) + (conv.username ? ' · @' + conv.username : '') + assignedLeadSuffix(conv);
-            setAvatar(els.headerAvatar, conv.name, conv.profile_pic);
-            renderThreads();
-        }
-
-        document.querySelector('.fb-layout')?.classList.add('with-history');
+    function historyOptsFor(conv, data, wasPlaceholder) {
         const extractedName = data.conversation?.extracted_name || (data.conversation?.extracted_names || [])[0] || '';
         const historyOpts = {
             name: extractedName || conv.name || conv.username || '',
@@ -997,14 +1053,14 @@
             conversationLabels: conv.labels || [],
             conversationLabelsApi: `/api/facebook/conversations/${conv.id}/labels`,
             onConversationLabelsChange: (labels) => applyConversationLabelsToActive(conv.id, labels),
-            onSaved(data, extra) {
-                if (extra?.existing && data.existing_lead_id) {
-                    window.location.href = '/leads?lead=' + data.existing_lead_id;
+            onSaved(saved, extra) {
+                if (extra?.existing && saved.existing_lead_id) {
+                    window.location.href = '/leads?lead=' + saved.existing_lead_id;
                     return;
                 }
-                const newName = data.data?.name;
+                const newName = saved.data?.name;
                 if (newName) {
-                    const idx = conversations.findIndex(c => c.id === id);
+                    const idx = conversations.findIndex(c => c.id === conv.id);
                     if (idx >= 0) conversations[idx] = { ...conversations[idx], name: newName };
                     els.headerName.textContent = newName;
                     renderThreads();
@@ -1014,24 +1070,102 @@
                     historyOpts.extracted_name = newName;
                     historyOpts.needsLeadDetails = false;
                 }
-                if (data.data) applyLeadToActive(data.data);
+                if (saved.data) applyLeadToActive(saved.data);
                 window.loadChannelContactHistory('#fbContactHistory', historyOpts);
             },
         };
+        return historyOpts;
+    }
+
+    async function hydrateConversation(id, wasPlaceholder) {
+        if (hydrateInFlight === id) return;
+        hydrateInFlight = id;
+        try {
+            const data = await api(`/conversations/${id}/messages?limit=${PAGE_SIZE}&hydrate=1`);
+            if (Number(activeId) !== Number(id)) return;
+            mergeIncomingMessages(data.data || []);
+            let conv = conversations.find(c => Number(c.id) === Number(id));
+            if (data.conversation) {
+                conv = rememberConversation({ ...data.conversation, is_read: true }) || conv;
+                if (conv) applyConversationHeader(conv);
+                renderThreads();
+            }
+            if (conv) {
+                const historyOpts = historyOptsFor(conv, data, wasPlaceholder);
+                activeHistoryOpts = historyOpts;
+                window.loadChannelContactHistory('#fbContactHistory', historyOpts);
+            }
+        } catch (e) {
+            console.warn('Facebook hydrate failed', e);
+        } finally {
+            if (hydrateInFlight === id) hydrateInFlight = null;
+        }
+    }
+
+    async function openConversation(id) {
+        id = Number(id);
+        if (!id) return;
+
+        let conv = conversations.find(c => Number(c.id) === id) || null;
+        activeId = id;
+        els.empty.style.display = 'none';
+        els.chat.style.display = 'flex';
+        resetMessages();
+        showMessageSkeleton();
+
+        if (conv) {
+            conv.is_read = true;
+            applyConversationHeader(conv);
+            renderThreads();
+        } else {
+            els.headerName.textContent = 'Loading…';
+            els.headerStatus.textContent = '';
+            els.headerAvatar.innerHTML = '';
+            els.headerAvatar.textContent = '';
+        }
+
+        if (window.matchMedia('(max-width: 900px)').matches) {
+            els.sidebar.classList.add('hidden-mobile');
+            els.main.classList.remove('hidden-mobile');
+        }
+
+        let data = null;
+        try {
+            data = await api(`/conversations/${id}/messages?limit=${PAGE_SIZE}`);
+        } catch (e) {
+            return;
+        }
+        if (Number(activeId) !== id) return;
+
+        conv = rememberConversation(data.conversation) || conv;
+        if (!conv) return;
+
+        const wasPlaceholder = ['messenger user', 'instagram user', 'facebook user'].includes(String(conv.name || '').trim().toLowerCase());
+        applyConversationHeader(conv);
+        renderThreads();
+        resetMessages();
+        messagesHasMore = !!data.has_more;
+        if (els.loadOlder) els.loadOlder.hidden = !messagesHasMore;
+        (data.data || []).forEach(appendMessage);
+        oldestMessageId = firstLoadedMessageId();
+        els.messages.scrollTop = els.messages.scrollHeight;
+        await fillUntilScrollable();
+        if (Number(activeId) !== id) return;
+        els.messages.scrollTop = els.messages.scrollHeight;
+        window.updateHeaderNotificationsBadge?.();
+        window.updateSidebarUnreadBadges?.();
+
+        document.querySelector('.fb-layout')?.classList.add('with-history');
+        const historyOpts = historyOptsFor(conv, data, wasPlaceholder);
         activeHistoryOpts = historyOpts;
         window.loadChannelContactHistory('#fbContactHistory', historyOpts);
+        hydrateConversation(id, wasPlaceholder);
     }
 
     async function pollActiveMessages() {
         if (!activeId || loadOlderInProgress) return;
         const data = await api(`/conversations/${activeId}/messages?limit=${PAGE_SIZE}&poll=1`);
-        const incoming = data.data || [];
-        const newer = incoming.filter(m => !messageIds.has(m.id));
-        if (newer.length) {
-            const pin = nearBottom();
-            newer.forEach(appendMessage);
-            if (pin) els.messages.scrollTop = els.messages.scrollHeight;
-        }
+        mergeIncomingMessages(data.data || []);
 
         const phones = data.conversation?.extracted_phones || [];
         const emails = data.conversation?.extracted_emails || [];
@@ -1204,7 +1338,7 @@
     }
 
     document.getElementById('fbSyncBtn')?.addEventListener('click', () => syncMessengerInbox().catch(console.error));
-    document.getElementById('fbRefreshBtn').addEventListener('click', () => loadConversations().catch(console.error));
+    document.getElementById('fbRefreshBtn').addEventListener('click', () => loadConversations({ sync: true }).catch(console.error));
     document.getElementById('fbBackBtn').addEventListener('click', () => {
         els.sidebar.classList.remove('hidden-mobile');
         els.main.classList.add('hidden-mobile');
@@ -1261,6 +1395,11 @@
     document.getElementById('fbAttachFile').addEventListener('click', () => { uploadKind = 'file'; els.file.accept = '*/*'; els.file.click(); });
     els.file.addEventListener('change', () => uploadAndSend(els.file.files[0], uploadKind));
 
+    els.list.addEventListener('click', (e) => {
+        const node = e.target.closest('.fb-thread');
+        if (!node) return;
+        openConversation(Number(node.dataset.id));
+    });
     els.list.addEventListener('scroll', () => {
         if (convLoading || !convHasMore) return;
         const remaining = els.list.scrollHeight - els.list.scrollTop - els.list.clientHeight;
@@ -1280,25 +1419,29 @@
         escapeHtml,
     });
 
+    async function startConnectedPolling() {
+        const params = new URLSearchParams(window.location.search);
+        const openId = Number(params.get('conversation') || 0);
+        if (openId) {
+            await openConversation(openId);
+        }
+        autoSyncTimer = setInterval(() => {
+            autoSyncRecent().catch(() => {});
+        }, 45000);
+        setTimeout(() => autoSyncRecent().catch(console.warn), 8000);
+        pollTimer = setInterval(async () => {
+            try {
+                await loadConversations({ merge: true, poll: true });
+                await pollActiveMessages();
+            } catch (e) {}
+        }, 8000);
+    }
+
     (async function init() {
-        await loadBootstrap();
+        const boot = loadBootstrap().catch(console.error);
+        await Promise.all([boot, loadConversations().catch(console.error)]);
         if (connected) {
-            await loadConversations();
-            const params = new URLSearchParams(window.location.search);
-            const openId = Number(params.get('conversation') || 0);
-            if (openId) {
-                await openConversation(openId);
-            }
-            autoSyncTimer = setInterval(() => {
-                autoSyncRecent().catch(() => {});
-            }, 45000);
-            setTimeout(() => autoSyncRecent().catch(console.warn), 8000);
-            pollTimer = setInterval(async () => {
-                try {
-                    await loadConversations({ merge: true });
-                    await pollActiveMessages();
-                } catch (e) {}
-            }, 5000);
+            await startConnectedPolling();
         }
     })();
     window.addEventListener('beforeunload', () => {

@@ -10,6 +10,7 @@ use App\Models\LeadIdentity;
 use App\Models\PhoneCallLog;
 use App\Models\PhoneContact;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
 class FlexCrmLookupService
 {
@@ -249,6 +250,8 @@ class FlexCrmLookupService
     public function forgetLeadIndexes(int $companyId): void
     {
         unset($this->assignedLeadIndexCache[$companyId], $this->leadIndexCache[$companyId]);
+        Cache::forget($this->leadIndexCacheKey($companyId, true));
+        Cache::forget($this->leadIndexCacheKey($companyId, false));
     }
 
     /**
@@ -258,7 +261,7 @@ class FlexCrmLookupService
      */
     public function assignedLeadIndex(int $companyId): array
     {
-        return $this->assignedLeadIndexCache[$companyId] ??= $this->buildLeadIndex($companyId, true);
+        return $this->assignedLeadIndexCache[$companyId] ??= $this->rememberLeadIndex($companyId, true);
     }
 
     /**
@@ -268,7 +271,28 @@ class FlexCrmLookupService
      */
     public function leadIndex(int $companyId): array
     {
-        return $this->leadIndexCache[$companyId] ??= $this->buildLeadIndex($companyId, false);
+        return $this->leadIndexCache[$companyId] ??= $this->rememberLeadIndex($companyId, false);
+    }
+
+    /**
+     * @return array{by_phone: array<string, array<string, mixed>>, by_email: array<string, array<string, mixed>>, by_name: array<string, array<string, mixed>>}
+     */
+    protected function rememberLeadIndex(int $companyId, bool $assignedOnly): array
+    {
+        if (app()->runningUnitTests()) {
+            return $this->buildLeadIndex($companyId, $assignedOnly);
+        }
+
+        return Cache::remember(
+            $this->leadIndexCacheKey($companyId, $assignedOnly),
+            45,
+            fn () => $this->buildLeadIndex($companyId, $assignedOnly)
+        );
+    }
+
+    protected function leadIndexCacheKey(int $companyId, bool $assignedOnly): string
+    {
+        return ($assignedOnly ? 'crm-assigned-lead-index-' : 'crm-lead-index-').$companyId;
     }
 
     /**
