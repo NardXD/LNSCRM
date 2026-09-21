@@ -17,7 +17,7 @@ class LoginController extends Controller
     {
         // Redirect if already authenticated
         if (Auth::check()) {
-            return redirect()->route('time-tracking');
+            return redirect()->route('dashboard');
         }
 
         return view('auth.login');
@@ -66,7 +66,7 @@ class LoginController extends Controller
 
             $request->session()->forget('url.intended');
 
-            return redirect()->route('time-tracking');
+            return redirect()->route('dashboard');
         }
 
         throw ValidationException::withMessages([

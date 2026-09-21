@@ -12,12 +12,12 @@ class CompanyLandingController extends Controller
     /**
      * Show the root page: company landing when on subdomain with valid company,
      * otherwise the promotional home page with login form.
-     * Redirects authenticated users to time tracking.
+     * Redirects authenticated users to the dashboard.
      */
     public function index(Request $request): View|RedirectResponse
     {
         if (Auth::check()) {
-            return redirect()->route('time-tracking');
+            return redirect()->route('dashboard');
         }
 
         $company = $request->get('company') ?? (app()->bound('company') ? app('company') : null);
