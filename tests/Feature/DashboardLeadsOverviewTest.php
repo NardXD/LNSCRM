@@ -9,6 +9,7 @@ use App\Models\InboxConversation;
 use App\Models\InboxMessage;
 use App\Models\Lead;
 use App\Models\LeadActivity;
+use App\Models\LeadStatus;
 use App\Models\Permission;
 use App\Models\PhoneCallLog;
 use App\Models\Role;
@@ -20,7 +21,9 @@ use App\Models\ViberConversation;
 use App\Models\ViberMessage;
 use App\Models\WhatsAppConversation;
 use App\Models\WhatsAppMessage;
+use App\Services\DashboardOverviewService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
@@ -57,6 +60,16 @@ class DashboardLeadsOverviewTest extends TestCase
             'status' => Lead::STATUS_ARCHIVED,
             'source' => 'Website',
         ]);
+        $lastMonthLead = Lead::query()->create([
+            'company_id' => $companyId,
+            'name' => 'Last Month Lead',
+            'status' => 'new',
+            'source' => 'Website',
+        ]);
+        Lead::query()->whereKey($lastMonthLead->id)->update([
+            'created_at' => now()->subMonth(),
+            'updated_at' => now()->subMonth(),
+        ]);
 
         $otherCompany = Company::query()->create([
             'name' => 'Other Co',
@@ -75,12 +88,13 @@ class DashboardLeadsOverviewTest extends TestCase
         $response = $this->actingAs($user)->get('/dashboard');
 
         $response->assertOk();
-        $response->assertSee('Lead pipeline and channel activity', false);
-        $response->assertSee('Total leads', false);
+        $response->assertSee('Lead pipeline and channel activity for', false);
+        $response->assertSee('Leads this month', false);
         $response->assertSee('Ava Converted', false);
         $response->assertSee('Ben New', false);
         $response->assertDontSee('Archived Should Hide', false);
         $response->assertDontSee('Other Company Lead', false);
+        $response->assertDontSee('Last Month Lead', false);
         $response->assertDontSee('Total Revenue', false);
         $response->assertDontSee('Active Projects', false);
 
@@ -91,7 +105,7 @@ class DashboardLeadsOverviewTest extends TestCase
         $response->assertSee('SMS', false);
         $response->assertSee('WhatsApp', false);
 
-        $response->assertSee('calls today', false);
+        $response->assertSee('calls this month', false);
         $response->assertSee('open threads', false);
         $response->assertSee('Unread inbox lead', false);
         $response->assertSee('Viber Unread', false);
@@ -102,6 +116,31 @@ class DashboardLeadsOverviewTest extends TestCase
         $html = $response->getContent();
         $this->assertMatchesRegularExpression('/data-testid="lead-kpis"[\s\S]*?>3</', $html);
         $this->assertStringContainsString('conversion rate', $html);
+    }
+
+    public function test_dashboard_overview_uses_a_small_number_of_queries(): void
+    {
+        [$user] = $this->userWithDashboardAccess();
+        $other = Company::query()->create([
+            'name' => 'Other Co Queries',
+            'subdomain' => 'other-dashboard-queries',
+            'status' => 'active',
+            'email' => 'other-dashboard-queries@lns.test',
+        ]);
+        $this->seedChannels((int) $user->company_id, (int) $other->id);
+        LeadStatus::ensureForCompany((int) $user->company_id);
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        app(DashboardOverviewService::class)->forCompany((int) $user->company_id);
+        $queryCount = count(DB::getQueryLog());
+        DB::disableQueryLog();
+
+        $this->assertLessThanOrEqual(
+            25,
+            $queryCount,
+            'Dashboard overview should not issue more than 25 queries, got '.$queryCount
+        );
     }
 
     public function test_guests_cannot_view_the_dashboard(): void

@@ -19,6 +19,7 @@ class DashboardController extends Controller
         $payload = $this->overview->forCompany($user?->company_id ? (int) $user->company_id : null);
 
         return view('dashboard.index', [
+            'periodLabel' => $payload['period_label'],
             'leads' => $payload['leads'],
             'pipeline' => $payload['pipeline'],
             'sources' => $payload['sources'],

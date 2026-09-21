@@ -20,13 +20,13 @@
     @endphp
     <div class="page-header">
         <h1 class="page-title">Dashboard</h1>
-        <p class="page-subtitle">Lead pipeline and channel activity across phone, inbox, Viber, Facebook, SMS, and WhatsApp.</p>
+        <p class="page-subtitle">Lead pipeline and channel activity for {{ $periodLabel ?? now()->format('F Y') }} across phone, inbox, Viber, Facebook, SMS, and WhatsApp.</p>
     </div>
 
     <div class="stats-grid" data-testid="lead-kpis">
         <div class="stat-card">
             <div class="stat-header">
-                <span class="stat-label">Total leads</span>
+                <span class="stat-label">Leads this month</span>
                 <div class="stat-icon blue">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -38,7 +38,7 @@
             </div>
             <div class="stat-value">{{ number_format($leads['total'] ?? 0) }}</div>
             <div class="stat-change {{ ($leads['month_change'] ?? 0) > 0 ? 'positive' : (($leads['month_change'] ?? 0) < 0 ? 'negative' : '') }}">
-                {{ ($leads['this_month'] ?? 0) }} added this month
+                vs last month
                 @if(($leads['month_change'] ?? 0) != 0)
                     · {{ ($leads['month_change'] ?? 0) >= 0 ? '+' : '' }}{{ $leads['month_change'] ?? 0 }}%
                 @endif
