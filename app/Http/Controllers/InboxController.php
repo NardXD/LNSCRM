@@ -898,7 +898,8 @@ class InboxController extends Controller
         ]);
 
         $relatedConversations = $conversation->relatedFolderConversations();
-        if ($conversation->inbox) {
+        $hydrate = $request->boolean('hydrate');
+        if ($hydrate && $conversation->inbox) {
             foreach ($relatedConversations as $related) {
                 $this->mailService->hydrateConversationBodies(
                     $conversation->inbox,

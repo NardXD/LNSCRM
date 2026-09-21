@@ -70,7 +70,16 @@
                     <div class="inbox-nav-label">Inboxes</div>
                     <button type="button" class="inbox-mini-btn" id="btnNewInbox" title="New shared inbox">+</button>
                 </div>
-                <div id="inboxList"></div>
+                <div id="inboxList">
+                    <div class="inbox-skel-mailbox" aria-hidden="true">
+                        <span class="inbox-skel-line w-70"></span>
+                        <span class="inbox-skel-line w-50"></span>
+                    </div>
+                    <div class="inbox-skel-mailbox" aria-hidden="true">
+                        <span class="inbox-skel-line w-60"></span>
+                        <span class="inbox-skel-line w-40"></span>
+                    </div>
+                </div>
             </div>
 
             <div class="inbox-nav-section inbox-tools-section">
@@ -131,8 +140,17 @@
                     </div>
                 </div>
             </div>
-            <div class="inbox-conversation-list" id="conversationList" title="Ctrl+click (Cmd+click on Mac) to select multiple threads">
-                <div class="inbox-empty" id="listEmpty">Select an inbox or connect Outlook to get started.</div>
+            <div class="inbox-conversation-list" id="conversationList" aria-busy="true" title="Ctrl+click (Cmd+click on Mac) to select multiple threads">
+                <div class="inbox-skel-list" aria-hidden="true">
+                    @for ($i = 0; $i < 8; $i++)
+                        <div class="inbox-skel-conv">
+                            <span class="inbox-skel-line w-35"></span>
+                            <span class="inbox-skel-line w-55"></span>
+                            <span class="inbox-skel-line w-80"></span>
+                            <span class="inbox-skel-line w-70"></span>
+                        </div>
+                    @endfor
+                </div>
             </div>
         </section>
 
@@ -1456,6 +1474,39 @@
     padding: 0.75rem;
     font-size: 0.78rem;
     color: var(--inbox-muted);
+}
+.inbox-skel-list { display: flex; flex-direction: column; gap: 0.2rem; padding: 0.15rem 0.1rem; }
+.inbox-skel-conv,
+.inbox-skel-mailbox,
+.inbox-skel-msg {
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.7rem 0.75rem;
+    border-radius: 10px;
+}
+.inbox-skel-mailbox { padding: 0.55rem 0.4rem 0.7rem; gap: 0.4rem; }
+.inbox-skel-line,
+.inbox-skel-avatar {
+    background: linear-gradient(90deg, #eceff3 20%, #f6f7f9 50%, #eceff3 80%);
+    background-size: 200% 100%;
+    animation: inbox-skel-shimmer 1.15s ease-in-out infinite;
+}
+.inbox-skel-line { display: block; height: 9px; border-radius: 6px; }
+.inbox-skel-line.w-35 { width: 35%; }
+.inbox-skel-line.w-40 { width: 40%; }
+.inbox-skel-line.w-50 { width: 50%; }
+.inbox-skel-line.w-55 { width: 55%; }
+.inbox-skel-line.w-60 { width: 60%; }
+.inbox-skel-line.w-70 { width: 70%; }
+.inbox-skel-line.w-80 { width: 80%; }
+.inbox-skel-line.w-90 { width: 90%; }
+.inbox-skel-thread { display: flex; flex-direction: column; gap: 0.85rem; padding: 0.35rem 0.15rem 0.5rem; }
+.inbox-skel-msg { display: flex; gap: 0.7rem; align-items: flex-start; padding: 0.85rem 0.2rem; }
+.inbox-skel-avatar { width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0; }
+.inbox-skel-msg-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+@keyframes inbox-skel-shimmer {
+    0% { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
 }
 .inbox-list-end {
     text-align: center;
@@ -3328,6 +3379,7 @@
         listLastPage: 1,
         listLoading: false,
         listHasMore: true,
+        hydrateInFlightId: null,
         syncingInboxId: null,
         autoSyncRunning: false,
         autoSyncTimer: null,
@@ -3699,15 +3751,25 @@
                 root.className = 'email-root';
                 root.innerHTML = bodyHtml;
                 shadow.appendChild(root);
+                lazyLoadEmailImages(root);
                 return;
             }
 
             // Fallback for older browsers
             host.innerHTML = bodyHtml;
+            lazyLoadEmailImages(host);
         } catch (err) {
             host.classList.remove('is-framed');
             host.textContent = String(message?.body_text || message?.body_html || 'Unable to render message').slice(0, 4000);
         }
+    }
+
+    function lazyLoadEmailImages(root) {
+        if (!root?.querySelectorAll) return;
+        root.querySelectorAll('img').forEach((img) => {
+            img.loading = 'lazy';
+            img.decoding = 'async';
+        });
     }
 
     function formatMessageBodyHtml(message) {
@@ -6140,6 +6202,54 @@
         return stripQuotedEmailHistoryPlain(String(c?.snippet || '')).replace(/\s+/g, ' ').trim();
     }
 
+    function conversationSkeletonMarkup(count = 8) {
+        return `<div class="inbox-skel-list" aria-hidden="true">${Array.from({ length: count }, () => `
+            <div class="inbox-skel-conv">
+                <span class="inbox-skel-line w-35"></span>
+                <span class="inbox-skel-line w-55"></span>
+                <span class="inbox-skel-line w-80"></span>
+                <span class="inbox-skel-line w-70"></span>
+            </div>`).join('')}</div>`;
+    }
+
+    function threadSkeletonMarkup() {
+        return `<div class="inbox-skel-thread" aria-hidden="true">
+            <div class="inbox-skel-msg">
+                <div class="inbox-skel-avatar"></div>
+                <div class="inbox-skel-msg-body">
+                    <span class="inbox-skel-line w-40"></span>
+                    <span class="inbox-skel-line w-90"></span>
+                    <span class="inbox-skel-line w-70"></span>
+                </div>
+            </div>
+            <div class="inbox-skel-msg">
+                <div class="inbox-skel-avatar"></div>
+                <div class="inbox-skel-msg-body">
+                    <span class="inbox-skel-line w-35"></span>
+                    <span class="inbox-skel-line w-80"></span>
+                    <span class="inbox-skel-line w-55"></span>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    function showConversationSkeleton() {
+        const list = el('conversationList');
+        if (!list) return;
+        list.setAttribute('aria-busy', 'true');
+        list.innerHTML = conversationSkeletonMarkup();
+    }
+
+    function showThreadLoading(preview) {
+        el('threadPlaceholder').style.display = 'none';
+        el('threadView').style.display = 'flex';
+        applyPropsPaneVisibility();
+        el('threadSubject').textContent = preview?.subject || 'Loading…';
+        el('threadMeta').textContent = '';
+        if (el('threadParticipants')) el('threadParticipants').innerHTML = '';
+        el('threadMessages').innerHTML = threadSkeletonMarkup();
+    }
+
     function conversationRowHtml(c) {
         const at = c.last_message_at || '';
         return `
@@ -6251,7 +6361,7 @@
 
     function listFooterHtml() {
         if (state.listLoading) {
-            return '<div class="inbox-list-loading" id="listLoadingMore">Loading older emails…</div>';
+            return `<div id="listLoadingMore">${conversationSkeletonMarkup(3)}</div>`;
         }
         if (state.listHasMore) {
             return '<div class="inbox-list-loading" id="listLoadingMore" hidden></div>';
@@ -6261,6 +6371,7 @@
 
     function renderConversations() {
         const list = el('conversationList');
+        list.removeAttribute('aria-busy');
         if (!state.conversations.length) {
             list.innerHTML = '<div class="inbox-empty" id="listEmpty">No conversations in this view.</div>';
             return;
@@ -6272,6 +6383,10 @@
     function updateListFooter() {
         const list = el('conversationList');
         if (!list) return;
+        if (!state.conversations.length) {
+            list.querySelector('#listLoadingMore, .inbox-list-end')?.remove();
+            return;
+        }
         const old = list.querySelector('#listLoadingMore, .inbox-list-end');
         if (old) old.outerHTML = listFooterHtml();
         else list.insertAdjacentHTML('beforeend', listFooterHtml());
@@ -6404,7 +6519,7 @@
         return !s.includes('@') && !s.includes(' ') && /^[A-Za-z0-9\-._\/=+]{8,}$/.test(s);
     }
 
-    async function loadConversations({ append = false } = {}) {
+    async function loadConversations({ append = false, preserveList = false } = {}) {
         if (state.listLoading) return;
         if (append && !state.listHasMore) return;
 
@@ -6412,8 +6527,8 @@
         state.listLoading = true;
         if (append) {
             updateListFooter();
-        } else if (!state.conversations.length) {
-            el('conversationList').innerHTML = '<div class="inbox-empty" id="listEmpty">Loading conversations…</div>';
+        } else if (!preserveList) {
+            showConversationSkeleton();
         }
 
         try {
@@ -6521,7 +6636,22 @@
         });
         const prev = state.conversations.find(c => Number(c.id) === Number(id));
         const wasUnread = !!(prev && !prev.is_read);
-        const data = await api('/conversations/' + id);
+        if (!preserveDraft) {
+            showThreadLoading(prev);
+        }
+        let data;
+        try {
+            data = await api('/conversations/' + id);
+        } catch (err) {
+            if (Number(state.selectedId) !== Number(id)) return;
+            el('threadPlaceholder').style.display = 'none';
+            el('threadView').style.display = 'flex';
+            el('threadMessages').innerHTML = `<div class="inbox-empty">${escapeHtml(err.message)}</div>`;
+            return;
+        }
+        if (Number(state.selectedId) !== Number(id) && Number(state.selectedId) !== Number(data.conversation?.id)) {
+            return;
+        }
         state.conversation = data.conversation;
         if (data.conversation?.id && Number(data.conversation.id) !== Number(id)) {
             state.selectedId = data.conversation.id;
@@ -6547,15 +6677,36 @@
         if (options.messageId) {
             focusThreadMessage(options.messageId);
         }
-        const draftMsg = [...(data.conversation?.messages || [])].reverse().find(m => m.is_draft);
-        if (draftMsg) {
-            if (isComposeOnlyDraft(data.conversation)) {
-                openComposeDraftModal(draftMsg);
-            } else if (state.composerCanReply) {
-                openDraftReplyModal(draftMsg);
+        if (!preserveDraft) {
+            const draftMsg = [...(data.conversation?.messages || [])].reverse().find(m => m.is_draft);
+            if (draftMsg) {
+                if (isComposeOnlyDraft(data.conversation)) {
+                    openComposeDraftModal(draftMsg);
+                } else if (state.composerCanReply) {
+                    openDraftReplyModal(draftMsg);
+                }
             }
         }
         window.updateHeaderNotificationsBadge?.();
+        hydrateOpenConversation(id);
+    }
+
+    async function hydrateOpenConversation(id) {
+        id = Number(id);
+        if (!id) return;
+        state.hydrateInFlightId = id;
+        try {
+            const data = await api('/conversations/' + id + '?hydrate=1');
+            if (Number(state.selectedId) !== id || Number(state.hydrateInFlightId) !== id) return;
+            if (!data.conversation) return;
+            state.conversation = data.conversation;
+            renderThread();
+            if (state.focusMessageId) {
+                focusThreadMessage(state.focusMessageId);
+            }
+        } catch (err) {
+            console.warn('Inbox hydrate failed', err);
+        }
     }
 
     function focusThreadMessage(messageId) {
@@ -8056,7 +8207,7 @@
         renderNav();
         refreshTemplateSelects();
         if (conversations) {
-            await loadConversations();
+            await loadConversations({ preserveList: state.conversations.length > 0 });
         }
     }
 
@@ -10298,7 +10449,6 @@
         }
     });
     loadLocalTools();
-    el('conversationList').innerHTML = '<div class="inbox-empty" id="listEmpty">Loading conversations…</div>';
     Promise.all([
         loadBootstrap({ conversations: false }),
         loadConversations(),
