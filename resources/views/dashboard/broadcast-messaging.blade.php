@@ -73,8 +73,8 @@
                                 <th>Date sent</th>
                             </tr>
                         </thead>
-                        <tbody id="listBody">
-                            <tr><td colspan="7" class="bc-empty">Loading broadcasts…</td></tr>
+                        <tbody id="listBody" aria-busy="true">
+                            @include('partials.skeleton-table-rows', ['rows' => 6, 'cols' => 7])
                         </tbody>
                     </table>
                 </div>

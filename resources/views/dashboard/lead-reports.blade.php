@@ -126,8 +126,8 @@
                         <th>Created</th>
                     </tr>
                 </thead>
-                <tbody id="reportPreviewBody">
-                    <tr><td colspan="6" class="empty-state">Loading report…</td></tr>
+                <tbody id="reportPreviewBody" aria-busy="true">
+                    @include('partials.skeleton-table-rows', ['rows' => 6, 'cols' => 6])
                 </tbody>
             </table>
         </div>

@@ -158,8 +158,8 @@
                                 <th>Actions</th>
                             </tr>
                         </thead>
-                        <tbody id="invoicesTableBody">
-                            <!-- Data will be populated by JavaScript -->
+                        <tbody id="invoicesTableBody" aria-busy="true">
+                            @include('partials.skeleton-table-rows', ['rows' => 8, 'cols' => 8])
                         </tbody>
                     </table>
                 </div>
@@ -529,9 +529,6 @@
                             <label class="form-label" for="invoiceClient">Client</label>
                             <select class="form-input" id="invoiceClient" required>
                                 <option value="">Select client...</option>
-                                @foreach($billingClients ?? [] as $client)
-                                    <option value="{{ $client->id }}">{{ $client->name }}</option>
-                                @endforeach
                             </select>
                         </div>
                         <div class="form-group">
@@ -813,9 +810,6 @@
                             <label class="form-label" for="subscriptionClient">Client</label>
                             <select class="form-input" id="subscriptionClient" required>
                                 <option value="">Select client...</option>
-                                @foreach($billingClients ?? [] as $client)
-                                    <option value="{{ $client->id }}">{{ $client->name }}</option>
-                                @endforeach
                             </select>
                         </div>
                         <div class="form-group">
@@ -947,9 +941,6 @@
                             <label class="form-label" for="editInvoiceClient">Client</label>
                             <select class="form-input" id="editInvoiceClient" required>
                                 <option value="">Select client...</option>
-                                @foreach($billingClients ?? [] as $client)
-                                    <option value="{{ $client->id }}">{{ $client->name }}</option>
-                                @endforeach
                             </select>
                         </div>
                         <div class="form-group">
@@ -2875,7 +2866,7 @@
     const SUBSCRIPTIONS_API = INVOICE_API + '/subscriptions';
     const PAYMENT_TRACKING_URL = '{{ route("api.billing-invoices.payment-tracking") }}';
     const CSRF = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-    const BILLING_CLIENTS = @json($billingClients ?? []);
+    const BILLING_CLIENTS = [];
     const WISE_DEFAULT_LINK_URL = INVOICE_API + '/wise-default-link';
     const STRIPE_CONNECTED = @json($stripeConnected ?? false);
     const userPermissions = @json(auth()->user()?->getPermissionSlugs() ?? []);

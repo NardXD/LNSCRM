@@ -42,61 +42,14 @@
                 </button>
             </div>
 
-            <div class="roles-grid" id="rolesGrid">
-                @forelse($roles ?? [] as $role)
-                    @php
-                        $badgeClass = match(strtolower($role->slug)) {
-                            'administrator', 'admin' => 'admin',
-                            'manager' => 'manager',
-                            'employee' => 'employee',
-                            default => 'employee'
-                        };
-                        $permissions = $role->permissions ?? collect();
-                        $previewCount = min(3, $permissions->count());
-                        $remaining = $permissions->count() - $previewCount;
-                    @endphp
-                    <div class="role-card" data-role-id="{{ $role->id }}">
-                    <div class="role-header">
-                        <div class="role-info">
-                                <h3 class="role-name">{{ $role->name }}</h3>
-                                <span class="role-badge {{ $badgeClass }}">{{ $role->name }}</span>
-                        </div>
-                        <div class="role-actions">
-                                <button class="icon-btn" title="Edit" onclick="editRole({{ $role->id }})">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                                </svg>
-                            </button>
-                                <button class="icon-btn" title="Delete" onclick="deleteRole({{ $role->id }})">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <polyline points="3 6 5 6 21 6"/>
-                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                                </svg>
-                            </button>
-                        </div>
+            <div class="roles-grid" id="rolesGrid" aria-busy="true">
+                @for ($i = 0; $i < 4; $i++)
+                    <div class="page-skel-role-card" aria-hidden="true">
+                        <span class="page-skel-line w-55"></span>
+                        <span class="page-skel-line w-80"></span>
+                        <span class="page-skel-line w-40"></span>
                     </div>
-                        <p class="role-description">{{ $role->description ?: 'No description provided' }}</p>
-                    <div class="role-stats">
-                            <span class="stat-item">{{ $role->users_with_role_count ?? $role->users_count ?? 0 }} {{ Str::plural('User', $role->users_with_role_count ?? $role->users_count ?? 0) }}</span>
-                            <span class="stat-item">{{ $permissions->count() }} {{ Str::plural('Permission', $permissions->count()) }}</span>
-                    </div>
-                        @if($permissions->count() > 0)
-                    <div class="permissions-preview">
-                                @foreach($permissions->take(3) as $perm)
-                                    <span class="permission-tag">{{ $perm->display_name ?: $perm->name }}</span>
-                                @endforeach
-                                @if($remaining > 0)
-                                    <span class="permission-tag">+{{ $remaining }} more</span>
-                                @endif
-                    </div>
-                        @endif
-                </div>
-                @empty
-                    <div class="empty-state">
-                        <p>No roles found. Create your first role to get started.</p>
-                        </div>
-                @endforelse
+                @endfor
             </div>
         </div>
 
@@ -483,9 +436,6 @@
                             <label for="roleSelect" class="form-label">Select Role to Manage Permissions</label>
                             <select id="roleSelect" class="form-input rbac-role-select">
                                 <option value="">Choose a role...</option>
-                                @foreach($roles ?? [] as $role)
-                                    <option value="{{ $role->id }}">{{ $role->name }}</option>
-                                @endforeach
                             </select>
                         </div>
                         <div class="rbac-stats" id="rbacStats" style="display: none;">
@@ -2620,7 +2570,7 @@
             if (result.success) {
                 alert(roleId ? 'Role updated successfully!' : 'Role created successfully!');
                 closeRoleModal();
-                location.reload();
+                loadRoles();
             } else {
                 const errors = result.errors ? Object.values(result.errors).flat().join('\n') : (result.message || 'Failed to save role');
                 alert(errors);
@@ -2651,7 +2601,7 @@
             
             if (data.success) {
                 alert('Role deleted successfully');
-                location.reload();
+                loadRoles();
             } else {
                 alert(data.message || 'Failed to delete role');
             }
@@ -4758,18 +4708,100 @@
                 }
             } else if (tabId === 'departments') {
                 loadDepartments();
+            } else if (tabId === 'roles' || tabId === 'rbac') {
+                loadRoles();
             }
         });
     });
 
     // Load employees if employees tab is initially active
-    if (document.getElementById('employeesTab').classList.contains('active')) {
+    if (document.getElementById('employeesTab')?.classList.contains('active')) {
         loadEmployees(1, currentSearchTerm);
     }
 
     // Load departments if departments tab is initially active
     if (document.getElementById('departmentsTab') && document.getElementById('departmentsTab').classList.contains('active')) {
         loadDepartments();
+    }
+
+    async function loadRoles() {
+        const grid = document.getElementById('rolesGrid');
+        if (!grid) return;
+        grid.setAttribute('aria-busy', 'true');
+        try {
+            const response = await fetch(@json(route('api.user-management.roles')), { headers: { Accept: 'application/json' } });
+            const roles = await response.json();
+            const list = Array.isArray(roles) ? roles : [];
+            const rbacSelect = document.getElementById('roleSelect');
+            if (rbacSelect) {
+                const current = rbacSelect.value;
+                rbacSelect.innerHTML = '<option value="">Choose a role...</option>';
+                list.forEach((role) => {
+                    const option = document.createElement('option');
+                    option.value = role.id;
+                    option.textContent = role.name;
+                    rbacSelect.appendChild(option);
+                });
+                if (current) rbacSelect.value = current;
+            }
+            if (!list.length) {
+                grid.innerHTML = '<div class="empty-state"><p>No roles found. Create your first role to get started.</p></div>';
+                grid.removeAttribute('aria-busy');
+                return;
+            }
+            grid.innerHTML = list.map((role) => {
+                const slug = String(role.slug || '').toLowerCase();
+                const badgeClass = (slug === 'administrator' || slug === 'admin') ? 'admin' : (slug === 'manager' ? 'manager' : 'employee');
+                const names = role.permissions && typeof role.permissions === 'object'
+                    ? Object.values(role.permissions)
+                    : [];
+                const preview = names.slice(0, 3);
+                const remaining = Math.max(0, names.length - preview.length);
+                const userCount = role.users_count || 0;
+                const permCount = role.permissions_count || names.length;
+                const previewHtml = preview.length
+                    ? `<div class="permissions-preview">${preview.map((name) => `<span class="permission-tag">${escapeHtml(name)}</span>`).join('')}${remaining > 0 ? `<span class="permission-tag">+${remaining} more</span>` : ''}</div>`
+                    : '';
+                return `
+                    <div class="role-card" data-role-id="${role.id}">
+                        <div class="role-header">
+                            <div class="role-info">
+                                <h3 class="role-name">${escapeHtml(role.name)}</h3>
+                                <span class="role-badge ${badgeClass}">${escapeHtml(role.name)}</span>
+                            </div>
+                            <div class="role-actions">
+                                <button class="icon-btn" title="Edit" onclick="editRole(${role.id})">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                    </svg>
+                                </button>
+                                <button class="icon-btn" title="Delete" onclick="deleteRole(${role.id})">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="3 6 5 6 21 6"/>
+                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        <p class="role-description">${escapeHtml(role.description || 'No description provided')}</p>
+                        <div class="role-stats">
+                            <span class="stat-item">${userCount} ${userCount === 1 ? 'User' : 'Users'}</span>
+                            <span class="stat-item">${permCount} ${permCount === 1 ? 'Permission' : 'Permissions'}</span>
+                        </div>
+                        ${previewHtml}
+                    </div>`;
+            }).join('');
+        } catch (error) {
+            console.error('Error loading roles:', error);
+            grid.innerHTML = '<div class="empty-state"><p>Failed to load roles. Please refresh the page.</p></div>';
+        } finally {
+            grid.removeAttribute('aria-busy');
+        }
+    }
+
+    if (document.getElementById('rolesTab')?.classList.contains('active') || document.getElementById('rbacTab')?.classList.contains('active')) {
+        loadRoles();
     }
     
     // Close modals on Escape key

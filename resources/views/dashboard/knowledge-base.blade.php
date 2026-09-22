@@ -24,14 +24,9 @@
             <div class="section-header">
                 <h2 class="section-title">Articles</h2>
                 <div class="section-actions">
-                    @if(! empty($articleCategories))
                     <select class="leads-source-filter" id="articleCategoryFilter">
                         <option value="all">All Categories</option>
-                        @foreach($articleCategories ?? [] as $cat)
-                            <option value="{{ $cat['name'] }}">{{ $cat['name'] }}</option>
-                        @endforeach
                     </select>
-                    @endif
                     @if($canCreateKnowledgeBase ?? true)
                     <button type="button" class="btn btn-primary btn-sm" onclick="createArticle()">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -45,8 +40,8 @@
             </div>
 
             <!-- Articles Grid -->
-            <div class="articles-grid" id="articlesGrid">
-                <!-- Articles will be populated by JavaScript -->
+            <div class="articles-grid" id="articlesGrid" aria-busy="true">
+                @include('partials.skeleton-cards', ['count' => 6])
             </div>
         </div>
 
@@ -68,14 +63,13 @@
             <!-- FAQ Categories -->
             <div class="leads-tabs faq-categories" id="faqCategoriesContainer">
                 <button type="button" class="leads-tab faq-category-btn active" data-category="all">All</button>
-                @foreach($faqCategories ?? [] as $cat)
-                    <button type="button" class="leads-tab faq-category-btn" data-category="{{ $cat['name'] }}">{{ $cat['name'] }}</button>
-                @endforeach
             </div>
 
             <!-- FAQs List -->
-            <div class="faqs-list" id="faqsList">
-                <!-- FAQs will be populated by JavaScript -->
+            <div class="faqs-list" id="faqsList" aria-busy="true">
+                @for ($i = 0; $i < 5; $i++)
+                    <div class="page-skel-role-card" style="min-height:64px;"></div>
+                @endfor
             </div>
         </div>
 
@@ -435,8 +429,8 @@
             </div>
 
             
-            <div class="guides-grid" id="guidesGrid">
-                <!-- Guides will be populated by JavaScript -->
+            <div class="guides-grid" id="guidesGrid" aria-busy="true">
+                @include('partials.skeleton-cards', ['count' => 6])
             </div>
         </div>
     </div>
@@ -464,9 +458,6 @@
                         <div class="form-input-group">
                             <select id="newArticleCategory" name="category" class="form-input">
                                 <option value="">No category</option>
-                                @foreach($articleCategories ?? [] as $cat)
-                                    <option value="{{ $cat['slug'] }}">{{ $cat['name'] }}</option>
-                                @endforeach
                             </select>
                             <button type="button" class="btn btn-secondary btn-sm" onclick="openAddCategoryModal('article')" title="Add category">+</button>
                         </div>
@@ -618,9 +609,6 @@
                         <div class="form-input-group">
                             <select id="newFAQCategory" name="category" class="form-input">
                                 <option value="">No category</option>
-                                @foreach($faqCategories ?? [] as $cat)
-                                    <option value="{{ $cat['slug'] }}">{{ $cat['name'] }}</option>
-                                @endforeach
                             </select>
                             <button type="button" class="btn btn-secondary btn-sm" onclick="openAddCategoryModal('faq')" title="Add category">+</button>
                         </div>
@@ -732,9 +720,6 @@
                         <div class="form-input-group">
                             <select id="newGuideCategory" name="category" class="form-input" required>
                                 <option value="">Select category</option>
-                                @foreach($guideCategories ?? [] as $cat)
-                                    <option value="{{ $cat['slug'] }}">{{ $cat['name'] }}</option>
-                                @endforeach
                             </select>
                             <button type="button" class="btn btn-secondary btn-sm" onclick="openAddCategoryModal('guide')" title="Add category">+</button>
                         </div>
@@ -2003,16 +1988,16 @@
     });
 
     // Articles, FAQs, Guides (from backend, per company)
-    const articlesData = @json($articles ?? []);
-    const faqsData = @json($faqs ?? []);
-    const guidesData = @json($guides ?? []);
+    let articlesData = [];
+    let faqsData = [];
+    let guidesData = [];
     const canCreateKnowledgeBase = @json($canCreateKnowledgeBase ?? true);
     const canEditKnowledgeBase = @json($canEditKnowledgeBase ?? true);
     const canDeleteKnowledgeBase = @json($canDeleteKnowledgeBase ?? true);
 
-    const articleCategoriesData = @json($articleCategories ?? []);
-    const faqCategoriesData = @json($faqCategories ?? []);
-    const guideCategoriesData = @json($guideCategories ?? []);
+    let articleCategoriesData = [];
+    let faqCategoriesData = [];
+    let guideCategoriesData = [];
 
     const knowledgeBaseApi = {
         baseUrl: '{{ \Illuminate\Support\Str::replaceLast("/articles", "", route("api.knowledge-base.articles.store")) }}',
@@ -2809,10 +2794,92 @@
         btn.classList.add('selected');
     });
 
-    // Initialize
-    renderArticles(getArticleCategoryFilter());
-    renderFAQs(getFaqCategoryFilter());
-    renderGuides();
+    // Initialize after bootstrap (inbox/facebook-style: shell first, then JSON)
+    function fillCategorySelect(selectId, categories, placeholder) {
+        const sel = document.getElementById(selectId);
+        if (!sel) return;
+        const current = sel.value;
+        const keepFirst = sel.querySelector('option');
+        sel.innerHTML = '';
+        if (keepFirst && !keepFirst.value) {
+            sel.appendChild(keepFirst);
+        } else if (placeholder) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = placeholder;
+            sel.appendChild(opt);
+        }
+        categories.forEach((category) => {
+            const opt = document.createElement('option');
+            opt.value = category.slug;
+            opt.textContent = category.name;
+            sel.appendChild(opt);
+        });
+        if (current) sel.value = current;
+    }
+
+    function applyKnowledgeBootstrap(data) {
+        articlesData = data.articles || [];
+        faqsData = data.faqs || [];
+        guidesData = data.guides || [];
+        articleCategoriesData = data.article_categories || [];
+        faqCategoriesData = data.faq_categories || [];
+        guideCategoriesData = data.guide_categories || [];
+
+        fillCategorySelect('newArticleCategory', articleCategoriesData, 'No category');
+        fillCategorySelect('newFAQCategory', faqCategoriesData, 'No category');
+        fillCategorySelect('newGuideCategory', guideCategoriesData, 'Select category');
+
+        const filterSel = document.getElementById('articleCategoryFilter');
+        if (filterSel) {
+            const current = filterSel.value || 'all';
+            filterSel.innerHTML = '<option value="all">All Categories</option>';
+            articleCategoriesData.forEach((category) => {
+                const opt = document.createElement('option');
+                opt.value = category.name;
+                opt.textContent = category.name;
+                filterSel.appendChild(opt);
+            });
+            filterSel.value = current;
+        }
+
+        const faqContainer = document.getElementById('faqCategoriesContainer');
+        if (faqContainer) {
+            const active = faqContainer.querySelector('.faq-category-btn.active')?.dataset.category || 'all';
+            faqContainer.querySelectorAll('.faq-category-btn:not([data-category="all"])').forEach((btn) => btn.remove());
+            faqCategoriesData.forEach((category) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'leads-tab faq-category-btn';
+                btn.dataset.category = category.name;
+                btn.textContent = category.name;
+                faqContainer.appendChild(btn);
+            });
+            const keep = faqContainer.querySelector(`.faq-category-btn[data-category="${active}"]`);
+            faqContainer.querySelectorAll('.faq-category-btn').forEach((b) => b.classList.remove('active'));
+            (keep || faqContainer.querySelector('[data-category="all"]'))?.classList.add('active');
+        }
+
+        document.getElementById('articlesGrid')?.removeAttribute('aria-busy');
+        document.getElementById('faqsList')?.removeAttribute('aria-busy');
+        document.getElementById('guidesGrid')?.removeAttribute('aria-busy');
+        renderArticles(getArticleCategoryFilter());
+        renderFAQs(getFaqCategoryFilter());
+        renderGuides();
+    }
+
+    fetch(@json(route('api.knowledge-base.bootstrap')), { headers: { Accept: 'application/json' } })
+        .then((res) => {
+            if (!res.ok) throw new Error('Failed to load knowledge base');
+            return res.json();
+        })
+        .then(applyKnowledgeBootstrap)
+        .catch((err) => {
+            console.error(err);
+            document.getElementById('articlesGrid').innerHTML = '';
+            document.getElementById('faqsList').innerHTML = '';
+            document.getElementById('guidesGrid').innerHTML = '';
+        });
 </script>
 @endpush
 

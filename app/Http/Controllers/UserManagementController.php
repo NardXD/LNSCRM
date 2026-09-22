@@ -28,96 +28,19 @@ use Illuminate\Validation\ValidationException;
 class UserManagementController extends Controller
 {
     /**
-     * Display the user management page.
+     * Display the user management page (shell; roles and employees load via API).
      */
     public function index()
     {
         $user = Auth::user();
 
-        // Ensure user exists
         if (! $user) {
             abort(403, 'Unauthorized');
         }
 
-        $company = $user->company;
-
-        // Get users from the same company (handle null company_id)
-        $usersQuery = User::query();
-        if ($user->company_id) {
-            $usersQuery->where('company_id', $user->company_id);
-        } else {
-            // If no company_id, return empty or handle differently
-            $usersQuery->where('id', 0); // Return no users
-        }
-        $users = $usersQuery->with(['role', 'roles'])
-            ->orderBy('name')
-            ->get();
-
-        // Get roles for the company
-        $rolesQuery = Role::where('is_active', true);
-        if ($user->company_id) {
-            $rolesQuery->where('company_id', $user->company_id);
-        } else {
-            $rolesQuery->where('id', 0); // Return no roles if no company
-        }
-
-        $roles = $rolesQuery->withCount(['usersWithRole' => function ($query) use ($user) {
-            if ($user->company_id) {
-                $query->where('company_id', $user->company_id);
-            } else {
-                $query->where('id', 0); // Return 0 count
-            }
-        }])
-            ->with('permissions')
-            ->get();
-
-        // Get permissions for the company grouped by category (sidebar modules only for RBAC)
-        $permissionsQuery = Permission::query();
-        if ($user->company_id) {
-            $permissionsQuery->where('company_id', $user->company_id);
-        } else {
-            $permissionsQuery->where('id', 0); // Return no permissions if no company
-        }
-
-        // Filter for sidebar permissions (category = 'main' or 'settings')
-        $permissions = $permissionsQuery
-            ->whereIn('category', ['main', 'settings'])
-            ->orderBy('category')
-            ->orderBy('display_name')
-            ->get()
-            ->groupBy('category');
-
-        // Get company settings
-        $companySettings = [
-            'timezone' => $company->timezone ?? 'America/New_York',
-            'date_format' => 'MM-DD-YYYY',
-            'currency' => 'USD',
-            'language' => 'en',
-        ];
-
-        // Load other settings from system_settings if available
-        if ($company && $company->id) {
-            $settings = SystemSetting::where('group', 'company_'.$company->id)
-                ->whereNotIn('key', ['timezone']) // Exclude timezone as it's now in companies table
-                ->pluck('value', 'key')
-                ->toArray();
-            $companySettings = array_merge($companySettings, $settings);
-        }
-
-        // Ensure all variables are set with defaults
-        $users = $users ?? collect();
-        $roles = $roles ?? collect();
-        $permissions = $permissions ?? collect();
-        $company = $company ?? null;
-        $companySettings = $companySettings ?? [];
-
-        return view('dashboard.user-management', compact(
-            'users',
-            'roles',
-            'permissions',
-            'company',
-            'companySettings'
-        ));
+        return view('dashboard.user-management', [
+            'company' => $user->company,
+        ]);
     }
 
     /**

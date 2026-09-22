@@ -28,7 +28,9 @@
                 'prefix' => 'vb',
                 'label' => 'Viber Templates',
             ])
-            <div class="viber-thread-list" id="viberThreadList"></div>
+            <div class="viber-thread-list" id="viberThreadList" aria-busy="true">
+                @include('partials.skeleton-threads')
+            </div>
         </aside>
 
         <main class="viber-main">
@@ -253,6 +255,7 @@
     }
 
     function renderThreads() {
+        els.list.removeAttribute('aria-busy');
         if (!conversations.length) {
             els.list.innerHTML = `<div class="viber-list-hint">No conversations yet.</div>`;
             return;
@@ -413,6 +416,9 @@
     async function loadConversations({ append = false, merge = false } = {}) {
         if (convLoading) return;
         convLoading = true;
+        if (!append && !merge) {
+            els.list.setAttribute('aria-busy', 'true');
+        }
         try {
             const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
             const q = (els.search.value || '').trim();
@@ -655,9 +661,11 @@
     });
 
     (async function init() {
-        await loadBootstrap();
+        await Promise.all([
+            loadBootstrap().catch(console.error),
+            loadConversations().catch(console.error),
+        ]);
         if (connected) {
-            await loadConversations();
             const params = new URLSearchParams(window.location.search);
             const openId = Number(params.get('conversation') || 0);
             if (openId) {

@@ -66,8 +66,8 @@
                                 <th>Actions</th>
                             </tr>
                         </thead>
-                        <tbody id="timeLogsTableBody">
-                            <!-- Data will be populated by JavaScript -->
+                        <tbody id="timeLogsTableBody" aria-busy="true">
+                            @include('partials.skeleton-table-rows', ['rows' => 8, 'cols' => 6])
                         </tbody>
                     </table>
                 </div>
@@ -244,8 +244,8 @@
                                     <th>Status</th>
                                 </tr>
                             </thead>
-                            <tbody id="reportTableBody">
-                                <!-- Data will be populated by JavaScript -->
+                            <tbody id="reportTableBody" aria-busy="true">
+                                @include('partials.skeleton-table-rows', ['rows' => 6, 'cols' => 6])
                             </tbody>
                         </table>
                     </div>

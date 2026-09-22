@@ -60,8 +60,8 @@
                         <th></th>
                     </tr>
                 </thead>
-                <tbody id="ticketsTableBody">
-                    <tr><td colspan="9" class="empty-state">Loading tickets…</td></tr>
+                <tbody id="ticketsTableBody" aria-busy="true">
+                    @include('partials.skeleton-table-rows', ['rows' => 8, 'cols' => 9])
                 </tbody>
             </table>
         </div>

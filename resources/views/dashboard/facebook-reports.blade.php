@@ -100,8 +100,8 @@
                         <th>Leads created</th>
                     </tr>
                 </thead>
-                <tbody id="dailyTableBody">
-                    <tr><td colspan="5" class="empty-state">Loading report…</td></tr>
+                <tbody id="dailyTableBody" aria-busy="true">
+                    @include('partials.skeleton-table-rows', ['rows' => 6, 'cols' => 5])
                 </tbody>
             </table>
         </div>
@@ -123,8 +123,8 @@
                         <th>Created</th>
                     </tr>
                 </thead>
-                <tbody id="leadsPreviewBody">
-                    <tr><td colspan="5" class="empty-state">Loading report…</td></tr>
+                <tbody id="leadsPreviewBody" aria-busy="true">
+                    @include('partials.skeleton-table-rows', ['rows' => 6, 'cols' => 5])
                 </tbody>
             </table>
         </div>

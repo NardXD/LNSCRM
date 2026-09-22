@@ -50,15 +50,8 @@
                                 <th>Actions</th>
                             </tr>
                         </thead>
-                        <tbody id="leadsTableBody">
-                            <tr>
-                                <td colspan="7" class="empty-state">
-                                    <div class="ld-loading">
-                                        <span class="ld-spinner" aria-hidden="true"></span>
-                                        Loading leads…
-                                    </div>
-                                </td>
-                            </tr>
+                        <tbody id="leadsTableBody" aria-busy="true">
+                            @include('partials.skeleton-table-rows', ['rows' => 8, 'cols' => 7])
                         </tbody>
                     </table>
                 </div>

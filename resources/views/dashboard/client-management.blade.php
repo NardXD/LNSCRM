@@ -140,8 +140,8 @@
                             <th>Actions</th>
                         </tr>
                     </thead>
-                    <tbody id="clientsTableBody">
-                        <!-- Data will be populated by JavaScript -->
+                    <tbody id="clientsTableBody" aria-busy="true">
+                        @include('partials.skeleton-table-rows', ['rows' => 8, 'cols' => 9])
                     </tbody>
                 </table>
             </div>

@@ -45,11 +45,8 @@
         </div>
 
         <!-- Employees List -->
-        <div class="employees-monitoring-grid" id="employeesMonitoringGrid">
-            <!-- Employees will be loaded dynamically here -->
-            <div style="grid-column: 1 / -1; text-align: center; padding: 2rem; color: var(--text-muted);">
-                Loading employees...
-            </div>
+        <div class="employees-monitoring-grid" id="employeesMonitoringGrid" aria-busy="true">
+            @include('partials.skeleton-cards', ['count' => 8])
         </div>
 
         @if(auth()->user()->hasPermission('view_live_screen'))

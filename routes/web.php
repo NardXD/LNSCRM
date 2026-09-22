@@ -28,7 +28,6 @@ use App\Http\Controllers\ContactHistoryController;
 use App\Http\Controllers\ContractController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EmployeeMonitoringController;
-use App\Http\Controllers\MessageTemplateController;
 use App\Http\Controllers\FacebookController;
 use App\Http\Controllers\HiringAssistantController;
 use App\Http\Controllers\HiringQueueController;
@@ -39,6 +38,7 @@ use App\Http\Controllers\LeadsController;
 use App\Http\Controllers\LeaveManagementController;
 use App\Http\Controllers\LiveViewController;
 use App\Http\Controllers\McpServerController;
+use App\Http\Controllers\MessageTemplateController;
 use App\Http\Controllers\MessagingController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OpenAiController;
@@ -46,8 +46,8 @@ use App\Http\Controllers\PayrollController;
 use App\Http\Controllers\ProjectManagementController;
 use App\Http\Controllers\PublicMediaController;
 use App\Http\Controllers\QuotationController;
-use App\Http\Controllers\StorageQuoteController;
 use App\Http\Controllers\SmsController;
+use App\Http\Controllers\StorageQuoteController;
 use App\Http\Controllers\StripeWebhookController;
 use App\Http\Controllers\TeamManagementController;
 use App\Http\Controllers\TicketController;
@@ -58,6 +58,8 @@ use App\Http\Controllers\Twilio\PhoneSystemController;
 use App\Http\Controllers\ViberController;
 use App\Http\Controllers\WhatsAppController;
 use App\Http\Controllers\WiseWebhookController;
+use App\Models\MessageTemplate;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 // MCP Server (Model Context Protocol) - for Claude AI integration
@@ -149,6 +151,7 @@ Route::post('/contracts/sign/{token}', [ContractController::class, 'submitSignat
 // Protected Dashboard Routes - Require Authentication
 Route::middleware(['auth', 'company.active'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->middleware('permission:view_dashboard')->name('dashboard');
+    Route::get('/api/dashboard/overview', [DashboardController::class, 'overview'])->middleware('permission:view_dashboard')->name('api.dashboard.overview');
 
     Route::get('/time-tracking', [TimeTrackingController::class, 'index'])->middleware('permission:view_time_tracking')->name('time-tracking');
 
@@ -503,14 +506,14 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/conversations/{conversation}/messages', [ViberController::class, 'sendMessage'])->name('api.viber.messages.store');
         Route::get('/conversations/{conversation}/call-link', [ViberController::class, 'callLink'])->name('api.viber.call-link');
         Route::post('/media', [ViberController::class, 'uploadMedia'])->name('api.viber.media.store');
-        Route::get('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->index($request, 'viber'))->name('api.viber.templates.index');
-        Route::post('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->store($request, 'viber'))
+        Route::get('/templates', fn (Request $request) => app(MessageTemplateController::class)->index($request, 'viber'))->name('api.viber.templates.index');
+        Route::post('/templates', fn (Request $request) => app(MessageTemplateController::class)->store($request, 'viber'))
             ->middleware('permission:create_message_templates')
             ->name('api.viber.templates.store');
-        Route::put('/templates/{template}', fn (\Illuminate\Http\Request $request, \App\Models\MessageTemplate $template) => app(MessageTemplateController::class)->update($request, 'viber', $template))
+        Route::put('/templates/{template}', fn (Request $request, MessageTemplate $template) => app(MessageTemplateController::class)->update($request, 'viber', $template))
             ->middleware('permission:create_message_templates')
             ->name('api.viber.templates.update');
-        Route::delete('/templates/{template}', fn (\Illuminate\Http\Request $request, \App\Models\MessageTemplate $template) => app(MessageTemplateController::class)->destroy($request, 'viber', $template))
+        Route::delete('/templates/{template}', fn (Request $request, MessageTemplate $template) => app(MessageTemplateController::class)->destroy($request, 'viber', $template))
             ->middleware('permission:create_message_templates')
             ->name('api.viber.templates.destroy');
     });
@@ -529,14 +532,14 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::delete('/conversations/{conversation}/labels/{leadLabel}', [WhatsAppController::class, 'detachLabel'])->name('api.whatsapp.conversations.labels.detach');
         Route::post('/sync', [WhatsAppController::class, 'sync'])->name('api.whatsapp.sync');
         Route::post('/media', [WhatsAppController::class, 'uploadMedia'])->name('api.whatsapp.media.store');
-        Route::get('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->index($request, 'whatsapp'))->name('api.whatsapp.templates.index');
-        Route::post('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->store($request, 'whatsapp'))
+        Route::get('/templates', fn (Request $request) => app(MessageTemplateController::class)->index($request, 'whatsapp'))->name('api.whatsapp.templates.index');
+        Route::post('/templates', fn (Request $request) => app(MessageTemplateController::class)->store($request, 'whatsapp'))
             ->middleware('permission:create_message_templates')
             ->name('api.whatsapp.templates.store');
-        Route::put('/templates/{template}', fn (\Illuminate\Http\Request $request, \App\Models\MessageTemplate $template) => app(MessageTemplateController::class)->update($request, 'whatsapp', $template))
+        Route::put('/templates/{template}', fn (Request $request, MessageTemplate $template) => app(MessageTemplateController::class)->update($request, 'whatsapp', $template))
             ->middleware('permission:create_message_templates')
             ->name('api.whatsapp.templates.update');
-        Route::delete('/templates/{template}', fn (\Illuminate\Http\Request $request, \App\Models\MessageTemplate $template) => app(MessageTemplateController::class)->destroy($request, 'whatsapp', $template))
+        Route::delete('/templates/{template}', fn (Request $request, MessageTemplate $template) => app(MessageTemplateController::class)->destroy($request, 'whatsapp', $template))
             ->middleware('permission:create_message_templates')
             ->name('api.whatsapp.templates.destroy');
     });
@@ -558,14 +561,14 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::delete('/conversations/{conversation}/labels/{leadLabel}', [FacebookController::class, 'detachLabel'])->name('api.facebook.conversations.labels.detach');
         Route::post('/media', [FacebookController::class, 'uploadMedia'])->name('api.facebook.media.store');
         Route::post('/sync', [FacebookController::class, 'syncHistory'])->name('api.facebook.sync');
-        Route::get('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->index($request, 'facebook'))->name('api.facebook.templates.index');
-        Route::post('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->store($request, 'facebook'))
+        Route::get('/templates', fn (Request $request) => app(MessageTemplateController::class)->index($request, 'facebook'))->name('api.facebook.templates.index');
+        Route::post('/templates', fn (Request $request) => app(MessageTemplateController::class)->store($request, 'facebook'))
             ->middleware('permission:create_message_templates')
             ->name('api.facebook.templates.store');
-        Route::put('/templates/{template}', fn (\Illuminate\Http\Request $request, \App\Models\MessageTemplate $template) => app(MessageTemplateController::class)->update($request, 'facebook', $template))
+        Route::put('/templates/{template}', fn (Request $request, MessageTemplate $template) => app(MessageTemplateController::class)->update($request, 'facebook', $template))
             ->middleware('permission:create_message_templates')
             ->name('api.facebook.templates.update');
-        Route::delete('/templates/{template}', fn (\Illuminate\Http\Request $request, \App\Models\MessageTemplate $template) => app(MessageTemplateController::class)->destroy($request, 'facebook', $template))
+        Route::delete('/templates/{template}', fn (Request $request, MessageTemplate $template) => app(MessageTemplateController::class)->destroy($request, 'facebook', $template))
             ->middleware('permission:create_message_templates')
             ->name('api.facebook.templates.destroy');
     });
@@ -591,14 +594,14 @@ Route::middleware(['auth', 'company.active'])->group(function () {
             ->middleware('permission:send_sms')
             ->name('api.sms.messages.store');
         Route::get('/conversations/{conversation}/call-link', [SmsController::class, 'callLink'])->name('api.sms.call-link');
-        Route::get('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->index($request, 'sms'))->name('api.sms.templates.index');
-        Route::post('/templates', fn (\Illuminate\Http\Request $request) => app(MessageTemplateController::class)->store($request, 'sms'))
+        Route::get('/templates', fn (Request $request) => app(MessageTemplateController::class)->index($request, 'sms'))->name('api.sms.templates.index');
+        Route::post('/templates', fn (Request $request) => app(MessageTemplateController::class)->store($request, 'sms'))
             ->middleware('permission:create_message_templates')
             ->name('api.sms.templates.store');
-        Route::put('/templates/{template}', fn (\Illuminate\Http\Request $request, \App\Models\MessageTemplate $template) => app(MessageTemplateController::class)->update($request, 'sms', $template))
+        Route::put('/templates/{template}', fn (Request $request, MessageTemplate $template) => app(MessageTemplateController::class)->update($request, 'sms', $template))
             ->middleware('permission:create_message_templates')
             ->name('api.sms.templates.update');
-        Route::delete('/templates/{template}', fn (\Illuminate\Http\Request $request, \App\Models\MessageTemplate $template) => app(MessageTemplateController::class)->destroy($request, 'sms', $template))
+        Route::delete('/templates/{template}', fn (Request $request, MessageTemplate $template) => app(MessageTemplateController::class)->destroy($request, 'sms', $template))
             ->middleware('permission:create_message_templates')
             ->name('api.sms.templates.destroy');
     });
@@ -769,6 +772,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         ->name('knowledge-base');
 
     Route::prefix('api/knowledge-base')->middleware('permission:view_knowledge_base')->group(function () {
+        Route::get('/bootstrap', [KnowledgeBaseController::class, 'bootstrap'])->name('api.knowledge-base.bootstrap');
         Route::post('/categories', [KnowledgeBaseController::class, 'storeCategory'])->middleware('permission:create_knowledge_base')->name('api.knowledge-base.categories.store');
         Route::post('/articles', [KnowledgeBaseController::class, 'storeArticle'])->middleware('permission:create_knowledge_base')->name('api.knowledge-base.articles.store');
         Route::put('/articles/{id}', [KnowledgeBaseController::class, 'updateArticle'])->middleware('permission:edit_knowledge_base')->name('api.knowledge-base.articles.update');

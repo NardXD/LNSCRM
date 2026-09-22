@@ -1524,5 +1524,46 @@
             grid-template-columns: repeat(4, 1fr);
         }
     }
+
+    /* Shared lazy-load skeletons (same shimmer as Inbox / Facebook) */
+    .page-skel-line,
+    .page-skel-avatar,
+    .page-skel-card,
+    .page-skel-bubble,
+    .page-skel-stat,
+    .page-skel-grid-card {
+        background: linear-gradient(90deg, #eceff3 20%, #f6f7f9 50%, #eceff3 80%);
+        background-size: 200% 100%;
+        animation: page-skel-shimmer 1.15s ease-in-out infinite;
+    }
+    .page-skel-line { display: block; height: 9px; border-radius: 6px; }
+    .page-skel-line.w-35 { width: 35%; }
+    .page-skel-line.w-40 { width: 40%; }
+    .page-skel-line.w-50 { width: 50%; }
+    .page-skel-line.w-55 { width: 55%; }
+    .page-skel-line.w-60 { width: 60%; }
+    .page-skel-line.w-70 { width: 70%; }
+    .page-skel-line.w-80 { width: 80%; }
+    .page-skel-line.w-90 { width: 90%; }
+    .page-skel-avatar { width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0; }
+    .page-skel-list { display: flex; flex-direction: column; gap: 0.15rem; }
+    .page-skel-thread { display: flex; align-items: center; gap: 0.6rem; padding: 0.55rem 0.65rem; }
+    .page-skel-lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+    .page-skel-table-row td { padding: 0.85rem 0.75rem; vertical-align: middle; }
+    .page-skel-stat { height: 1.85rem; width: 4.25rem; border-radius: 8px; display: inline-block; }
+    .page-skel-grid-card { min-height: 140px; border-radius: 12px; }
+    .page-skel-role-card {
+        min-height: 160px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        padding: 1.15rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+    }
+    @keyframes page-skel-shimmer {
+        0% { background-position: 100% 0; }
+        100% { background-position: -100% 0; }
+    }
 </style>
 

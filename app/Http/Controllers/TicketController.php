@@ -19,27 +19,7 @@ class TicketController extends Controller
      */
     public function index()
     {
-        $user = Auth::user();
-        $companyId = $user->company_id;
-
-        $employees = User::where('company_id', $companyId)
-            ->orderBy('name')
-            ->get(['id', 'name'])
-            ->map(fn ($u) => [
-                'id' => $u->id,
-                'name' => $u->name,
-                'initials' => $this->getInitials($u->name),
-            ]);
-
-        $clients = Client::where('company_id', $companyId)
-            ->orderBy('name')
-            ->get(['id', 'name'])
-            ->map(fn ($c) => ['id' => $c->id, 'name' => $c->name]);
-
-        return view('dashboard.tickets', [
-            'employees' => $employees,
-            'clients' => $clients,
-        ]);
+        return view('dashboard.tickets');
     }
 
     /**

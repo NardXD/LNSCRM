@@ -18,7 +18,7 @@ use Illuminate\View\View;
 class KnowledgeBaseController extends Controller
 {
     /**
-     * Display the knowledge base page with company-scoped data.
+     * Display the knowledge base page (shell; data loads via bootstrap API).
      */
     public function index(): View
     {
@@ -27,55 +27,59 @@ class KnowledgeBaseController extends Controller
             abort(403, 'Company context required.');
         }
 
-        KnowledgeBaseCategory::ensureDefaultsForCompany($user->company_id);
-
-        $articleCategories = KnowledgeBaseCategory::where('company_id', $user->company_id)
-            ->where('type', 'article')
-            ->orderBy('sort_order')
-            ->orderBy('name')
-            ->get(['id', 'name', 'slug'])
-            ->map(fn ($c) => ['id' => $c->id, 'name' => $c->name, 'slug' => $c->slug]);
-
-        $faqCategories = KnowledgeBaseCategory::where('company_id', $user->company_id)
-            ->where('type', 'faq')
-            ->orderBy('sort_order')
-            ->orderBy('name')
-            ->get(['id', 'name', 'slug'])
-            ->map(fn ($c) => ['id' => $c->id, 'name' => $c->name, 'slug' => $c->slug]);
-
-        $guideCategories = KnowledgeBaseCategory::where('company_id', $user->company_id)
-            ->where('type', 'guide')
-            ->orderBy('sort_order')
-            ->orderBy('name')
-            ->get(['id', 'name', 'slug'])
-            ->map(fn ($c) => ['id' => $c->id, 'name' => $c->name, 'slug' => $c->slug]);
-
-        $articles = KnowledgeBaseArticle::where('company_id', $user->company_id)
-            ->with('user')
-            ->orderByDesc('created_at')
-            ->get()
-            ->map(fn ($a) => $this->formatArticle($a));
-
-        $faqs = KnowledgeBaseFaq::where('company_id', $user->company_id)
-            ->orderByDesc('created_at')
-            ->get()
-            ->map(fn ($f) => $this->formatFaq($f));
-
-        $guides = KnowledgeBaseGuide::where('company_id', $user->company_id)
-            ->orderByDesc('created_at')
-            ->get()
-            ->map(fn ($g) => $this->formatGuide($g));
-
         return view('dashboard.knowledge-base', [
-            'articles' => $articles,
-            'faqs' => $faqs,
-            'guides' => $guides,
-            'articleCategories' => $articleCategories,
-            'faqCategories' => $faqCategories,
-            'guideCategories' => $guideCategories,
             'canCreateKnowledgeBase' => $user->hasPermission('create_knowledge_base'),
             'canEditKnowledgeBase' => $user->hasPermission('edit_knowledge_base'),
             'canDeleteKnowledgeBase' => $user->hasPermission('delete_knowledge_base'),
+        ]);
+    }
+
+    /**
+     * JSON payload for the knowledge base page (articles, FAQs, guides, categories).
+     */
+    public function bootstrap(): JsonResponse
+    {
+        $user = Auth::user();
+        if (! $user || ! $user->company_id) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
+        }
+
+        KnowledgeBaseCategory::ensureDefaultsForCompany($user->company_id);
+
+        $mapCategories = function (string $type) use ($user) {
+            return KnowledgeBaseCategory::where('company_id', $user->company_id)
+                ->where('type', $type)
+                ->orderBy('sort_order')
+                ->orderBy('name')
+                ->get(['id', 'name', 'slug'])
+                ->map(fn ($c) => ['id' => $c->id, 'name' => $c->name, 'slug' => $c->slug])
+                ->values();
+        };
+
+        return response()->json([
+            'success' => true,
+            'articles' => KnowledgeBaseArticle::where('company_id', $user->company_id)
+                ->with('user')
+                ->orderByDesc('created_at')
+                ->get()
+                ->map(fn ($a) => $this->formatArticle($a))
+                ->values(),
+            'faqs' => KnowledgeBaseFaq::where('company_id', $user->company_id)
+                ->orderByDesc('created_at')
+                ->get()
+                ->map(fn ($f) => $this->formatFaq($f))
+                ->values(),
+            'guides' => KnowledgeBaseGuide::where('company_id', $user->company_id)
+                ->orderByDesc('created_at')
+                ->get()
+                ->map(fn ($g) => $this->formatGuide($g))
+                ->values(),
+            'article_categories' => $mapCategories('article'),
+            'faq_categories' => $mapCategories('faq'),
+            'guide_categories' => $mapCategories('guide'),
+            'can_create' => $user->hasPermission('create_knowledge_base'),
+            'can_edit' => $user->hasPermission('edit_knowledge_base'),
+            'can_delete' => $user->hasPermission('delete_knowledge_base'),
         ]);
     }
 

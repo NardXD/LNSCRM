@@ -819,15 +819,8 @@
                         <th>Status</th>
                     </tr>
                 </thead>
-                <tbody id="requestsTableBody">
-                    <tr>
-                        <td colspan="6">
-                            <div class="empty-state">
-                                <div class="empty-state-icon">📋</div>
-                                <p>No leave requests found</p>
-                            </div>
-                        </td>
-                    </tr>
+                <tbody id="requestsTableBody" aria-busy="true">
+                    @include('partials.skeleton-table-rows', ['rows' => 6, 'cols' => 6])
                 </tbody>
             </table>
         </div>

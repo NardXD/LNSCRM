@@ -85,37 +85,41 @@ class DashboardLeadsOverviewTest extends TestCase
 
         $this->seedChannels($companyId, $otherCompany->id);
 
-        $response = $this->actingAs($user)->get('/dashboard');
+        $page = $this->actingAs($user)->get('/dashboard');
+        $page->assertOk();
+        $page->assertSee('Lead pipeline and channel activity for', false);
+        $page->assertSee('Leads this month', false);
+        $page->assertSee('Phone System', false);
+        $page->assertSee('Inbox', false);
+        $page->assertSee('Viber', false);
+        $page->assertSee('Facebook', false);
+        $page->assertSee('SMS', false);
+        $page->assertSee('WhatsApp', false);
+        $page->assertSee('conversion rate', false);
+        $page->assertSee('page-skel-stat', false);
+        $page->assertDontSee('Ava Converted', false);
+        $page->assertDontSee('Archived Should Hide', false);
+        $page->assertDontSee('Other Company Lead', false);
+        $page->assertDontSee('Last Month Lead', false);
+        $page->assertDontSee('Total Revenue', false);
+        $page->assertDontSee('Active Projects', false);
 
-        $response->assertOk();
-        $response->assertSee('Lead pipeline and channel activity for', false);
-        $response->assertSee('Leads this month', false);
-        $response->assertSee('Ava Converted', false);
-        $response->assertSee('Ben New', false);
-        $response->assertDontSee('Archived Should Hide', false);
-        $response->assertDontSee('Other Company Lead', false);
-        $response->assertDontSee('Last Month Lead', false);
-        $response->assertDontSee('Total Revenue', false);
-        $response->assertDontSee('Active Projects', false);
-
-        $response->assertSee('Phone System', false);
-        $response->assertSee('Inbox', false);
-        $response->assertSee('Viber', false);
-        $response->assertSee('Facebook', false);
-        $response->assertSee('SMS', false);
-        $response->assertSee('WhatsApp', false);
-
-        $response->assertSee('calls this month', false);
-        $response->assertSee('open threads', false);
-        $response->assertSee('Unread inbox lead', false);
-        $response->assertSee('Viber Unread', false);
-        $response->assertSee('Facebook Unread', false);
-        $response->assertSee('SMS Unread', false);
-        $response->assertSee('WhatsApp Unread', false);
-
-        $html = $response->getContent();
-        $this->assertMatchesRegularExpression('/data-testid="lead-kpis"[\s\S]*?>3</', $html);
-        $this->assertStringContainsString('conversion rate', $html);
+        $overview = $this->actingAs($user)->getJson('/api/dashboard/overview');
+        $overview->assertOk();
+        $overview->assertJsonPath('leads.total', 3);
+        $overview->assertJsonPath('leads.converted', 1);
+        $overview->assertJsonFragment(['name' => 'Ava Converted']);
+        $overview->assertJsonFragment(['name' => 'Ben New']);
+        $overview->assertJsonMissing(['name' => 'Archived Should Hide']);
+        $overview->assertJsonMissing(['name' => 'Other Company Lead']);
+        $overview->assertJsonMissing(['name' => 'Last Month Lead']);
+        $this->assertStringContainsString('calls this month', $overview->getContent());
+        $this->assertStringContainsString('open threads', $overview->getContent());
+        $this->assertStringContainsString('Unread inbox lead', $overview->getContent());
+        $this->assertStringContainsString('Viber Unread', $overview->getContent());
+        $this->assertStringContainsString('Facebook Unread', $overview->getContent());
+        $this->assertStringContainsString('SMS Unread', $overview->getContent());
+        $this->assertStringContainsString('WhatsApp Unread', $overview->getContent());
     }
 
     public function test_dashboard_overview_uses_a_small_number_of_queries(): void

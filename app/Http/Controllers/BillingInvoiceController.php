@@ -8,20 +8,32 @@ use App\Models\GmailIntegration;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\PayrollPeriodInvoice;
+use App\Models\QuotationStatusHistory;
 use App\Models\StripeIntegration;
 use App\Models\User;
+use App\Models\WiseIntegration;
 use App\Services\InvoiceItemHoursSyncService;
 use App\Services\InvoicePdfPresentationService;
+use App\Services\StripePaymentLinkService;
+use App\Services\WiseService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
+use Stripe\BalanceTransaction;
+use Stripe\Charge;
+use Stripe\Exception\ApiErrorException;
+use Stripe\PaymentLink;
+use Stripe\Stripe;
+use Stripe\StripeClient;
 
 class BillingInvoiceController extends Controller
 {
@@ -31,13 +43,9 @@ class BillingInvoiceController extends Controller
     public function page()
     {
         $user = Auth::user();
-        $clients = [];
         $stripeConnected = false;
         $wiseDefaultLink = null;
         if ($user?->company_id) {
-            $clients = Client::where('company_id', $user->company_id)
-                ->orderBy('name')
-                ->get(['id', 'name']);
             $stripeConnected = StripeIntegration::where('company_id', $user->company_id)
                 ->where('is_active', true)
                 ->whereNotNull('secret_key')
@@ -47,7 +55,6 @@ class BillingInvoiceController extends Controller
         }
 
         return view('dashboard.billing', [
-            'billingClients' => $clients,
             'stripeConnected' => $stripeConnected,
             'wiseDefaultLink' => $wiseDefaultLink,
         ]);
@@ -346,7 +353,7 @@ class BillingInvoiceController extends Controller
         $currency = strtolower($request->input('currency', 'usd'));
 
         try {
-            \Stripe\Stripe::setApiKey($secretKey);
+            Stripe::setApiKey($secretKey);
 
             $invoiceId = $request->input('invoice_id');
             if ($invoiceId) {
@@ -363,7 +370,7 @@ class BillingInvoiceController extends Controller
                 }
             }
 
-            $paymentLink = \Stripe\PaymentLink::create([
+            $paymentLink = PaymentLink::create([
                 'line_items' => [
                     [
                         'price_data' => [
@@ -397,8 +404,8 @@ class BillingInvoiceController extends Controller
                 'success' => false,
                 'message' => $e->getMessage(),
             ], 422);
-        } catch (\Stripe\Exception\ApiErrorException $e) {
-            \Illuminate\Support\Facades\Log::error('Stripe Payment Link creation failed', [
+        } catch (ApiErrorException $e) {
+            Log::error('Stripe Payment Link creation failed', [
                 'error' => $e->getMessage(),
                 'code' => $e->getStripeCode(),
             ]);
@@ -408,7 +415,7 @@ class BillingInvoiceController extends Controller
                 'message' => 'Stripe error: '.$e->getMessage(),
             ], 400);
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('Stripe Payment Link creation failed', ['error' => $e->getMessage()]);
+            Log::error('Stripe Payment Link creation failed', ['error' => $e->getMessage()]);
 
             return response()->json([
                 'success' => false,
@@ -460,7 +467,7 @@ class BillingInvoiceController extends Controller
             return response()->json(['success' => false, 'message' => 'Company not found.'], 400);
         }
 
-        $integration = \App\Models\WiseIntegration::where('company_id', $companyId)
+        $integration = WiseIntegration::where('company_id', $companyId)
             ->where('is_active', true)
             ->first();
 
@@ -471,7 +478,7 @@ class BillingInvoiceController extends Controller
             ]);
         }
 
-        $service = new \App\Services\WiseService($companyId);
+        $service = new WiseService($companyId);
         $callbackUrl = $this->wiseCallbackUrl($companyId);
         $active = false;
         $result = $service->listWebhookSubscriptions();
@@ -506,7 +513,7 @@ class BillingInvoiceController extends Controller
             return response()->json(['success' => false, 'message' => 'Company not found.'], 400);
         }
 
-        $service = new \App\Services\WiseService($companyId);
+        $service = new WiseService($companyId);
         if (! $service->isConfigured()) {
             return response()->json([
                 'success' => false,
@@ -544,7 +551,7 @@ class BillingInvoiceController extends Controller
             return response()->json(['success' => false, 'message' => 'Company not found.'], 400);
         }
 
-        $service = new \App\Services\WiseService($companyId);
+        $service = new WiseService($companyId);
         if (! $service->isConfigured()) {
             return response()->json(['success' => false, 'message' => 'Wise is not configured.'], 400);
         }
@@ -584,7 +591,7 @@ class BillingInvoiceController extends Controller
             return response()->json(['success' => false, 'message' => 'Company not found.'], 400);
         }
 
-        $service = new \App\Services\WiseService($companyId);
+        $service = new WiseService($companyId);
         if (! $service->isConfigured()) {
             return response()->json([
                 'success' => false,
@@ -651,7 +658,7 @@ class BillingInvoiceController extends Controller
             if ($quotation) {
                 $previousStatus = $quotation->status;
                 $quotation->update(['status' => 'paid']);
-                \App\Models\QuotationStatusHistory::create([
+                QuotationStatusHistory::create([
                     'quotation_id' => $quotation->id,
                     'user_id' => $user->id,
                     'status' => 'paid',
@@ -733,7 +740,7 @@ class BillingInvoiceController extends Controller
 
             try {
                 $appPassword = Crypt::decryptString($gmailIntegration->app_password);
-            } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
+            } catch (DecryptException $e) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Gmail credentials are invalid. Please reconfigure your Gmail app password in Integrations.',
@@ -749,7 +756,7 @@ class BillingInvoiceController extends Controller
 
             return response()->json(['success' => true, 'message' => 'Invoice sent successfully!']);
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('Invoice send email failed', ['error' => $e->getMessage()]);
+            Log::error('Invoice send email failed', ['error' => $e->getMessage()]);
 
             return response()->json([
                 'success' => false,
@@ -823,7 +830,7 @@ class BillingInvoiceController extends Controller
                 $this->deliverInvoiceEmail($invoice, $gmailIntegration, $appPassword, $emailSubject);
                 $sent++;
             } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error('Bulk invoice send failed', [
+                Log::error('Bulk invoice send failed', [
                     'invoice_id' => $invoice->id,
                     'error' => $e->getMessage(),
                 ]);
@@ -884,7 +891,7 @@ class BillingInvoiceController extends Controller
             ->whereIn('id', $validated['invoice_ids'])
             ->get();
 
-        \Stripe\Stripe::setApiKey($secretKey);
+        Stripe::setApiKey($secretKey);
 
         $generated = 0;
         $failures = [];
@@ -900,7 +907,7 @@ class BillingInvoiceController extends Controller
                     'url' => $url,
                 ];
             } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error('Bulk Stripe payment link failed', [
+                Log::error('Bulk Stripe payment link failed', [
                     'invoice_id' => $invoice->id,
                     'error' => $e->getMessage(),
                 ]);
@@ -1120,7 +1127,7 @@ class BillingInvoiceController extends Controller
             throw new \RuntimeException('Amount must be at least $0.01.');
         }
 
-        $paymentLink = \Stripe\PaymentLink::create([
+        $paymentLink = PaymentLink::create([
             'line_items' => [
                 [
                     'price_data' => [
@@ -1246,7 +1253,7 @@ class BillingInvoiceController extends Controller
             DB::commit();
 
             if (empty($validated['stripe_payment_url'])) {
-                app(\App\Services\StripePaymentLinkService::class)->generateForInvoice($invoice);
+                app(StripePaymentLinkService::class)->generateForInvoice($invoice);
             }
 
             $invoice->load(['client', 'items']);
@@ -1412,7 +1419,7 @@ class BillingInvoiceController extends Controller
                 if ($quotation) {
                     $previousStatus = $quotation->status;
                     $quotation->update(['status' => 'paid']);
-                    \App\Models\QuotationStatusHistory::create([
+                    QuotationStatusHistory::create([
                         'quotation_id' => $quotation->id,
                         'user_id' => $user->id,
                         'status' => 'paid',
@@ -1590,7 +1597,7 @@ class BillingInvoiceController extends Controller
         [$start, $end, $periodLabel] = $this->parseDashboardPeriod($period);
 
         try {
-            \Stripe\Stripe::setApiKey($secretKey);
+            Stripe::setApiKey($secretKey);
 
             $created = ['gte' => $start, 'lte' => $end];
 
@@ -1616,7 +1623,7 @@ class BillingInvoiceController extends Controller
                 if ($after) {
                     $params['starting_after'] = $after;
                 }
-                $charges = \Stripe\Charge::all($params);
+                $charges = Charge::all($params);
                 foreach ($charges->data as $ch) {
                     if (($ch->status ?? '') === 'succeeded' && ($ch->refunded ?? false) === false) {
                         $allCharges[] = $ch;
@@ -1689,7 +1696,7 @@ class BillingInvoiceController extends Controller
                 ];
             }
 
-            $balanceTx = \Stripe\BalanceTransaction::all(['limit' => 20, 'type' => 'charge']);
+            $balanceTx = BalanceTransaction::all(['limit' => 20, 'type' => 'charge']);
             if (empty($recentActivity) && count($balanceTx->data) > 0) {
                 foreach (array_slice($balanceTx->data, 0, 15) as $bt) {
                     $recentActivity[] = [
@@ -1737,7 +1744,7 @@ class BillingInvoiceController extends Controller
             $pendingPaymentLinksAmount = 0;
             $paidPaymentLinksAmount = 0;
             try {
-                $stripe = new \Stripe\StripeClient($secretKey);
+                $stripe = new StripeClient($secretKey);
                 $plList = $stripe->paymentLinks->all(['limit' => 100]);
                 foreach ($plList->data ?? [] as $pl) {
                     $amount = 0;
@@ -1748,7 +1755,7 @@ class BillingInvoiceController extends Controller
                             $amount += $amt / 100;
                         }
                     } catch (\Exception $lineEx) {
-                        \Illuminate\Support\Facades\Log::debug('Payment link line items fetch failed for '.$pl->id, ['error' => $lineEx->getMessage()]);
+                        Log::debug('Payment link line items fetch failed for '.$pl->id, ['error' => $lineEx->getMessage()]);
                     }
                     if ($pl->active ?? true) {
                         $pendingPaymentLinksCount++;
@@ -1759,7 +1766,7 @@ class BillingInvoiceController extends Controller
                     }
                 }
             } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::warning('Failed to fetch Stripe payment links for dashboard', ['error' => $e->getMessage()]);
+                Log::warning('Failed to fetch Stripe payment links for dashboard', ['error' => $e->getMessage()]);
             }
 
             return response()->json([
@@ -1787,8 +1794,8 @@ class BillingInvoiceController extends Controller
                     'recent_activity' => $recentActivity,
                 ],
             ]);
-        } catch (\Stripe\Exception\ApiErrorException $e) {
-            \Illuminate\Support\Facades\Log::error('Stripe dashboard failed', ['error' => $e->getMessage()]);
+        } catch (ApiErrorException $e) {
+            Log::error('Stripe dashboard failed', ['error' => $e->getMessage()]);
 
             return response()->json([
                 'success' => false,
@@ -1854,7 +1861,7 @@ class BillingInvoiceController extends Controller
             } elseif ($status !== 'rejected') {
                 $pendingLinksCount++;
                 $pendingLinksAmount += $amt;
-                $isOverdue = $inv->due_date && \Carbon\Carbon::parse($inv->due_date)->lt($today);
+                $isOverdue = $inv->due_date && Carbon::parse($inv->due_date)->lt($today);
                 if ($isOverdue) {
                     $overdueAmount += $amt;
                     $overdueCount++;

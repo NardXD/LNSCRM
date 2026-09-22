@@ -32,8 +32,8 @@
                             <th>Actions</th>
                         </tr>
                     </thead>
-                    <tbody id="hiringQueueBody">
-                        <tr><td colspan="7" class="empty-state">No positions in hiring queue yet.</td></tr>
+                    <tbody id="hiringQueueBody" aria-busy="true">
+                        @include('partials.skeleton-table-rows', ['rows' => 6, 'cols' => 7])
                     </tbody>
                 </table>
             </div>

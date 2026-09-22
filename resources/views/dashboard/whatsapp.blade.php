@@ -44,7 +44,9 @@
                 'prefix' => 'wa',
                 'label' => 'WhatsApp Templates',
             ])
-            <div class="wa-thread-list" id="waThreadList"></div>
+            <div class="wa-thread-list" id="waThreadList" aria-busy="true">
+                @include('partials.skeleton-threads')
+            </div>
         </aside>
 
         <main class="wa-main">
@@ -665,6 +667,7 @@
     }
 
     function renderThreads() {
+        els.list.removeAttribute('aria-busy');
         const visible = visibleConversations();
         if (!visible.length) {
             els.list.innerHTML = `<div class="wa-list-hint">${readFilter ? 'No ' + readFilter + ' conversations.' : 'No conversations yet.'}</div>`;
@@ -850,6 +853,9 @@
     async function loadConversations({ append = false, merge = false } = {}) {
         if (convLoading) return;
         convLoading = true;
+        if (!append && !merge) {
+            els.list.setAttribute('aria-busy', 'true');
+        }
         try {
             const data = await api('/conversations?' + conversationParams({ append }).toString());
             const rows = data.data || [];
@@ -1236,9 +1242,11 @@
     });
 
     (async function init() {
-        await loadBootstrap();
+        await Promise.all([
+            loadBootstrap().catch(console.error),
+            loadConversations().catch(console.error),
+        ]);
         if (connected) {
-            await loadConversations();
             const params = new URLSearchParams(window.location.search);
             const openId = Number(params.get('conversation') || 0);
             if (openId) {

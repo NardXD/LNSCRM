@@ -39,7 +39,9 @@
             </div>
             <div class="msg-thread-list" id="chatsList">
                 <div class="msg-list-hint" id="chatsListEmpty" style="display: none;">No conversations yet. Start a new chat or create a group.</div>
-                <div id="chatsListItems"></div>
+                <div id="chatsListItems" aria-busy="true">
+                    @include('partials.skeleton-threads')
+                </div>
                 <div class="msg-list-hint" id="chatsLoadMore" style="display: none;">Scroll for older chats</div>
             </div>
         </aside>
@@ -1770,6 +1772,7 @@
         const container = document.getElementById('chatsListItems');
         const empty = document.getElementById('chatsListEmpty');
         const loadMoreEl = document.getElementById('chatsLoadMore');
+        container.removeAttribute('aria-busy');
         if (replace) container.innerHTML = '';
         if (conversations.length === 0 && replace) {
             empty.style.display = 'block';

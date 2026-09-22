@@ -194,8 +194,8 @@
                             <th>Status</th>
                         </tr>
                     </thead>
-                    <tbody id="trackingTableBody">
-                        <!-- Tracking data will be populated by JavaScript -->
+                    <tbody id="trackingTableBody" aria-busy="true">
+                        @include('partials.skeleton-table-rows', ['rows' => 8, 'cols' => 6])
                     </tbody>
                 </table>
             </div>

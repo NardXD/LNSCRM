@@ -105,8 +105,8 @@
                             <th>Actions</th>
                         </tr>
                     </thead>
-                    <tbody id="contractsTableBody">
-                        <tr><td colspan="7" class="empty-cell">Loading contracts...</td></tr>
+                    <tbody id="contractsTableBody" aria-busy="true">
+                        @include('partials.skeleton-table-rows', ['rows' => 8, 'cols' => 7])
                     </tbody>
                 </table>
             </div>

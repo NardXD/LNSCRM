@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Helpers\SidebarHelper;
 use App\Models\FacebookConversation;
 use App\Models\InboxConversation;
 use App\Models\Lead;
@@ -14,6 +15,7 @@ use App\Models\WhatsAppConversation;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
 
 class DashboardOverviewService
 {
@@ -58,6 +60,98 @@ class DashboardOverviewService
             'channels' => $this->channels($companyId, $monthStart, $nextMonthStart, $todayStart, $tomorrowStart),
             'attention' => $this->attention($companyId, $monthStart),
         ];
+    }
+
+    /**
+     * JSON-safe overview for the dashboard shell (permissions already applied).
+     *
+     * @param  array<int, string>  $userPermissions
+     * @param  array<int, string>|null  $companyModuleSlugs
+     * @return array<string, mixed>
+     */
+    public function forFrontend(?int $companyId, array $userPermissions = [], ?array $companyModuleSlugs = null): array
+    {
+        $payload = $this->forCompany($companyId);
+        $can = fn (string|array $permission, string|array|null $moduleSlug = null) => SidebarHelper::canAccessModule(
+            $userPermissions,
+            $companyModuleSlugs,
+            $permission,
+            $moduleSlug
+        );
+
+        $payload['channels'] = array_map(function (array $channel) use ($can) {
+            $open = $can($channel['permission'], $channel['module_slug'])
+                && Route::has($channel['route']);
+            $channel['can_open'] = $open;
+            $channel['url'] = ($open && Route::has($channel['route'])) ? route($channel['route']) : null;
+
+            return $channel;
+        }, $payload['channels']);
+
+        $payload['recentLeads'] = $payload['recentLeads']->map(function (Lead $lead) {
+            $name = trim(($lead->first_name ?? '').' '.($lead->last_name ?? ''));
+
+            return [
+                'name' => $name !== '' ? $name : (string) ($lead->name ?? 'Lead'),
+                'source' => $lead->source ?: 'No source',
+                'assigned' => $lead->assignedUser?->name ?? 'Unassigned',
+                'status' => (string) $lead->status,
+                'status_label' => ucfirst(str_replace('-', ' ', (string) $lead->status)),
+                'updated_human' => $lead->updated_at?->diffForHumans() ?? '',
+            ];
+        })->values()->all();
+
+        $payload['recentActivity'] = $payload['recentActivity']->map(function (array $activity) {
+            return [
+                'text' => $activity['text'] ?? '',
+                'lead' => $activity['lead'] ?? '',
+                'user' => $activity['user'] ?? null,
+                'at_human' => isset($activity['at']) && $activity['at'] ? $activity['at']->diffForHumans() : '',
+            ];
+        })->values()->all();
+
+        $payload['attention'] = $payload['attention']->map(function (array $item) use ($can) {
+            $permission = match ($item['key'] ?? '') {
+                'phone' => 'view_phone_system',
+                'inbox' => 'view_inbox',
+                'viber' => 'view_viber',
+                'facebook' => 'view_facebook',
+                'sms' => 'view_sms',
+                'whatsapp' => 'view_whatsapp',
+                default => 'view_dashboard',
+            };
+            $module = match ($item['key'] ?? '') {
+                'phone' => 'phone-system',
+                'inbox' => 'inbox',
+                'viber' => 'viber',
+                'facebook' => 'facebook',
+                'sms' => 'sms',
+                'whatsapp' => 'whatsapp',
+                default => 'dashboard',
+            };
+            $open = $can($permission, $module)
+                && ! empty($item['route'])
+                && Route::has($item['route']);
+
+            return [
+                'channel' => $item['channel'] ?? '',
+                'key' => $item['key'] ?? '',
+                'title' => $item['title'] ?? '',
+                'subtitle' => $item['subtitle'] ?? '',
+                'at_human' => isset($item['at']) && $item['at'] ? $item['at']->diffForHumans() : '',
+                'can_open' => $open,
+                'url' => $open ? route($item['route']) : null,
+            ];
+        })->values()->all();
+
+        $payload['links'] = [
+            'leads' => $can('view_leads', 'client-management'),
+            'lead_reports' => $can('view_lead_reports', 'client-management'),
+            'leads_url' => Route::has('leads') ? route('leads') : null,
+            'lead_reports_url' => Route::has('lead-reports') ? route('lead-reports') : null,
+        ];
+
+        return $payload;
     }
 
     /**
