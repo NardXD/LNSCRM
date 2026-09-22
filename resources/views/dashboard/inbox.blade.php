@@ -554,7 +554,7 @@
         <div class="inbox-tpl-list-head">
             <div class="inbox-tpl-list-head-text">
                 <h3>Signatures</h3>
-                <p class="inbox-modal-help">Saved per browser user. The default signature is added automatically to compose and replies.</p>
+                <p class="inbox-modal-help">Saved to your account only. Other users keep their own signatures. The default is added automatically to compose and replies.</p>
             </div>
             <button type="button" class="inbox-tpl-close-btn" id="btnCloseSignatureList" aria-label="Close">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -584,7 +584,7 @@
         <div class="inbox-tpl-list-head">
             <div class="inbox-tpl-list-head-text">
                 <h3 id="signatureModalTitle">New signature</h3>
-                <p class="inbox-modal-help">Saved per browser user. The default signature is added automatically to compose and replies.</p>
+                <p class="inbox-modal-help">Saved to your account only. Other users keep their own signatures. The default is added automatically to compose and replies.</p>
             </div>
             <button type="button" class="inbox-tpl-close-btn" id="btnCloseSignatureModal" aria-label="Close">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -3351,6 +3351,8 @@
         pendingLocalTemplates: [],
         signatures: [],
         defaultSignatureId: null,
+        pendingLocalSignatures: [],
+        pendingDefaultSignatureId: null,
         permissions: {
             create_templates: false,
             create_rules: false,
@@ -3434,29 +3436,45 @@
                 body_html: t.body_html || (t.body && /<[a-z][\s\S]*>/i.test(t.body) ? t.body : null),
                 format: 'html',
             }));
-            state.signatures = (Array.isArray(data.signatures) ? data.signatures : []).map(s => ({
+            // Signatures now live per user in the database. Keep any browser-local
+            // copies only long enough to import them into this account once.
+            state.pendingLocalSignatures = (Array.isArray(data.signatures) ? data.signatures : []).map(s => ({
                 ...s,
                 body_html: s.body_html || (s.body && /<[a-z][\s\S]*>/i.test(s.body) ? s.body : null),
                 format: 'html',
             }));
-            state.defaultSignatureId = data.defaultSignatureId || (state.signatures[0]?.id ?? null);
-            if (state.defaultSignatureId && !state.signatures.some(s => String(s.id) === String(state.defaultSignatureId))) {
-                state.defaultSignatureId = state.signatures[0]?.id ?? null;
-            }
+            state.pendingDefaultSignatureId = data.defaultSignatureId || null;
         } catch (_) {
             state.pendingLocalTemplates = [];
-            state.signatures = [];
-            state.defaultSignatureId = null;
+            state.pendingLocalSignatures = [];
+            state.pendingDefaultSignatureId = null;
         }
     }
 
     function saveLocalTools() {
         localStorage.setItem(TOOLS_STORAGE_KEY, JSON.stringify({
-            // Keep empty templates array so older clients don't crash; source of truth is the API.
+            // Keep empty arrays so older clients don't crash; source of truth is the API.
             templates: [],
-            signatures: state.signatures,
-            defaultSignatureId: state.defaultSignatureId,
+            signatures: Array.isArray(state.pendingLocalSignatures) ? state.pendingLocalSignatures : [],
+            defaultSignatureId: state.pendingDefaultSignatureId || null,
         }));
+    }
+
+    function applySignaturesPayload(data) {
+        const list = Array.isArray(data?.signatures) ? data.signatures : [];
+        state.signatures = list.map(s => ({
+            ...s,
+            body: s.body || s.body_text || '',
+            body_html: s.body_html || null,
+            format: 'html',
+            is_default: !!s.is_default,
+        }));
+        const defaultSig = state.signatures.find(s => s.is_default);
+        state.defaultSignatureId = data?.default_signature_id || defaultSig?.id || state.signatures[0]?.id || null;
+        updateSignatureCount();
+        if (el('modalSignatureList')?.style.display === 'grid') {
+            renderSignatureList();
+        }
     }
 
     function sanitizeHtml(html) {
@@ -4154,21 +4172,21 @@
         decorateHtmlLinks(editor);
     }
 
-    function setDefaultSignature(signatureId) {
+    async function setDefaultSignature(signatureId) {
         const item = state.signatures.find(s => String(s.id) === String(signatureId));
         if (!item) return;
-        state.defaultSignatureId = item.id;
-        saveLocalTools();
-        updateSignatureCount();
-        if (el('modalSignatureList')?.style.display === 'grid') {
-            renderSignatureList();
-        }
-        // Refresh open composers so the active default is used.
-        if (el('modalCompose')?.style.display === 'grid') {
-            applyComposerSignature('compose', stripSignatureHtml(getComposerHtml('compose')));
-        }
-        if (state.selectedId) {
-            applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
+        try {
+            const data = await api('/signatures/' + item.id + '/default', { method: 'POST' });
+            applySignaturesPayload(data);
+            // Refresh open composers so the active default is used.
+            if (el('modalCompose')?.style.display === 'grid') {
+                applyComposerSignature('compose', stripSignatureHtml(getComposerHtml('compose')));
+            }
+            if (state.selectedId) {
+                applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
+            }
+        } catch (err) {
+            alert(err.message || 'Failed to set default signature');
         }
     }
 
@@ -4840,23 +4858,23 @@
 
     function deleteSignatureById(signatureId) {
         const item = state.signatures.find(s => String(s.id) === String(signatureId));
-        if (!item) return;
-        if (!confirm(`Delete signature "${item.name}"?`)) return;
-        state.signatures = state.signatures.filter(s => String(s.id) !== String(signatureId));
-        if (String(state.defaultSignatureId) === String(signatureId)) {
-            state.defaultSignatureId = state.signatures[0]?.id ?? null;
-        }
-        saveLocalTools();
-        updateSignatureCount();
-        if (el('modalSignatureList')?.style.display === 'grid') {
-            renderSignatureList();
-        }
-        if (el('modalCompose')?.style.display === 'grid') {
-            applyComposerSignature('compose', stripSignatureHtml(getComposerHtml('compose')));
-        }
-        if (state.selectedId) {
-            applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
-        }
+        if (!item) return Promise.resolve(false);
+        if (!confirm(`Delete signature "${item.name}"?`)) return Promise.resolve(false);
+        return api('/signatures/' + item.id, { method: 'DELETE' })
+            .then((data) => {
+                applySignaturesPayload(data);
+                if (el('modalCompose')?.style.display === 'grid') {
+                    applyComposerSignature('compose', stripSignatureHtml(getComposerHtml('compose')));
+                }
+                if (state.selectedId) {
+                    applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
+                }
+                return true;
+            })
+            .catch((err) => {
+                alert(err.message || 'Failed to delete signature');
+                return false;
+            });
     }
 
     function renderAttachChips(kind) {
@@ -8189,6 +8207,7 @@
             body_html: t.body_html || null,
             format: 'html',
         }));
+        applySignaturesPayload(data);
         state.rules = data.rules || [];
         state.members = data.members || [];
         state.leadLabels = data.lead_labels || [];
@@ -8204,6 +8223,7 @@
         el('btnDisconnectOutlook').style.display = data.mail_connected ? '' : 'none';
         el('btnConnectOutlook').disabled = !data.outlook_configured && !data.mail_connected;
         await migrateLocalTemplatesIfNeeded();
+        await migrateLocalSignaturesIfNeeded();
         renderNav();
         refreshTemplateSelects();
         if (conversations) {
@@ -8247,6 +8267,47 @@
             }
         } catch (err) {
             console.warn('Failed to migrate local templates', err);
+        }
+    }
+
+    async function migrateLocalSignaturesIfNeeded() {
+        const local = Array.isArray(state.pendingLocalSignatures) ? state.pendingLocalSignatures : [];
+        if (!local.length) return;
+        if (state.signatures.length) {
+            state.pendingLocalSignatures = [];
+            state.pendingDefaultSignatureId = null;
+            saveLocalTools();
+            return;
+        }
+        try {
+            const payload = local
+                .map(s => ({
+                    id: s.id || null,
+                    name: String(s.name || '').trim(),
+                    body_html: s.body_html || null,
+                    body: s.body || s.body_text || null,
+                    body_text: s.body_text || s.body || null,
+                }))
+                .filter(s => s.name && (s.body_html || s.body || s.body_text));
+            if (!payload.length) {
+                state.pendingLocalSignatures = [];
+                state.pendingDefaultSignatureId = null;
+                saveLocalTools();
+                return;
+            }
+            const result = await api('/signatures/import', {
+                method: 'POST',
+                body: {
+                    signatures: payload,
+                    default_signature_id: state.pendingDefaultSignatureId || null,
+                },
+            });
+            applySignaturesPayload(result);
+            state.pendingLocalSignatures = [];
+            state.pendingDefaultSignatureId = null;
+            saveLocalTools();
+        } catch (err) {
+            console.warn('Failed to migrate local signatures', err);
         }
     }
 
@@ -10092,52 +10153,44 @@
         }
     });
 
-    el('btnSaveSignature').addEventListener('click', () => {
+    el('btnSaveSignature').addEventListener('click', async () => {
         const name = el('newSignatureName').value.trim();
         const bodyHtml = getHtmlEditorContent('signature');
         if (!name || !htmlToPlain(bodyHtml)) {
             alert('Name and signature are required.');
             return;
         }
-        const body = htmlToPlain(bodyHtml);
-        if (state.editingSignatureId) {
-            const idx = state.signatures.findIndex(s => String(s.id) === String(state.editingSignatureId));
-            if (idx >= 0) {
-                state.signatures[idx] = {
-                    ...state.signatures[idx],
-                    name,
-                    body,
-                    body_html: bodyHtml,
-                    format: 'html',
-                };
+        const payload = {
+            name,
+            body: htmlToPlain(bodyHtml),
+            body_html: bodyHtml,
+            body_text: htmlToPlain(bodyHtml),
+        };
+        const editingId = state.editingSignatureId;
+        const btn = el('btnSaveSignature');
+        btn.disabled = true;
+        try {
+            const data = editingId
+                ? await api('/signatures/' + editingId, { method: 'PUT', body: payload })
+                : await api('/signatures', { method: 'POST', body: payload });
+            applySignaturesPayload(data);
+            const returnToList = state.returnToSignatureList;
+            state.returnToSignatureList = false;
+            state.editingSignatureId = null;
+            closeModal();
+            if (el('modalCompose')?.style.display === 'grid') {
+                applyComposerSignature('compose', stripSignatureHtml(getComposerHtml('compose')));
             }
-        } else {
-            const item = {
-                id: 'sig_' + Date.now(),
-                name,
-                body,
-                body_html: bodyHtml,
-                format: 'html',
-            };
-            state.signatures.unshift(item);
-            if (!state.defaultSignatureId) {
-                state.defaultSignatureId = item.id;
+            if (state.selectedId) {
+                applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
             }
-        }
-        const returnToList = state.returnToSignatureList;
-        state.returnToSignatureList = false;
-        state.editingSignatureId = null;
-        saveLocalTools();
-        closeModal();
-        updateSignatureCount();
-        if (el('modalCompose')?.style.display === 'grid') {
-            applyComposerSignature('compose', stripSignatureHtml(getComposerHtml('compose')));
-        }
-        if (state.selectedId) {
-            applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
-        }
-        if (returnToList) {
-            openSignatureListModal();
+            if (returnToList) {
+                openSignatureListModal();
+            }
+        } catch (err) {
+            alert(err.message || 'Failed to save signature');
+        } finally {
+            btn.disabled = false;
         }
     });
 

@@ -370,4 +370,12 @@ class User extends Authenticatable
     {
         return $this->hasMany(RecorderApiToken::class);
     }
+
+    /**
+     * Personal inbox email signatures for this user.
+     */
+    public function inboxSignatures()
+    {
+        return $this->hasMany(InboxSignature::class);
+    }
 }

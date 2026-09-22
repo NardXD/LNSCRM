@@ -695,6 +695,11 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::put('/templates/{template}', [InboxController::class, 'updateTemplate'])->name('api.inbox.templates.update');
         Route::delete('/templates/{template}', [InboxController::class, 'destroyTemplate'])->name('api.inbox.templates.destroy');
         Route::post('/templates/import', [InboxController::class, 'importTemplates'])->name('api.inbox.templates.import');
+        Route::post('/signatures', [InboxController::class, 'storeSignature'])->name('api.inbox.signatures.store');
+        Route::post('/signatures/import', [InboxController::class, 'importSignatures'])->name('api.inbox.signatures.import');
+        Route::put('/signatures/{signature}', [InboxController::class, 'updateSignature'])->name('api.inbox.signatures.update');
+        Route::delete('/signatures/{signature}', [InboxController::class, 'destroySignature'])->name('api.inbox.signatures.destroy');
+        Route::post('/signatures/{signature}/default', [InboxController::class, 'setDefaultSignature'])->name('api.inbox.signatures.default');
     });
 
     Route::prefix('api/notifications')->group(function () {

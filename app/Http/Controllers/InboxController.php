@@ -6,6 +6,7 @@ use App\Models\InboxConversation;
 use App\Models\InboxConversationActivity;
 use App\Models\InboxConversationComment;
 use App\Models\InboxMessage;
+use App\Models\InboxSignature;
 use App\Models\InboxTag;
 use App\Models\InboxTemplate;
 use App\Models\InboxUserSetting;
@@ -123,6 +124,7 @@ class InboxController extends Controller
             ->orderBy('name')
             ->get()
             ->map(fn (InboxTemplate $template) => $this->formatTemplate($template));
+        $signaturePayload = $this->formattedSignaturesPayload($user);
 
         $members = User::where('company_id', $companyId)
             ->orderBy('name')
@@ -195,6 +197,8 @@ class InboxController extends Controller
             'lead_labels' => $leadLabels,
             'sidebar_label_ids' => $sidebarLabelIds,
             'templates' => $templates,
+            'signatures' => $signaturePayload['signatures'],
+            'default_signature_id' => $signaturePayload['default_signature_id'],
             'members' => $members,
             'pinned_tag_ids' => $pinnedTagIds,
             'permissions' => [
@@ -3036,6 +3040,178 @@ class InboxController extends Controller
         ]);
     }
 
+    public function storeSignature(Request $request): JsonResponse
+    {
+        $validated = $this->validatedSignaturePayload($request);
+        $prepared = $this->prepareSignatureBody($validated);
+        if (! $prepared) {
+            return response()->json(['message' => 'Signature body is required.'], 422);
+        }
+
+        $user = $request->user();
+        $hasAny = InboxSignature::query()->where('user_id', $user->id)->exists();
+        $makeDefault = ! $hasAny || (bool) ($validated['is_default'] ?? false);
+
+        $signature = DB::transaction(function () use ($user, $validated, $prepared, $makeDefault) {
+            if ($makeDefault) {
+                InboxSignature::query()->where('user_id', $user->id)->update(['is_default' => false]);
+            }
+
+            return InboxSignature::create([
+                'user_id' => $user->id,
+                'company_id' => $user->company_id,
+                'name' => $validated['name'],
+                'body_html' => $prepared['body_html'],
+                'body_text' => $prepared['body_text'],
+                'is_default' => $makeDefault,
+            ]);
+        });
+
+        return response()->json($this->signatureResponse($user, $signature), 201);
+    }
+
+    public function updateSignature(Request $request, InboxSignature $signature): JsonResponse
+    {
+        if ($denied = $this->denyUnlessOwnSignature($request, $signature)) {
+            return $denied;
+        }
+
+        $validated = $this->validatedSignaturePayload($request);
+        $prepared = $this->prepareSignatureBody($validated);
+        if (! $prepared) {
+            return response()->json(['message' => 'Signature body is required.'], 422);
+        }
+
+        $signature->update([
+            'name' => $validated['name'],
+            'body_html' => $prepared['body_html'],
+            'body_text' => $prepared['body_text'],
+        ]);
+
+        return response()->json($this->signatureResponse($request->user(), $signature));
+    }
+
+    public function destroySignature(Request $request, InboxSignature $signature): JsonResponse
+    {
+        if ($denied = $this->denyUnlessOwnSignature($request, $signature)) {
+            return $denied;
+        }
+
+        $user = $request->user();
+        $wasDefault = $signature->is_default;
+        $signature->delete();
+
+        if ($wasDefault) {
+            $next = InboxSignature::query()
+                ->where('user_id', $user->id)
+                ->orderBy('name')
+                ->first();
+            $next?->update(['is_default' => true]);
+        }
+
+        return response()->json(array_merge(
+            ['deleted' => true],
+            $this->formattedSignaturesPayload($user),
+        ));
+    }
+
+    public function setDefaultSignature(Request $request, InboxSignature $signature): JsonResponse
+    {
+        if ($denied = $this->denyUnlessOwnSignature($request, $signature)) {
+            return $denied;
+        }
+
+        $user = $request->user();
+        DB::transaction(function () use ($user, $signature) {
+            InboxSignature::query()
+                ->where('user_id', $user->id)
+                ->where('is_default', true)
+                ->update(['is_default' => false]);
+            $signature->update(['is_default' => true]);
+        });
+
+        return response()->json($this->signatureResponse($user, $signature->fresh()));
+    }
+
+    public function importSignatures(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'signatures' => ['required', 'array', 'max:50'],
+            'signatures.*.name' => ['required', 'string', 'max:160'],
+            'signatures.*.body_html' => ['nullable', 'string', 'max:5000000'],
+            'signatures.*.body' => ['nullable', 'string', 'max:100000'],
+            'signatures.*.body_text' => ['nullable', 'string', 'max:100000'],
+            'signatures.*.id' => ['nullable'],
+            'default_signature_id' => ['nullable'],
+        ]);
+
+        $user = $request->user();
+
+        $payload = DB::transaction(function () use ($user, $validated) {
+            $hadAny = InboxSignature::query()->where('user_id', $user->id)->exists();
+            $existingNames = InboxSignature::query()
+                ->where('user_id', $user->id)
+                ->pluck('name')
+                ->map(fn ($name) => mb_strtolower(trim((string) $name)))
+                ->all();
+            $existingLookup = array_fill_keys($existingNames, true);
+            $imported = [];
+            $importedByLocalId = [];
+
+            foreach ($validated['signatures'] as $row) {
+                $name = trim($row['name']);
+                $key = mb_strtolower($name);
+                if (isset($existingLookup[$key])) {
+                    continue;
+                }
+
+                $prepared = $this->prepareSignatureBody($row);
+                if (! $prepared) {
+                    continue;
+                }
+
+                $signature = InboxSignature::create([
+                    'user_id' => $user->id,
+                    'company_id' => $user->company_id,
+                    'name' => $name,
+                    'body_html' => $prepared['body_html'],
+                    'body_text' => $prepared['body_text'],
+                    'is_default' => false,
+                ]);
+                $existingLookup[$key] = true;
+                $imported[] = $signature;
+                if (isset($row['id'])) {
+                    $importedByLocalId[(string) $row['id']] = $signature;
+                }
+            }
+
+            $hasDefault = InboxSignature::query()
+                ->where('user_id', $user->id)
+                ->where('is_default', true)
+                ->exists();
+
+            if (! $hasDefault) {
+                $defaultLocalId = $validated['default_signature_id'] ?? null;
+                $default = null;
+                if (! $hadAny && $defaultLocalId && isset($importedByLocalId[(string) $defaultLocalId])) {
+                    $default = $importedByLocalId[(string) $defaultLocalId];
+                }
+                $default ??= $imported[0] ?? InboxSignature::query()
+                    ->where('user_id', $user->id)
+                    ->orderBy('name')
+                    ->first();
+                $default?->update(['is_default' => true]);
+            }
+
+            return array_merge(
+                ['imported' => count($imported)],
+                $this->formattedSignaturesPayload($user),
+            );
+        });
+
+        return response()->json($payload);
+    }
+
     private function denyUnlessPermission(Request $request, string $slug): ?JsonResponse
     {
         if ($request->user()?->hasPermission($slug)) {
@@ -3798,6 +3974,90 @@ class InboxController extends Controller
             'message_count' => $c->message_count,
             'last_message_at' => $c->last_message_at?->toIso8601String(),
         ];
+    }
+
+    private function formattedSignaturesPayload(User $user): array
+    {
+        $signatures = InboxSignature::query()
+            ->where('user_id', $user->id)
+            ->orderByDesc('is_default')
+            ->orderBy('name')
+            ->get();
+        $default = $signatures->firstWhere('is_default', true) ?? $signatures->first();
+
+        return [
+            'signatures' => $signatures->map(fn (InboxSignature $signature) => $this->formatSignature($signature))->values()->all(),
+            'default_signature_id' => $default?->id,
+        ];
+    }
+
+    private function signatureResponse(User $user, InboxSignature $signature): array
+    {
+        return array_merge(
+            ['signature' => $this->formatSignature($signature->fresh() ?? $signature)],
+            $this->formattedSignaturesPayload($user),
+        );
+    }
+
+    /**
+     * @return array{name: string, body_html?: string|null, body?: string|null, body_text?: string|null, is_default?: bool}
+     */
+    private function validatedSignaturePayload(Request $request): array
+    {
+        return $request->validate([
+            'name' => ['required', 'string', 'max:160'],
+            'body_html' => ['nullable', 'string', 'max:5000000'],
+            'body' => ['nullable', 'string', 'max:100000'],
+            'body_text' => ['nullable', 'string', 'max:100000'],
+            'is_default' => ['nullable', 'boolean'],
+        ]);
+    }
+
+    /**
+     * @param  array{name?: string, body_html?: string|null, body?: string|null, body_text?: string|null}  $validated
+     * @return array{body_html: string|null, body_text: string}|null
+     */
+    private function prepareSignatureBody(array $validated): ?array
+    {
+        $bodyHtml = $validated['body_html'] ?? null;
+        $bodyText = $validated['body_text'] ?? $validated['body'] ?? null;
+        if (! $bodyHtml && $bodyText) {
+            $bodyHtml = nl2br(e($bodyText));
+        }
+        $bodyText = $this->templatePlainText($bodyText, $bodyHtml);
+        if (! $bodyText) {
+            return null;
+        }
+
+        return [
+            'body_html' => $bodyHtml,
+            'body_text' => $bodyText,
+        ];
+    }
+
+    private function formatSignature(InboxSignature $signature): array
+    {
+        return [
+            'id' => $signature->id,
+            'name' => $signature->name,
+            'body' => $signature->body_text,
+            'body_text' => $signature->body_text,
+            'body_html' => $signature->body_html,
+            'format' => 'html',
+            'is_default' => (bool) $signature->is_default,
+            'updated_at' => $signature->updated_at?->toIso8601String(),
+        ];
+    }
+
+    private function denyUnlessOwnSignature(Request $request, InboxSignature $signature): ?JsonResponse
+    {
+        $user = $request->user();
+        if ((int) $signature->user_id !== (int) $user->id
+            || (int) $signature->company_id !== (int) $user->company_id) {
+            return response()->json(['message' => 'Forbidden.'], 403);
+        }
+
+        return null;
     }
 
     private function formatTemplate(InboxTemplate $template): array
