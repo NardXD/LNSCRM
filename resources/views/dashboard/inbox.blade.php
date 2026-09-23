@@ -2467,13 +2467,13 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 .inbox-attach-grid {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.65rem;
+    gap: 0.45rem;
 }
 .inbox-attach-card {
     position: relative;
-    width: 168px;
+    width: 120px;
     border: 1px solid #e5e7eb;
-    border-radius: 8px;
+    border-radius: 6px;
     background: #fff;
     overflow: hidden;
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
@@ -2485,7 +2485,7 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 .inbox-attach-preview {
     position: relative;
     display: block;
-    height: 112px;
+    height: 76px;
     background: #f3f4f6;
     overflow: hidden;
 }
@@ -2511,17 +2511,17 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     align-items: flex-start;
     justify-content: center;
     height: 100%;
-    padding-top: 1.1rem;
+    padding-top: 0.7rem;
     background:
         linear-gradient(#fff, #fff) center 12px / 72% 78% no-repeat,
         repeating-linear-gradient(180deg, transparent 0 18px, transparent 18px),
         #eef0f3;
 }
 .inbox-attach-page .inbox-attach-badge {
-    min-width: 36px;
-    height: 22px;
-    font-size: 0.62rem;
-    border-radius: 3px;
+    min-width: 28px;
+    height: 16px;
+    font-size: 0.52rem;
+    border-radius: 2px;
 }
 .inbox-attach-play {
     position: absolute;
@@ -2536,9 +2536,9 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 .inbox-attach-foot {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
-    min-height: 32px;
-    padding: 0.35rem 0.5rem;
+    gap: 0.3rem;
+    min-height: 26px;
+    padding: 0.22rem 0.35rem;
     border-top: 1px solid #eef0f3;
     background: #fff;
 }
@@ -2562,7 +2562,7 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.75rem;
+    font-size: 0.68rem;
     color: #374151;
 }
 .inbox-attach-hit {
@@ -8182,7 +8182,7 @@ html.inbox-is-popout .inbox-props {
                 const doc = await pdfjs.getDocument({ data, disableRange: true, disableStream: true }).promise;
                 const page = await doc.getPage(1);
                 const base = page.getViewport({ scale: 1 });
-                const viewport = page.getViewport({ scale: 336 / base.width });
+                const viewport = page.getViewport({ scale: 240 / base.width });
                 const canvas = document.createElement('canvas');
                 canvas.width = Math.ceil(viewport.width);
                 canvas.height = Math.ceil(viewport.height);
