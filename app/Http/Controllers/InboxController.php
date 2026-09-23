@@ -190,6 +190,8 @@ class InboxController extends Controller
             'connect_url' => route('inbox.connect.outlook'),
             'user_id' => $user->id,
             'assigned_to_me_count' => $counts['assigned_to_me'],
+            'assigned_archived_count' => $counts['assigned_archived'],
+            'assigned_snoozed_count' => $counts['assigned_snoozed'],
             'archived_count' => $counts['archived'],
             'snoozed_count' => $counts['snoozed'],
             'inboxes' => $inboxes,
@@ -525,6 +527,7 @@ class InboxController extends Controller
         $validated = $request->validate([
             'inbox_id' => ['nullable', 'integer'],
             'view' => ['nullable', 'string', 'in:open,assigned_to_me,unassigned,archived,snoozed,drafts,sent,trash,spam,all'],
+            'bucket' => ['nullable', 'string', 'in:open,snoozed,archived'],
             'tag_id' => ['nullable', 'integer'],
             'label_id' => ['nullable', 'integer'],
             'search' => ['nullable', 'string', 'max:512'],
@@ -598,7 +601,8 @@ class InboxController extends Controller
             $this->constrainInboxBucket($query, 'snoozed');
             $this->constrainArchiveAndSnoozeVisibility($query, $user);
         } elseif ($view === 'assigned_to_me') {
-            $this->constrainInboxBucket($query, 'open');
+            $bucket = $validated['bucket'] ?? 'open';
+            $this->constrainInboxBucket($query, $bucket);
             $this->constrainAssignedToLoggedInUser($query, $user);
         } elseif ($view === 'unassigned') {
             $query->where('folder', 'inbox')->where('status', 'open')->whereNull('assigned_to');
@@ -3253,7 +3257,7 @@ class InboxController extends Controller
      * Folder / assignment counts for the sidebar, grouped by mailbox.
      *
      * @param  Collection<int, int|string>  $inboxIds
-     * @return array{by_inbox: array<int, array<string, int>>, assigned_to_me: int, archived: int, snoozed: int}
+     * @return array{by_inbox: array<int, array<string, int>>, assigned_to_me: int, archived: int, snoozed: int, assigned_archived: int, assigned_snoozed: int}
      */
     private function conversationCountsByInbox(User $user, Collection $inboxIds): array
     {
@@ -3280,6 +3284,8 @@ class InboxController extends Controller
                 'assigned_to_me' => 0,
                 'archived' => 0,
                 'snoozed' => 0,
+                'assigned_archived' => 0,
+                'assigned_snoozed' => 0,
             ];
         }
 
@@ -3329,6 +3335,23 @@ class InboxController extends Controller
             }
         }
 
+        $assignedStatusCounts = [
+            'assigned_archived' => 'archived',
+            'assigned_snoozed' => 'snoozed',
+        ];
+        $assignedStatusTotals = [
+            'assigned_archived' => 0,
+            'assigned_snoozed' => 0,
+        ];
+        foreach ($assignedStatusCounts as $totalKey => $bucket) {
+            $query = InboxConversation::query()
+                ->notMerged()
+                ->whereIn('shared_inbox_id', $inboxIds);
+            $this->constrainInboxBucket($query, $bucket);
+            $this->constrainAssignedToLoggedInUser($query, $user);
+            $assignedStatusTotals[$totalKey] = (int) $query->count();
+        }
+
         $unreadRows = InboxConversation::query()
             ->notMerged()
             ->whereIn('inbox_conversations.shared_inbox_id', $inboxIds)
@@ -3361,6 +3384,8 @@ class InboxController extends Controller
             'assigned_to_me' => (int) array_sum(array_column($byInbox, 'assigned_to_me_count')),
             'archived' => (int) array_sum(array_column($byInbox, 'archived_count')),
             'snoozed' => (int) array_sum(array_column($byInbox, 'snoozed_count')),
+            'assigned_archived' => $assignedStatusTotals['assigned_archived'],
+            'assigned_snoozed' => $assignedStatusTotals['assigned_snoozed'],
         ];
     }
 

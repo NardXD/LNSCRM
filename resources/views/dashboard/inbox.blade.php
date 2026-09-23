@@ -57,15 +57,7 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
                 <button type="button" class="inbox-nav-item active" data-view="open" data-scope="all">
                     <span>Open</span><span class="inbox-count" id="countOpen">0</span>
                 </button>
-                <button type="button" class="inbox-nav-item" data-view="assigned_to_me" data-scope="all">
-                    <span>Assigned to me</span><span class="inbox-count" id="countAssignedToMe">0</span>
-                </button>
-                <button type="button" class="inbox-nav-item" data-view="archived" data-scope="all">
-                    <span>Archived</span><span class="inbox-count" id="countArchived">0</span>
-                </button>
-                <button type="button" class="inbox-nav-item" data-view="snoozed" data-scope="all">
-                    <span>Snoozed</span><span class="inbox-count" id="countSnoozed">0</span>
-                </button>
+                <div id="viewGroups"></div>
             </div>
 
             <div class="inbox-nav-section inbox-labels-section">
@@ -1443,6 +1435,28 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     grid-column: 1; grid-row: 1;
 }
 .inbox-mailbox.is-expanded .inbox-mailbox-chevron { transform: rotate(90deg); }
+.inbox-view-group { margin-bottom: 0.1rem; }
+.inbox-view-head {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    width: 100%;
+    border: none;
+    background: transparent;
+    text-align: left;
+    padding: 0.38rem 0.45rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.84rem;
+    color: var(--inbox-text);
+}
+.inbox-view-head:hover { background: var(--inbox-bg); }
+.inbox-view-head.is-selected { background: var(--inbox-accent-soft); color: var(--inbox-accent); font-weight: 650; }
+.inbox-view-head .inbox-count { margin-left: auto; }
+.inbox-view-group .inbox-mailbox-chevron { margin-top: 0; flex-shrink: 0; }
+.inbox-view-group.is-expanded .inbox-mailbox-chevron { transform: rotate(90deg); }
+.inbox-view-group.is-expanded .inbox-mailbox-folders { display: grid; gap: 0.08rem; }
+.inbox-view-group .inbox-mailbox-folders { padding-left: 1.15rem; }
 .inbox-mailbox-head > .inbox-dot {
     grid-column: 2; grid-row: 1;
     margin-top: 0.4rem;
@@ -3651,6 +3665,39 @@ html.inbox-is-popout .inbox-props {
         { view: 'spam', label: 'Spam', countKey: 'spam_count' },
     ];
 
+    const VIEW_GROUPS = [
+        {
+            id: 'assigned_to_me',
+            label: 'Assigned to me',
+            defaultBucket: 'open',
+            folders: [
+                { bucket: 'open', label: 'Open', count: 'assignedOpen' },
+                { bucket: 'snoozed', label: 'Snoozed', count: 'assignedSnoozed' },
+                { bucket: 'archived', label: 'Archived', count: 'assignedArchived' },
+            ],
+        },
+        {
+            id: 'archived',
+            label: 'Archived',
+            defaultBucket: 'archived',
+            folders: [
+                { bucket: 'open', label: 'Open', count: 'open' },
+                { bucket: 'snoozed', label: 'Snoozed', count: 'snoozed' },
+                { bucket: 'archived', label: 'Archived', count: 'archived' },
+            ],
+        },
+        {
+            id: 'snoozed',
+            label: 'Snoozed',
+            defaultBucket: 'snoozed',
+            folders: [
+                { bucket: 'open', label: 'Open', count: 'open' },
+                { bucket: 'snoozed', label: 'Snoozed', count: 'snoozed' },
+                { bucket: 'archived', label: 'Archived', count: 'archived' },
+            ],
+        },
+    ];
+
     const state = {
         inboxes: [],
         rules: [],
@@ -3671,8 +3718,12 @@ html.inbox-is-popout .inbox-props {
         sidebarLabelSearch: '',
         sidebarLabelPickerDraft: [],
         assignedToMeCount: 0,
+        assignedArchivedCount: 0,
+        assignedSnoozedCount: 0,
         archivedCount: 0,
         snoozedCount: 0,
+        viewGroup: null,
+        expandedViewGroups: {},
         conversations: [],
         checkedIds: [],
         selectedInboxId: null,
@@ -5567,6 +5618,16 @@ html.inbox-is-popout .inbox-props {
             el('listTitle').textContent = label?.name || 'Label';
             return;
         }
+        if (state.viewGroup && !state.selectedInboxId) {
+            const group = VIEW_GROUPS.find(item => item.id === state.viewGroup);
+            const folder = group?.folders.find(item => item.bucket === state.view);
+            if (group && folder) {
+                el('listTitle').textContent = folder.bucket === group.defaultBucket
+                    ? group.label
+                    : `${group.label} · ${folder.label}`;
+                return;
+            }
+        }
         if (state.selectedInboxId) {
             const inbox = state.inboxes.find(i => i.id === state.selectedInboxId);
             el('listTitle').textContent = (inbox?.name || 'Inbox') + ' · ' + folderLabel(state.view);
@@ -6030,6 +6091,7 @@ html.inbox-is-popout .inbox-props {
     async function openSidebarLabel(id) {
         state.selectedLabelId = Number(id);
         state.selectedInboxId = null;
+        state.viewGroup = null;
         state.view = 'open';
         renderNav();
         await loadConversations();
@@ -6087,6 +6149,61 @@ html.inbox-is-popout .inbox-props {
         await persistSidebarLabels(state.sidebarLabelPickerDraft || []);
         closeModal();
         renderNav();
+    }
+
+    function viewGroupCount(key) {
+        const openCount = state.inboxes.reduce((n, inbox) => n + (inbox.open_count || 0), 0);
+        const counts = {
+            assignedOpen: state.assignedToMeCount,
+            assignedArchived: state.assignedArchivedCount,
+            assignedSnoozed: state.assignedSnoozedCount,
+            open: openCount,
+            archived: state.archivedCount,
+            snoozed: state.snoozedCount,
+        };
+        return Number(counts[key] || 0);
+    }
+
+    function renderViewGroups() {
+        const host = el('viewGroups');
+        if (!host) return;
+        host.innerHTML = VIEW_GROUPS.map(group => {
+            const expanded = state.expandedViewGroups[group.id] !== false || state.viewGroup === group.id;
+            if (state.viewGroup === group.id) state.expandedViewGroups[group.id] = true;
+            const selected = state.viewGroup === group.id && !state.selectedInboxId && !state.selectedLabelId;
+            const parentCount = viewGroupCount(group.folders.find(folder => folder.bucket === group.defaultBucket)?.count);
+            const folders = group.folders.map(folder => {
+                const active = selected && state.view === folder.bucket;
+                const count = viewGroupCount(folder.count);
+                return `
+                    <button type="button" class="inbox-folder-row ${active ? 'active' : ''}"
+                        data-view-group="${group.id}" data-view-bucket="${folder.bucket}">
+                        <span>${folder.label}</span>
+                        ${count ? `<span class="inbox-count">${count}</span>` : '<span></span>'}
+                    </button>
+                `;
+            }).join('');
+            return `
+                <div class="inbox-view-group ${expanded ? 'is-expanded' : ''}">
+                    <button type="button" class="inbox-view-head ${selected ? 'is-selected' : ''}" data-view-group="${group.id}">
+                        <svg class="inbox-mailbox-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                        <span>${group.label}</span>
+                        ${parentCount ? `<span class="inbox-count">${parentCount}</span>` : ''}
+                    </button>
+                    <div class="inbox-mailbox-folders">${folders}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function selectViewFolder(groupId, bucket) {
+        state.viewGroup = groupId;
+        state.view = bucket;
+        state.selectedInboxId = null;
+        state.selectedLabelId = null;
+        state.expandedViewGroups[groupId] = true;
+        renderNav();
+        await loadConversations();
     }
 
     function renderNav() {
@@ -6147,19 +6264,11 @@ html.inbox-is-popout .inbox-props {
 
         const openCount = state.inboxes.reduce((n, i) => n + (i.open_count || 0), 0);
         el('countOpen').textContent = openCount;
-        const assignedToMeCount = state.assignedToMeCount
-            || state.inboxes.reduce((n, i) => n + (i.assigned_to_me_count || 0), 0);
-        if (el('countAssignedToMe')) el('countAssignedToMe').textContent = assignedToMeCount;
-        const archivedCount = state.archivedCount
-            || state.inboxes.reduce((n, i) => n + (i.archived_count || 0), 0);
-        if (el('countArchived')) el('countArchived').textContent = archivedCount;
-        const snoozedCount = state.snoozedCount
-            || state.inboxes.reduce((n, i) => n + (i.snoozed_count || 0), 0);
-        if (el('countSnoozed')) el('countSnoozed').textContent = snoozedCount;
+        renderViewGroups();
 
         // Highlight global views only when not scoped to a mailbox folder
         document.querySelectorAll('[data-view][data-scope="all"]').forEach(btn => {
-            const active = !state.selectedInboxId && !state.selectedLabelId && state.view === btn.dataset.view;
+            const active = !state.viewGroup && !state.selectedInboxId && !state.selectedLabelId && state.view === btn.dataset.view;
             btn.classList.toggle('active', active);
         });
         renderSidebarLabels();
@@ -6865,7 +6974,11 @@ html.inbox-is-popout .inbox-props {
         }
 
         try {
-            const params = new URLSearchParams({ view: state.view, page: String(page) });
+            const params = new URLSearchParams({
+                view: state.viewGroup === 'assigned_to_me' ? 'assigned_to_me' : state.view,
+                page: String(page),
+            });
+            if (state.viewGroup === 'assigned_to_me') params.set('bucket', state.view);
 
             if (state.selectedLabelId) params.set('label_id', String(state.selectedLabelId));
 
@@ -6881,7 +6994,7 @@ html.inbox-is-popout .inbox-props {
             if (f.subject) params.set('subject', f.subject);
             if (f.body) params.set('body', f.body);
             if (f.folder) params.set('folder', f.folder);
-            if (!['assigned_to_me', 'archived', 'snoozed'].includes(state.view) && f.assigned_to !== '' && f.assigned_to != null) {
+            if (state.viewGroup !== 'assigned_to_me' && !['assigned_to_me', 'archived', 'snoozed'].includes(state.view) && f.assigned_to !== '' && f.assigned_to != null) {
                 params.set('assigned_to', String(f.assigned_to));
             }
             if (f.is_read !== '' && f.is_read != null) params.set('is_read', String(f.is_read));
@@ -7673,6 +7786,7 @@ html.inbox-is-popout .inbox-props {
                 closeModal();
                 if (inboxId) {
                     state.view = 'drafts';
+                    state.viewGroup = null;
                     state.selectedInboxId = inboxId;
                     state.expandedInboxIds[inboxId] = true;
                 }
@@ -8910,6 +9024,8 @@ html.inbox-is-popout .inbox-props {
         const data = await api('/bootstrap');
         state.inboxes = data.inboxes || [];
         state.assignedToMeCount = Number(data.assigned_to_me_count || 0);
+        state.assignedArchivedCount = Number(data.assigned_archived_count || 0);
+        state.assignedSnoozedCount = Number(data.assigned_snoozed_count || 0);
         state.archivedCount = Number(data.archived_count || 0);
         state.snoozedCount = Number(data.snoozed_count || 0);
         state.templates = (data.templates || []).map(t => ({
@@ -9026,11 +9142,30 @@ html.inbox-is-popout .inbox-props {
     document.querySelectorAll('[data-view][data-scope="all"]').forEach(btn => {
         btn.addEventListener('click', async () => {
             state.view = btn.dataset.view;
+            state.viewGroup = null;
             state.selectedInboxId = null;
             state.selectedLabelId = null;
             renderNav();
             await loadConversations();
         });
+    });
+    el('viewGroups')?.addEventListener('click', async (e) => {
+        const folderBtn = e.target.closest('[data-view-bucket]');
+        if (folderBtn) {
+            await selectViewFolder(folderBtn.dataset.viewGroup, folderBtn.dataset.viewBucket);
+            return;
+        }
+        const head = e.target.closest('.inbox-view-head');
+        if (!head) return;
+        const id = head.dataset.viewGroup;
+        if (e.target.closest('.inbox-mailbox-chevron')) {
+            state.expandedViewGroups[id] = !state.expandedViewGroups[id];
+            renderNav();
+            return;
+        }
+        const group = VIEW_GROUPS.find(item => item.id === id);
+        if (!group) return;
+        await selectViewFolder(id, group.defaultBucket);
     });
 
     el('sidebarLabelSearch')?.addEventListener('input', () => {
@@ -9160,6 +9295,7 @@ html.inbox-is-popout .inbox-props {
             const id = Number(folderBtn.dataset.inboxId);
             state.selectedInboxId = id;
             state.selectedLabelId = null;
+            state.viewGroup = null;
             state.view = folderBtn.dataset.folderView;
             state.expandedInboxIds[id] = true;
             renderNav();
@@ -9178,6 +9314,7 @@ html.inbox-is-popout .inbox-props {
             state.expandedInboxIds[id] = true;
             state.selectedInboxId = id;
             state.selectedLabelId = null;
+            state.viewGroup = null;
             state.view = 'open';
             renderNav();
             await loadConversations();
@@ -11161,6 +11298,7 @@ html.inbox-is-popout .inbox-props {
         try {
             if (data.scheduled) {
                 state.view = 'drafts';
+                state.viewGroup = null;
                 state.selectedInboxId = inboxId;
                 state.expandedInboxIds[inboxId] = true;
                 await loadBootstrap();
@@ -11172,6 +11310,7 @@ html.inbox-is-popout .inbox-props {
             }
 
             state.view = 'sent';
+            state.viewGroup = null;
             state.selectedInboxId = inboxId;
             state.expandedInboxIds[inboxId] = true;
             await loadBootstrap();
@@ -11406,6 +11545,7 @@ html.inbox-is-popout .inbox-props {
         }
     });
     loadLocalTools();
+    renderViewGroups();
     const inboxStartup = [loadBootstrap({ conversations: false })];
     if (!INBOX_POPOUT) inboxStartup.push(loadConversations());
     Promise.all(inboxStartup).then(async () => {
@@ -11416,6 +11556,7 @@ html.inbox-is-popout .inbox-props {
         if (labelId && !INBOX_POPOUT) {
             state.selectedLabelId = labelId;
             state.selectedInboxId = null;
+            state.viewGroup = null;
             state.view = 'open';
             renderNav();
             await loadConversations();

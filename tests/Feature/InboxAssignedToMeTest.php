@@ -197,6 +197,57 @@ class InboxAssignedToMeTest extends TestCase
         $this->assertNotContains($theirs->id, $archivedIds);
     }
 
+    public function test_assigned_to_me_folders_split_open_snoozed_and_archived(): void
+    {
+        [$user, $other, $inbox] = $this->inboxWithTwoAgents();
+
+        $open = $this->makeConversation($inbox, [
+            'subject' => 'Open mine',
+            'from_email' => 'open-mine@example.com',
+            'assigned_to' => $user->id,
+        ]);
+        $archived = $this->makeConversation($inbox, [
+            'subject' => 'Archived mine',
+            'from_email' => 'archived-mine@example.com',
+            'assigned_to' => $user->id,
+            'status' => 'archived',
+        ]);
+        $snoozed = $this->makeConversation($inbox, [
+            'subject' => 'Snoozed mine',
+            'from_email' => 'snoozed-mine@example.com',
+            'assigned_to' => $user->id,
+            'status' => 'archived',
+            'reopen_at' => now()->addDay(),
+        ]);
+        $theirArchived = $this->makeConversation($inbox, [
+            'subject' => 'Archived teammate',
+            'from_email' => 'archived-other@example.com',
+            'assigned_to' => $other->id,
+            'status' => 'archived',
+        ]);
+
+        $this->assertEqualsCanonicalizing([$open->id], $this->conversationIds($user, 'assigned_to_me'));
+        $this->assertEqualsCanonicalizing(
+            [$archived->id],
+            $this->conversationIds($user, 'assigned_to_me', 'archived')
+        );
+        $this->assertEqualsCanonicalizing(
+            [$snoozed->id],
+            $this->conversationIds($user, 'assigned_to_me', 'snoozed')
+        );
+        $this->assertNotContains(
+            $theirArchived->id,
+            $this->conversationIds($user, 'assigned_to_me', 'archived')
+        );
+
+        $this->actingAs($user)
+            ->getJson('/api/inbox/bootstrap')
+            ->assertOk()
+            ->assertJsonPath('assigned_to_me_count', 1)
+            ->assertJsonPath('assigned_archived_count', 1)
+            ->assertJsonPath('assigned_snoozed_count', 1);
+    }
+
     public function test_bootstrap_assigned_to_me_count_is_only_for_the_logged_in_user(): void
     {
         [$user, $other, $inbox] = $this->inboxWithTwoAgents();
@@ -354,10 +405,15 @@ class InboxAssignedToMeTest extends TestCase
     /**
      * @return list<int>
      */
-    private function conversationIds(User $user, string $view): array
+    private function conversationIds(User $user, string $view, ?string $bucket = null): array
     {
+        $url = '/api/inbox/conversations?view='.$view;
+        if ($bucket) {
+            $url .= '&bucket='.$bucket;
+        }
+
         $payload = $this->actingAs($user)
-            ->getJson('/api/inbox/conversations?view='.$view)
+            ->getJson($url)
             ->assertOk()
             ->json();
 
