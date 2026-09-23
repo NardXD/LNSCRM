@@ -7,6 +7,8 @@ use App\Models\InboxConversationUserRead;
 use App\Models\InboxMessage;
 use App\Models\OutlookMailAccount;
 use App\Models\SharedInbox;
+use App\Models\User;
+use App\Notifications\InboxThreadUpdateNotification;
 use App\Support\EmailQuotedHistory;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
@@ -744,12 +746,50 @@ class OutlookMailService
                         ]
                     );
                 }
+                $this->notifyAssigneeOfCustomerReply($conversation, $fromName, $bodyText, $receivedAt);
             }
 
             return true;
         }
 
         return $isNew;
+    }
+
+    private function notifyAssigneeOfCustomerReply(
+        InboxConversation $conversation,
+        ?string $fromName,
+        string $bodyText,
+        Carbon $receivedAt
+    ): void {
+        if ($receivedAt->lt(now()->subDays(2))) {
+            return;
+        }
+
+        $fresh = $conversation->fresh();
+        $assignee = $fresh ? User::query()->find($fresh->assigned_to) : null;
+        if (! $assignee instanceof User) {
+            return;
+        }
+
+        $from = $fromName ?: ($fresh->from_email ?: 'A customer');
+        $subject = $fresh->subject ?: 'a conversation';
+
+        try {
+            $assignee->notify(new InboxThreadUpdateNotification(
+                conversation: $fresh,
+                action: 'customer_reply',
+                summary: $from.' replied on "'.$subject.'"',
+                snippet: $bodyText ?: $fresh->snippet,
+                involves: 'reply',
+                sendMail: false,
+            ));
+        } catch (\Throwable $e) {
+            Log::warning('Failed to notify assignee of customer reply', [
+                'conversation_id' => $fresh->id,
+                'user_id' => $assignee->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function messageHomeConversation(

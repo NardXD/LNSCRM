@@ -39,6 +39,7 @@ class MessagingMentionNotification extends Notification
 
         return [
             'type' => 'messaging_mention',
+            'involves' => 'mention',
             'is_mention' => true,
             'conversation_id' => $this->conversation->id,
             'message_id' => $this->message->id,

@@ -19,7 +19,9 @@ class InboxThreadUpdateNotification extends Notification
         public string $summary,
         public ?User $actor = null,
         public ?string $snippet = null,
-        public bool $isMention = false
+        public bool $isMention = false,
+        public ?string $involves = null,
+        public bool $sendMail = true,
     ) {}
 
     /**
@@ -27,7 +29,7 @@ class InboxThreadUpdateNotification extends Notification
      */
     public function via(object $notifiable): array
     {
-        return ['database', 'mail'];
+        return $this->sendMail ? ['database', 'mail'] : ['database'];
     }
 
     public function toMail(object $notifiable): MailMessage
@@ -62,6 +64,7 @@ class InboxThreadUpdateNotification extends Notification
         return [
             'type' => $this->isMention ? 'inbox_comment_mention' : 'inbox_thread_update',
             'action' => $this->action,
+            'involves' => $this->involves ?? ($this->isMention ? 'mention' : null),
             'is_mention' => $this->isMention,
             'conversation_id' => $this->conversation->id,
             'subject' => $this->conversation->subject ?: '(No subject)',

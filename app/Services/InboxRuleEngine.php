@@ -203,7 +203,8 @@ class InboxRuleEngine
             'Rule notification: "'.$subject.'" needs your attention.',
             null,
             $conversation->snippet,
-            false
+            false,
+            'assignee',
         ));
     }
     private function addTag(InboxConversation $conversation, mixed $tagIdOrName): void

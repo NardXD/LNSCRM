@@ -4481,6 +4481,7 @@ class InboxController extends Controller
                     summary: $actor->name.' shared a draft with you on "'.($conversation->subject ?: 'a conversation').'"',
                     actor: $actor,
                     snippet: $snippet,
+                    involves: 'draft_share',
                 ));
             } catch (\Throwable $e) {
                 Log::warning('Failed to notify shared inbox draft', [
@@ -4590,6 +4591,7 @@ class InboxController extends Controller
                     actor: $actor,
                     snippet: $snippet,
                     isMention: true,
+                    involves: 'mention',
                 ));
             } catch (\Throwable $e) {
                 Log::warning('Failed to notify inbox comment mention', [
@@ -4704,7 +4706,7 @@ class InboxController extends Controller
     }
 
     /**
-     * Notify inbox members, assignee, prior commenters, and any extra mentioned users.
+     * Notify only the person the event is about: the new assignee, or someone who was mentioned.
      *
      * @param  array<string, mixed>  $meta
      */
@@ -4715,17 +4717,35 @@ class InboxController extends Controller
         string $summary,
         array $meta = []
     ): void {
-        $mentionedIds = collect($meta['mentioned_user_ids'] ?? [])
-            ->map(fn ($id) => (int) $id)
-            ->filter()
-            ->unique()
-            ->values();
+        $actorId = (int) ($actor?->id ?? 0);
+        $involves = null;
+        $ids = collect();
 
-        $recipients = $this->conversationNotifyRecipients(
-            $conversation,
-            $actor,
-            $mentionedIds->all()
-        );
+        if ($action === 'assigned') {
+            $assigneeId = (int) ($meta['assignee_id'] ?? 0);
+            if ($assigneeId > 0 && $assigneeId !== $actorId) {
+                $ids->push($assigneeId);
+                $involves = 'assignee';
+            }
+        } elseif ($action === 'commented') {
+            $ids = collect($meta['mentioned_user_ids'] ?? [])
+                ->map(fn ($id) => (int) $id)
+                ->filter(fn ($id) => $id > 0 && $id !== $actorId)
+                ->unique()
+                ->values();
+            if ($ids->isNotEmpty()) {
+                $involves = 'mention';
+            }
+        }
+
+        if (! $involves || $ids->isEmpty()) {
+            return;
+        }
+
+        $recipients = User::query()
+            ->where('company_id', $conversation->company_id)
+            ->whereIn('id', $ids->all())
+            ->get();
 
         if ($recipients->isEmpty()) {
             return;
@@ -4733,13 +4753,12 @@ class InboxController extends Controller
 
         $snippet = isset($meta['snippet']) ? (string) $meta['snippet'] : null;
         $subjectLabel = $conversation->subject ?: 'a conversation';
+        $isMention = $involves === 'mention';
+        $notifySummary = $isMention
+            ? (($actor?->name ?: 'Someone').' mentioned you in "'.$subjectLabel.'"')
+            : (($actor?->name ?: 'Someone').' assigned "'.$subjectLabel.'" to you');
 
         foreach ($recipients as $recipient) {
-            $isMention = $action === 'commented' && $mentionedIds->contains((int) $recipient->id);
-            $notifySummary = $isMention
-                ? (($actor?->name ?: 'Someone').' mentioned you in "'.$subjectLabel.'"')
-                : $summary;
-
             try {
                 $recipient->notify(new InboxThreadUpdateNotification(
                     conversation: $conversation,
@@ -4748,6 +4767,7 @@ class InboxController extends Controller
                     actor: $actor,
                     snippet: $snippet,
                     isMention: $isMention,
+                    involves: $involves,
                 ));
             } catch (\Throwable $e) {
                 Log::warning('Failed to notify inbox thread watcher', [
@@ -4758,60 +4778,6 @@ class InboxController extends Controller
                 ]);
             }
         }
-    }
-
-    /**
-     * @param  array<int, int|string>  $extraUserIds
-     * @return Collection<int, User>
-     */
-    private function conversationNotifyRecipients(
-        InboxConversation $conversation,
-        ?User $except = null,
-        array $extraUserIds = []
-    ): Collection {
-        $conversation->loadMissing('inbox');
-
-        $ids = collect($extraUserIds);
-
-        $inbox = $conversation->inbox;
-        if ($inbox) {
-            if ($inbox->isPersonal()) {
-                if ($inbox->created_by) {
-                    $ids->push((int) $inbox->created_by);
-                }
-            } else {
-                $ids = $ids->merge($inbox->members()->pluck('users.id'));
-            }
-        }
-
-        if ($conversation->assigned_to) {
-            $ids->push((int) $conversation->assigned_to);
-        }
-
-        $ids = $ids->merge(
-            InboxConversationComment::query()
-                ->where('inbox_conversation_id', $conversation->id)
-                ->pluck('user_id')
-        );
-
-        $ids = $ids
-            ->map(fn ($id) => (int) $id)
-            ->filter(fn ($id) => $id > 0)
-            ->unique()
-            ->values();
-
-        if ($except) {
-            $ids = $ids->reject(fn ($id) => $id === (int) $except->id)->values();
-        }
-
-        if ($ids->isEmpty()) {
-            return collect();
-        }
-
-        return User::query()
-            ->where('company_id', $conversation->company_id)
-            ->whereIn('id', $ids)
-            ->get();
     }
 
     private function fireConversationStatusRules(InboxConversation $conversation, string $status): void

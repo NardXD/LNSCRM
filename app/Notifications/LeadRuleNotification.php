@@ -32,6 +32,7 @@ class LeadRuleNotification extends Notification
     {
         return [
             'type' => 'lead_rule',
+            'involves' => 'lead',
             'lead_id' => $this->lead->id,
             'contact_name' => $this->lead->name,
             'summary' => $this->summary,

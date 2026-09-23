@@ -35,6 +35,7 @@ class LeadAssignedNotification extends Notification
 
         return [
             'type' => 'lead_assigned',
+            'involves' => 'lead',
             'event' => $this->isNew ? 'created' : 'assigned',
             'lead_id' => $this->lead->id,
             'contact_name' => $this->lead->name,

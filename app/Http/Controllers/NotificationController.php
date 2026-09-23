@@ -89,8 +89,7 @@ class NotificationController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $notifications = $user->notifications()
-            ->whereNotIn('type', self::CHANNEL_NOTIFICATION_TYPES)
+        $notifications = $this->personalNotifications($user)
             ->latest()
             ->limit(30)
             ->get()
@@ -126,7 +125,7 @@ class NotificationController extends Controller
     public function markAllRead(Request $request): JsonResponse
     {
         $user = $request->user();
-        $user->unreadNotifications->markAsRead();
+        $this->personalNotifications($user)->whereNull('read_at')->update(['read_at' => now()]);
 
         return response()->json([
             'success' => true,
@@ -136,9 +135,21 @@ class NotificationController extends Controller
 
     private function totalUnreadCount(User $user): int
     {
-        return $user->unreadNotifications()
+        return $this->personalNotifications($user)->whereNull('read_at')->count();
+    }
+
+    /**
+     * Bell items that are about this user. Channel message rows stay out; those use sidebar badges.
+     */
+    private function personalNotifications(User $user)
+    {
+        return $user->notifications()
             ->whereNotIn('type', self::CHANNEL_NOTIFICATION_TYPES)
-            ->count();
+            ->where(function ($query) {
+                $query->whereIn('data->involves', ['assignee', 'mention', 'draft_share', 'reopen', 'lead', 'reply'])
+                    ->orWhereIn('data->type', ['lead_assigned', 'lead_rule', 'messaging_mention', 'inbox_comment_mention'])
+                    ->orWhere('data->is_mention', true);
+            });
     }
 
     private function messagingUnreadCount(User $user, int $companyId): int
