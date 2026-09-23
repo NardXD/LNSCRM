@@ -997,10 +997,66 @@ body:has(.ld-page-wrapper) {
 .leads-rule-extra-card.is-action.is-create-lead [data-rule-action-value] { display: none; }
 .leads-rule-extra-card.is-action.is-add-label { grid-template-columns: minmax(0, 1fr) auto; }
 .leads-rule-extra-card.is-action.is-add-label [data-rule-action-value] { display: none; }
-.leads-rule-extra-card.is-multi-label { grid-template-columns: 1fr 1fr auto; }
-.leads-rule-label-multi { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.3rem; }
-.leads-rule-label-multi label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; padding: 0.3rem 0.4rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); cursor: pointer; }
-.leads-rule-label-multi input { width: auto; margin: 0; }
+.leads-rule-extra-card.is-multi-label {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr) auto;
+    align-items: center;
+}
+.leads-rule-extra-card.is-multi-label [data-rule-cond-field] { grid-column: 1; grid-row: 1; }
+.leads-rule-extra-card.is-multi-label [data-rule-cond-operator] { grid-column: 2; grid-row: 1; }
+.leads-rule-extra-card.is-multi-label > [data-remove-rule-row] { grid-column: 3; grid-row: 1; justify-self: end; }
+.leads-rule-extra-card.is-multi-label .leads-rule-label-multi { grid-column: 1 / -1; grid-row: 2; }
+.leads-rule-extra-card.is-action.is-add-label .leads-rule-label-multi { grid-column: 1 / -1; }
+.leads-rule-label-multi {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+    gap: 0.35rem;
+    max-height: 9.75rem;
+    overflow-y: auto;
+    padding: 0.45rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-card);
+}
+.leads-rule-label-multi label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+    margin: 0;
+    padding: 0.32rem 0.45rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-primary);
+    font-size: 0.78rem;
+    line-height: 1.25;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+.leads-rule-label-multi label:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.leads-rule-label-multi label:has(input:checked) {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-primary));
+}
+.leads-rule-label-multi label span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.leads-rule-label-multi input[type="checkbox"] {
+    width: 0.9rem;
+    height: 0.9rem;
+    min-width: 0.9rem;
+    margin: 0;
+    padding: 0;
+    flex: none;
+    accent-color: var(--accent);
+}
+.leads-rule-label-multi .leads-rule-rr-help {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 0.15rem 0.1rem;
+}
 .leads-rule-extra-card.is-action.is-delayed-status { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.7fr) minmax(0, 1fr) auto; }
 .leads-rule-extra-card.is-action.is-send-email { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 0.85fr) minmax(0, 1.1fr) auto; }
 .leads-rule-send-email { display: contents; }
@@ -1010,7 +1066,7 @@ body:has(.ld-page-wrapper) {
 .leads-rule-extra-card.is-action.is-rr-selected { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
 .leads-rule-rr-users { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.3rem; }
 .leads-rule-rr-users label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; padding: 0.3rem 0.4rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); cursor: pointer; }
-.leads-rule-rr-users input { width: auto; margin: 0; }
+.leads-rule-rr-users input[type="checkbox"] { width: 0.9rem; height: 0.9rem; min-width: 0.9rem; margin: 0; padding: 0; flex: none; }
 .leads-rule-rr-help { grid-column: 1 / -1; margin: 0; font-size: 0.72rem; color: var(--text-muted); }
 .leads-rule-create-keywords { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; }
 .leads-rule-create-keywords label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.72rem; color: var(--text-muted); }
