@@ -93,6 +93,60 @@ class InboxSidebarLabelsTest extends TestCase
         $this->assertNotContains($otherThread->id, $ids);
     }
 
+    public function test_label_folders_split_open_archived_and_snoozed(): void
+    {
+        [$user, $other, $inbox] = $this->inboxWithTwoAgents();
+        $inquiry = LeadLabel::query()->create([
+            'company_id' => $user->company_id,
+            'name' => 'Inquiry',
+            'color' => '#4338ca',
+        ]);
+
+        $open = $this->makeConversation($inbox, ['subject' => 'Open labeled']);
+        $open->leadLabels()->attach($inquiry->id);
+        $archived = $this->makeConversation($inbox, [
+            'subject' => 'Archived labeled',
+            'status' => 'archived',
+        ]);
+        $archived->leadLabels()->attach($inquiry->id);
+        $snoozed = $this->makeConversation($inbox, [
+            'subject' => 'Snoozed labeled',
+            'status' => 'archived',
+            'reopen_at' => now()->addDay(),
+        ]);
+        $snoozed->leadLabels()->attach($inquiry->id);
+
+        $openIds = collect($this->actingAs($user)
+            ->getJson('/api/inbox/conversations?view=open&label_id='.$inquiry->id)
+            ->assertOk()
+            ->assertJsonPath('meta.label_folders.open', 1)
+            ->assertJsonPath('meta.label_folders.archived', 1)
+            ->assertJsonPath('meta.label_folders.snoozed', 1)
+            ->json('conversations'))
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+        $this->assertEqualsCanonicalizing([$open->id], $openIds);
+
+        $archivedIds = collect($this->actingAs($user)
+            ->getJson('/api/inbox/conversations?view=archived&label_id='.$inquiry->id)
+            ->assertOk()
+            ->json('conversations'))
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+        $this->assertEqualsCanonicalizing([$archived->id], $archivedIds);
+
+        $snoozedIds = collect($this->actingAs($user)
+            ->getJson('/api/inbox/conversations?view=snoozed&label_id='.$inquiry->id)
+            ->assertOk()
+            ->json('conversations'))
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+        $this->assertEqualsCanonicalizing([$snoozed->id], $snoozedIds);
+    }
+
     public function test_sidebar_label_order_is_saved_per_user(): void
     {
         [$user, $other, $inbox] = $this->inboxWithTwoAgents();

@@ -146,6 +146,7 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
                         <button type="button" class="inbox-btn ghost" id="btnClearChecked">Clear</button>
                     </div>
                 </div>
+                <div class="inbox-label-folders" id="labelFolders" hidden></div>
             </div>
             <div class="inbox-conversation-list" id="conversationList" aria-busy="true" title="Click to open. Double-click to pop out. Ctrl+click (Cmd+click on Mac) to select threads, then Archive.">
                 <div class="inbox-skel-list" aria-hidden="true">
@@ -1620,6 +1621,33 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 .inbox-list-header h2 { font-size: 1rem; margin: 0; }
 .inbox-list-header-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.65rem; }
 .inbox-list-header-row .inbox-btn { padding: 0.24rem 0.5rem; font-size: 0.72rem; }
+.inbox-label-folders {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin-top: 0.55rem;
+}
+.inbox-label-folders[hidden] { display: none !important; }
+.inbox-label-folder {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: none;
+    background: transparent;
+    color: var(--inbox-muted);
+    border-radius: 6px;
+    padding: 0.22rem 0.5rem;
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.inbox-label-folder:hover { background: var(--inbox-bg); color: var(--inbox-text); }
+.inbox-label-folder.active {
+    background: var(--inbox-accent-soft);
+    color: var(--inbox-accent);
+}
+.inbox-label-folder .inbox-count { font-size: 0.68rem; }
 .inbox-modal#modalCompose { width: min(640px, 100%); }
 .inbox-connect-modes { display: grid; gap: 0.5rem; }
 .inbox-mode-option {
@@ -3716,6 +3744,7 @@ html.inbox-is-popout .inbox-props {
         selectedLabelId: null,
         sidebarLabelSearch: '',
         sidebarLabelPickerDraft: [],
+        labelFolderCounts: { open: 0, archived: 0, snoozed: 0 },
         assignedToMeCount: 0,
         assignedArchivedCount: 0,
         assignedSnoozedCount: 0,
@@ -6089,11 +6118,40 @@ html.inbox-is-popout .inbox-props {
         }
     }
 
+    const LABEL_FOLDERS = [
+        { bucket: 'open', label: 'Open' },
+        { bucket: 'archived', label: 'Archived' },
+        { bucket: 'snoozed', label: 'Snoozed' },
+    ];
+
+    function renderLabelFolders() {
+        const host = el('labelFolders');
+        if (!host) return;
+        if (!state.selectedLabelId) {
+            host.hidden = true;
+            host.innerHTML = '';
+            return;
+        }
+        const counts = state.labelFolderCounts || {};
+        host.hidden = false;
+        host.innerHTML = LABEL_FOLDERS.map(folder => {
+            const active = state.view === folder.bucket;
+            const count = Number(counts[folder.bucket] || 0);
+            return `
+                <button type="button" class="inbox-label-folder ${active ? 'active' : ''}" data-label-bucket="${folder.bucket}">
+                    <span>${folder.label}</span>
+                    ${count ? `<span class="inbox-count">${count}</span>` : ''}
+                </button>
+            `;
+        }).join('');
+    }
+
     async function openSidebarLabel(id) {
         state.selectedLabelId = Number(id);
         state.selectedInboxId = null;
         state.viewGroup = null;
         state.view = 'open';
+        state.labelFolderCounts = { open: 0, archived: 0, snoozed: 0 };
         renderNav();
         await loadConversations();
     }
@@ -6275,6 +6333,7 @@ html.inbox-is-popout .inbox-props {
             btn.classList.toggle('active', active);
         });
         renderSidebarLabels();
+        renderLabelFolders();
 
         const assign = el('assignSelect');
         const current = assign.value;
@@ -7047,6 +7106,14 @@ html.inbox-is-popout .inbox-props {
             const data = await api('/conversations?' + params.toString());
             const batch = data.conversations || [];
             const meta = data.meta || {};
+            if (meta.label_folders) {
+                state.labelFolderCounts = {
+                    open: Number(meta.label_folders.open || 0),
+                    archived: Number(meta.label_folders.archived || 0),
+                    snoozed: Number(meta.label_folders.snoozed || 0),
+                };
+                renderLabelFolders();
+            }
 
             state.listPage = meta.current_page || page;
             state.listLastPage = meta.last_page || state.listPage;
@@ -9216,6 +9283,16 @@ html.inbox-is-popout .inbox-props {
     el('sidebarLabelSearch')?.addEventListener('input', () => {
         state.sidebarLabelSearch = el('sidebarLabelSearch').value || '';
         renderSidebarLabels();
+    });
+    el('labelFolders')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-label-bucket]');
+        if (!btn || !state.selectedLabelId) return;
+        const bucket = btn.dataset.labelBucket;
+        if (!bucket || state.view === bucket) return;
+        state.viewGroup = null;
+        state.view = bucket;
+        renderLabelFolders();
+        await loadConversations();
     });
     el('btnCustomizeLabels')?.addEventListener('click', (e) => {
         e.stopPropagation();

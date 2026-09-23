@@ -773,6 +773,9 @@ class InboxController extends Controller
                 'has_more' => $hasMore,
                 'last_page' => $hasMore ? $page + 1 : $page,
                 'matched_message_id' => $matchedMessageId,
+                'label_folders' => ! empty($validated['label_id'])
+                    ? $this->leadLabelFolderCounts($user, (int) $validated['label_id'])
+                    : null,
             ],
         ]);
     }
@@ -3472,6 +3475,32 @@ class InboxController extends Controller
                     fn ($labels) => $labels->where('lead_labels.id', $labelId)
                 ));
         });
+    }
+
+    /**
+     * @return array{open: int, archived: int, snoozed: int}
+     */
+    private function leadLabelFolderCounts(User $user, int $labelId): array
+    {
+        $inboxIds = $this->accessibleInboxes($user)->pluck('id');
+        $counts = ['open' => 0, 'archived' => 0, 'snoozed' => 0];
+        if ($inboxIds->isEmpty()) {
+            return $counts;
+        }
+
+        foreach (array_keys($counts) as $bucket) {
+            $query = InboxConversation::query()
+                ->notMerged()
+                ->whereIn('inbox_conversations.shared_inbox_id', $inboxIds);
+            $this->constrainInboxBucket($query, $bucket);
+            if ($bucket !== 'open') {
+                $this->constrainArchiveAndSnoozeVisibility($query, $user);
+            }
+            $this->constrainByLeadLabel($query, $labelId);
+            $counts[$bucket] = (int) $query->count();
+        }
+
+        return $counts;
     }
 
     /**
