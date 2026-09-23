@@ -3,9 +3,11 @@
 @section('title', 'Inbox')
 
 @section('content')
+@php $inboxPopout = request()->boolean('popout'); @endphp
 <script>
 if (new URLSearchParams(location.search).get('popout') === '1') {
     document.documentElement.classList.add('inbox-is-popout');
+    document.title = 'Loading… - Inbox';
 }
 </script>
 <style>
@@ -168,7 +170,7 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 
         {{-- Thread --}}
         <section class="inbox-thread-pane">
-            <div class="inbox-thread-placeholder" id="threadPlaceholder">
+            <div class="inbox-thread-placeholder" id="threadPlaceholder" @if($inboxPopout) style="display:none;" @endif>
                 <div class="inbox-placeholder-card">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
                     <h3>Your shared inbox</h3>
@@ -176,10 +178,10 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
                 </div>
             </div>
 
-            <div class="inbox-thread" id="threadView" style="display:none;">
+            <div class="inbox-thread{{ $inboxPopout ? ' is-loading' : '' }}" id="threadView" style="display:{{ $inboxPopout ? 'flex' : 'none' }};" @if($inboxPopout) aria-busy="true" @endif>
                 <div class="inbox-thread-header">
                     <div class="inbox-thread-heading">
-                        <h2 id="threadSubject"></h2>
+                        <h2 id="threadSubject">{{ $inboxPopout ? 'Loading…' : '' }}</h2>
                         <div class="inbox-thread-participants" id="threadParticipants"></div>
                         <div class="inbox-thread-meta" id="threadMeta"></div>
                     </div>
@@ -229,7 +231,28 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
                     </div>
                 </div>
 
-                <div class="inbox-messages" id="threadMessages"></div>
+                <div class="inbox-messages" id="threadMessages">
+                    @if($inboxPopout)
+                        <div class="inbox-skel-thread" aria-hidden="true">
+                            <div class="inbox-skel-msg">
+                                <div class="inbox-skel-avatar"></div>
+                                <div class="inbox-skel-msg-body">
+                                    <span class="inbox-skel-line w-40"></span>
+                                    <span class="inbox-skel-line w-90"></span>
+                                    <span class="inbox-skel-line w-70"></span>
+                                </div>
+                            </div>
+                            <div class="inbox-skel-msg">
+                                <div class="inbox-skel-avatar"></div>
+                                <div class="inbox-skel-msg-body">
+                                    <span class="inbox-skel-line w-35"></span>
+                                    <span class="inbox-skel-line w-80"></span>
+                                    <span class="inbox-skel-line w-55"></span>
+                                </div>
+                            </div>
+                        </div>
+                    @endif
+                </div>
 
                 <div class="inbox-composer" id="composerArea">
                     <div class="inbox-composer-modes">
@@ -1832,6 +1855,9 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     background: #f4f5f7;
 }
 .inbox-thread { display: flex; flex-direction: column; height: 100%; min-height: 0; flex: 1; }
+.inbox-thread.is-loading .inbox-thread-actions,
+.inbox-thread.is-loading .inbox-composer { display: none !important; }
+.inbox-thread.is-loading .inbox-thread-heading h2 { color: var(--inbox-muted); font-weight: 600; }
 .inbox-thread-placeholder { flex: 1; }
 .inbox-thread-header {
     display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start;
@@ -6405,6 +6431,8 @@ html.inbox-is-popout .inbox-props {
     function showThreadLoading(preview) {
         el('threadPlaceholder').style.display = 'none';
         el('threadView').style.display = 'flex';
+        el('threadView')?.classList.add('is-loading');
+        el('threadView')?.setAttribute('aria-busy', 'true');
         applyPropsPaneVisibility();
         el('threadSubject').textContent = preview?.subject || 'Loading…';
         el('threadMeta').textContent = '';
@@ -6808,6 +6836,10 @@ html.inbox-is-popout .inbox-props {
             if (Number(state.selectedId) !== Number(id)) return;
             el('threadPlaceholder').style.display = 'none';
             el('threadView').style.display = 'flex';
+            el('threadView')?.classList.remove('is-loading');
+            el('threadView')?.removeAttribute('aria-busy');
+            el('threadSubject').textContent = 'Could not open conversation';
+            if (INBOX_POPOUT) document.title = 'Could not open conversation - Inbox';
             el('threadMessages').innerHTML = `<div class="inbox-empty">${escapeHtml(err.message)}</div>`;
             return;
         }
@@ -8079,6 +8111,8 @@ html.inbox-is-popout .inbox-props {
         }
         el('threadPlaceholder').style.display = 'none';
         el('threadView').style.display = 'flex';
+        el('threadView')?.classList.remove('is-loading');
+        el('threadView')?.removeAttribute('aria-busy');
         applyPropsPaneVisibility();
         el('threadSubject').textContent = c.subject || '(No subject)';
         if (INBOX_POPOUT) document.title = (c.subject || 'Conversation') + ' - Inbox';
@@ -11074,6 +11108,16 @@ html.inbox-is-popout .inbox-props {
             }
         }
     }).catch(err => {
+        if (INBOX_POPOUT) {
+            el('threadPlaceholder').style.display = 'none';
+            el('threadView').style.display = 'flex';
+            el('threadView')?.classList.remove('is-loading');
+            el('threadView')?.removeAttribute('aria-busy');
+            el('threadSubject').textContent = 'Could not open conversation';
+            if (INBOX_POPOUT) document.title = 'Could not open conversation - Inbox';
+            el('threadMessages').innerHTML = `<div class="inbox-empty">${escapeHtml(err.message)}</div>`;
+            return;
+        }
         el('conversationList').innerHTML = `<div class="inbox-empty">${escapeHtml(err.message)}</div>`;
     });
 
