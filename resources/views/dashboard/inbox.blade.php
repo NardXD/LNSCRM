@@ -873,6 +873,35 @@
 }
 .inbox-toast.success { background: #ecfdf5; color: #065f46; }
 .inbox-toast.error { background: #fef2f2; color: #991b1b; }
+.inbox-undo-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    z-index: 120;
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    min-width: 280px;
+    max-width: min(440px, calc(100% - 2rem));
+    padding: 0.75rem 0.8rem 0.75rem 1rem;
+    border-radius: 10px;
+    background: #1f2937;
+    color: #fff;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.28);
+    font-size: 0.875rem;
+}
+.inbox-undo-toast-text { flex: 1; min-width: 0; }
+.inbox-undo-toast-btn {
+    border: none;
+    background: transparent;
+    color: #93c5fd;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0.15rem 0.35rem;
+}
+.inbox-undo-toast-btn:hover { color: #fff; }
 .inbox-shell {
     display: grid;
     /* 3 columns by default — do not reserve empty props space */
@@ -6860,6 +6889,110 @@
         setTimeout(() => node.remove(), 1800);
     }
 
+    const UNDO_SEND_MS = 15000;
+    let pendingUndoSend = null;
+
+    function removeUndoSendToast() {
+        document.querySelectorAll('.inbox-undo-toast').forEach(node => node.remove());
+    }
+
+    function renderUndoSendToast(entry) {
+        const seconds = Math.max(1, Math.ceil((entry.endsAt - Date.now()) / 1000));
+        let node = document.querySelector('.inbox-undo-toast');
+        if (!node || node.dataset.undoId !== String(entry.endsAt)) {
+            removeUndoSendToast();
+            node = document.createElement('div');
+            node.className = 'inbox-undo-toast';
+            node.dataset.undoId = String(entry.endsAt);
+            node.setAttribute('role', 'status');
+            node.innerHTML = '<span class="inbox-undo-toast-text"></span><button type="button" class="inbox-undo-toast-btn">Undo</button>';
+            node.querySelector('button')?.addEventListener('click', () => undoPendingSend(entry));
+            (el('inboxApp') || document.body).appendChild(node);
+        }
+        const text = node.querySelector('.inbox-undo-toast-text');
+        if (text) text.textContent = `${entry.label} in ${seconds}s`;
+    }
+
+    function postInboxKeepalive(path, body) {
+        try {
+            fetch(API + path, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': CSRF,
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                credentials: 'same-origin',
+                keepalive: true,
+                body: JSON.stringify(body),
+            });
+        } catch (_) {}
+    }
+
+    function claimUndoSend(entry) {
+        if (!entry || entry.cancelled || entry.flushing) return false;
+        entry.flushing = true;
+        clearTimeout(entry.timer);
+        clearInterval(entry.tick);
+        if (pendingUndoSend === entry) pendingUndoSend = null;
+        removeUndoSendToast();
+        return true;
+    }
+
+    function queueUndoSend({ label, restore, commit, keepalive }) {
+        const previous = pendingUndoSend;
+        if (previous) void flushUndoSend(previous);
+        const entry = {
+            label,
+            restore,
+            commit,
+            keepalive,
+            cancelled: false,
+            flushing: false,
+            endsAt: Date.now() + UNDO_SEND_MS,
+            timer: null,
+            tick: null,
+        };
+        pendingUndoSend = entry;
+        renderUndoSendToast(entry);
+        entry.tick = setInterval(() => {
+            if (pendingUndoSend !== entry) return;
+            renderUndoSendToast(entry);
+        }, 250);
+        entry.timer = setTimeout(() => {
+            void flushUndoSend(entry);
+        }, UNDO_SEND_MS);
+    }
+
+    function undoPendingSend(entry) {
+        if (!entry || entry.cancelled || entry.flushing || pendingUndoSend !== entry) return;
+        entry.cancelled = true;
+        clearTimeout(entry.timer);
+        clearInterval(entry.tick);
+        pendingUndoSend = null;
+        removeUndoSendToast();
+        Promise.resolve(entry.restore()).catch(() => {});
+    }
+
+    async function flushUndoSend(entry) {
+        if (!claimUndoSend(entry)) return;
+        try {
+            await entry.commit();
+        } catch (err) {
+            alert(err.message || 'Could not send.');
+            try {
+                await entry.restore();
+            } catch (_) {}
+        }
+    }
+
+    window.addEventListener('pagehide', () => {
+        const entry = pendingUndoSend;
+        if (!claimUndoSend(entry)) return;
+        entry.keepalive?.();
+    });
+
     async function copyMessageId(messageId, button) {
         const ok = await copyText(String(messageId || ''));
         if (!ok) return alert('Could not copy message ID.');
@@ -9895,6 +10028,104 @@
         await submitSharedDraft('reply');
     });
 
+    function captureReplySendSnapshot() {
+        return {
+            conversationId: state.selectedId,
+            html: getComposerHtml('reply'),
+            to: el('replyTo')?.value || '',
+            cc: el('replyCc')?.value || '',
+            inboxId: el('replyFrom')?.value || '',
+            attachments: (state.replyAttachments || []).map(file => ({ ...file })),
+            replyDraftId: state.replyDraftId,
+            replyCcEmails: [...(state.replyCcEmails || [])],
+            replyAll: !!state.replyAll,
+            title: el('replyModalTitle')?.textContent || 'Reply',
+            help: el('replyModalHelp')?.textContent || 'Email reply via Outlook.',
+            hint: el('composerHint')?.textContent || 'Reply via Outlook',
+        };
+    }
+
+    function clearReplyComposer() {
+        setComposerHtml('reply', '');
+        state.replyAttachments = [];
+        state.replyCcEmails = [];
+        state.replyAll = false;
+        state.replyDraftId = null;
+        if (el('replyTo')) el('replyTo').value = '';
+        if (el('replyCc')) el('replyCc').value = '';
+        renderAttachChips('reply');
+        hideMentionPopup('reply');
+        if (el('composerHint')) el('composerHint').textContent = 'Reply via Outlook';
+    }
+
+    async function restoreReplySendSnapshot(snapshot) {
+        if (snapshot.conversationId && Number(state.selectedId) !== Number(snapshot.conversationId)) {
+            await openConversation(snapshot.conversationId);
+        }
+        state.replyAll = snapshot.replyAll;
+        state.replyDraftId = snapshot.replyDraftId;
+        state.replyCcEmails = snapshot.replyCcEmails || [];
+        state.replyAttachments = snapshot.attachments || [];
+        state.shareDraftSelected.reply = {};
+        setReplyModalCopy(snapshot.title, snapshot.help);
+        hideMentionPopup('reply');
+        openModal('modalReply');
+        fillReplyFromSelect();
+        if (el('replyFrom') && snapshot.inboxId) el('replyFrom').value = String(snapshot.inboxId);
+        if (el('replyTo')) el('replyTo').value = snapshot.to || '';
+        if (el('replyCc')) el('replyCc').value = snapshot.cc || '';
+        setComposerHtml('reply', snapshot.html || '');
+        renderAttachChips('reply');
+        if (el('composerHint')) el('composerHint').textContent = snapshot.hint || 'Reply via Outlook';
+        el('replyBody')?.focus();
+    }
+
+    async function commitReplySend(conversationId, payload, { archive = false, sendAt = null, alreadyCleared = false } = {}) {
+        el('btnSendReply').disabled = true;
+        el('btnSendReplyMenu') && (el('btnSendReplyMenu').disabled = true);
+        let data;
+        try {
+            data = await api('/conversations/' + conversationId + '/reply', { method: 'POST', body: payload });
+        } finally {
+            el('btnSendReply').disabled = false;
+            if (el('btnSendReplyMenu')) el('btnSendReplyMenu').disabled = false;
+        }
+
+        if (!alreadyCleared) {
+            clearReplyComposer();
+            applyComposerSignature('reply');
+            if (el('modalReply')?.style.display === 'grid') closeModal();
+        }
+
+        try {
+            if (data.scheduled) {
+                if (Number(state.selectedId) === Number(conversationId) || !state.selectedId) {
+                    await openConversation(data.conversation?.id || conversationId);
+                }
+                await loadConversations();
+                return;
+            }
+
+            if (data.archived || archive) {
+                if (Number(state.selectedId) === Number(conversationId)) {
+                    state.conversation = null;
+                    state.selectedId = null;
+                    renderThread();
+                }
+                await loadBootstrap();
+                await loadConversations();
+                return;
+            }
+
+            await loadConversations();
+            if (Number(state.selectedId) === Number(conversationId) || !state.selectedId) {
+                await openConversation(data.conversation?.id || conversationId);
+            }
+        } catch (err) {
+            console.warn('Inbox refresh after reply failed', err);
+        }
+    }
+
     async function sendReply(opts = {}) {
         if (!state.selectedId) return;
         const html = getComposerHtml('reply');
@@ -9905,62 +10136,38 @@
         if (!to) return alert('Add at least one To recipient.');
         const archive = !!opts.archive;
         const sendAt = opts.sendAt || null;
-        el('btnSendReply').disabled = true;
-        el('btnSendReplyMenu') && (el('btnSendReplyMenu').disabled = true);
-        try {
-            const payload = {
-                body: html,
-                to,
-                cc: cc || null,
-                attachments: state.replyAttachments.map(a => ({
-                    name: a.name,
-                    contentType: a.contentType,
-                    contentBytes: a.contentBytes,
-                })),
-            };
-            if (inboxId) payload.inbox_id = inboxId;
-            if (archive) payload.archive = true;
-            if (sendAt) payload.send_at = sendAt;
-            if (state.replyDraftId) payload.draft_message_id = state.replyDraftId;
-            const prepared = prepareEmailSendPayload(payload.body, state.replyAttachments);
-            payload.body = prepared.body;
-            payload.attachments = prepared.attachments;
-            const data = await api('/conversations/' + state.selectedId + '/reply', { method: 'POST', body: payload });
-            applyComposerSignature('reply');
-            state.replyAttachments = [];
-            state.replyCcEmails = [];
-            state.replyAll = false;
-            state.replyDraftId = null;
-            if (el('replyTo')) el('replyTo').value = '';
-            if (el('replyCc')) el('replyCc').value = '';
-            renderAttachChips('reply');
-            hideMentionPopup('reply');
-            el('composerHint').textContent = 'Reply via Outlook';
-            if (el('modalReply')?.style.display === 'grid') closeModal();
+        const conversationId = state.selectedId;
+        const snapshot = captureReplySendSnapshot();
+        const prepared = prepareEmailSendPayload(html, snapshot.attachments);
+        const payload = {
+            body: prepared.body,
+            to,
+            cc: cc || null,
+            attachments: prepared.attachments,
+        };
+        if (inboxId) payload.inbox_id = inboxId;
+        if (archive) payload.archive = true;
+        if (sendAt) payload.send_at = sendAt;
+        if (snapshot.replyDraftId) payload.draft_message_id = snapshot.replyDraftId;
 
-            if (data.scheduled) {
-                await openConversation(data.conversation?.id || state.selectedId);
-                await loadConversations();
-                return;
+        const commit = () => commitReplySend(conversationId, payload, { archive, sendAt, alreadyCleared: !sendAt });
+        if (sendAt) {
+            try {
+                await commit();
+            } catch (err) {
+                alert(err.message);
             }
-
-            if (data.archived || archive) {
-                state.conversation = null;
-                state.selectedId = null;
-                renderThread();
-                await loadBootstrap();
-                await loadConversations();
-                return;
-            }
-
-            await openConversation(data.conversation?.id || state.selectedId);
-            await loadConversations();
-        } catch (err) {
-            alert(err.message);
-        } finally {
-            el('btnSendReply').disabled = false;
-            if (el('btnSendReplyMenu')) el('btnSendReplyMenu').disabled = false;
+            return;
         }
+
+        clearReplyComposer();
+        if (el('modalReply')?.style.display === 'grid') closeModal();
+        queueUndoSend({
+            label: 'Sending reply',
+            restore: () => restoreReplySendSnapshot(snapshot),
+            commit,
+            keepalive: () => postInboxKeepalive('/conversations/' + conversationId + '/reply', payload),
+        });
     }
 
     async function saveReplyDraft() {
@@ -10456,46 +10663,80 @@
         await submitSharedDraft('compose');
     });
 
-    async function sendCompose(opts = {}) {
-        const inboxId = Number(el('composeFrom').value);
-        const to = el('composeTo').value.trim();
-        const subject = el('composeSubject').value.trim();
-        const html = getComposerHtml('compose');
-        if (!inboxId) return alert('Select a From inbox.');
-        if (!to) return alert('Add at least one recipient.');
-        if (!subject) return alert('Subject is required.');
-        if (isComposerEmpty('compose')) return alert('Write a message first.');
+    function captureComposeSendSnapshot() {
+        return {
+            html: getComposerHtml('compose'),
+            to: el('composeTo')?.value || '',
+            cc: el('composeCc')?.value || '',
+            subject: el('composeSubject')?.value || '',
+            inboxId: el('composeFrom')?.value || '',
+            attachments: (state.composeAttachments || []).map(file => ({ ...file })),
+            draftConversationId: state.composeDraftConversationId,
+            title: el('composeModalTitle')?.textContent || 'New message',
+            help: el('composeModalHelp')?.textContent || 'Send email through a connected Outlook inbox.',
+        };
+    }
 
-        const sendAt = opts.sendAt || null;
+    function clearComposeComposer() {
+        state.composeAttachments = [];
+        state.composeDraftConversationId = null;
+        renderAttachChips('compose');
+        hideMentionPopup('compose');
+        setComposerHtml('compose', '');
+        if (el('composeTo')) el('composeTo').value = '';
+        if (el('composeCc')) el('composeCc').value = '';
+        if (el('composeSubject')) el('composeSubject').value = '';
+    }
+
+    function restoreComposeSendSnapshot(snapshot) {
+        const from = el('composeFrom');
+        if (from) {
+            const inboxId = String(snapshot.inboxId || '');
+            const known = (state.inboxes || []).find(i => String(i.id) === inboxId);
+            const hasOption = [...from.options].some(option => option.value === inboxId);
+            if (inboxId && !hasOption) {
+                const opt = document.createElement('option');
+                opt.value = inboxId;
+                opt.textContent = known
+                    ? `${known.name || 'Inbox'} (${known.email || 'Outlook'})`
+                    : 'Inbox';
+                from.appendChild(opt);
+            }
+            if (inboxId) from.value = inboxId;
+        }
+        if (el('composeTo')) el('composeTo').value = snapshot.to || '';
+        if (el('composeCc')) el('composeCc').value = snapshot.cc || '';
+        if (el('composeSubject')) el('composeSubject').value = snapshot.subject || '';
+        setComposerHtml('compose', snapshot.html || '');
+        state.composeAttachments = snapshot.attachments || [];
+        state.composeDraftConversationId = snapshot.draftConversationId || null;
+        state.shareDraftSelected.compose = {};
+        renderAttachChips('compose');
+        hideMentionPopup('compose');
+        setComposeModalCopy(snapshot.title || 'New message', snapshot.help || 'Send email through a connected Outlook inbox.');
+        openModal('modalCompose');
+        setTimeout(() => el('composeBody')?.focus(), 50);
+    }
+
+    async function commitComposeSend(payload, { inboxId, sendAt = null, alreadyCleared = false } = {}) {
         el('btnSendCompose').disabled = true;
         el('btnSendCompose').textContent = sendAt ? 'Scheduling…' : 'Sending…';
         if (el('btnSendComposeMenu')) el('btnSendComposeMenu').disabled = true;
+        let data;
         try {
-            const payload = {
-                inbox_id: inboxId,
-                to,
-                cc: el('composeCc').value.trim() || null,
-                subject,
-                body: html,
-                attachments: state.composeAttachments.map(a => ({
-                    name: a.name,
-                    contentType: a.contentType,
-                    contentBytes: a.contentBytes,
-                })),
-            };
-            if (sendAt) payload.send_at = sendAt;
-            if (state.composeDraftConversationId) payload.draft_conversation_id = state.composeDraftConversationId;
-            const prepared = prepareEmailSendPayload(payload.body, state.composeAttachments);
-            payload.body = prepared.body;
-            payload.attachments = prepared.attachments;
-            const data = await api('/compose', { method: 'POST', body: payload });
-            state.composeAttachments = [];
-            state.composeDraftConversationId = null;
-            renderAttachChips('compose');
-            hideMentionPopup('compose');
-            setComposerHtml('compose', '');
-            closeModal();
+            data = await api('/compose', { method: 'POST', body: payload });
+        } finally {
+            el('btnSendCompose').disabled = false;
+            el('btnSendCompose').textContent = 'Send';
+            if (el('btnSendComposeMenu')) el('btnSendComposeMenu').disabled = false;
+        }
 
+        if (!alreadyCleared) {
+            clearComposeComposer();
+            if (el('modalCompose')?.style.display === 'grid') closeModal();
+        }
+
+        try {
             if (data.scheduled) {
                 state.view = 'drafts';
                 state.selectedInboxId = inboxId;
@@ -10517,12 +10758,53 @@
                 await openConversation(data.conversation.id);
             }
         } catch (err) {
-            alert(err.message);
-        } finally {
-            el('btnSendCompose').disabled = false;
-            el('btnSendCompose').textContent = 'Send';
-            if (el('btnSendComposeMenu')) el('btnSendComposeMenu').disabled = false;
+            console.warn('Inbox refresh after compose failed', err);
         }
+    }
+
+    async function sendCompose(opts = {}) {
+        const inboxId = Number(el('composeFrom').value);
+        const to = el('composeTo').value.trim();
+        const cc = el('composeCc').value.trim();
+        const subject = el('composeSubject').value.trim();
+        const html = getComposerHtml('compose');
+        if (!inboxId) return alert('Select a From inbox.');
+        if (!to) return alert('Add at least one recipient.');
+        if (!subject) return alert('Subject is required.');
+        if (isComposerEmpty('compose')) return alert('Write a message first.');
+
+        const sendAt = opts.sendAt || null;
+        const snapshot = captureComposeSendSnapshot();
+        const prepared = prepareEmailSendPayload(html, snapshot.attachments);
+        const payload = {
+            inbox_id: inboxId,
+            to,
+            cc: cc || null,
+            subject,
+            body: prepared.body,
+            attachments: prepared.attachments,
+        };
+        if (sendAt) payload.send_at = sendAt;
+        if (snapshot.draftConversationId) payload.draft_conversation_id = snapshot.draftConversationId;
+
+        const commit = () => commitComposeSend(payload, { inboxId, sendAt, alreadyCleared: !sendAt });
+        if (sendAt) {
+            try {
+                await commit();
+            } catch (err) {
+                alert(err.message);
+            }
+            return;
+        }
+
+        clearComposeComposer();
+        if (el('modalCompose')?.style.display === 'grid') closeModal();
+        queueUndoSend({
+            label: 'Sending message',
+            restore: () => restoreComposeSendSnapshot(snapshot),
+            commit,
+            keepalive: () => postInboxKeepalive('/compose', payload),
+        });
     }
 
     function getConnectMode() {
