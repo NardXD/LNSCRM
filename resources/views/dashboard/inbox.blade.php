@@ -1455,10 +1455,6 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 .inbox-view-head:hover { background: var(--inbox-bg); }
 .inbox-view-head.is-selected { background: var(--inbox-accent-soft); color: var(--inbox-accent); font-weight: 650; }
 .inbox-view-head .inbox-count { margin-left: auto; }
-.inbox-view-group .inbox-mailbox-chevron { margin-top: 0; flex-shrink: 0; }
-.inbox-view-group.is-expanded .inbox-mailbox-chevron { transform: rotate(90deg); }
-.inbox-view-group.is-expanded .inbox-mailbox-folders { display: grid; gap: 0.08rem; }
-.inbox-view-group .inbox-mailbox-folders { padding-left: 1.15rem; }
 .inbox-mailbox-head > .inbox-dot {
     grid-column: 2; grid-row: 1;
     margin-top: 0.4rem;
@@ -6244,29 +6240,14 @@ html.inbox-is-popout .inbox-props {
         const host = el('viewGroups');
         if (!host) return;
         host.innerHTML = VIEW_GROUPS.map(group => {
-            const expanded = state.expandedViewGroups[group.id] !== false || state.viewGroup === group.id;
-            if (state.viewGroup === group.id) state.expandedViewGroups[group.id] = true;
             const selected = state.viewGroup === group.id && !state.selectedInboxId && !state.selectedLabelId;
             const parentCount = viewGroupCount(group.folders.find(folder => folder.bucket === group.defaultBucket)?.count);
-            const folders = group.folders.map(folder => {
-                const active = selected && state.view === folder.bucket;
-                const count = viewGroupCount(folder.count);
-                return `
-                    <button type="button" class="inbox-folder-row ${active ? 'active' : ''}"
-                        data-view-group="${group.id}" data-view-bucket="${folder.bucket}">
-                        <span>${folder.label}</span>
-                        ${count ? `<span class="inbox-count">${count}</span>` : '<span></span>'}
-                    </button>
-                `;
-            }).join('');
             return `
-                <div class="inbox-view-group ${expanded ? 'is-expanded' : ''}">
+                <div class="inbox-view-group">
                     <button type="button" class="inbox-view-head ${selected ? 'is-selected' : ''}" data-view-group="${group.id}">
-                        <svg class="inbox-mailbox-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
                         <span>${group.label}</span>
                         ${parentCount ? `<span class="inbox-count">${parentCount}</span>` : ''}
                     </button>
-                    <div class="inbox-mailbox-folders">${folders}</div>
                 </div>
             `;
         }).join('');
@@ -6277,7 +6258,6 @@ html.inbox-is-popout .inbox-props {
         state.view = bucket;
         state.selectedInboxId = null;
         state.selectedLabelId = null;
-        state.expandedViewGroups[groupId] = true;
         renderNav();
         await loadConversations();
     }
@@ -9277,22 +9257,11 @@ html.inbox-is-popout .inbox-props {
         });
     });
     el('viewGroups')?.addEventListener('click', async (e) => {
-        const folderBtn = e.target.closest('[data-view-bucket]');
-        if (folderBtn) {
-            await selectViewFolder(folderBtn.dataset.viewGroup, folderBtn.dataset.viewBucket);
-            return;
-        }
         const head = e.target.closest('.inbox-view-head');
         if (!head) return;
-        const id = head.dataset.viewGroup;
-        if (e.target.closest('.inbox-mailbox-chevron')) {
-            state.expandedViewGroups[id] = !state.expandedViewGroups[id];
-            renderNav();
-            return;
-        }
-        const group = VIEW_GROUPS.find(item => item.id === id);
+        const group = VIEW_GROUPS.find(item => item.id === head.dataset.viewGroup);
         if (!group) return;
-        await selectViewFolder(id, group.defaultBucket);
+        await selectViewFolder(group.id, group.defaultBucket);
     });
 
     el('sidebarLabelSearch')?.addEventListener('input', () => {
