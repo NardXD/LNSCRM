@@ -4740,26 +4740,19 @@ html.inbox-is-popout .inbox-props {
         const rect = toggle.getBoundingClientRect();
         const margin = 8;
         const width = Math.min(320, Math.max(240, window.innerWidth - (margin * 2)));
-        let left = rect.right - width;
-        if (left < margin) left = margin;
+        let left = rect.left;
         if (left + width > window.innerWidth - margin) {
             left = Math.max(margin, window.innerWidth - width - margin);
         }
-        const spaceAbove = Math.max(0, rect.top - margin);
-        const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - margin);
-        const openAbove = spaceAbove >= 200 || spaceAbove >= spaceBelow;
-        const available = Math.max(160, openAbove ? spaceAbove : spaceBelow);
+        if (left < margin) left = margin;
+        const top = rect.bottom + 6;
+        const spaceBelow = Math.max(0, window.innerHeight - top - margin);
         menu.style.width = `${width}px`;
         menu.style.left = `${left}px`;
         menu.style.right = 'auto';
-        menu.style.maxHeight = `${Math.min(360, available)}px`;
-        if (openAbove) {
-            menu.style.top = 'auto';
-            menu.style.bottom = `${window.innerHeight - rect.top + 6}px`;
-        } else {
-            menu.style.bottom = 'auto';
-            menu.style.top = `${rect.bottom + 6}px`;
-        }
+        menu.style.bottom = 'auto';
+        menu.style.top = `${top}px`;
+        menu.style.maxHeight = `${Math.min(360, spaceBelow)}px`;
     }
 
     function syncOpenTemplatePickerPosition() {
