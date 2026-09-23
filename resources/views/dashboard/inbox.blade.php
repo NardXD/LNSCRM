@@ -270,16 +270,40 @@
             </div>
             <div class="inbox-props-block">
                 <div class="inbox-props-label">Assignee</div>
-                <select id="assignSelect" class="inbox-select">
-                    <option value="">Unassigned</option>
-                </select>
+                <div class="inbox-search-select" id="assignSearchSelect">
+                    <button type="button" class="inbox-select inbox-search-select-btn" id="assignSearchToggle" aria-haspopup="listbox" aria-expanded="false" aria-controls="assignSearchMenu">
+                        <span id="assignSearchLabel">Unassigned</span>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <div class="inbox-search-select-menu" id="assignSearchMenu" hidden>
+                        <div class="inbox-assign-search">
+                            <input type="search" id="assignSearchInput" placeholder="Search teammates…" autocomplete="off" aria-label="Search teammates">
+                        </div>
+                        <div class="inbox-assign-list" id="assignSearchList" role="listbox"></div>
+                    </div>
+                    <select id="assignSelect" class="inbox-select" tabindex="-1" aria-hidden="true">
+                        <option value="">Unassigned</option>
+                    </select>
+                </div>
             </div>
             <div class="inbox-props-block">
                 <div class="inbox-props-label">Labels</div>
                 <div id="conversationTags" class="inbox-tag-pills"></div>
-                <select id="addTagSelect" class="inbox-select">
-                    <option value="">Add existing label…</option>
-                </select>
+                <div class="inbox-search-select" id="addTagSearchSelect">
+                    <button type="button" class="inbox-select inbox-search-select-btn" id="addTagSearchToggle" aria-haspopup="listbox" aria-expanded="false" aria-controls="addTagSearchMenu">
+                        <span id="addTagSearchLabel">Add existing label…</span>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <div class="inbox-search-select-menu" id="addTagSearchMenu" hidden>
+                        <div class="inbox-assign-search">
+                            <input type="search" id="addTagSearchInput" placeholder="Search labels…" autocomplete="off" aria-label="Search labels">
+                        </div>
+                        <div class="inbox-assign-list" id="addTagSearchList" role="listbox"></div>
+                    </div>
+                    <select id="addTagSelect" class="inbox-select" tabindex="-1" aria-hidden="true">
+                        <option value="">Add existing label…</option>
+                    </select>
+                </div>
                 <div id="addLeadLabelRow" class="inbox-lead-label-add" hidden>
                     <input type="text" id="addLeadLabelInput" class="inbox-select" maxlength="50" placeholder="New label">
                     <button type="button" class="inbox-btn ghost" id="btnAddLeadLabel">Add</button>
@@ -3081,6 +3105,61 @@
 .inbox-select, .inbox-modal .form-input {
     width: 100%; border: 1px solid var(--inbox-border); border-radius: 8px; padding: 0.5rem 0.65rem; font-size: 0.84rem; background: #fff;
 }
+.inbox-search-select { position: relative; }
+.inbox-search-select > select { display: none !important; }
+.inbox-search-select-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.4rem;
+    text-align: left;
+    cursor: pointer;
+    color: var(--inbox-text);
+    font: inherit;
+}
+.inbox-search-select-btn span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.inbox-search-select-btn svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: var(--inbox-muted);
+}
+.inbox-search-select-btn.is-open {
+    border-color: var(--inbox-accent, #4f46e5);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.12);
+}
+.inbox-search-select-menu {
+    margin-top: 0.35rem;
+    border: 1px solid var(--inbox-border);
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    padding: 0.3rem;
+}
+.inbox-search-select-menu[hidden] { display: none !important; }
+.inbox-search-select-menu button {
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: transparent;
+    border-radius: 7px;
+    padding: 0.45rem 0.55rem;
+    font: inherit;
+    font-size: 0.82rem;
+    color: var(--inbox-text);
+    cursor: pointer;
+}
+.inbox-search-select-menu button:hover,
+.inbox-search-select-menu button.is-highlight {
+    background: var(--inbox-accent-soft);
+    color: var(--inbox-accent);
+}
+.inbox-search-select-menu button.is-active { font-weight: 650; }
 .inbox-prop-value { font-size: 0.88rem; }
 .inbox-prop-lead { margin-top: 0.5rem; display: grid; gap: 0.4rem; }
 .inbox-prop-lead .inbox-btn { font-size: 0.78rem; padding: 0.28rem 0.7rem; }
@@ -5853,9 +5932,10 @@
         const assign = el('assignSelect');
         const current = assign.value;
         assign.innerHTML = '<option value="">Unassigned</option>' + state.members.map(m =>
-            `<option value="${m.id}">${escapeHtml(m.name)}</option>`
+            `<option value="${m.id}" data-search="${escapeHtml(`${m.name || ''} ${m.email || ''}`)}">${escapeHtml(m.name)}</option>`
         ).join('');
         assign.value = current;
+        refreshSearchSelect('assignSelect');
         if (state.conversation) renderAssignMenu();
 
         el('newInboxMembers').innerHTML = state.members.map(m =>
@@ -6934,7 +7014,132 @@
             </div>`;
     }
 
+    const searchSelects = {
+        assignSelect: {
+            toggle: 'assignSearchToggle',
+            label: 'assignSearchLabel',
+            menu: 'assignSearchMenu',
+            input: 'assignSearchInput',
+            list: 'assignSearchList',
+            empty: 'No matching teammates',
+        },
+        addTagSelect: {
+            toggle: 'addTagSearchToggle',
+            label: 'addTagSearchLabel',
+            menu: 'addTagSearchMenu',
+            input: 'addTagSearchInput',
+            list: 'addTagSearchList',
+            empty: 'No matching labels',
+        },
+    };
+
+    function searchSelectOptionRows(select) {
+        return [...select.options].map(opt => ({
+            value: opt.value,
+            label: opt.textContent || '',
+            search: `${opt.textContent || ''} ${opt.dataset.search || ''}`,
+        }));
+    }
+
+    function renderSearchSelectList(selectId, { highlightFirst = false } = {}) {
+        const cfg = searchSelects[selectId];
+        const select = el(selectId);
+        const list = el(cfg?.list);
+        if (!cfg || !select || !list) return;
+        const q = String(el(cfg.input)?.value || '').trim().toLowerCase();
+        const options = searchSelectOptionRows(select).filter(opt => !q || opt.search.toLowerCase().includes(q));
+        if (!options.length) {
+            list.innerHTML = `<div class="inbox-assign-empty">${cfg.empty}</div>`;
+            return;
+        }
+        const current = select.value;
+        list.innerHTML = options.map(opt => {
+            const member = selectId === 'assignSelect'
+                ? (state.members || []).find(m => String(m.id) === String(opt.value))
+                : null;
+            return `
+            <button type="button" role="option" data-search-select="${selectId}" data-value="${escapeHtml(opt.value)}" class="${opt.value === current ? 'is-active' : ''}" aria-selected="${opt.value === current ? 'true' : 'false'}">
+                <span class="inbox-assign-name">${escapeHtml(opt.label)}</span>
+                ${member?.email ? `<span class="inbox-assign-email">${escapeHtml(member.email)}</span>` : ''}
+            </button>`;
+        }).join('');
+        const buttons = [...list.querySelectorAll('button[data-value]')];
+        const currentBtn = buttons.find(btn => btn.classList.contains('is-active'));
+        const target = highlightFirst ? buttons[0] : (currentBtn || buttons[0]);
+        target?.classList.add('is-highlight');
+    }
+
+    function syncSearchSelectLabel(selectId) {
+        const cfg = searchSelects[selectId];
+        const select = el(selectId);
+        const label = el(cfg?.label);
+        if (!select || !label) return;
+        label.textContent = select.selectedOptions[0]?.textContent || '';
+    }
+
+    function refreshSearchSelect(selectId) {
+        syncSearchSelectLabel(selectId);
+        if (!el(searchSelects[selectId]?.menu)?.hidden) {
+            renderSearchSelectList(selectId);
+        }
+    }
+
+    function closeSearchSelects() {
+        Object.values(searchSelects).forEach(cfg => {
+            const menu = el(cfg.menu);
+            const toggle = el(cfg.toggle);
+            if (menu) menu.hidden = true;
+            toggle?.classList.remove('is-open');
+            toggle?.setAttribute('aria-expanded', 'false');
+        });
+    }
+
+    function toggleSearchSelect(selectId) {
+        const cfg = searchSelects[selectId];
+        const menu = el(cfg?.menu);
+        if (!cfg || !menu) return;
+        const willOpen = menu.hidden;
+        closeThreadPops();
+        if (!willOpen) return;
+        menu.hidden = false;
+        const toggle = el(cfg.toggle);
+        toggle?.classList.add('is-open');
+        toggle?.setAttribute('aria-expanded', 'true');
+        const input = el(cfg.input);
+        if (input) input.value = '';
+        renderSearchSelectList(selectId);
+        input?.focus();
+    }
+
+    function chooseSearchSelect(selectId, value) {
+        const select = el(selectId);
+        if (!select) return;
+        const previous = select.value;
+        select.value = value;
+        syncSearchSelectLabel(selectId);
+        closeSearchSelects();
+        if (select.value !== previous) {
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    }
+
+    function highlightedSearchOption(selectId) {
+        return el(searchSelects[selectId]?.list)?.querySelector('button.is-highlight') || null;
+    }
+
+    function moveSearchSelectHighlight(selectId, delta) {
+        const buttons = [...(el(searchSelects[selectId]?.list)?.querySelectorAll('button[data-value]') || [])];
+        if (!buttons.length) return;
+        const current = buttons.findIndex(btn => btn.classList.contains('is-highlight'));
+        const next = current < 0
+            ? (delta > 0 ? 0 : buttons.length - 1)
+            : (current + delta + buttons.length) % buttons.length;
+        buttons.forEach((btn, index) => btn.classList.toggle('is-highlight', index === next));
+        buttons[next].scrollIntoView({ block: 'nearest' });
+    }
+
     function closeThreadPops() {
+        closeSearchSelects();
         ['threadMoreMenu', 'snoozeMenu', 'assignMenu', 'commentEmojiMenu', 'sendReplyMenu', 'composeSendMenu', 'participantsMenu', 'tagsMenu'].forEach(id => {
             const node = el(id);
             if (node) node.hidden = true;
@@ -7776,6 +7981,7 @@
             : 'Add internal comment visible to your team.';
 
         el('assignSelect').value = conversationAssigneeId(c) || '';
+        refreshSearchSelect('assignSelect');
         el('propInboxName').textContent = c.inbox?.name || '—';
         el('propContact').textContent = `${c.from_name || ''} · ${c.from_email || ''}`;
         const propLead = el('propContactLead');
@@ -7795,6 +8001,7 @@
             addSelect.innerHTML = '<option value="">Add existing label…</option>' +
                 (state.leadLabels || []).filter(t => !used.has(Number(t.id)))
                     .map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+            refreshSearchSelect('addTagSelect');
         }
         const leadLabelRow = el('addLeadLabelRow');
         if (leadLabelRow) leadLabelRow.hidden = false;
@@ -9372,8 +9579,44 @@
         editor?.focus();
     });
     document.addEventListener('click', (e) => {
-        if (e.target.closest('.inbox-pop')) return;
+        if (e.target.closest('.inbox-pop') || e.target.closest('.inbox-search-select')) return;
         closeThreadPops();
+    });
+
+    Object.keys(searchSelects).forEach(selectId => {
+        const cfg = searchSelects[selectId];
+        el(cfg.toggle)?.addEventListener('click', () => toggleSearchSelect(selectId));
+        el(cfg.list)?.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-value]');
+            if (!btn) return;
+            chooseSearchSelect(selectId, btn.dataset.value ?? '');
+        });
+        el(cfg.input)?.addEventListener('input', () => {
+            renderSearchSelectList(selectId, { highlightFirst: true });
+        });
+        el(cfg.input)?.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closeSearchSelects();
+                el(cfg.toggle)?.focus();
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                moveSearchSelectHighlight(selectId, 1);
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                moveSearchSelectHighlight(selectId, -1);
+                return;
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const btn = highlightedSearchOption(selectId);
+                if (btn) chooseSearchSelect(selectId, btn.dataset.value ?? '');
+            }
+        });
     });
 
     el('assignSelect').addEventListener('change', async () => {
