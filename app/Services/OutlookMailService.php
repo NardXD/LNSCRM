@@ -326,12 +326,12 @@ class OutlookMailService
         $mailboxPath = $this->mailboxPath($inbox->loadMissing('account'));
 
         foreach (self::FOLDERS as $folder => $meta) {
-            $foldersSynced[$folder] = (int) InboxMessage::query()
-                ->whereHas('conversation', function ($q) use ($inbox, $folder) {
-                    $q->where('shared_inbox_id', $inbox->id)
-                        ->where('folder', $folder);
-                })
-                ->count();
+            // Sum denormalized conversation counts — never COUNT(*) inbox_messages
+            // (multi-million-row table; this endpoint must stay fast for the Sync UI).
+            $foldersSynced[$folder] = (int) InboxConversation::query()
+                ->where('shared_inbox_id', $inbox->id)
+                ->where('folder', $folder)
+                ->sum('message_count');
             $alreadySynced += $foldersSynced[$folder];
         }
 
@@ -708,15 +708,13 @@ class OutlookMailService
                 'sent_at' => $receivedAt,
             ]);
 
-            $conversation->message_count = $conversation->messages()->count();
-            $conversation->save();
+            $messageHome->increment('message_count');
             if ((int) $messageHome->id !== (int) $conversation->id) {
                 if (! $messageHome->last_message_at || $receivedAt->gt($messageHome->last_message_at)) {
                     $messageHome->last_message_at = $receivedAt;
                     $messageHome->snippet = EmailQuotedHistory::snippet($safeHtml, $bodyText ?: ($msg['bodyPreview'] ?? ''));
+                    $messageHome->save();
                 }
-                $messageHome->message_count = $messageHome->messages()->count();
-                $messageHome->save();
             }
 
             $messageDirection = ($msg['isDraft'] ?? false) ? 'outbound' : $direction;

@@ -36,19 +36,19 @@ class MessagingController extends Controller
         }
 
         $user = Auth::user();
-        $conversations = $user->conversations()
-            ->where('conversations.company_id', $companyId)
-            ->get();
 
-        $total = 0;
-        foreach ($conversations as $conv) {
-            $pivot = $conv->participants()->where('users.id', $user->id)->first()?->pivot;
-            $lastRead = $pivot?->last_read_at;
-            $total += $conv->messages()
-                ->where('user_id', '!=', $user->id)
-                ->where('created_at', '>', $lastRead ?? '1970-01-01')
-                ->count();
-        }
+        // Single join instead of N+1 (one COUNT per conversation).
+        $total = (int) DB::table('conversation_participants as cp')
+            ->join('conversations as c', 'c.id', '=', 'cp.conversation_id')
+            ->join('messages as m', 'm.conversation_id', '=', 'c.id')
+            ->where('cp.user_id', $user->id)
+            ->where('c.company_id', $companyId)
+            ->where('m.user_id', '!=', $user->id)
+            ->where(function ($q) {
+                $q->whereNull('cp.last_read_at')
+                    ->orWhereColumn('m.created_at', '>', 'cp.last_read_at');
+            })
+            ->count();
 
         return response()->json(['success' => true, 'data' => ['total' => $total]]);
     }

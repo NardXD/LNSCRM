@@ -32,7 +32,7 @@
                     <button type="button" class="inbox-icon-btn" id="btnCompose" title="New mail">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                     </button>
-                    <button type="button" class="inbox-icon-btn" id="btnSync" title="Sync selected mailbox (also auto-checks every 45s)">
+                    <button type="button" class="inbox-icon-btn" id="btnSync" title="Sync selected mailbox">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                     </button>
                 </div>
@@ -3383,8 +3383,6 @@
         listHasMore: true,
         hydrateInFlightId: null,
         syncingInboxId: null,
-        autoSyncRunning: false,
-        autoSyncTimer: null,
         advancedOpen: false,
         replyAttachments: [],
         composeAttachments: [],
@@ -8968,7 +8966,7 @@
             if (!quiet) {
                 showSyncOverlay(false);
                 el('btnSync').disabled = false;
-                el('btnSync').title = 'Sync selected mailbox (also auto-checks every 45s)';
+                el('btnSync').title = 'Sync selected mailbox';
             } else {
                 el('btnSync')?.classList.remove('is-syncing');
                 document.querySelectorAll('[data-sync-inbox]').forEach(btn => {
@@ -8978,47 +8976,6 @@
             }
         }
     }
-
-    const AUTO_SYNC_INTERVAL_MS = 45000;
-
-    async function runAutoSyncAll() {
-        if (state.syncingInboxId || state.autoSyncRunning || document.hidden) return;
-        const connected = (state.inboxes || []).filter(i => i.connected);
-        if (!connected.length) return;
-
-        state.autoSyncRunning = true;
-        let imported = 0;
-        try {
-            for (const inbox of connected) {
-                if (document.hidden || state.syncingInboxId) break;
-                imported += await runInboxSync(inbox.id, {
-                    quiet: true,
-                    recentOnly: true,
-                    skipRefresh: true,
-                }) || 0;
-            }
-            if (imported > 0) {
-                await loadBootstrap();
-                if (state.selectedId) await openConversation(state.selectedId, { preserveDraft: true });
-                el('mailStatusLabel').textContent = `Auto-synced ${imported.toLocaleString()} new`;
-            }
-        } catch (err) {
-            console.warn('Inbox auto-sync pass failed', err);
-        } finally {
-            state.autoSyncRunning = false;
-        }
-    }
-
-    function startAutoSync() {
-        if (state.autoSyncTimer) clearInterval(state.autoSyncTimer);
-        state.autoSyncTimer = setInterval(runAutoSyncAll, AUTO_SYNC_INTERVAL_MS);
-    }
-
-    document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) {
-            runAutoSyncAll();
-        }
-    });
 
     el('btnSync').addEventListener('click', async () => {
         if (state.selectedInboxId) {
@@ -10525,9 +10482,6 @@
             const next = params.toString();
             window.history.replaceState({}, '', window.location.pathname + (next ? '?' + next : ''));
         }
-        startAutoSync();
-        // First quiet check shortly after load so new mail appears without clicking Sync.
-        setTimeout(runAutoSyncAll, 4000);
     }).catch(err => {
         el('conversationList').innerHTML = `<div class="inbox-empty">${escapeHtml(err.message)}</div>`;
     });
