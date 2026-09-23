@@ -141,12 +141,13 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
                     <div class="inbox-adv-chips" id="advFilterChips"></div>
                     <div class="inbox-list-merge-bar" id="listMergeBar" hidden>
                         <span class="inbox-list-merge-count" id="listMergeCount">0 selected</span>
+                        <button type="button" class="inbox-btn ghost" id="btnArchiveSelected">Archive</button>
                         <button type="button" class="inbox-btn primary" id="btnMergeSelected">Merge conversations</button>
                         <button type="button" class="inbox-btn ghost" id="btnClearChecked">Clear</button>
                     </div>
                 </div>
             </div>
-            <div class="inbox-conversation-list" id="conversationList" aria-busy="true" title="Click to open. Double-click to pop out. Ctrl+click (Cmd+click on Mac) to select multiple threads.">
+            <div class="inbox-conversation-list" id="conversationList" aria-busy="true" title="Click to open. Double-click to pop out. Ctrl+click (Cmd+click on Mac) to select threads, then Archive.">
                 <div class="inbox-skel-list" aria-hidden="true">
                     @for ($i = 0; $i < 8; $i++)
                         <div class="inbox-skel-conv">
@@ -6744,7 +6745,7 @@ html.inbox-is-popout .inbox-props {
 
         const selected = checkedConversations();
         const count = selected.length;
-        if (count < 2) {
+        if (count < 1) {
             bar.hidden = true;
             return;
         }
@@ -6752,12 +6753,18 @@ html.inbox-is-popout .inbox-props {
         const inboxIds = [...new Set(selected.map(conversationInboxId).filter(Boolean))];
         const sameInbox = inboxIds.length === 1;
         bar.hidden = false;
-        countEl.textContent = count + ' selected';
+        countEl.textContent = count === 1 ? '1 selected' : count + ' selected';
+        btn.hidden = count < 2;
         btn.disabled = !sameInbox;
         btn.textContent = sameInbox ? 'Merge conversations' : 'Same inbox required';
         btn.title = sameInbox
             ? 'Merge the selected threads into one conversation'
             : 'Select threads from one personal or shared inbox';
+        const archiveBtn = el('btnArchiveSelected');
+        if (archiveBtn) {
+            archiveBtn.disabled = false;
+            archiveBtn.textContent = count === 1 ? 'Archive' : 'Archive ' + count;
+        }
     }
 
     function clearCheckedConversations() {
@@ -6801,6 +6808,40 @@ html.inbox-is-popout .inbox-props {
         await loadBootstrap();
         await loadConversations();
         await openConversation(target.id);
+    }
+
+    async function archiveCheckedConversations() {
+        const ids = checkedConversations().map(c => Number(c.id));
+        if (!ids.length) return;
+
+        const archiveBtn = el('btnArchiveSelected');
+        if (archiveBtn) {
+            archiveBtn.disabled = true;
+            archiveBtn.textContent = 'Archiving…';
+        }
+
+        const failures = [];
+        await Promise.all(ids.map(async (id) => {
+            try {
+                await api('/conversations/' + id + '/status', { method: 'PATCH', body: { status: 'archived' } });
+            } catch (err) {
+                failures.push(err.message || 'Could not archive');
+            }
+        }));
+
+        if (state.selectedId && ids.includes(Number(state.selectedId))) {
+            state.conversation = null;
+            state.selectedId = null;
+            renderThread();
+        }
+        clearCheckedConversations();
+        await loadBootstrap();
+        await loadConversations();
+        if (failures.length) {
+            alert(failures.length === ids.length
+                ? 'Could not archive the selected conversations.'
+                : 'Some conversations could not be archived.');
+        }
     }
 
     function listFooterHtml() {
@@ -9405,6 +9446,14 @@ html.inbox-is-popout .inbox-props {
             await mergeCheckedConversations();
         } catch (err) {
             alert(err.message);
+        }
+    });
+    el('btnArchiveSelected')?.addEventListener('click', async () => {
+        try {
+            await archiveCheckedConversations();
+        } catch (err) {
+            alert(err.message || 'Could not archive the selected conversations.');
+            syncCheckedRows();
         }
     });
     el('btnClearChecked')?.addEventListener('click', () => {
