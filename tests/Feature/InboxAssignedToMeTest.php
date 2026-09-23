@@ -95,7 +95,7 @@ class InboxAssignedToMeTest extends TestCase
         );
     }
 
-    public function test_archived_and_snoozed_views_are_only_the_logged_in_users_mail(): void
+    public function test_shared_inbox_archive_and_snooze_are_visible_to_every_member(): void
     {
         [$user, $other, $inbox] = $this->inboxWithTwoAgents();
 
@@ -114,6 +114,11 @@ class InboxAssignedToMeTest extends TestCase
             'subject' => 'Archived for teammate',
             'from_email' => 'their-archived@example.com',
             'assigned_to' => $other->id,
+            'status' => 'archived',
+        ]);
+        $unassignedArchived = $this->makeConversation($inbox, [
+            'subject' => 'Archived with no assignee',
+            'from_email' => 'unassigned-archived@example.com',
             'status' => 'archived',
         ]);
         $mySnoozed = $this->makeConversation($inbox, [
@@ -140,20 +145,56 @@ class InboxAssignedToMeTest extends TestCase
 
         $assignedIds = $this->conversationIds($user, 'assigned_to_me');
         $archivedIds = $this->conversationIds($user, 'archived');
+        $otherArchivedIds = $this->conversationIds($other, 'archived');
         $snoozedIds = $this->conversationIds($user, 'snoozed');
+        $otherSnoozedIds = $this->conversationIds($other, 'snoozed');
 
         $this->assertContains($myOpen->id, $assignedIds);
         $this->assertNotContains($myArchived->id, $assignedIds);
         $this->assertNotContains($mySnoozed->id, $assignedIds);
 
-        $this->assertContains($myArchived->id, $archivedIds);
-        $this->assertNotContains($theirArchived->id, $archivedIds);
+        $sharedArchived = [$myArchived->id, $theirArchived->id, $unassignedArchived->id];
+        $this->assertEqualsCanonicalizing($sharedArchived, $archivedIds);
+        $this->assertEqualsCanonicalizing($sharedArchived, $otherArchivedIds);
         $this->assertNotContains($mySnoozed->id, $archivedIds);
         $this->assertNotContains($trashed->id, $archivedIds);
 
-        $this->assertContains($mySnoozed->id, $snoozedIds);
-        $this->assertNotContains($theirSnoozed->id, $snoozedIds);
+        $sharedSnoozed = [$mySnoozed->id, $theirSnoozed->id];
+        $this->assertEqualsCanonicalizing($sharedSnoozed, $snoozedIds);
+        $this->assertEqualsCanonicalizing($sharedSnoozed, $otherSnoozedIds);
         $this->assertNotContains($myArchived->id, $snoozedIds);
+    }
+
+    public function test_personal_inbox_archive_stays_limited_to_the_logged_in_users_mail(): void
+    {
+        [$user, $other] = $this->inboxWithTwoAgents();
+
+        $inbox = SharedInbox::query()->create([
+            'company_id' => $user->company_id,
+            'created_by' => $user->id,
+            'name' => 'Personal',
+            'email' => 'login-inbox-assigned@lns.test',
+            'type' => SharedInbox::TYPE_PERSONAL,
+            'is_active' => true,
+        ]);
+
+        $mine = $this->makeConversation($inbox, [
+            'subject' => 'My personal archive',
+            'from_email' => 'personal-mine@example.com',
+            'assigned_to' => $user->id,
+            'status' => 'archived',
+        ]);
+        $theirs = $this->makeConversation($inbox, [
+            'subject' => 'Teammate personal archive',
+            'from_email' => 'personal-theirs@example.com',
+            'assigned_to' => $other->id,
+            'status' => 'archived',
+        ]);
+
+        $archivedIds = $this->conversationIds($user, 'archived');
+
+        $this->assertContains($mine->id, $archivedIds);
+        $this->assertNotContains($theirs->id, $archivedIds);
     }
 
     public function test_bootstrap_assigned_to_me_count_is_only_for_the_logged_in_user(): void
@@ -197,8 +238,9 @@ class InboxAssignedToMeTest extends TestCase
             ->getJson('/api/inbox/bootstrap')
             ->assertOk()
             ->assertJsonPath('assigned_to_me_count', 1)
-            ->assertJsonPath('archived_count', 0)
-            ->assertJsonPath('inboxes.0.assigned_to_me_count', 1);
+            ->assertJsonPath('archived_count', 1)
+            ->assertJsonPath('inboxes.0.assigned_to_me_count', 1)
+            ->assertJsonPath('inboxes.0.archived_count', 1);
     }
 
     public function test_bootstrap_assigned_to_me_count_includes_lead_owned_unassigned_mail(): void

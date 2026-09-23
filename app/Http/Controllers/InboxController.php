@@ -593,10 +593,10 @@ class InboxController extends Controller
             $query->where('folder', 'inbox')->where('status', 'open');
         } elseif ($view === 'archived') {
             $this->constrainInboxBucket($query, 'archived');
-            $this->constrainAssignedToLoggedInUser($query, $user);
+            $this->constrainArchiveAndSnoozeVisibility($query, $user);
         } elseif ($view === 'snoozed') {
             $this->constrainInboxBucket($query, 'snoozed');
-            $this->constrainAssignedToLoggedInUser($query, $user);
+            $this->constrainArchiveAndSnoozeVisibility($query, $user);
         } elseif ($view === 'assigned_to_me') {
             $this->constrainInboxBucket($query, 'open');
             $this->constrainAssignedToLoggedInUser($query, $user);
@@ -3314,7 +3314,11 @@ class InboxController extends Controller
                 ->notMerged()
                 ->whereIn('shared_inbox_id', $inboxIds);
             $this->constrainInboxBucket($query, $bucket);
-            $this->constrainAssignedToLoggedInUser($query, $user);
+            if ($bucket === 'open') {
+                $this->constrainAssignedToLoggedInUser($query, $user);
+            } else {
+                $this->constrainArchiveAndSnoozeVisibility($query, $user);
+            }
             $rows = $query
                 ->selectRaw('shared_inbox_id, COUNT(*) as aggregate_count')
                 ->groupBy('shared_inbox_id')
@@ -3428,6 +3432,24 @@ class InboxController extends Controller
                                 ->where('leads.assigned_to', $userId);
                         });
                 });
+        });
+    }
+
+    /**
+     * Shared-inbox archive and snooze are visible to every member of that inbox.
+     * Personal inbox archive and snooze stay limited to the logged-in user's mail.
+     */
+    private function constrainArchiveAndSnoozeVisibility($query, User $user): void
+    {
+        $query->where(function ($q) use ($user) {
+            $q->whereExists(function ($sub) {
+                $sub->selectRaw('1')
+                    ->from('shared_inboxes')
+                    ->whereColumn('shared_inboxes.id', 'inbox_conversations.shared_inbox_id')
+                    ->where('shared_inboxes.type', SharedInbox::TYPE_SHARED);
+            })->orWhere(function ($personal) use ($user) {
+                $this->constrainAssignedToLoggedInUser($personal, $user);
+            });
         });
     }
 
