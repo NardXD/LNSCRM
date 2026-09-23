@@ -2323,7 +2323,7 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     overflow-wrap: anywhere;
     color: var(--inbox-text);
 }
-.inbox-msg-body img { max-width: 100%; height: auto; }
+.inbox-msg-body img { max-width: 100%; height: auto; cursor: zoom-in; }
 .inbox-msg-body p { margin: 0 0 0.65em; }
 .inbox-msg-body p:last-child { margin-bottom: 0; }
 .inbox-msg-body a { color: var(--inbox-accent); }
@@ -4060,6 +4060,7 @@ html.inbox-is-popout .inbox-props {
                         max-width: 100% !important;
                         height: auto !important;
                         display: inline-block;
+                        cursor: zoom-in;
                     }
                     .email-root table { max-width: 100%; border-collapse: collapse; }
                     .email-root a { color: #2563eb; }
@@ -4085,6 +4086,19 @@ html.inbox-is-popout .inbox-props {
             host.classList.remove('is-framed');
             host.textContent = String(message?.body_text || message?.body_html || 'Unable to render message').slice(0, 4000);
         }
+    }
+
+    function emailBodyImageFromEvent(e) {
+        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+        const img = path.find((node) => node instanceof HTMLImageElement);
+        if (!img) return null;
+        const inBody = path.some((node) => node instanceof Element && (
+            node.classList?.contains('email-root') || (node.classList?.contains('inbox-msg-body') && !node.shadowRoot)
+        ));
+        if (!inBody) return null;
+        const url = img.currentSrc || img.src || '';
+        if (!url || url.startsWith('cid:')) return null;
+        return img;
     }
 
     function lazyLoadEmailImages(root) {
@@ -9920,6 +9934,17 @@ html.inbox-is-popout .inbox-props {
         openAssignMenu(el('btnAssignToggle'));
     });
     el('threadMessages')?.addEventListener('click', (e) => {
+        const bodyImg = emailBodyImageFromEvent(e);
+        if (bodyImg) {
+            e.preventDefault();
+            e.stopPropagation();
+            openMediaLightbox({
+                url: bodyImg.currentSrc || bodyImg.src,
+                type: 'image',
+                name: bodyImg.alt || 'Image',
+            });
+            return;
+        }
         const downloadAllBtn = e.target.closest('[data-download-all]');
         if (downloadAllBtn) {
             e.preventDefault();
