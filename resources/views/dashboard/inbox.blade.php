@@ -3,6 +3,18 @@
 @section('title', 'Inbox')
 
 @section('content')
+<script>
+if (new URLSearchParams(location.search).get('popout') === '1') {
+    document.documentElement.classList.add('inbox-is-popout');
+}
+</script>
+<style>
+html.inbox-is-popout .sidebar,
+html.inbox-is-popout .sidebar-overlay,
+html.inbox-is-popout header.header,
+html.inbox-is-popout .impersonation-banner { display: none !important; }
+html.inbox-is-popout .main-content { margin-left: 0 !important; }
+</style>
 <div class="inbox-page-wrapper">
 <div class="inbox-app" id="inboxApp"
      data-api="{{ url('api/inbox') }}"
@@ -140,7 +152,7 @@
                     </div>
                 </div>
             </div>
-            <div class="inbox-conversation-list" id="conversationList" aria-busy="true" title="Ctrl+click (Cmd+click on Mac) to select multiple threads">
+            <div class="inbox-conversation-list" id="conversationList" aria-busy="true" title="Click to open. Double-click to pop out. Ctrl+click (Cmd+click on Mac) to select multiple threads.">
                 <div class="inbox-skel-list" aria-hidden="true">
                     @for ($i = 0; $i < 8; $i++)
                         <div class="inbox-skel-conv">
@@ -3431,6 +3443,30 @@
     .inbox-nav, .inbox-list-pane { max-height: 360px; }
     .inbox-adv-grid { grid-template-columns: 1fr; }
 }
+html.inbox-is-popout .inbox-page-wrapper,
+html.inbox-is-popout .inbox-app {
+    height: 100vh !important;
+    min-height: 100vh !important;
+    overflow: hidden !important;
+}
+html.inbox-is-popout .inbox-nav,
+html.inbox-is-popout .inbox-list-pane { display: none !important; }
+html.inbox-is-popout .inbox-shell,
+html.inbox-is-popout .inbox-shell.with-props {
+    grid-template-columns: minmax(0, 1fr) !important;
+    height: 100% !important;
+}
+html.inbox-is-popout .inbox-shell.with-props {
+    grid-template-columns: minmax(0, 1fr) 280px !important;
+}
+html.inbox-is-popout .inbox-props {
+    position: static !important;
+    width: auto !important;
+    top: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    box-shadow: none !important;
+}
 </style>
 
 <script>
@@ -3441,6 +3477,7 @@
     const CSRF = root.dataset.csrf;
     const CONNECT = root.dataset.connect;
     const USER_ID = Number(root.dataset.userId || 0);
+    const INBOX_POPOUT = new URLSearchParams(window.location.search).get('popout') === '1';
 
     const MAILBOX_FOLDERS = [
         { view: 'open', label: 'Inbox', countKey: 'open_count' },
@@ -6378,7 +6415,7 @@
     function conversationRowHtml(c) {
         const at = c.last_message_at || '';
         return `
-            <button type="button" class="inbox-conv ${c.id === state.selectedId ? 'active' : ''} ${isConversationChecked(c.id) ? 'is-checked' : ''} ${c.is_read ? '' : 'unread'}" data-conv-id="${c.id}">
+            <button type="button" class="inbox-conv ${c.id === state.selectedId ? 'active' : ''} ${isConversationChecked(c.id) ? 'is-checked' : ''} ${c.is_read ? '' : 'unread'}" data-conv-id="${c.id}" title="Double-click to open in a new window">
                 <div class="inbox-conv-top">
                     <span>${escapeHtml(c.inbox?.name || '')}</span>
                     <span class="inbox-conv-time" data-conv-time="${escapeHtml(at)}" title="Click to show date & time">${formatRelativeTime(at)}</span>
@@ -8044,6 +8081,7 @@
         el('threadView').style.display = 'flex';
         applyPropsPaneVisibility();
         el('threadSubject').textContent = c.subject || '(No subject)';
+        if (INBOX_POPOUT) document.title = (c.subject || 'Conversation') + ' - Inbox';
 
         const snoozedUntil = c.reopen_at && new Date(c.reopen_at) > new Date() ? c.reopen_at : null;
         const mergedCount = Number(c.merged_count || (c.merged_threads || []).length || 0);
@@ -8855,6 +8893,33 @@
         }
         clearCheckedConversations();
         openConversation(id);
+    });
+    function conversationPopoutUrl(id) {
+        const url = new URL(window.location.href);
+        url.search = '';
+        url.searchParams.set('popout', '1');
+        url.searchParams.set('conversation', String(id));
+        return url.toString();
+    }
+    function openConversationPopout(id) {
+        if (!id) return;
+        const win = window.open(
+            conversationPopoutUrl(id),
+            'inbox-conv-' + id,
+            'popup=yes,width=1100,height=800,resizable=yes,scrollbars=yes'
+        );
+        if (!win) {
+            alert('Allow pop-ups to open this conversation in a new window.');
+            return;
+        }
+        win.focus();
+    }
+    el('conversationList').addEventListener('dblclick', (e) => {
+        if (INBOX_POPOUT || e.target.closest('[data-conv-time]')) return;
+        const row = e.target.closest('.inbox-conv[data-conv-id]');
+        if (!row) return;
+        e.preventDefault();
+        openConversationPopout(Number(row.dataset.convId));
     });
     el('conversationList').addEventListener('contextmenu', (e) => {
         if (e.ctrlKey) e.preventDefault();
@@ -10984,15 +11049,14 @@
         }
     });
     loadLocalTools();
-    Promise.all([
-        loadBootstrap({ conversations: false }),
-        loadConversations(),
-    ]).then(async () => {
+    const inboxStartup = [loadBootstrap({ conversations: false })];
+    if (!INBOX_POPOUT) inboxStartup.push(loadConversations());
+    Promise.all(inboxStartup).then(async () => {
         const params = new URLSearchParams(window.location.search);
         const conversationId = Number(params.get('conversation') || 0);
         const messageId = Number(params.get('message') || 0);
         const labelId = Number(params.get('label') || 0);
-        if (labelId) {
+        if (labelId && !INBOX_POPOUT) {
             state.selectedLabelId = labelId;
             state.selectedInboxId = null;
             state.view = 'open';
@@ -11002,10 +11066,12 @@
         }
         if (conversationId) {
             await openConversation(conversationId, messageId ? { messageId } : {});
-            params.delete('conversation');
-            params.delete('message');
-            const next = params.toString();
-            window.history.replaceState({}, '', window.location.pathname + (next ? '?' + next : ''));
+            if (!INBOX_POPOUT) {
+                params.delete('conversation');
+                params.delete('message');
+                const next = params.toString();
+                window.history.replaceState({}, '', window.location.pathname + (next ? '?' + next : ''));
+            }
         }
     }).catch(err => {
         el('conversationList').innerHTML = `<div class="inbox-empty">${escapeHtml(err.message)}</div>`;
