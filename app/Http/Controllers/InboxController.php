@@ -963,10 +963,19 @@ class InboxController extends Controller
 
         $localPath = (string) ($meta['path'] ?? '');
         if ($localPath !== '' && Storage::disk('local')->exists($localPath)) {
+            $contentType = $meta['content_type'] ?? $meta['contentType'] ?? 'application/octet-stream';
+            $downloadName = $meta['name'] ?? 'attachment';
+            if ($request->boolean('inline')) {
+                return Storage::disk('local')->response($localPath, $downloadName, [
+                    'Content-Type' => $contentType,
+                    'X-Content-Type-Options' => 'nosniff',
+                ], 'inline');
+            }
+
             return Storage::disk('local')->download(
                 $localPath,
-                $meta['name'] ?? 'attachment',
-                ['Content-Type' => $meta['content_type'] ?? $meta['contentType'] ?? 'application/octet-stream']
+                $downloadName,
+                ['Content-Type' => $contentType]
             );
         }
 

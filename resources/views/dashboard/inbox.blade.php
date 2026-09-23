@@ -2438,6 +2438,142 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     background: #fff;
 }
 .inbox-msg-attach:hover { background: var(--inbox-accent-soft); }
+.inbox-attach-block {
+    margin: 0.15rem 0 0.85rem;
+    padding-bottom: 0.85rem;
+    border-bottom: 1px solid var(--inbox-border);
+}
+.inbox-attach-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.55rem;
+    font-size: 0.82rem;
+    font-weight: 650;
+    color: #374151;
+}
+.inbox-attach-download-all {
+    border: none;
+    background: none;
+    padding: 0;
+    color: var(--inbox-accent);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.inbox-attach-download-all:hover { text-decoration: underline; }
+.inbox-attach-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+}
+.inbox-attach-card {
+    position: relative;
+    width: 168px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.inbox-attach-card:hover {
+    border-color: #d1d5db;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+.inbox-attach-preview {
+    position: relative;
+    display: block;
+    height: 112px;
+    background: #f3f4f6;
+    overflow: hidden;
+}
+.inbox-attach-preview img,
+.inbox-attach-preview video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center top;
+    display: block;
+    background: #fff;
+    pointer-events: none;
+}
+.inbox-attach-preview canvas {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: #fff;
+    pointer-events: none;
+}
+.inbox-attach-page {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    height: 100%;
+    padding-top: 1.1rem;
+    background:
+        linear-gradient(#fff, #fff) center 12px / 72% 78% no-repeat,
+        repeating-linear-gradient(180deg, transparent 0 18px, transparent 18px),
+        #eef0f3;
+}
+.inbox-attach-page .inbox-attach-badge {
+    min-width: 36px;
+    height: 22px;
+    font-size: 0.62rem;
+    border-radius: 3px;
+}
+.inbox-attach-play {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.18);
+    pointer-events: none;
+}
+.inbox-attach-foot {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 32px;
+    padding: 0.35rem 0.5rem;
+    border-top: 1px solid #eef0f3;
+    background: #fff;
+}
+.inbox-attach-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    min-width: 26px;
+    height: 16px;
+    padding: 0 3px;
+    border-radius: 2px;
+    color: #fff;
+    font-size: 0.52rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    line-height: 1;
+}
+.inbox-attach-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.75rem;
+    color: #374151;
+}
+.inbox-attach-hit {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+}
 .inbox-msg-media {
     position: relative;
     display: inline-flex;
@@ -7919,6 +8055,167 @@ html.inbox-is-popout .inbox-props {
         if (body) body.innerHTML = '';
     }
 
+    function attachmentFileMeta(a) {
+        const type = String(a?.content_type || a?.contentType || '').toLowerCase();
+        const ext = String(a?.name || '').split('.').pop().toLowerCase();
+        if (type.startsWith('image/') || MEDIA_IMAGE_EXTS.includes(ext)) {
+            return { kind: 'image', label: (ext || 'img').slice(0, 4).toUpperCase(), tone: 'image' };
+        }
+        if (type.startsWith('video/') || MEDIA_VIDEO_EXTS.includes(ext)) {
+            return { kind: 'video', label: 'VIDEO', tone: 'video' };
+        }
+        if (type === 'application/pdf' || ext === 'pdf') return { kind: 'pdf', label: 'PDF', tone: 'pdf' };
+        if (['doc', 'docx'].includes(ext) || type.includes('word')) return { kind: 'file', label: 'DOC', tone: 'doc' };
+        if (['xls', 'xlsx', 'csv'].includes(ext) || type.includes('sheet') || type.includes('excel')) return { kind: 'file', label: 'XLS', tone: 'xls' };
+        if (['ppt', 'pptx'].includes(ext) || type.includes('presentation')) return { kind: 'file', label: 'PPT', tone: 'ppt' };
+        if (['zip', 'rar', '7z', 'gz'].includes(ext)) return { kind: 'file', label: 'ZIP', tone: 'zip' };
+        const label = (ext && ext !== String(a?.name || '').toLowerCase() ? ext : 'file').slice(0, 4).toUpperCase();
+        return { kind: 'file', label, tone: 'file' };
+    }
+
+    function attachmentBadgeHtml(tone, label) {
+        const colors = {
+            pdf: '#e11d2e',
+            doc: '#2b579a',
+            xls: '#217346',
+            ppt: '#d24726',
+            zip: '#ca8a04',
+            video: '#7c3aed',
+            image: '#0284c7',
+            file: '#6b7280',
+        };
+        return `<span class="inbox-attach-badge" style="background:${colors[tone] || colors.file}">${escapeHtml(label)}</span>`;
+    }
+
+    function attachmentPreviewUrl(url) {
+        const value = String(url || '');
+        if (!value) return '';
+        return value + (value.includes('?') ? '&' : '?') + 'inline=1';
+    }
+
+    function emailAttachmentsHtml(attachments) {
+        const files = (attachments || []).filter(a => a && a.download_url);
+        if (!files.length) return '';
+        const sep = '\u001e';
+        const cards = files.map((a) => {
+            const url = escapeHtml(a.download_url);
+            const previewUrl = escapeHtml(attachmentPreviewUrl(a.download_url));
+            const name = escapeHtml(a.name || 'Attachment');
+            const meta = attachmentFileMeta(a);
+            const badge = attachmentBadgeHtml(meta.tone, meta.label);
+            let preview = `<span class="inbox-attach-page">${badge}</span>`;
+            if (meta.kind === 'image') {
+                preview = `<img src="${previewUrl}" alt="" loading="lazy">`;
+            } else if (meta.kind === 'video') {
+                preview = `<video src="${previewUrl}#t=0.1" muted preload="metadata" playsinline></video><span class="inbox-attach-play" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M8 5v14l11-7z"/></svg></span>`;
+            } else if (meta.kind === 'pdf') {
+                preview = `<span class="inbox-attach-page">${badge}</span>`;
+            }
+            const open = (meta.kind === 'image' || meta.kind === 'video')
+                ? `<button type="button" class="inbox-attach-hit" data-media-open data-media-type="${meta.kind}" data-media-url="${url}" data-media-name="${name}" aria-label="${name}"></button>`
+                : `<a class="inbox-attach-hit" href="${url}" target="_blank" rel="noopener" aria-label="${name}"></a>`;
+            return `
+                <div class="inbox-attach-card">
+                    <div class="inbox-attach-preview${meta.kind === 'pdf' ? ' is-pdf' : ''}"${meta.kind === 'pdf' ? ` data-pdf-preview="${previewUrl}"` : ''}>${preview}</div>
+                    <div class="inbox-attach-foot">${badge}<span class="inbox-attach-name" title="${name}">${name}</span></div>
+                    ${open}
+                </div>
+            `;
+        }).join('');
+        const countLabel = files.length === 1 ? '1 Attachment' : `${files.length} Attachments`;
+        return `
+            <div class="inbox-attach-block">
+                <div class="inbox-attach-head">
+                    <span>${countLabel}</span>
+                    <button type="button" class="inbox-attach-download-all" data-download-all="${escapeHtml(files.map(a => a.download_url).join(sep))}" data-download-names="${escapeHtml(files.map(a => a.name || 'attachment').join(sep))}">Download all</button>
+                </div>
+                <div class="inbox-attach-grid">${cards}</div>
+            </div>
+        `;
+    }
+
+    function filenameFromContentDisposition(header) {
+        const value = String(header || '');
+        const star = value.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
+        if (star) {
+            try { return decodeURIComponent(star[1].trim().replace(/^"|"$/g, '')); } catch (_) {}
+        }
+        const quoted = value.match(/filename="([^"]+)"/i);
+        if (quoted) return quoted[1];
+        const plain = value.match(/filename=([^;]+)/i);
+        return plain ? plain[1].trim().replace(/^"|"$/g, '') : '';
+    }
+
+    let pdfjsLoader = null;
+
+    function loadPdfJs() {
+        if (!pdfjsLoader) {
+            const lib = new URL('/vendor/pdfjs/pdf.min.mjs', window.location.origin).href;
+            const worker = new URL('/vendor/pdfjs/pdf.worker.min.mjs', window.location.origin).href;
+            pdfjsLoader = import(lib).then((pdfjs) => {
+                pdfjs.GlobalWorkerOptions.workerSrc = worker;
+                return pdfjs;
+            }).catch((err) => {
+                pdfjsLoader = null;
+                throw err;
+            });
+        }
+        return pdfjsLoader;
+    }
+
+    async function hydratePdfAttachmentPreviews(root) {
+        const nodes = [...(root || document).querySelectorAll('.inbox-msg.is-expanded [data-pdf-preview]')];
+        if (!nodes.length) return;
+        let pdfjs;
+        try {
+            pdfjs = await loadPdfJs();
+        } catch (_) {
+            return;
+        }
+        await Promise.all(nodes.map(async (node) => {
+            if (node.dataset.pdfReady === '1') return;
+            node.dataset.pdfReady = '1';
+            try {
+                const res = await fetch(node.dataset.pdfPreview, { credentials: 'same-origin' });
+                if (!res.ok || !node.isConnected) return;
+                const data = new Uint8Array(await res.arrayBuffer());
+                const doc = await pdfjs.getDocument({ data, disableRange: true, disableStream: true }).promise;
+                const page = await doc.getPage(1);
+                const base = page.getViewport({ scale: 1 });
+                const viewport = page.getViewport({ scale: 336 / base.width });
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.ceil(viewport.width);
+                canvas.height = Math.ceil(viewport.height);
+                await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+                if (node.isConnected) node.replaceChildren(canvas);
+                doc.destroy?.();
+            } catch (_) {
+                node.dataset.pdfReady = '';
+            }
+        }));
+    }
+
+    async function downloadAttachmentFiles(urls, names) {
+        for (let i = 0; i < urls.length; i++) {
+            const url = urls[i];
+            const fallback = names[i] || 'attachment';
+            try {
+                const res = await fetch(url, { credentials: 'same-origin' });
+                if (!res.ok) continue;
+                const blob = await res.blob();
+                const name = filenameFromContentDisposition(res.headers.get('Content-Disposition')) || fallback;
+                const objectUrl = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = objectUrl;
+                link.download = name;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+            } catch (_) {}
+        }
+    }
+
     function emailCardHtml(m, expanded) {
         const name = m.from_name || m.from_email || 'Unknown';
         const email = m.from_email || '';
@@ -7928,11 +8225,7 @@ html.inbox-is-popout .inbox-props {
         const toList = parseEmailList(m.to || m.to_emails);
         const ccList = parseEmailList(m.cc || m.cc_emails);
         const replyToList = parseEmailList(m.reply_to || m.reply_to_emails);
-        const attachments = (m.attachments || []).map(a => `
-            <a class="inbox-msg-attach" href="${escapeHtml(a.download_url)}" target="_blank" rel="noopener">
-                ${escapeHtml(a.name || 'Attachment')}
-            </a>
-        `).join('');
+        const attachmentBlock = emailAttachmentsHtml(m.attachments || []);
         const recipients = [
             toList.length ? `<div><strong>To</strong> ${escapeHtml(toList.join(', '))}</div>` : '',
             ccList.length ? `<div><strong>Cc</strong> ${escapeHtml(ccList.join(', '))}</div>` : '',
@@ -7983,8 +8276,8 @@ html.inbox-is-popout .inbox-props {
                 </div>
                 <div class="inbox-msg-expanded">
                     ${recipients ? `<div class="inbox-msg-recipients">${recipients}</div>` : ''}
+                    ${attachmentBlock}
                     <div class="inbox-msg-body" data-email-body="${escapeHtml(String(m.id))}"></div>
-                    ${attachments ? `<div class="inbox-msg-attachments">${attachments}</div>` : ''}
                     ${isDraft ? `
                         <div class="inbox-scheduled-actions">
                             <span class="inbox-composer-hint">This draft hasn't been sent yet.</span>
@@ -8253,6 +8546,7 @@ html.inbox-is-popout .inbox-props {
             const host = el('threadMessages').querySelector('[data-email-body="' + id.replace(/"/g, '') + '"]');
             mountEmailBody(host, item.message);
         });
+        hydratePdfAttachmentPreviews(el('threadMessages'));
 
         el('threadMessages').scrollTop = el('threadMessages').scrollHeight;
 
@@ -9626,6 +9920,16 @@ html.inbox-is-popout .inbox-props {
         openAssignMenu(el('btnAssignToggle'));
     });
     el('threadMessages')?.addEventListener('click', (e) => {
+        const downloadAllBtn = e.target.closest('[data-download-all]');
+        if (downloadAllBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const sep = '\u001e';
+            const urls = String(downloadAllBtn.dataset.downloadAll || '').split(sep).filter(Boolean);
+            const names = String(downloadAllBtn.dataset.downloadNames || '').split(sep);
+            downloadAttachmentFiles(urls, names);
+            return;
+        }
         const mediaBtn = e.target.closest('[data-media-open]');
         if (mediaBtn) {
             e.preventDefault();
@@ -9749,6 +10053,7 @@ html.inbox-is-popout .inbox-props {
         card.classList.toggle('is-expanded');
         if (card.dataset.msgId) {
             state.expandedMessageIds[card.dataset.msgId] = card.classList.contains('is-expanded');
+            if (card.classList.contains('is-expanded')) hydratePdfAttachmentPreviews(el('threadMessages'));
         }
     });
     el('threadMessages')?.addEventListener('keydown', (e) => {
