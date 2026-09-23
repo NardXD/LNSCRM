@@ -70,12 +70,24 @@ class InboxReplyService
 
         $this->consumeDraftMessages($conversation);
 
+        if ($archive) {
+            $conversation->reopened_from = null;
+            $conversation->status = 'archived';
+            $conversation->reopen_at = null;
+        } elseif ($conversation->status === 'archived') {
+            $conversation->applyOpenFromHold();
+        } else {
+            $conversation->status = 'open';
+            $conversation->reopen_at = null;
+        }
+
         $conversation->update([
             'last_message_at' => now(),
             'snippet' => EmailQuotedHistory::snippet($body),
             'message_count' => $conversation->messages()->count(),
-            'status' => $archive ? 'archived' : 'open',
-            'reopen_at' => null,
+            'status' => $conversation->status,
+            'reopen_at' => $conversation->reopen_at,
+            'reopened_from' => $conversation->reopened_from,
         ]);
 
         return [

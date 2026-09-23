@@ -3681,8 +3681,7 @@ html.inbox-is-popout .inbox-props {
             label: 'Archived',
             defaultBucket: 'archived',
             folders: [
-                { bucket: 'open', label: 'Open', count: 'open' },
-                { bucket: 'snoozed', label: 'Snoozed', count: 'snoozed' },
+                { bucket: 'open', label: 'Open', count: 'reopenedArchived' },
                 { bucket: 'archived', label: 'Archived', count: 'archived' },
             ],
         },
@@ -3691,9 +3690,8 @@ html.inbox-is-popout .inbox-props {
             label: 'Snoozed',
             defaultBucket: 'snoozed',
             folders: [
-                { bucket: 'open', label: 'Open', count: 'open' },
+                { bucket: 'open', label: 'Open', count: 'reopenedSnoozed' },
                 { bucket: 'snoozed', label: 'Snoozed', count: 'snoozed' },
-                { bucket: 'archived', label: 'Archived', count: 'archived' },
             ],
         },
     ];
@@ -3720,6 +3718,8 @@ html.inbox-is-popout .inbox-props {
         assignedToMeCount: 0,
         assignedArchivedCount: 0,
         assignedSnoozedCount: 0,
+        reopenedArchivedCount: 0,
+        reopenedSnoozedCount: 0,
         archivedCount: 0,
         snoozedCount: 0,
         viewGroup: null,
@@ -6157,6 +6157,8 @@ html.inbox-is-popout .inbox-props {
             assignedOpen: state.assignedToMeCount,
             assignedArchived: state.assignedArchivedCount,
             assignedSnoozed: state.assignedSnoozedCount,
+            reopenedArchived: state.reopenedArchivedCount,
+            reopenedSnoozed: state.reopenedSnoozedCount,
             open: openCount,
             archived: state.archivedCount,
             snoozed: state.snoozedCount,
@@ -6975,10 +6977,10 @@ html.inbox-is-popout .inbox-props {
 
         try {
             const params = new URLSearchParams({
-                view: state.viewGroup === 'assigned_to_me' ? 'assigned_to_me' : state.view,
+                view: state.viewGroup || state.view,
                 page: String(page),
             });
-            if (state.viewGroup === 'assigned_to_me') params.set('bucket', state.view);
+            if (state.viewGroup) params.set('bucket', state.view);
 
             if (state.selectedLabelId) params.set('label_id', String(state.selectedLabelId));
 
@@ -9026,6 +9028,8 @@ html.inbox-is-popout .inbox-props {
         state.assignedToMeCount = Number(data.assigned_to_me_count || 0);
         state.assignedArchivedCount = Number(data.assigned_archived_count || 0);
         state.assignedSnoozedCount = Number(data.assigned_snoozed_count || 0);
+        state.reopenedArchivedCount = Number(data.reopened_archived_count || 0);
+        state.reopenedSnoozedCount = Number(data.reopened_snoozed_count || 0);
         state.archivedCount = Number(data.archived_count || 0);
         state.snoozedCount = Number(data.snoozed_count || 0);
         state.templates = (data.templates || []).map(t => ({

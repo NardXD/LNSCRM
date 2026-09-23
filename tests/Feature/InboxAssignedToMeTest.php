@@ -248,6 +248,81 @@ class InboxAssignedToMeTest extends TestCase
             ->assertJsonPath('assigned_snoozed_count', 1);
     }
 
+    public function test_reopened_threads_appear_only_in_the_matching_open_folder(): void
+    {
+        [$user, $other, $inbox] = $this->inboxWithTwoAgents();
+
+        $plainOpen = $this->makeConversation($inbox, [
+            'subject' => 'Never held',
+            'from_email' => 'plain@example.com',
+        ]);
+        $stillSnoozed = $this->makeConversation($inbox, [
+            'subject' => 'Still snoozed',
+            'from_email' => 'still-snoozed@example.com',
+            'status' => 'archived',
+            'reopen_at' => now()->addDay(),
+        ]);
+        $stillArchived = $this->makeConversation($inbox, [
+            'subject' => 'Still archived',
+            'from_email' => 'still-archived@example.com',
+            'status' => 'archived',
+        ]);
+        $dueSnooze = $this->makeConversation($inbox, [
+            'subject' => 'Snooze finished',
+            'from_email' => 'due-snooze@example.com',
+            'status' => 'archived',
+            'reopen_at' => now()->subMinute(),
+        ]);
+        $archived = $this->makeConversation($inbox, [
+            'subject' => 'Was archived',
+            'from_email' => 'was-archived@example.com',
+            'status' => 'archived',
+        ]);
+
+        app(\App\Services\InboxReopenService::class)->processDue();
+        $dueSnooze->refresh();
+        $this->assertSame('open', $dueSnooze->status);
+        $this->assertSame('snoozed', $dueSnooze->reopened_from);
+        $this->assertNull($dueSnooze->reopen_at);
+
+        $this->actingAs($user)
+            ->patchJson('/api/inbox/conversations/'.$archived->id.'/status', ['status' => 'open'])
+            ->assertOk();
+        $archived->refresh();
+        $this->assertSame('archived', $archived->reopened_from);
+
+        $this->assertEqualsCanonicalizing(
+            [$dueSnooze->id],
+            $this->conversationIds($user, 'snoozed', 'open')
+        );
+        $this->assertEqualsCanonicalizing(
+            [$dueSnooze->id],
+            $this->conversationIds($other, 'snoozed', 'open')
+        );
+        $this->assertEqualsCanonicalizing(
+            [$archived->id],
+            $this->conversationIds($user, 'archived', 'open')
+        );
+        $this->assertNotContains($plainOpen->id, $this->conversationIds($user, 'snoozed', 'open'));
+        $this->assertNotContains($plainOpen->id, $this->conversationIds($user, 'archived', 'open'));
+        $this->assertNotContains($stillSnoozed->id, $this->conversationIds($user, 'snoozed', 'open'));
+        $this->assertNotContains($stillArchived->id, $this->conversationIds($user, 'archived', 'open'));
+        $this->assertEqualsCanonicalizing(
+            [$stillSnoozed->id],
+            $this->conversationIds($user, 'snoozed')
+        );
+        $this->assertEqualsCanonicalizing(
+            [$stillArchived->id],
+            $this->conversationIds($user, 'archived')
+        );
+
+        $this->actingAs($user)
+            ->getJson('/api/inbox/bootstrap')
+            ->assertOk()
+            ->assertJsonPath('reopened_snoozed_count', 1)
+            ->assertJsonPath('reopened_archived_count', 1);
+    }
+
     public function test_bootstrap_assigned_to_me_count_is_only_for_the_logged_in_user(): void
     {
         [$user, $other, $inbox] = $this->inboxWithTwoAgents();

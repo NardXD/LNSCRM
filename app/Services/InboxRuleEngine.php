@@ -233,19 +233,29 @@ class InboxRuleEngine
 
     private function setStatus(InboxConversation $conversation, string $status): void
     {
-        $conversation->status = $status;
-        if ($status === 'open') {
-            $conversation->folder = 'inbox';
-            $conversation->reopen_at = null;
+        if ($status === 'open' && $conversation->status === 'archived') {
+            $conversation->applyOpenFromHold();
+        } else {
+            $conversation->status = $status;
+            if ($status === 'open') {
+                $conversation->folder = 'inbox';
+                $conversation->reopen_at = null;
+            } else {
+                $conversation->reopened_from = null;
+            }
         }
         $conversation->save();
     }
 
     private function reopenNow(InboxConversation $conversation): void
     {
-        $conversation->status = 'open';
-        $conversation->folder = 'inbox';
-        $conversation->reopen_at = null;
+        if ($conversation->status === 'archived') {
+            $conversation->applyOpenFromHold();
+        } else {
+            $conversation->status = 'open';
+            $conversation->folder = 'inbox';
+            $conversation->reopen_at = null;
+        }
         $conversation->save();
     }
 
@@ -263,6 +273,7 @@ class InboxRuleEngine
         $conversation->status = 'archived';
         $conversation->folder = 'inbox';
         $conversation->reopen_at = now()->addDays($days);
+        $conversation->reopened_from = null;
         $conversation->save();
     }
 }

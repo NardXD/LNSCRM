@@ -192,6 +192,8 @@ class InboxController extends Controller
             'assigned_to_me_count' => $counts['assigned_to_me'],
             'assigned_archived_count' => $counts['assigned_archived'],
             'assigned_snoozed_count' => $counts['assigned_snoozed'],
+            'reopened_archived_count' => $counts['reopened_archived'],
+            'reopened_snoozed_count' => $counts['reopened_snoozed'],
             'archived_count' => $counts['archived'],
             'snoozed_count' => $counts['snoozed'],
             'inboxes' => $inboxes,
@@ -595,10 +597,10 @@ class InboxController extends Controller
         } elseif ($view === 'open') {
             $query->where('folder', 'inbox')->where('status', 'open');
         } elseif ($view === 'archived') {
-            $this->constrainInboxBucket($query, 'archived');
+            $this->constrainArchiveOrReopened($query, 'archived', $validated['bucket'] ?? 'archived');
             $this->constrainArchiveAndSnoozeVisibility($query, $user);
         } elseif ($view === 'snoozed') {
-            $this->constrainInboxBucket($query, 'snoozed');
+            $this->constrainArchiveOrReopened($query, 'snoozed', $validated['bucket'] ?? 'snoozed');
             $this->constrainArchiveAndSnoozeVisibility($query, $user);
         } elseif ($view === 'assigned_to_me') {
             $bucket = $validated['bucket'] ?? 'open';
@@ -1111,10 +1113,16 @@ class InboxController extends Controller
                     $existing->last_message_at = $conversation->last_message_at;
                     $existing->snippet = $conversation->snippet ?: $existing->snippet;
                 }
-                $existing->status = $status;
                 $existing->message_count = $existing->messages()->count();
-                if ($status === 'open' || $status === 'archived') {
+                if ($status === 'open') {
+                    $existing->applyOpenFromHold();
+                } elseif ($status === 'archived') {
+                    $existing->status = 'archived';
                     $existing->reopen_at = null;
+                    $existing->reopened_from = null;
+                } else {
+                    $existing->status = $status;
+                    $existing->reopened_from = null;
                 }
                 $existing->save();
 
@@ -1138,9 +1146,14 @@ class InboxController extends Controller
             $conversation->folder = $newFolder;
         }
 
-        $conversation->status = $status;
-        if ($status === 'open' || $status === 'archived') {
-            $conversation->reopen_at = null;
+        if ($status === 'open') {
+            $conversation->applyOpenFromHold();
+        } else {
+            $conversation->status = $status;
+            $conversation->reopened_from = null;
+            if ($status === 'archived') {
+                $conversation->reopen_at = null;
+            }
         }
         $conversation->save();
         $this->recordStatusActivity($conversation, $actor, $oldStatus, $oldFolder, $status, $newFolder);
@@ -1166,6 +1179,7 @@ class InboxController extends Controller
         $conversation->status = 'archived';
         $conversation->folder = 'inbox';
         $conversation->reopen_at = $until;
+        $conversation->reopened_from = null;
         $conversation->save();
 
         $this->recordActivity(
@@ -3257,7 +3271,7 @@ class InboxController extends Controller
      * Folder / assignment counts for the sidebar, grouped by mailbox.
      *
      * @param  Collection<int, int|string>  $inboxIds
-     * @return array{by_inbox: array<int, array<string, int>>, assigned_to_me: int, archived: int, snoozed: int, assigned_archived: int, assigned_snoozed: int}
+     * @return array{by_inbox: array<int, array<string, int>>, assigned_to_me: int, archived: int, snoozed: int, assigned_archived: int, assigned_snoozed: int, reopened_archived: int, reopened_snoozed: int}
      */
     private function conversationCountsByInbox(User $user, Collection $inboxIds): array
     {
@@ -3286,6 +3300,8 @@ class InboxController extends Controller
                 'snoozed' => 0,
                 'assigned_archived' => 0,
                 'assigned_snoozed' => 0,
+                'reopened_archived' => 0,
+                'reopened_snoozed' => 0,
             ];
         }
 
@@ -3352,6 +3368,25 @@ class InboxController extends Controller
             $assignedStatusTotals[$totalKey] = (int) $query->count();
         }
 
+        $reopenedHolds = [
+            'reopened_archived' => 'archived',
+            'reopened_snoozed' => 'snoozed',
+        ];
+        $reopenedTotals = [
+            'reopened_archived' => 0,
+            'reopened_snoozed' => 0,
+        ];
+        foreach ($reopenedHolds as $totalKey => $hold) {
+            $query = InboxConversation::query()
+                ->notMerged()
+                ->whereIn('shared_inbox_id', $inboxIds)
+                ->where('folder', 'inbox')
+                ->where('status', 'open')
+                ->where('reopened_from', $hold);
+            $this->constrainArchiveAndSnoozeVisibility($query, $user);
+            $reopenedTotals[$totalKey] = (int) $query->count();
+        }
+
         $unreadRows = InboxConversation::query()
             ->notMerged()
             ->whereIn('inbox_conversations.shared_inbox_id', $inboxIds)
@@ -3386,6 +3421,8 @@ class InboxController extends Controller
             'snoozed' => (int) array_sum(array_column($byInbox, 'snoozed_count')),
             'assigned_archived' => $assignedStatusTotals['assigned_archived'],
             'assigned_snoozed' => $assignedStatusTotals['assigned_snoozed'],
+            'reopened_archived' => $reopenedTotals['reopened_archived'],
+            'reopened_snoozed' => $reopenedTotals['reopened_snoozed'],
         ];
     }
 
@@ -3458,6 +3495,19 @@ class InboxController extends Controller
                         });
                 });
         });
+    }
+
+    private function constrainArchiveOrReopened($query, string $hold, string $bucket): void
+    {
+        if ($bucket === 'open') {
+            $query->where('inbox_conversations.folder', 'inbox')
+                ->where('inbox_conversations.status', 'open')
+                ->where('inbox_conversations.reopened_from', $hold);
+
+            return;
+        }
+
+        $this->constrainInboxBucket($query, $hold);
     }
 
     /**

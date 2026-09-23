@@ -26,6 +26,7 @@ class InboxConversation extends Model
         'message_count',
         'last_message_at',
         'reopen_at',
+        'reopened_from',
         'merged_into_id',
     ];
 
@@ -34,6 +35,19 @@ class InboxConversation extends Model
         'last_message_at' => 'datetime',
         'reopen_at' => 'datetime',
     ];
+
+    /**
+     * Move a held (archived or snoozed) thread back to Open and remember which hold it left.
+     */
+    public function applyOpenFromHold(): void
+    {
+        if ($this->status === 'archived') {
+            $this->reopened_from = $this->reopen_at ? 'snoozed' : 'archived';
+        }
+        $this->status = 'open';
+        $this->folder = 'inbox';
+        $this->reopen_at = null;
+    }
 
     public function company(): BelongsTo
     {

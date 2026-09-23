@@ -24,10 +24,8 @@ class InboxReopenService
             ->limit(max(1, $limit))
             ->get()
             ->each(function (InboxConversation $conversation) use (&$count) {
-                $conversation->status = 'open';
-                $conversation->folder = 'inbox';
+                $conversation->applyOpenFromHold();
                 $conversation->is_read = false;
-                $conversation->reopen_at = null;
                 $conversation->save();
 
                 InboxConversationUserRead::query()
