@@ -5650,11 +5650,8 @@ html.inbox-is-popout .inbox-props {
         }
         if (state.viewGroup && !state.selectedInboxId) {
             const group = VIEW_GROUPS.find(item => item.id === state.viewGroup);
-            const folder = group?.folders.find(item => item.bucket === state.view);
-            if (group && folder) {
-                el('listTitle').textContent = folder.bucket === group.defaultBucket
-                    ? group.label
-                    : `${group.label} · ${folder.label}`;
+            if (group) {
+                el('listTitle').textContent = group.label;
                 return;
             }
         }
@@ -6127,23 +6124,41 @@ html.inbox-is-popout .inbox-props {
     function renderLabelFolders() {
         const host = el('labelFolders');
         if (!host) return;
-        if (!state.selectedLabelId) {
+
+        let folders = null;
+        if (state.selectedLabelId) {
+            const counts = state.labelFolderCounts || {};
+            folders = LABEL_FOLDERS.map(folder => ({
+                bucket: folder.bucket,
+                label: folder.label,
+                count: Number(counts[folder.bucket] || 0),
+                active: state.view === folder.bucket,
+            }));
+        } else if (state.viewGroup && !state.selectedInboxId) {
+            const group = VIEW_GROUPS.find(item => item.id === state.viewGroup);
+            if (group) {
+                folders = group.folders.map(folder => ({
+                    bucket: folder.bucket,
+                    label: folder.label,
+                    count: viewGroupCount(folder.count),
+                    active: state.view === folder.bucket,
+                }));
+            }
+        }
+
+        if (!folders) {
             host.hidden = true;
             host.innerHTML = '';
             return;
         }
-        const counts = state.labelFolderCounts || {};
+
         host.hidden = false;
-        host.innerHTML = LABEL_FOLDERS.map(folder => {
-            const active = state.view === folder.bucket;
-            const count = Number(counts[folder.bucket] || 0);
-            return `
-                <button type="button" class="inbox-label-folder ${active ? 'active' : ''}" data-label-bucket="${folder.bucket}">
-                    <span>${folder.label}</span>
-                    ${count ? `<span class="inbox-count">${count}</span>` : ''}
-                </button>
-            `;
-        }).join('');
+        host.innerHTML = folders.map(folder => `
+            <button type="button" class="inbox-label-folder ${folder.active ? 'active' : ''}" data-header-bucket="${folder.bucket}">
+                <span>${folder.label}</span>
+                ${folder.count ? `<span class="inbox-count">${folder.count}</span>` : ''}
+            </button>
+        `).join('');
     }
 
     async function openSidebarLabel(id) {
@@ -9285,14 +9300,20 @@ html.inbox-is-popout .inbox-props {
         renderSidebarLabels();
     });
     el('labelFolders')?.addEventListener('click', async (e) => {
-        const btn = e.target.closest('[data-label-bucket]');
-        if (!btn || !state.selectedLabelId) return;
-        const bucket = btn.dataset.labelBucket;
+        const btn = e.target.closest('[data-header-bucket]');
+        if (!btn) return;
+        const bucket = btn.dataset.headerBucket;
         if (!bucket || state.view === bucket) return;
-        state.viewGroup = null;
-        state.view = bucket;
-        renderLabelFolders();
-        await loadConversations();
+        if (state.selectedLabelId) {
+            state.viewGroup = null;
+            state.view = bucket;
+            renderLabelFolders();
+            await loadConversations();
+            return;
+        }
+        if (state.viewGroup) {
+            await selectViewFolder(state.viewGroup, bucket);
+        }
     });
     el('btnCustomizeLabels')?.addEventListener('click', (e) => {
         e.stopPropagation();
