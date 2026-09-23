@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\FacebookConversation;
 use App\Models\InboxConversation;
+use App\Models\InboxConversationActivity;
+use App\Models\InboxConversationUserRead;
 use App\Models\InboxTemplate;
 use App\Models\Lead;
 use App\Models\LeadActivity;
@@ -12,6 +14,7 @@ use App\Models\LeadRule;
 use App\Models\LeadScheduledEmail;
 use App\Models\LeadStatus;
 use App\Models\User;
+use App\Notifications\InboxThreadUpdateNotification;
 use App\Notifications\LeadRuleNotification;
 use App\Support\EmailQuotedHistory;
 use Illuminate\Support\Facades\Log;
@@ -302,13 +305,9 @@ class LeadRuleEngine
                 if (! $lead) {
                     return false;
                 }
-                $wanted = mb_strtolower(trim((string) $value));
-                $has = $lead->labels->contains(
-                    fn (LeadLabel $label) => mb_strtolower($label->name) === $wanted
-                        || (string) $label->id === (string) $value
-                );
+                $hasAny = $this->leadHasAnyLabel($lead, $value);
                 $missing = in_array($operator, ['does_not_have', 'not_equals'], true);
-                if ($missing ? $has : ! $has) {
+                if ($missing ? $hasAny : ! $hasAny) {
                     return false;
                 }
 
@@ -465,6 +464,7 @@ class LeadRuleEngine
                     'notify_assignee' => $this->notifyAssignee($lead),
                     'reopen_after_days' => $this->scheduleReopen($lead, $value),
                     'unsnooze' => $this->unsnooze($lead),
+                    'reopen_email_thread' => $this->reopenEmailThread($lead, $context),
                     'send_email' => $this->sendEmail($lead, $value, $rule),
                     'attach_shared_inbox' => $this->attachSharedInbox($lead, $context, $rule),
                     default => null,
@@ -717,7 +717,15 @@ class LeadRuleEngine
 
     private function addLabel(Lead $lead, mixed $labelIdOrName): void
     {
-        if ($labelIdOrName === null || $labelIdOrName === '') {
+        $values = is_array($labelIdOrName) ? array_values($labelIdOrName) : [$labelIdOrName];
+        foreach ($values as $value) {
+            $this->addOneLabel($lead, $value);
+        }
+    }
+
+    private function addOneLabel(Lead $lead, mixed $labelIdOrName): void
+    {
+        if ($labelIdOrName === null || $labelIdOrName === '' || is_array($labelIdOrName)) {
             return;
         }
 
@@ -847,6 +855,104 @@ class LeadRuleEngine
                 'reopen_status' => $lead->reopen_status,
             ]
         );
+    }
+
+    /**
+     * @param  array{inbox_conversation_id?: int|string|null}  $context
+     */
+    private function reopenEmailThread(Lead $lead, array $context): void
+    {
+        $contextId = (int) ($context['inbox_conversation_id'] ?? 0);
+
+        $conversations = InboxConversation::query()
+            ->where('company_id', $lead->company_id)
+            ->whereNull('merged_into_id')
+            ->where('status', 'archived')
+            ->where(function ($query) use ($lead, $contextId) {
+                $query->where('lead_id', $lead->id);
+                if ($contextId > 0) {
+                    $query->orWhere(function ($match) use ($lead, $contextId) {
+                        $match->whereKey($contextId)
+                            ->where(function ($owner) use ($lead) {
+                                $owner->whereNull('lead_id')->orWhere('lead_id', $lead->id);
+                            });
+                    });
+                }
+            })
+            ->get();
+
+        foreach ($conversations as $conversation) {
+            $conversation->applyOpenFromHold();
+            $conversation->is_read = false;
+            $conversation->save();
+
+            InboxConversationUserRead::query()
+                ->where('inbox_conversation_id', $conversation->id)
+                ->where('is_read', true)
+                ->update(['is_read' => false]);
+
+            InboxConversationActivity::create([
+                'inbox_conversation_id' => $conversation->id,
+                'user_id' => null,
+                'action' => 'reopened',
+                'summary' => 'Conversation reopened by a lead rule',
+                'meta' => ['source' => 'lead_rule', 'lead_id' => $lead->id],
+            ]);
+
+            $this->notifyAssigneeOfThreadReopen($conversation);
+        }
+
+        $this->ruleLog('info', 'Action: reopen_email_thread', [
+            'lead_id' => $lead->id,
+            'reopened' => $conversations->pluck('id')->all(),
+        ]);
+    }
+
+    private function notifyAssigneeOfThreadReopen(InboxConversation $conversation): void
+    {
+        $assignee = User::query()->find($conversation->assigned_to);
+        if (! $assignee instanceof User) {
+            return;
+        }
+
+        $subject = $conversation->subject ?: 'a conversation';
+
+        try {
+            $assignee->notify(new InboxThreadUpdateNotification(
+                conversation: $conversation,
+                action: 'reopened',
+                summary: 'A lead rule reopened "'.$subject.'"',
+                snippet: $conversation->snippet,
+                involves: 'reopen',
+            ));
+        } catch (\Throwable $e) {
+            Log::warning('Failed to notify assignee of lead-rule thread reopen', [
+                'conversation_id' => $conversation->id,
+                'user_id' => $assignee->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * @param  mixed  $value  One label id or name, or a list of them.
+     */
+    private function leadHasAnyLabel(Lead $lead, mixed $value): bool
+    {
+        $wanted = collect(is_array($value) ? $value : [$value])
+            ->map(fn ($item) => trim((string) $item))
+            ->filter()
+            ->values();
+        if ($wanted->isEmpty()) {
+            return false;
+        }
+
+        return $lead->labels->contains(function (LeadLabel $label) use ($wanted) {
+            return $wanted->contains(function (string $item) use ($label) {
+                return mb_strtolower($label->name) === mb_strtolower($item)
+                    || (string) $label->id === $item;
+            });
+        });
     }
 
     private function unsnooze(Lead $lead): void

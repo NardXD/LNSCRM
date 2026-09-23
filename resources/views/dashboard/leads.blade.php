@@ -995,6 +995,12 @@ body:has(.ld-page-wrapper) {
 .leads-rule-extra-card.is-action { grid-template-columns: 1fr 1fr auto; }
 .leads-rule-extra-card.is-action.is-create-lead { grid-template-columns: minmax(0, 1fr) auto; }
 .leads-rule-extra-card.is-action.is-create-lead [data-rule-action-value] { display: none; }
+.leads-rule-extra-card.is-action.is-add-label { grid-template-columns: minmax(0, 1fr) auto; }
+.leads-rule-extra-card.is-action.is-add-label [data-rule-action-value] { display: none; }
+.leads-rule-extra-card.is-multi-label { grid-template-columns: 1fr 1fr auto; }
+.leads-rule-label-multi { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.3rem; }
+.leads-rule-label-multi label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; padding: 0.3rem 0.4rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); cursor: pointer; }
+.leads-rule-label-multi input { width: auto; margin: 0; }
 .leads-rule-extra-card.is-action.is-delayed-status { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.7fr) minmax(0, 1fr) auto; }
 .leads-rule-extra-card.is-action.is-send-email { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 0.85fr) minmax(0, 1.1fr) auto; }
 .leads-rule-send-email { display: contents; }
@@ -3455,9 +3461,12 @@ body:has(.ld-page-wrapper) {
         if (field === 'lead_status' || field === 'status_changed') {
             return `<select data-rule-cond-value>${statusOptions(selected)}</select>`;
         }
-        if (field === 'lead_label' || field === 'label_added') {
+        if (field === 'lead_label') {
+            return labelMultiSelectHtml(selected, 'data-rule-cond-value');
+        }
+        if (field === 'label_added') {
             return `<select data-rule-cond-value>${(state.companyLabels || []).map(l =>
-                `<option value="${field === 'label_added' ? l.id : esc(l.name)}" ${String(selected) === String(l.id) || String(selected) === String(l.name) ? 'selected' : ''}>${esc(l.name)}</option>`
+                `<option value="${l.id}" ${String(selected) === String(l.id) || String(selected) === String(l.name) ? 'selected' : ''}>${esc(l.name)}</option>`
             ).join('') || '<option value="">No labels</option>'}</select>`;
         }
         if (field === 'lead_age') {
@@ -3465,8 +3474,44 @@ body:has(.ld-page-wrapper) {
         }
         return `<input type="text" data-rule-cond-value placeholder="Value" value="${esc(selected || '')}">`;
     }
+    function selectedLabelValues(value) {
+        if (Array.isArray(value)) {
+            return value.map(String).filter(v => v !== '');
+        }
+        if (value == null || value === '') {
+            return [];
+        }
+        return [String(value)];
+    }
+    function labelMultiSelectHtml(selected = [], dataAttr = 'data-rule-cond-value') {
+        const chosen = new Set(selectedLabelValues(selected));
+        const labels = state.companyLabels || [];
+        if (!labels.length) {
+            return `<div class="leads-rule-label-multi" ${dataAttr}><p class="leads-rule-rr-help">No labels yet.</p></div>`;
+        }
+        return `
+            <div class="leads-rule-label-multi" ${dataAttr}>
+                ${labels.map(l => `
+                    <label>
+                        <input type="checkbox" value="${l.id}" ${chosen.has(String(l.id)) || chosen.has(String(l.name)) ? 'checked' : ''}>
+                        <span>${esc(l.name)}</span>
+                    </label>
+                `).join('')}
+            </div>
+        `;
+    }
+    function collectLabelMultiValues(root) {
+        if (!root) return [];
+        if (root.matches?.('select, input:not([type="checkbox"])')) {
+            const value = root.value?.trim() || '';
+            return value ? [value] : [];
+        }
+        return [...root.querySelectorAll('input[type="checkbox"]:checked')]
+            .map(cb => cb.value)
+            .filter(v => v !== '');
+    }
     function actionNeedsValue(type) {
-        return !['create_lead', 'notify_assignee', 'unsnooze', 'attach_shared_inbox'].includes(type);
+        return !['create_lead', 'notify_assignee', 'unsnooze', 'attach_shared_inbox', 'reopen_email_thread'].includes(type);
     }
     function actionTypeOptions(selected = 'assign') {
         return [
@@ -3477,6 +3522,7 @@ body:has(.ld-page-wrapper) {
             ['set_status', 'Set status'],
             ['set_status_after_days', 'Set status after days'],
             ['reopen_after_days', 'Reopen after days'],
+            ['reopen_email_thread', 'Reopen email thread'],
             ['unsnooze', 'Unsnooze lead'],
             ['notify_assignee', 'Notify assignee'],
             ['send_email', 'Send email'],
@@ -3503,9 +3549,7 @@ body:has(.ld-page-wrapper) {
             `;
         }
         if (type === 'add_label') {
-            return (state.companyLabels || []).map(l =>
-                `<option value="${l.id}" ${String(selected) === String(l.id) || String(selected) === String(l.name) ? 'selected' : ''}>${esc(l.name)}</option>`
-            ).join('') || '<option value="">No labels</option>';
+            return '<option value="">Select labels below</option>';
         }
         if (type === 'set_status') {
             const selectedStatus = selected || 'contacted';
@@ -3636,7 +3680,7 @@ body:has(.ld-page-wrapper) {
         if (!wrap) return;
         const field = preset.field || 'contact_name';
         const row = document.createElement('div');
-        row.className = 'leads-rule-extra-card';
+        row.className = 'leads-rule-extra-card' + (field === 'lead_label' ? ' is-multi-label' : '');
         row.innerHTML = `
             <select data-rule-cond-field>${conditionFieldOptions(field)}</select>
             <select data-rule-cond-operator>${conditionOperatorOptions(field, preset.operator || (field === 'lead_label' || field === 'lead_age' ? 'equals' : 'contains'))}</select>
@@ -3729,14 +3773,15 @@ body:has(.ld-page-wrapper) {
     function syncActionRow(row, type, preset = {}) {
         if (!row) return;
         row.classList.toggle('is-create-lead', type === 'create_lead');
+        row.classList.toggle('is-add-label', type === 'add_label');
         row.classList.toggle('is-delayed-status', type === 'set_status_after_days');
         row.classList.toggle('is-send-email', type === 'send_email');
         const valueSel = row.querySelector('[data-rule-action-value]');
         const needsValue = actionNeedsValue(type);
         if (valueSel) {
-            valueSel.hidden = type === 'create_lead';
-            valueSel.disabled = !needsValue;
-            if (type !== 'create_lead') {
+            valueSel.hidden = !needsValue || type === 'add_label';
+            valueSel.disabled = !needsValue || type === 'add_label';
+            if (needsValue && type !== 'add_label') {
                 let fallback = '';
                 if (type === 'set_status') fallback = 'contacted';
                 if (type === 'reopen_after_days' || type === 'set_status_after_days') fallback = '3';
@@ -3751,8 +3796,13 @@ body:has(.ld-page-wrapper) {
         row.querySelector('[data-rule-action-status]')?.remove();
         row.querySelector('.leads-rule-delayed-help')?.remove();
         row.querySelector('[data-send-email-fields]')?.remove();
+        row.querySelector('[data-rule-action-labels]')?.remove();
         if (type === 'create_lead') {
             row.insertAdjacentHTML('beforeend', createLeadKeywordsHtml(preset));
+        }
+        if (type === 'add_label') {
+            row.insertAdjacentHTML('beforeend', labelMultiSelectHtml(preset.value || [], 'data-rule-action-labels'));
+            row.insertAdjacentHTML('beforeend', '<p class="leads-rule-delayed-help">Check every label this rule should add.</p>');
         }
         if (type === 'set_status_after_days') {
             valueSel?.insertAdjacentHTML('afterend', delayedStatusSelectHtml(delayedStatusSlug(preset.value)));
@@ -3761,6 +3811,9 @@ body:has(.ld-page-wrapper) {
         if (type === 'send_email') {
             valueSel?.insertAdjacentHTML('afterend', sendEmailExtraHtml(preset));
             row.insertAdjacentHTML('beforeend', '<p class="leads-rule-delayed-help">Sends the chosen template by email, either immediately or after a delay measured from when this rule’s trigger happens.</p>');
+        }
+        if (type === 'reopen_email_thread') {
+            row.insertAdjacentHTML('beforeend', '<p class="leads-rule-delayed-help">Reopens archived or snoozed email threads linked to this lead.</p>');
         }
         syncAssignTeammatePicker(row, preset);
     }
@@ -3778,7 +3831,11 @@ body:has(.ld-page-wrapper) {
             defaultValue = sendEmailTemplateId(preset.value);
         }
         const row = document.createElement('div');
-        row.className = 'leads-rule-extra-card is-action' + (type === 'create_lead' ? ' is-create-lead' : '') + (type === 'set_status_after_days' ? ' is-delayed-status' : '') + (type === 'send_email' ? ' is-send-email' : '');
+        row.className = 'leads-rule-extra-card is-action'
+            + (type === 'create_lead' ? ' is-create-lead' : '')
+            + (type === 'add_label' ? ' is-add-label' : '')
+            + (type === 'set_status_after_days' ? ' is-delayed-status' : '')
+            + (type === 'send_email' ? ' is-send-email' : '');
         row.innerHTML = `
             <select data-rule-action-type>${actionTypeOptions(type)}</select>
             <select data-rule-action-value ${needsValue ? '' : 'disabled hidden'}>${actionValueOptions(type, defaultValue)}</select>
@@ -3874,8 +3931,15 @@ body:has(.ld-page-wrapper) {
         document.querySelectorAll('#leadRuleConditions .leads-rule-extra-card').forEach(row => {
             const field = row.querySelector('[data-rule-cond-field]')?.value;
             const operator = row.querySelector('[data-rule-cond-operator]')?.value;
-            const value = row.querySelector('[data-rule-cond-value]')?.value?.trim() || '';
-            if (field && operator) conditions.push({ field, operator, value });
+            const valueRoot = row.querySelector('[data-rule-cond-value]');
+            if (!field || !operator) return;
+            if (field === 'lead_label') {
+                const labels = collectLabelMultiValues(valueRoot).map(v => (Number.isFinite(Number(v)) ? Number(v) : v));
+                conditions.push({ field, operator, value: labels });
+                return;
+            }
+            const value = valueRoot?.value?.trim() || '';
+            conditions.push({ field, operator, value });
         });
         const actions = [];
         document.querySelectorAll('#leadRuleActions .leads-rule-extra-card').forEach(row => {
@@ -3890,6 +3954,13 @@ body:has(.ld-page-wrapper) {
                         email: row.querySelector('[data-lead-keyword="email"]')?.value.trim() || '',
                     },
                 });
+                return;
+            }
+            if (type === 'add_label') {
+                const labels = collectLabelMultiValues(row.querySelector('[data-rule-action-labels]'))
+                    .map(v => Number(v))
+                    .filter(id => id > 0);
+                actions.push({ type, value: labels });
                 return;
             }
             const valueSel = row.querySelector('[data-rule-action-value]');
@@ -4132,10 +4203,12 @@ body:has(.ld-page-wrapper) {
         const fieldSel = e.target.closest('[data-rule-cond-field]');
         if (!fieldSel) return;
         const row = fieldSel.closest('.leads-rule-extra-card');
+        row?.classList.toggle('is-multi-label', fieldSel.value === 'lead_label');
         const current = row.querySelector('[data-rule-cond-value]');
         const wrap = document.createElement('div');
         wrap.innerHTML = conditionValueControl(fieldSel.value, '');
-        current?.replaceWith(wrap.firstElementChild);
+        const next = wrap.querySelector('[data-rule-cond-value]') || wrap.firstElementChild;
+        if (next) current?.replaceWith(next);
         const op = row.querySelector('[data-rule-cond-operator]');
         const opWrap = document.createElement('div');
         opWrap.innerHTML = `<select data-rule-cond-operator>${conditionOperatorOptions(fieldSel.value, '')}</select>`;
@@ -4209,7 +4282,9 @@ body:has(.ld-page-wrapper) {
             }
         }
         const extra = payload.conditions.filter(c => c.field !== 'channel' && c.field !== 'shared_inbox');
-        if (extra.some(c => !String(c.value || '').trim())) return alert('Each condition needs a value.');
+        if (extra.some(c => Array.isArray(c.value) ? !c.value.length : !String(c.value || '').trim())) {
+            return alert('Each condition needs a value.');
+        }
         if (!payload.actions.length) return alert('Add at least one action.');
         for (const action of payload.actions) {
             if (action.type === 'assign') {
@@ -4224,7 +4299,13 @@ body:has(.ld-page-wrapper) {
                 }
                 continue;
             }
-            if (['add_label', 'set_status'].includes(action.type) && (action.value === null || action.value === '')) {
+            if (action.type === 'add_label') {
+                if (!Array.isArray(action.value) || !action.value.length) {
+                    return alert('Choose at least one label.');
+                }
+                continue;
+            }
+            if (['set_status'].includes(action.type) && (action.value === null || action.value === '')) {
                 return alert('That action needs a value.');
             }
             if (action.type === 'set_status_after_days') {

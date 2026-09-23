@@ -1733,7 +1733,7 @@ class LeadsController extends Controller
             'conditions.*.operator' => ['required', 'in:contains,equals,starts_with,in,does_not_have,not_equals,contains_any,greater_than,less_than'],
             'conditions.*.value' => ['nullable'],
             'actions' => [$required, 'array', 'min:1'],
-            'actions.*.type' => ['required', 'in:create_lead,assign,add_label,set_status,set_status_after_days,notify_assignee,reopen_after_days,unsnooze,send_email,attach_shared_inbox'],
+            'actions.*.type' => ['required', 'in:create_lead,assign,add_label,set_status,set_status_after_days,notify_assignee,reopen_after_days,reopen_email_thread,unsnooze,send_email,attach_shared_inbox'],
             'actions.*.value' => ['nullable'],
         ]);
 
@@ -1765,6 +1765,32 @@ class LeadsController extends Controller
                     ->count();
                 if ($valid !== $ids->count()) {
                     abort(response()->json(['message' => 'Choose valid shared inboxes.'], 422));
+                }
+
+                continue;
+            }
+            if ($field === 'lead_label') {
+                $values = collect(is_array($condition['value'] ?? null) ? $condition['value'] : [$condition['value'] ?? ''])
+                    ->map(fn ($item) => trim((string) $item))
+                    ->filter(fn ($item) => $item !== '')
+                    ->unique()
+                    ->values();
+                if ($values->isEmpty()) {
+                    abort(response()->json(['message' => 'Choose at least one lead label.'], 422));
+                }
+                $ids = $values
+                    ->filter(fn ($item) => ctype_digit($item))
+                    ->map(fn ($item) => (int) $item)
+                    ->unique()
+                    ->values();
+                if ($ids->isNotEmpty()) {
+                    $valid = LeadLabel::query()
+                        ->where('company_id', Auth::user()->company_id)
+                        ->whereIn('id', $ids)
+                        ->count();
+                    if ($valid !== $ids->count()) {
+                        abort(response()->json(['message' => 'Choose valid lead labels.'], 422));
+                    }
                 }
 
                 continue;
@@ -1834,7 +1860,26 @@ class LeadsController extends Controller
                     abort(response()->json(['message' => 'Choose a teammate, round robin, or available inbound agents.'], 422));
                 }
             }
-            if (in_array($type, ['add_label', 'set_status'], true) && ($action['value'] === null || $action['value'] === '')) {
+            if ($type === 'add_label') {
+                $ids = collect(is_array($action['value'] ?? null) ? $action['value'] : [$action['value'] ?? null])
+                    ->map(fn ($item) => is_numeric($item) ? (int) $item : 0)
+                    ->filter(fn ($id) => $id > 0)
+                    ->unique()
+                    ->values();
+                if ($ids->isEmpty()) {
+                    abort(response()->json(['message' => 'Choose at least one label.'], 422));
+                }
+                $valid = LeadLabel::query()
+                    ->where('company_id', Auth::user()->company_id)
+                    ->whereIn('id', $ids)
+                    ->count();
+                if ($valid !== $ids->count()) {
+                    abort(response()->json(['message' => 'Choose valid lead labels.'], 422));
+                }
+
+                continue;
+            }
+            if ($type === 'set_status' && ($action['value'] === null || $action['value'] === '')) {
                 abort(response()->json(['message' => 'That action needs a value.'], 422));
             }
             if ($type === 'set_status') {
