@@ -1523,17 +1523,17 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 .inbox-nav-footer { margin-top: auto; padding-top: 1rem; display: grid; gap: 0.4rem; }
 .inbox-connect-btn, .inbox-disconnect-btn, .inbox-btn {
     border: 1px solid transparent;
-    border-radius: 8px;
-    padding: 0.55rem 0.85rem;
+    border-radius: 6px;
+    padding: 0.28rem 0.55rem;
     cursor: pointer;
-    font-size: 0.84rem;
+    font-size: 0.75rem;
     font-weight: 600;
     font-family: inherit;
-    line-height: 1.3;
+    line-height: 1.2;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.35rem;
+    gap: 0.25rem;
     white-space: nowrap;
     -webkit-appearance: none;
     appearance: none;
@@ -1619,7 +1619,7 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 }
 .inbox-list-header h2 { font-size: 1rem; margin: 0; }
 .inbox-list-header-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.65rem; }
-.inbox-list-header-row .inbox-btn { padding: 0.4rem 0.75rem; font-size: 0.8rem; }
+.inbox-list-header-row .inbox-btn { padding: 0.24rem 0.5rem; font-size: 0.72rem; }
 .inbox-modal#modalCompose { width: min(640px, 100%); }
 .inbox-connect-modes { display: grid; gap: 0.5rem; }
 .inbox-mode-option {
@@ -2048,7 +2048,7 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     flex-shrink: 0;
 }
 .inbox-icon-action {
-    width: 34px; height: 34px; border-radius: 8px;
+    width: 28px; height: 28px; border-radius: 6px;
     border: 1px solid var(--inbox-border); background: #fff;
     color: #4b5563; cursor: pointer;
     display: inline-flex; align-items: center; justify-content: center;
@@ -2059,14 +2059,14 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     border-color: #c7d7fb;
     color: var(--inbox-accent, #2f6fed);
 }
-.inbox-icon-action svg { width: 16px; height: 16px; }
+.inbox-icon-action svg { width: 14px; height: 14px; }
 .inbox-assign-btn {
-    padding: 0.38rem 0.7rem;
-    gap: 0.3rem;
+    padding: 0.24rem 0.5rem;
+    gap: 0.2rem;
 }
-.inbox-assign-btn svg { width: 14px; height: 14px; }
-.inbox-archive-btn { padding: 0.38rem 0.75rem; }
-.inbox-archive-btn svg { width: 15px; height: 15px; }
+.inbox-assign-btn svg { width: 12px; height: 12px; }
+.inbox-archive-btn { padding: 0.24rem 0.5rem; }
+.inbox-archive-btn svg { width: 13px; height: 13px; }
 .inbox-pop { position: relative; }
 .inbox-pop-menu {
     position: absolute;
@@ -3152,8 +3152,8 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     position: relative;
     display: inline-flex;
     align-items: stretch;
-    height: 36px;
-    border-radius: 8px;
+    height: 30px;
+    border-radius: 6px;
     background: var(--inbox-send-bg);
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
     overflow: visible;
@@ -3172,7 +3172,7 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     background: transparent;
     color: #fff;
     font: inherit;
-    font-size: 0.84rem;
+    font-size: 0.75rem;
     font-weight: 600;
     line-height: 1;
     cursor: pointer;
@@ -3183,14 +3183,14 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     transition: background 0.12s ease;
 }
 .inbox-send-main {
-    padding: 0 0.95rem 0 1rem;
-    border-radius: 8px 0 0 8px;
+    padding: 0 0.7rem 0 0.75rem;
+    border-radius: 6px 0 0 6px;
     white-space: nowrap;
 }
 .inbox-send-caret {
-    width: 32px;
+    width: 26px;
     padding: 0;
-    border-radius: 0 8px 8px 0;
+    border-radius: 0 6px 6px 0;
     border-left: 1px solid rgba(255, 255, 255, 0.22);
 }
 .inbox-send-caret svg {
