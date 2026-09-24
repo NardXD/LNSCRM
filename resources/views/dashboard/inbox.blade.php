@@ -8821,11 +8821,12 @@ html.inbox-is-popout .inbox-props {
 
         const folder = c.folder || 'inbox';
         const isInboxOpen = folder === 'inbox' && c.status === 'open';
+        const isSent = folder === 'sent';
         const isArchived = folder === 'inbox' && c.status === 'archived';
         const isTrashOrSpam = folder === 'trash' || folder === 'spam' || c.status === 'trashed' || c.status === 'spam';
 
         el('btnArchive').style.display = isInboxOpen ? '' : 'none';
-        el('btnSnooze').style.display = isInboxOpen ? '' : 'none';
+        el('btnSnooze').style.display = (isInboxOpen || isSent) ? '' : 'none';
         el('btnSpam').style.display = (folder === 'inbox' || folder === 'trash') ? '' : 'none';
         el('btnTrash').style.display = (!isTrashOrSpam && folder !== 'trash') ? '' : 'none';
         el('btnRestore').style.display = isTrashOrSpam ? '' : 'none';

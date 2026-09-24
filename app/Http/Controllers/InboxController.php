@@ -1184,22 +1184,66 @@ class InboxController extends Controller
             return response()->json(['message' => 'Choose a future date and time.'], 422);
         }
 
-        $conversation->status = 'archived';
-        $conversation->folder = 'inbox';
-        $conversation->reopen_at = $until;
-        $conversation->reopened_from = null;
-        $conversation->save();
+        $actor = $request->user();
+        $oldFolder = $conversation->folder ?: 'inbox';
+        $target = $conversation;
+
+        // Snoozed threads live in the inbox folder. Sent (and other) copies that
+        // share an Outlook conversationId must merge into the inbox twin first,
+        // or the unique (inbox, folder, external_id) constraint fails.
+        if ($oldFolder !== 'inbox' && $conversation->external_conversation_id) {
+            $existing = InboxConversation::query()
+                ->where('shared_inbox_id', $conversation->shared_inbox_id)
+                ->where('folder', 'inbox')
+                ->where('external_conversation_id', $conversation->external_conversation_id)
+                ->where('id', '!=', $conversation->id)
+                ->first();
+
+            if ($existing) {
+                InboxConversation::where('merged_into_id', $conversation->id)
+                    ->update(['merged_into_id' => $existing->id]);
+                $conversation->messages()->update(['inbox_conversation_id' => $existing->id]);
+                $conversation->comments()->update(['inbox_conversation_id' => $existing->id]);
+                $conversation->activities()->update(['inbox_conversation_id' => $existing->id]);
+                if ($conversation->last_message_at && (! $existing->last_message_at || $conversation->last_message_at->gt($existing->last_message_at))) {
+                    $existing->last_message_at = $conversation->last_message_at;
+                    $existing->snippet = $conversation->snippet ?: $existing->snippet;
+                }
+                if ($conversation->assigned_to && ! $existing->assigned_to) {
+                    $existing->assigned_to = $conversation->assigned_to;
+                }
+                $existing->message_count = $existing->messages()->count();
+                $conversation->delete();
+                $target = $existing;
+            }
+        }
+
+        $target->loadMissing('inbox');
+        $target->status = 'archived';
+        $target->folder = 'inbox';
+        $target->reopen_at = $until;
+        $target->reopened_from = null;
+
+        // Personal snoozed lists are scoped to the logged-in user's mail.
+        if ($target->inbox?->type === SharedInbox::TYPE_PERSONAL && ! $target->assigned_to) {
+            $target->assigned_to = $actor->id;
+        }
+
+        $target->save();
 
         $this->recordActivity(
-            $conversation,
-            $request->user(),
+            $target,
+            $actor,
             'snoozed',
-            $request->user()->name.' snoozed this until '.$until->timezone(config('app.timezone'))->format('M j, g:ia'),
-            ['reopen_at' => $until->toIso8601String()]
+            $actor->name.' snoozed this until '.$until->timezone(config('app.timezone'))->format('M j, g:ia'),
+            [
+                'reopen_at' => $until->toIso8601String(),
+                'from_folder' => $oldFolder,
+            ]
         );
 
         return response()->json([
-            'conversation' => $this->formatConversation($conversation->fresh(['assignee', 'tags', 'leadLabels', 'inbox'])),
+            'conversation' => $this->formatConversation($target->fresh(['assignee', 'tags', 'leadLabels', 'inbox'])),
         ]);
     }
 
