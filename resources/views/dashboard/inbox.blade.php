@@ -2065,6 +2065,59 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 .inbox-participants-foot svg { flex: 0 0 14px; margin-top: 1px; }
 .inbox-participants-foot span { min-width: 0; overflow-wrap: anywhere; }
 .inbox-participants-foot strong { color: var(--inbox-text); font-weight: 600; }
+.inbox-tag-remove {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--inbox-muted);
+    font-size: 1.05rem;
+    line-height: 1;
+    padding: 0.15rem 0.4rem;
+    border-radius: 6px;
+    flex: 0 0 auto;
+}
+.inbox-tag-remove:hover {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+.inbox-tags-add {
+    border-top: 1px solid var(--inbox-border);
+    margin-top: 0.35rem;
+    padding: 0.5rem 0.35rem 0.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex-shrink: 0;
+}
+.inbox-tags-add .inbox-assign-search { padding: 0 0.2rem; }
+.inbox-tags-add .inbox-assign-list {
+    max-height: min(180px, 28vh);
+    overflow-y: auto;
+    padding: 0 0.15rem;
+}
+.inbox-tag-add-option {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    width: 100%;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    padding: 0.4rem 0.5rem;
+    border-radius: 8px;
+    box-sizing: border-box;
+    color: inherit;
+}
+.inbox-tag-add-option:hover { background: var(--inbox-bg); }
+.inbox-tags-add .inbox-lead-label-add {
+    margin: 0.15rem 0.2rem 0.25rem;
+}
+.inbox-tags-add .inbox-assign-empty {
+    padding: 0.45rem 0.55rem;
+    font-size: 0.82rem;
+    color: var(--inbox-muted);
+}
 .inbox-thread-actions {
     display: flex;
     gap: 0.4rem;
@@ -6717,12 +6770,13 @@ html.inbox-is-popout .inbox-props {
     function conversationLabelPillHtml(label, { removable = true } = {}) {
         let removeBtn = '';
         if (removable) {
+            const nameAttr = `data-label-name="${escapeHtml(label.name || '')}"`;
             if (label.source === 'lead') {
-                removeBtn = `<button type="button" data-remove-lead-label="${label.id}" style="border:none;background:transparent;cursor:pointer;color:inherit;">×</button>`;
+                removeBtn = `<button type="button" data-remove-lead-label="${label.id}" ${nameAttr} style="border:none;background:transparent;cursor:pointer;color:inherit;" title="Remove label" aria-label="Remove ${escapeHtml(label.name || 'label')}">×</button>`;
             } else if (label.source === 'conversation-label') {
-                removeBtn = `<button type="button" data-remove-conversation-label="${label.id}" style="border:none;background:transparent;cursor:pointer;color:inherit;">×</button>`;
+                removeBtn = `<button type="button" data-remove-conversation-label="${label.id}" ${nameAttr} style="border:none;background:transparent;cursor:pointer;color:inherit;" title="Remove label" aria-label="Remove ${escapeHtml(label.name || 'label')}">×</button>`;
             } else {
-                removeBtn = `<button type="button" data-remove-inbox-tag="${label.id}" style="border:none;background:transparent;cursor:pointer;color:inherit;">×</button>`;
+                removeBtn = `<button type="button" data-remove-inbox-tag="${label.id}" ${nameAttr} style="border:none;background:transparent;cursor:pointer;color:inherit;" title="Remove label" aria-label="Remove ${escapeHtml(label.name || 'label')}">×</button>`;
             }
         }
 
@@ -7595,31 +7649,78 @@ html.inbox-is-popout .inbox-props {
         return /^#[0-9a-fA-F]{3,8}$/.test(color) ? color : '#64748b';
     }
 
+    function tagRemoveDataset(label) {
+        if (label?.source === 'lead') return `data-remove-lead-label="${label.id}"`;
+        if (label?.source === 'conversation-label') return `data-remove-conversation-label="${label.id}"`;
+        return `data-remove-inbox-tag="${label.id}"`;
+    }
+
+    function availableLabelsForConversation(c) {
+        const used = new Set(conversationTagItems(c).map(t => Number(t.id)).filter(id => id > 0));
+        return (state.leadLabels || [])
+            .filter(t => !used.has(Number(t.id)))
+            .slice()
+            .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+    }
+
+    function tagsMenuAddOptionsHtml(c, query = '') {
+        const q = String(query || '').trim().toLowerCase();
+        const available = availableLabelsForConversation(c).filter(t => {
+            if (!q) return true;
+            return String(t.name || '').toLowerCase().includes(q);
+        });
+        if (!available.length) {
+            return `<div class="inbox-assign-empty">${q ? 'No matching labels' : 'No more labels to add'}</div>`;
+        }
+        return available.map(t => `
+            <button type="button" class="inbox-tag-add-option" data-add-tag-label="${t.id}" title="${escapeHtml(t.name || '')}">
+                <span class="inbox-participant-avatar" style="background:${tagSwatchColor(t)}">${escapeHtml(initials(t.name))}</span>
+                <span class="inbox-participant-name">${escapeHtml(t.name || 'Label')}</span>
+            </button>
+        `).join('');
+    }
+
+    function renderTagsMenuAddList(query) {
+        const list = el('tagsMenuAddList');
+        if (!list) return;
+        list.innerHTML = tagsMenuAddOptionsHtml(state.conversation, query);
+    }
+
     function tagsMenuHtml(c) {
         const tags = conversationTagItems(c);
-        if (!tags.length) return '';
-        const preview = tags.slice(0, 3).map(t => `
-            <span class="inbox-chip-avatar" style="background:${tagSwatchColor(t)}">${escapeHtml(initials(t.name))}</span>
-        `).join('');
-        const rows = tags.map(t => `
-            <div class="inbox-participant-row" title="${escapeHtml(t.name || '')}">
-                <span class="inbox-participant-avatar" style="background:${tagSwatchColor(t)}">${escapeHtml(initials(t.name))}</span>
-                <span class="inbox-participant-name">${escapeHtml(t.name || 'Tag')}</span>
-            </div>
-        `).join('');
-        const label = tags.length === 1 ? '1 tag' : `${tags.length} tags`;
+        const preview = tags.length
+            ? tags.slice(0, 3).map(t => `
+                <span class="inbox-chip-avatar" style="background:${tagSwatchColor(t)}">${escapeHtml(initials(t.name))}</span>
+            `).join('')
+            : `<span class="inbox-chip-avatar" style="background:#94a3b8">+</span>`;
+        const rows = tags.length
+            ? tags.map(t => `
+                <div class="inbox-participant-row" title="${escapeHtml(t.name || '')}">
+                    <span class="inbox-participant-avatar" style="background:${tagSwatchColor(t)}">${escapeHtml(initials(t.name))}</span>
+                    <span class="inbox-participant-name">${escapeHtml(t.name || 'Label')}</span>
+                    <button type="button" class="inbox-tag-remove" ${tagRemoveDataset(t)} data-label-name="${escapeHtml(t.name || '')}" title="Remove label" aria-label="Remove ${escapeHtml(t.name || 'label')}">×</button>
+                </div>
+            `).join('')
+            : `<div class="inbox-assign-empty">No labels on this conversation</div>`;
+        const label = tags.length === 0 ? 'Labels' : (tags.length === 1 ? '1 label' : `${tags.length} labels`);
         return `
             <div class="inbox-pop inbox-participants-pop" id="tagsPop">
-                <button type="button" class="inbox-chip inbox-participants-chip" id="btnTags" title="Conversation tags" aria-haspopup="menu" aria-expanded="false">
+                <button type="button" class="inbox-chip inbox-participants-chip" id="btnTags" title="Conversation labels" aria-haspopup="menu" aria-expanded="false">
                     ${preview}
                     <span>${label}</span>
                 </button>
                 <div class="inbox-pop-menu inbox-participants-menu" id="tagsMenu" hidden>
-                    <div class="inbox-participants-head">Tags</div>
-                    <div class="inbox-participants-list">${rows}</div>
-                    <div class="inbox-participants-foot">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-                        <span>Labels on this conversation</span>
+                    <div class="inbox-participants-head">Labels</div>
+                    <div class="inbox-participants-list" id="tagsMenuApplied">${rows}</div>
+                    <div class="inbox-tags-add">
+                        <div class="inbox-assign-search">
+                            <input type="search" id="tagsMenuSearch" placeholder="Search labels to add…" autocomplete="off" aria-label="Search labels to add">
+                        </div>
+                        <div class="inbox-assign-list" id="tagsMenuAddList">${tagsMenuAddOptionsHtml(c)}</div>
+                        <div class="inbox-lead-label-add">
+                            <input type="text" id="tagsMenuNewInput" class="inbox-select" maxlength="50" placeholder="New label" aria-label="Create new label">
+                            <button type="button" class="inbox-btn ghost" id="btnTagsMenuAddNew">Add</button>
+                        </div>
                     </div>
                 </div>
             </div>`;
@@ -10221,7 +10322,7 @@ html.inbox-is-popout .inbox-props {
             alert(err.message);
         }
     });
-    el('threadParticipants')?.addEventListener('click', (e) => {
+    el('threadParticipants')?.addEventListener('click', async (e) => {
         const participantsBtn = e.target.closest('#btnParticipants');
         if (participantsBtn) {
             e.stopPropagation();
@@ -10232,11 +10333,65 @@ html.inbox-is-popout .inbox-props {
         if (tagsBtn) {
             e.stopPropagation();
             togglePop('tagsMenu', tagsBtn);
+            if (!el('tagsMenu')?.hidden) {
+                const search = el('tagsMenuSearch');
+                if (search) {
+                    search.value = '';
+                    renderTagsMenuAddList('');
+                    setTimeout(() => search.focus(), 0);
+                }
+            }
             return;
         }
+
+        const removeTagBtn = e.target.closest('#tagsMenu [data-remove-lead-label], #tagsMenu [data-remove-conversation-label], #tagsMenu [data-remove-inbox-tag]');
+        if (removeTagBtn) {
+            e.stopPropagation();
+            await removeConversationLabelFromBtn(removeTagBtn);
+            return;
+        }
+
+        const addTagBtn = e.target.closest('#tagsMenu [data-add-tag-label]');
+        if (addTagBtn) {
+            e.stopPropagation();
+            const labelId = Number(addTagBtn.dataset.addTagLabel);
+            if (labelId) await attachConversationLabel({ labelId });
+            return;
+        }
+
+        const addNewBtn = e.target.closest('#btnTagsMenuAddNew');
+        if (addNewBtn) {
+            e.stopPropagation();
+            const input = el('tagsMenuNewInput');
+            const name = String(input?.value || '').trim();
+            if (!name) {
+                input?.focus();
+                return;
+            }
+            await attachConversationLabel({ name });
+            return;
+        }
+
         if (!e.target.closest('#btnAddParticipant')) return;
         e.stopPropagation();
         openAssignMenu(el('btnAssignToggle'));
+    });
+    el('threadParticipants')?.addEventListener('input', (e) => {
+        if (e.target?.id !== 'tagsMenuSearch') return;
+        renderTagsMenuAddList(e.target.value);
+    });
+    el('threadParticipants')?.addEventListener('keydown', (e) => {
+        if (e.target?.id === 'tagsMenuNewInput' && e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            el('btnTagsMenuAddNew')?.click();
+            return;
+        }
+        if (e.target?.id === 'tagsMenuSearch' && e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            closeThreadPops();
+        }
     });
     el('threadMessages')?.addEventListener('click', (e) => {
         const bodyImg = emailBodyImageFromEvent(e);
@@ -10504,6 +10659,43 @@ html.inbox-is-popout .inbox-props {
         }
     }
 
+    async function removeConversationLabelFromBtn(btn) {
+        if (!btn || !state.selectedId) return false;
+        const name = String(btn.dataset.labelName || btn.getAttribute('aria-label') || 'this label')
+            .replace(/^Remove\s+/i, '')
+            .trim() || 'this label';
+        if (!confirm(`Remove label "${name}" from this conversation?`)) return false;
+
+        try {
+            if (btn.dataset.removeLeadLabel) {
+                await api('/conversations/' + state.selectedId + '/lead-labels/' + btn.dataset.removeLeadLabel + (conversationLead()?.id ? '?lead_id=' + conversationLead().id : ''), {
+                    method: 'DELETE',
+                });
+            } else if (btn.dataset.removeConversationLabel) {
+                await api('/conversations/' + state.selectedId + '/labels/' + btn.dataset.removeConversationLabel, {
+                    method: 'DELETE',
+                });
+            } else if (btn.dataset.removeInboxTag) {
+                const removeId = Number(btn.dataset.removeInboxTag);
+                const tagIds = (state.conversation?.tags || [])
+                    .map(t => Number(t.id))
+                    .filter(id => id > 0 && id !== removeId);
+                await api('/conversations/' + state.selectedId + '/tags', {
+                    method: 'POST',
+                    body: { tag_ids: tagIds },
+                });
+            } else {
+                return false;
+            }
+            await openConversation(state.selectedId);
+            await loadConversations();
+            return true;
+        } catch (err) {
+            alert(err.message || 'Could not remove label.');
+            return false;
+        }
+    }
+
     el('addTagSelect').addEventListener('change', async () => {
         if (!state.selectedId || !el('addTagSelect').value) return;
         const labelId = Number(el('addTagSelect').value);
@@ -10527,50 +10719,9 @@ html.inbox-is-popout .inbox-props {
     });
 
     el('conversationTags').addEventListener('click', async (e) => {
-        const leadBtn = e.target.closest('[data-remove-lead-label]');
-        if (leadBtn && state.selectedId) {
-            try {
-                await api('/conversations/' + state.selectedId + '/lead-labels/' + leadBtn.dataset.removeLeadLabel + (conversationLead()?.id ? '?lead_id=' + conversationLead().id : ''), {
-                    method: 'DELETE',
-                });
-                await openConversation(state.selectedId);
-                await loadConversations();
-            } catch (err) {
-                alert(err.message || 'Could not remove label.');
-            }
-            return;
-        }
-
-        const conversationLabelBtn = e.target.closest('[data-remove-conversation-label]');
-        if (conversationLabelBtn && state.selectedId) {
-            try {
-                await api('/conversations/' + state.selectedId + '/labels/' + conversationLabelBtn.dataset.removeConversationLabel, {
-                    method: 'DELETE',
-                });
-                await openConversation(state.selectedId);
-                await loadConversations();
-            } catch (err) {
-                alert(err.message || 'Could not remove label.');
-            }
-            return;
-        }
-
-        const inboxBtn = e.target.closest('[data-remove-inbox-tag]');
-        if (inboxBtn && state.selectedId) {
-            try {
-                const removeId = Number(inboxBtn.dataset.removeInboxTag);
-                const tagIds = (state.conversation?.tags || [])
-                    .map(t => Number(t.id))
-                    .filter(id => id > 0 && id !== removeId);
-                await api('/conversations/' + state.selectedId + '/tags', {
-                    method: 'POST',
-                    body: { tag_ids: tagIds },
-                });
-                await openConversation(state.selectedId);
-                await loadConversations();
-            } catch (err) {
-                alert(err.message || 'Could not remove label.');
-            }
+        const removeBtn = e.target.closest('[data-remove-lead-label], [data-remove-conversation-label], [data-remove-inbox-tag]');
+        if (removeBtn) {
+            await removeConversationLabelFromBtn(removeBtn);
         }
     });
 
