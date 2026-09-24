@@ -124,7 +124,7 @@
         setInterval(window.updateHeaderMessagingBadge, 30000);
     }
 
-    // Sidebar channel unread badges (messaging, viber, whatsapp, facebook, sms)
+    // Sidebar channel unread badges (messaging, viber, whatsapp, sms)
     window.updateSidebarUnreadBadges = function() {
         const badges = document.querySelectorAll('.nav-unread-badge[data-channel]');
         if (!badges.length) return;
