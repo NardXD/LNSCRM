@@ -2075,15 +2075,35 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     padding: 0.15rem 0.4rem;
     border-radius: 6px;
     flex: 0 0 auto;
+    width: auto !important;
+    min-width: 1.75rem;
+    max-width: none;
+    text-align: center;
 }
-.inbox-tag-remove:hover {
-    background: #fee2e2;
-    color: #b91c1c;
+.inbox-tag-remove:hover,
+.inbox-pop-menu .inbox-tag-remove:hover {
+    background: #fee2e2 !important;
+    color: #b91c1c !important;
+}
+#tagsMenuApplied .inbox-participant-row {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+}
+#tagsMenuApplied .inbox-participant-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--inbox-text);
+    font-size: 0.86rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .inbox-tags-add {
     border-top: 1px solid var(--inbox-border);
     margin-top: 0.35rem;
-    padding: 0.5rem 0.35rem 0.1rem;
+    padding: 0.5rem 0.35rem 0.35rem;
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
@@ -2091,7 +2111,7 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 }
 .inbox-tags-add .inbox-assign-search { padding: 0 0.2rem; }
 .inbox-tags-add .inbox-assign-list {
-    max-height: min(180px, 28vh);
+    max-height: min(220px, 32vh);
     overflow-y: auto;
     padding: 0 0.15rem;
 }
@@ -2110,9 +2130,6 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     color: inherit;
 }
 .inbox-tag-add-option:hover { background: var(--inbox-bg); }
-.inbox-tags-add .inbox-lead-label-add {
-    margin: 0.15rem 0.2rem 0.25rem;
-}
 .inbox-tags-add .inbox-assign-empty {
     padding: 0.45rem 0.55rem;
     font-size: 0.82rem;
@@ -7717,10 +7734,6 @@ html.inbox-is-popout .inbox-props {
                             <input type="search" id="tagsMenuSearch" placeholder="Search labels to add…" autocomplete="off" aria-label="Search labels to add">
                         </div>
                         <div class="inbox-assign-list" id="tagsMenuAddList">${tagsMenuAddOptionsHtml(c)}</div>
-                        <div class="inbox-lead-label-add">
-                            <input type="text" id="tagsMenuNewInput" class="inbox-select" maxlength="50" placeholder="New label" aria-label="Create new label">
-                            <button type="button" class="inbox-btn ghost" id="btnTagsMenuAddNew">Add</button>
-                        </div>
                     </div>
                 </div>
             </div>`;
@@ -10359,19 +10372,6 @@ html.inbox-is-popout .inbox-props {
             return;
         }
 
-        const addNewBtn = e.target.closest('#btnTagsMenuAddNew');
-        if (addNewBtn) {
-            e.stopPropagation();
-            const input = el('tagsMenuNewInput');
-            const name = String(input?.value || '').trim();
-            if (!name) {
-                input?.focus();
-                return;
-            }
-            await attachConversationLabel({ name });
-            return;
-        }
-
         if (!e.target.closest('#btnAddParticipant')) return;
         e.stopPropagation();
         openAssignMenu(el('btnAssignToggle'));
@@ -10381,12 +10381,6 @@ html.inbox-is-popout .inbox-props {
         renderTagsMenuAddList(e.target.value);
     });
     el('threadParticipants')?.addEventListener('keydown', (e) => {
-        if (e.target?.id === 'tagsMenuNewInput' && e.key === 'Enter') {
-            e.preventDefault();
-            e.stopPropagation();
-            el('btnTagsMenuAddNew')?.click();
-            return;
-        }
         if (e.target?.id === 'tagsMenuSearch' && e.key === 'Escape') {
             e.preventDefault();
             e.stopPropagation();
