@@ -1021,30 +1021,7 @@ class OutlookMailService
             }
 
             $items = $response->json('value') ?? [];
-            $files = [];
-            foreach ($items as $item) {
-                if (! is_array($item)) {
-                    continue;
-                }
-                $type = (string) ($item['@odata.type'] ?? '');
-                if ($type !== '' && $type !== '#microsoft.graph.fileAttachment') {
-                    continue;
-                }
-                $externalId = (string) ($item['id'] ?? '');
-                $name = trim((string) ($item['name'] ?? ''));
-                if ($externalId === '' || $name === '') {
-                    continue;
-                }
-                $contentId = trim((string) ($item['contentId'] ?? ''), "<> \t\r\n");
-                $files[] = [
-                    'id' => $externalId,
-                    'name' => $name,
-                    'content_type' => (string) ($item['contentType'] ?? 'application/octet-stream'),
-                    'size' => isset($item['size']) ? (int) $item['size'] : null,
-                    'is_inline' => ! empty($item['isInline']),
-                    'content_id' => $contentId !== '' ? $contentId : null,
-                ];
-            }
+            $files = $this->normalizeGraphAttachmentList(is_array($items) ? $items : []);
 
             $message->attachments = $files;
 
@@ -1174,7 +1151,16 @@ class OutlookMailService
     }
 
     /**
-     * @param  array{to: string, subject: string, body: string, cc?: string|null, reply_to_message_id?: string|null, honor_recipients?: bool}  $payload
+     * @param  array{
+     *     to: string,
+     *     subject: string,
+     *     body: string,
+     *     cc?: string|null,
+     *     reply_to_message_id?: string|null,
+     *     honor_recipients?: bool,
+     *     attachments?: array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>
+     * }  $payload
+     * @return array{sent: true, id?: string, conversationId?: string, attachments?: array<int, array<string, mixed>>}|null
      */
     public function sendMail(SharedInbox $inbox, array $payload): ?array
     {
@@ -1232,7 +1218,7 @@ class OutlookMailService
         $hasAttachments = ! empty($message['attachments']);
         $honorRecipients = ! empty($payload['honor_recipients']) || $ccList !== [];
 
-        // Graph /reply ignores To/CC — use sendMail when the user set recipients or attached files.
+        // Graph /reply ignores To/CC and returns no message id — use it only for plain replies.
         if (! empty($payload['reply_to_message_id'])
             && ! str_starts_with((string) $payload['reply_to_message_id'], 'local-')
             && ! $hasAttachments
@@ -1242,25 +1228,132 @@ class OutlookMailService
                 ->post(self::GRAPH_BASE."/{$mailboxPath}/messages/{$payload['reply_to_message_id']}/reply", [
                     'comment' => $payload['body'],
                 ]);
-        } else {
-            $response = Http::withToken($account->access_token)
-                ->timeout(120)
-                ->post(self::GRAPH_BASE."/{$mailboxPath}/sendMail", [
-                    'message' => $message,
-                    'saveToSentItems' => true,
+
+            if (! $response->successful()) {
+                Log::warning('Outlook send mail failed', [
+                    'status' => $response->status(),
+                    'body' => $response->body(),
                 ]);
+
+                return null;
+            }
+
+            return ['sent' => true];
         }
 
-        if (! $response->successful()) {
-            Log::warning('Outlook send mail failed', [
-                'status' => $response->status(),
-                'body' => $response->body(),
+        // Create a draft then send it so Graph returns a stable message id (and Sent Items
+        // keeps that id). Attachment downloads can then use Outlook instead of local copies.
+        $createResp = Http::withToken($account->access_token)
+            ->timeout(120)
+            ->post(self::GRAPH_BASE."/{$mailboxPath}/messages", $message);
+
+        if (! $createResp->successful()) {
+            Log::warning('Outlook create draft before send failed', [
+                'status' => $createResp->status(),
+                'body' => mb_substr($createResp->body(), 0, 500),
             ]);
 
             return null;
         }
 
-        return ['sent' => true];
+        $draftId = (string) ($createResp->json('id') ?? '');
+        $conversationId = (string) ($createResp->json('conversationId') ?? '');
+        if ($draftId === '') {
+            Log::warning('Outlook create draft before send returned no id', [
+                'body' => mb_substr($createResp->body(), 0, 500),
+            ]);
+
+            return null;
+        }
+
+        $sendResp = Http::withToken($account->access_token)
+            ->timeout(120)
+            ->post(self::GRAPH_BASE."/{$mailboxPath}/messages/{$draftId}/send");
+
+        if (! $sendResp->successful()) {
+            Log::warning('Outlook send draft failed', [
+                'message_id' => $draftId,
+                'status' => $sendResp->status(),
+                'body' => mb_substr($sendResp->body(), 0, 500),
+            ]);
+
+            return null;
+        }
+
+        $result = [
+            'sent' => true,
+            'id' => $draftId,
+        ];
+        if ($conversationId !== '') {
+            $result['conversationId'] = $conversationId;
+        }
+
+        $attachmentMeta = $this->listMessageAttachmentMeta($account, $mailboxPath, $draftId);
+        if ($attachmentMeta !== null) {
+            $result['attachments'] = $attachmentMeta;
+        }
+
+        return $result;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>|null  null = fetch failed (retry later)
+     */
+    private function listMessageAttachmentMeta(
+        OutlookMailAccount $account,
+        string $mailboxPath,
+        string $messageId
+    ): ?array {
+        $response = Http::withToken($account->access_token)
+            ->timeout(60)
+            ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/".rawurlencode($messageId).'/attachments', [
+                '$top' => 50,
+            ]);
+
+        if (! $response->successful()) {
+            Log::warning('Outlook list attachments after send failed', [
+                'message_id' => $messageId,
+                'status' => $response->status(),
+            ]);
+
+            return null;
+        }
+
+        return $this->normalizeGraphAttachmentList($response->json('value') ?? []);
+    }
+
+    /**
+     * @param  array<int, mixed>  $items
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeGraphAttachmentList(array $items): array
+    {
+        $files = [];
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $type = (string) ($item['@odata.type'] ?? '');
+            if ($type !== '' && $type !== '#microsoft.graph.fileAttachment') {
+                continue;
+            }
+            $externalId = (string) ($item['id'] ?? '');
+            $name = trim((string) ($item['name'] ?? ''));
+            if ($externalId === '' || $name === '') {
+                continue;
+            }
+            $contentId = trim((string) ($item['contentId'] ?? ''), "<> \t\r\n");
+            $files[] = [
+                'id' => $externalId,
+                'name' => $name,
+                'content_type' => (string) ($item['contentType'] ?? 'application/octet-stream'),
+                'size' => isset($item['size']) ? (int) $item['size'] : null,
+                'is_inline' => ! empty($item['isInline']),
+                'content_id' => $contentId !== '' ? $contentId : null,
+            ];
+        }
+
+        return $files;
     }
 
     /**

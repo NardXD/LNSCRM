@@ -4362,11 +4362,12 @@ class InboxController extends Controller
             if (! is_array($file)) {
                 continue;
             }
-            $cid = trim((string) ($file['content_id'] ?? ''), "<> \t\r\n");
+            $cid = trim((string) ($file['content_id'] ?? $file['contentId'] ?? ''), "<> \t\r\n");
             if ($cid === '') {
                 continue;
             }
-            $url = url('/api/inbox/conversations/'.$m->inbox_conversation_id.'/messages/'.$m->id.'/attachments/'.$index);
+            $attachIndex = $file['index'] ?? $index;
+            $url = url('/api/inbox/conversations/'.$m->inbox_conversation_id.'/messages/'.$m->id.'/attachments/'.$attachIndex.'?inline=1');
             $quoted = preg_quote($cid, '/');
             $html = preg_replace(
                 '/(src\s*=\s*["\'])cid:'.$quoted.'(?:@[^"\']*)?(["\'])/i',

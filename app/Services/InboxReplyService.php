@@ -53,9 +53,12 @@ class InboxReplyService
             throw new \RuntimeException('Failed to send via Outlook.');
         }
 
+        $externalId = ! empty($result['id']) ? (string) $result['id'] : 'local-'.uniqid();
+        $storedAttachments = $this->outlookAttachmentsForLocalMessage($result, $attachments);
+
         $message = InboxMessage::create([
             'inbox_conversation_id' => $conversation->id,
-            'external_message_id' => 'local-'.uniqid(),
+            'external_message_id' => $externalId,
             'direction' => 'outbound',
             'from_name' => $actor->name,
             'from_email' => $inbox->email ?? $inbox->account?->email,
@@ -66,6 +69,7 @@ class InboxReplyService
             'body_text' => strip_tags($body),
             'is_read' => true,
             'sent_at' => now(),
+            'attachments' => $storedAttachments,
         ]);
 
         $this->consumeDraftMessages($conversation);
@@ -207,13 +211,18 @@ class InboxReplyService
 
         $fromEmail = $inbox->email ?? $inbox->account?->email;
         $localId = 'local-compose-'.uniqid();
+        $graphMessageId = ! empty($result['id']) ? (string) $result['id'] : null;
+        $graphConversationId = ! empty($result['conversationId']) ? (string) $result['conversationId'] : null;
+        $externalConversationId = $graphConversationId ?: $localId;
+        $externalMessageId = $graphMessageId ?: $localId;
+        $storedAttachments = $this->outlookAttachmentsForLocalMessage($result, $attachments);
         $snippet = EmailQuotedHistory::snippet($body);
 
         if ($draft) {
             $this->consumeDraftMessages($draft);
             $draft->update([
                 'folder' => 'sent',
-                'external_conversation_id' => $draft->external_conversation_id ?: $localId,
+                'external_conversation_id' => $draft->external_conversation_id ?: $externalConversationId,
                 'subject' => $subject,
                 'snippet' => $snippet,
                 'from_name' => $actor->name,
@@ -230,7 +239,7 @@ class InboxReplyService
                 'company_id' => $actor->company_id,
                 'shared_inbox_id' => $inbox->id,
                 'folder' => 'sent',
-                'external_conversation_id' => $localId,
+                'external_conversation_id' => $externalConversationId,
                 'subject' => $subject,
                 'snippet' => $snippet,
                 'from_name' => $actor->name,
@@ -245,7 +254,7 @@ class InboxReplyService
 
         $message = InboxMessage::create([
             'inbox_conversation_id' => $conversation->id,
-            'external_message_id' => $localId,
+            'external_message_id' => $externalMessageId,
             'direction' => 'outbound',
             'from_name' => $actor->name,
             'from_email' => $fromEmail,
@@ -256,6 +265,7 @@ class InboxReplyService
             'body_text' => strip_tags($body),
             'is_read' => true,
             'sent_at' => now(),
+            'attachments' => $storedAttachments,
         ]);
 
         if ($draft) {
@@ -597,10 +607,37 @@ class InboxReplyService
     }
 
     /**
+     * Prefer Outlook attachment metadata (Graph ids) so downloads use Outlook storage.
+     *
+     * @param  array<string, mixed>  $sendResult
+     * @param  array<int, mixed>  $requestedAttachments
+     * @return array<int, array<string, mixed>>|null
+     */
+    private function outlookAttachmentsForLocalMessage(array $sendResult, array $requestedAttachments): ?array
+    {
+        if (array_key_exists('attachments', $sendResult) && is_array($sendResult['attachments'])) {
+            return $sendResult['attachments'];
+        }
+
+        if ($requestedAttachments === []) {
+            return [];
+        }
+
+        // Real Graph message id is known but listing failed — hydrate on next open.
+        if (! empty($sendResult['id'])) {
+            return null;
+        }
+
+        return [];
+    }
+
+    /**
+     * Persist outbound/draft attachments to local disk for UI download and cid: inline images.
+     *
      * @param  array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>  $attachments
      * @return array<int, array<string, mixed>>
      */
-    public function storeDraftAttachments(InboxMessage $message, array $attachments): array
+    public function storeMessageAttachments(InboxMessage $message, array $attachments, string $directory = 'inbox-messages'): array
     {
         $stored = [];
         foreach ($attachments as $index => $attachment) {
@@ -611,7 +648,7 @@ class InboxReplyService
             $safeName = Str::slug(pathinfo((string) ($attachment['name'] ?? 'file'), PATHINFO_FILENAME)) ?: 'file';
             $ext = pathinfo((string) ($attachment['name'] ?? ''), PATHINFO_EXTENSION);
             $filename = $index.'_'.$safeName.($ext !== '' ? '.'.$ext : '');
-            $path = 'inbox-drafts/'.$message->id.'/'.$filename;
+            $path = trim($directory, '/').'/'.$message->id.'/'.$filename;
             Storage::disk('local')->put($path, $binary);
             $item = [
                 'name' => $attachment['name'] ?? $filename,
@@ -628,6 +665,15 @@ class InboxReplyService
         }
 
         return $stored;
+    }
+
+    /**
+     * @param  array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>  $attachments
+     * @return array<int, array<string, mixed>>
+     */
+    public function storeDraftAttachments(InboxMessage $message, array $attachments): array
+    {
+        return $this->storeMessageAttachments($message, $attachments, 'inbox-drafts');
     }
 
     /**
