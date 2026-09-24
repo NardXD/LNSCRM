@@ -152,6 +152,14 @@ class SidebarHelper
                 'category' => 'main',
             ],
             [
+                'route' => 'discussions',
+                'permission' => 'view_discussions',
+                'module_slug' => 'discussions',
+                'label' => 'Discussions',
+                'icon' => 'discussions',
+                'category' => 'main',
+            ],
+            [
                 'route' => 'viber',
                 'permission' => 'view_viber',
                 'module_slug' => 'viber',

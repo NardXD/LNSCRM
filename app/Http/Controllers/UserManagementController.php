@@ -755,6 +755,12 @@ class UserManagementController extends Controller
                 'create_inbox_templates',
                 'module_slug' => 'inbox',
             ],
+            'Discussions' => [
+                'view_discussions',
+                'create_discussion_tags',
+                'create_discussion_rules',
+                'module_slug' => 'discussions',
+            ],
             'Viber' => ['view_viber', 'module_slug' => 'viber'],
             'WhatsApp' => ['view_whatsapp', 'module_slug' => 'whatsapp'],
             'Facebook & Instagram' => ['view_facebook', 'view_facebook_reports', 'module_slug' => 'facebook'],

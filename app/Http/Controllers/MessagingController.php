@@ -43,6 +43,9 @@ class MessagingController extends Controller
             ->join('messages as m', 'm.conversation_id', '=', 'c.id')
             ->where('cp.user_id', $user->id)
             ->where('c.company_id', $companyId)
+            ->where(function ($q) {
+                $q->where('c.kind', Conversation::KIND_CHAT)->orWhereNull('c.kind');
+            })
             ->where('m.user_id', '!=', $user->id)
             ->where(function ($q) {
                 $q->whereNull('cp.last_read_at')
@@ -66,6 +69,15 @@ class MessagingController extends Controller
         return $user->company_id;
     }
 
+    private function rejectIfDiscussion(Conversation $conversation)
+    {
+        if ($conversation->isDiscussion()) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        return null;
+    }
+
     /**
      * Get all conversations for the authenticated user within their company.
      */
@@ -83,6 +95,10 @@ class MessagingController extends Controller
 
         $query = $user->conversations()
             ->where('conversations.company_id', $companyId)
+            ->where(function ($q) {
+                $q->where('conversations.kind', Conversation::KIND_CHAT)
+                    ->orWhereNull('conversations.kind');
+            })
             ->with(['participants' => function ($q) {
                 $q->where('users.id', '!=', Auth::id());
             }])
@@ -226,6 +242,9 @@ class MessagingController extends Controller
             $otherId = $participantIds[0];
             $existing = Conversation::where('company_id', $companyId)
                 ->where('type', 'direct')
+                ->where(function ($q) {
+                    $q->where('kind', Conversation::KIND_CHAT)->orWhereNull('kind');
+                })
                 ->whereHas('participants', fn ($q) => $q->where('users.id', $user->id))
                 ->whereHas('participants', fn ($q) => $q->where('users.id', $otherId))
                 ->first();
@@ -238,6 +257,8 @@ class MessagingController extends Controller
             $conv = Conversation::create([
                 'company_id' => $companyId,
                 'type' => $validated['type'],
+                'kind' => Conversation::KIND_CHAT,
+                'status' => Conversation::STATUS_OPEN,
                 'name' => $validated['type'] === 'group' ? $validated['name'] : null,
                 'photo' => $validated['type'] === 'group' && ! empty($validated['photo_path']) ? $validated['photo_path'] : null,
                 'created_by' => $user->id,
@@ -257,6 +278,10 @@ class MessagingController extends Controller
      */
     public function getMessages(Request $request, Conversation $conversation)
     {
+        if ($reject = $this->rejectIfDiscussion($conversation)) {
+            return $reject;
+        }
+
         $companyId = $this->requireCompany();
         if (! $companyId || $conversation->company_id !== $companyId) {
             return response()->json(['success' => false, 'message' => 'Not found'], 404);
@@ -332,6 +357,10 @@ class MessagingController extends Controller
      */
     public function sendMessage(Request $request, Conversation $conversation)
     {
+        if ($reject = $this->rejectIfDiscussion($conversation)) {
+            return $reject;
+        }
+
         $companyId = $this->requireCompany();
         if (! $companyId || $conversation->company_id !== $companyId) {
             return response()->json(['success' => false, 'message' => 'Not found'], 404);
@@ -399,6 +428,10 @@ class MessagingController extends Controller
      */
     public function updateMessage(Request $request, Conversation $conversation, Message $message)
     {
+        if ($reject = $this->rejectIfDiscussion($conversation)) {
+            return $reject;
+        }
+
         $companyId = $this->requireCompany();
         if (! $companyId || $conversation->company_id !== $companyId) {
             return response()->json(['success' => false, 'message' => 'Not found'], 404);
@@ -467,6 +500,10 @@ class MessagingController extends Controller
      */
     public function reactToMessage(Request $request, Conversation $conversation, Message $message)
     {
+        if ($reject = $this->rejectIfDiscussion($conversation)) {
+            return $reject;
+        }
+
         $companyId = $this->requireCompany();
         if (! $companyId || $conversation->company_id !== $companyId) {
             return response()->json(['success' => false, 'message' => 'Not found'], 404);
@@ -513,6 +550,10 @@ class MessagingController extends Controller
      */
     public function destroyConversation(Conversation $conversation)
     {
+        if ($reject = $this->rejectIfDiscussion($conversation)) {
+            return $reject;
+        }
+
         $companyId = $this->requireCompany();
         if (! $companyId || $conversation->company_id !== $companyId) {
             return response()->json(['success' => false, 'message' => 'Not found'], 404);
@@ -593,6 +634,10 @@ class MessagingController extends Controller
      */
     public function updateConversation(Request $request, Conversation $conversation)
     {
+        if ($reject = $this->rejectIfDiscussion($conversation)) {
+            return $reject;
+        }
+
         $companyId = $this->requireCompany();
         if (! $companyId || $conversation->company_id !== $companyId) {
             return response()->json(['success' => false, 'message' => 'Not found'], 404);
@@ -633,6 +678,10 @@ class MessagingController extends Controller
      */
     public function addMember(Request $request, Conversation $conversation)
     {
+        if ($reject = $this->rejectIfDiscussion($conversation)) {
+            return $reject;
+        }
+
         $companyId = $this->requireCompany();
         if (! $companyId || $conversation->company_id !== $companyId) {
             return response()->json(['success' => false, 'message' => 'Not found'], 404);
@@ -675,6 +724,10 @@ class MessagingController extends Controller
      */
     public function removeMember(Conversation $conversation, User $userToRemove)
     {
+        if ($reject = $this->rejectIfDiscussion($conversation)) {
+            return $reject;
+        }
+
         $companyId = $this->requireCompany();
         if (! $companyId || $conversation->company_id !== $companyId) {
             return response()->json(['success' => false, 'message' => 'Not found'], 404);
@@ -707,6 +760,10 @@ class MessagingController extends Controller
      */
     public function transferOwnership(Request $request, Conversation $conversation)
     {
+        if ($reject = $this->rejectIfDiscussion($conversation)) {
+            return $reject;
+        }
+
         $companyId = $this->requireCompany();
         if (! $companyId || $conversation->company_id !== $companyId) {
             return response()->json(['success' => false, 'message' => 'Not found'], 404);

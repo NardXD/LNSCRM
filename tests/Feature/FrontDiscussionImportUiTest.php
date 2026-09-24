@@ -93,6 +93,7 @@ class FrontDiscussionImportUiTest extends TestCase
 
         $conversation = Conversation::query()->where('front_conversation_id', 'cnv_ui')->first();
         $this->assertNotNull($conversation);
+        $this->assertSame(Conversation::KIND_DISCUSSION, $conversation->kind);
         $this->assertSame('Callback thread', $conversation->name);
         $this->assertEqualsCanonicalizing(
             [$user->id, $teammate->id],

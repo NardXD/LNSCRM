@@ -297,6 +297,8 @@ class FrontDiscussionImportService
             $conversation = Conversation::query()->create([
                 'company_id' => $company->id,
                 'type' => 'group',
+                'kind' => Conversation::KIND_DISCUSSION,
+                'status' => Conversation::STATUS_OPEN,
                 'name' => $subject,
                 'created_by' => $creatorId,
                 'front_conversation_id' => $frontConversationId !== '' ? $frontConversationId : null,
@@ -304,6 +306,8 @@ class FrontDiscussionImportService
         } else {
             $conversation->forceFill([
                 'name' => $subject,
+                'kind' => Conversation::KIND_DISCUSSION,
+                'status' => $conversation->status ?: Conversation::STATUS_OPEN,
             ])->save();
         }
 

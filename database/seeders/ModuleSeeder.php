@@ -25,6 +25,7 @@ class ModuleSeeder extends Seeder
             ['slug' => 'leave-management', 'name' => 'Leave Management', 'description' => 'Leave requests and credits', 'route' => 'leave-management', 'sort_order' => 9],
             ['slug' => 'messaging', 'name' => 'Messaging', 'description' => 'Internal messaging system', 'route' => 'messaging', 'sort_order' => 10],
             ['slug' => 'inbox', 'name' => 'Inbox', 'description' => 'Personal and shared Outlook inboxes with assignment, tags, and rules', 'route' => 'inbox', 'sort_order' => 10],
+            ['slug' => 'discussions', 'name' => 'Discussions', 'description' => 'Internal Front-style teammate discussions with assignment, tags, and rules', 'route' => 'discussions', 'sort_order' => 10],
             ['slug' => 'viber', 'name' => 'Viber', 'description' => 'Viber Business chat, media, and customer conversations', 'route' => 'viber', 'sort_order' => 10],
             ['slug' => 'whatsapp', 'name' => 'WhatsApp', 'description' => 'WhatsApp Business Cloud API chat, media, and customer conversations', 'route' => 'whatsapp', 'sort_order' => 10],
             ['slug' => 'sms', 'name' => 'SMS', 'description' => 'Twilio SMS conversations and outbound text messaging', 'route' => 'sms', 'sort_order' => 10],

@@ -17,7 +17,7 @@ class ImportFrontDiscussions extends Command
                             {--status=* : Front conversation statuses (default: archived, assigned, unassigned)}
                             {--dry-run : Report matches without writing chats}';
 
-    protected $description = 'One-time import of Front.com discussion threads into /messaging group chats';
+    protected $description = 'One-time import of Front.com discussion threads into /discussions';
 
     public function handle(FrontDiscussionImportService $importService): int
     {

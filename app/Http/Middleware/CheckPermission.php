@@ -27,6 +27,7 @@ class CheckPermission
         'leave-management' => 'view_leave_management',
         'messaging' => 'view_messaging',
         'inbox' => 'view_inbox',
+        'discussions' => 'view_discussions',
         'broadcast-messaging' => 'view_broadcast_messaging',
         'viber' => 'view_viber',
         'whatsapp' => 'view_whatsapp',
@@ -66,6 +67,7 @@ class CheckPermission
         'leave-management' => 'leave-management',
         'messaging' => 'messaging',
         'inbox' => 'inbox',
+        'discussions' => 'discussions',
         'broadcast-messaging' => 'broadcast-messaging',
         'viber' => 'viber',
         'whatsapp' => 'whatsapp',
@@ -241,6 +243,15 @@ class CheckPermission
         }
         if (str_starts_with($routeName, 'api.broadcast')) {
             return 'broadcast-messaging';
+        }
+        if (str_starts_with($routeName, 'api.discussions')) {
+            return 'discussions';
+        }
+        if (str_starts_with($routeName, 'api.messaging')) {
+            return 'messaging';
+        }
+        if (str_starts_with($routeName, 'api.inbox')) {
+            return 'inbox';
         }
         if ($routeName === 'api.payroll.pnl-invoice-basis') {
             return 'pnl';

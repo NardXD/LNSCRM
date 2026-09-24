@@ -27,6 +27,7 @@ use App\Http\Controllers\CompanyLandingController;
 use App\Http\Controllers\ContactHistoryController;
 use App\Http\Controllers\ContractController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DiscussionsController;
 use App\Http\Controllers\EmployeeMonitoringController;
 use App\Http\Controllers\FacebookController;
 use App\Http\Controllers\HiringAssistantController;
@@ -703,6 +704,34 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::put('/signatures/{signature}', [InboxController::class, 'updateSignature'])->name('api.inbox.signatures.update');
         Route::delete('/signatures/{signature}', [InboxController::class, 'destroySignature'])->name('api.inbox.signatures.destroy');
         Route::post('/signatures/{signature}/default', [InboxController::class, 'setDefaultSignature'])->name('api.inbox.signatures.default');
+    });
+
+    // Front-style internal discussions (comment-only teammate threads)
+    Route::get('/discussions', [DiscussionsController::class, 'index'])
+        ->middleware('permission:view_discussions')
+        ->name('discussions');
+
+    Route::prefix('api/discussions')->middleware('permission:view_discussions')->group(function () {
+        Route::get('/bootstrap', [DiscussionsController::class, 'bootstrap'])->name('api.discussions.bootstrap');
+        Route::get('/conversations', [DiscussionsController::class, 'listConversations'])->name('api.discussions.conversations');
+        Route::post('/conversations', [DiscussionsController::class, 'store'])->name('api.discussions.conversations.store');
+        Route::get('/conversations/{conversation}', [DiscussionsController::class, 'show'])->name('api.discussions.conversations.show');
+        Route::patch('/conversations/{conversation}', [DiscussionsController::class, 'update'])->name('api.discussions.conversations.update');
+        Route::post('/conversations/{conversation}/messages', [DiscussionsController::class, 'storeMessage'])->name('api.discussions.messages.store');
+        Route::post('/conversations/{conversation}/assign', [DiscussionsController::class, 'assign'])->name('api.discussions.conversations.assign');
+        Route::post('/conversations/{conversation}/snooze', [DiscussionsController::class, 'snooze'])->name('api.discussions.conversations.snooze');
+        Route::post('/conversations/{conversation}/archive', [DiscussionsController::class, 'archive'])->name('api.discussions.conversations.archive');
+        Route::post('/conversations/{conversation}/unsubscribe', [DiscussionsController::class, 'unsubscribe'])->name('api.discussions.conversations.unsubscribe');
+        Route::post('/conversations/{conversation}/participants', [DiscussionsController::class, 'addParticipants'])->name('api.discussions.conversations.participants');
+        Route::post('/conversations/{conversation}/tags', [DiscussionsController::class, 'syncTags'])->name('api.discussions.conversations.tags');
+        Route::post('/conversations/{conversation}/move', [DiscussionsController::class, 'move'])->name('api.discussions.conversations.move');
+        Route::post('/tags', [DiscussionsController::class, 'storeTag'])->name('api.discussions.tags.store');
+        Route::delete('/tags/{tag}', [DiscussionsController::class, 'destroyTag'])->name('api.discussions.tags.destroy');
+        Route::get('/rules', [DiscussionsController::class, 'listRules'])->name('api.discussions.rules.index');
+        Route::post('/rules', [DiscussionsController::class, 'storeRule'])->name('api.discussions.rules.store');
+        Route::patch('/rules/{discussionRule}', [DiscussionsController::class, 'updateRule'])->name('api.discussions.rules.update');
+        Route::delete('/rules/{discussionRule}', [DiscussionsController::class, 'destroyRule'])->name('api.discussions.rules.destroy');
+        Route::post('/attachments', [DiscussionsController::class, 'uploadAttachment'])->name('api.discussions.attachments.store');
     });
 
     Route::prefix('api/notifications')->group(function () {

@@ -1548,7 +1548,7 @@
                     </div>
                     <div class="front-import-section">
                         <h4 style="font-size:0.9375rem;font-weight:600;margin:0 0 0.5rem;">Import discussion threads</h4>
-                        <p class="form-help" style="margin-bottom:0.75rem;">Copies Front discussion threads into <strong>/messaging</strong> as group chats. Comment authors and followers become participants when they match a CRM user by email or name. Unmatched comments are posted as you, with the original Front author name prefixed.</p>
+                        <p class="form-help" style="margin-bottom:0.75rem;">Copies Front discussion threads into <strong>/discussions</strong> as internal teammate discussions. Comment authors and followers become participants when they match a CRM user by email or name. Unmatched comments are posted as you, with the original Front author name prefixed.</p>
                         <div class="front-import-actions" style="margin-top:0;">
                             <button type="button" class="btn-secondary" id="front-discussion-dry-run-btn" onclick="handleFrontDiscussionImport(true)">Preview discussions</button>
                             <button type="button" class="btn-primary" id="front-discussion-import-btn" onclick="handleFrontDiscussionImport(false)">Import discussions</button>

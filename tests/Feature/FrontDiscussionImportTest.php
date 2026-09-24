@@ -86,6 +86,7 @@ class FrontDiscussionImportTest extends TestCase
         $conversation = Conversation::query()->where('front_conversation_id', 'cnv_standup')->first();
         $this->assertNotNull($conversation);
         $this->assertSame('group', $conversation->type);
+        $this->assertSame(Conversation::KIND_DISCUSSION, $conversation->kind);
         $this->assertSame('Weekly standup', $conversation->name);
         $this->assertEqualsCanonicalizing([$alex->id, $pat->id], $conversation->participants()->pluck('users.id')->all());
 

@@ -47,7 +47,9 @@ class MessagingMentionNotification extends Notification
             'author_name' => $author,
             'summary' => $author.' mentioned you in '.$chatName,
             'snippet' => Str::limit(trim((string) ($this->message->body ?: '')), 140),
-            'url' => url('/messaging?conversation='.$this->conversation->id),
+            'url' => $this->conversation->isDiscussion()
+                ? url('/discussions?conversation='.$this->conversation->id)
+                : url('/messaging?conversation='.$this->conversation->id),
         ];
     }
 };
