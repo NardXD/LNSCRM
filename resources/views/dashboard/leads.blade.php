@@ -1287,6 +1287,9 @@ body:has(.ld-page-wrapper) {
         }
         return `<span class="${cls}" title="${esc(title)}">${icon}<span>${esc(label)}</span></span>`;
     }
+    function leadSourceCellHtml(lead) {
+        return sourceVisual(lead);
+    }
     const LEAD_MODAL_CHANNEL_NAV = [
         { key: 'phone', label: 'Phone', channels: ['call'] },
         { key: 'inbox', label: 'Inbox', channels: ['inbox'] },
@@ -1419,11 +1422,11 @@ body:has(.ld-page-wrapper) {
     }
     function leadRowHtml(lead) {
         return `
-            <tr data-id="${lead.id}">
+            <tr data-id="${lead.id}" data-lead-source="${esc(lead.source || '')}">
                 <td>
                     <div class="lead-name">${esc([lead.title, lead.name].filter(Boolean).join(' '))}</div>
                     ${lead.company_name ? `<div class="lead-company">${esc(lead.company_name)}</div>` : ''}
-                    ${sourceVisual(lead)}
+                    <div data-col="source">${sourceVisual(lead)}</div>
                 </td>
                 <td class="lead-meta" title="${lead.created_at ? esc(formatAt(lead.created_at)) : ''}">${esc(leadAgeDays(lead.created_at))}</td>
                 <td class="lead-meta">${esc((lead.phones || []).map(p => p.value).join(', ') || '—')}</td>
@@ -1436,7 +1439,7 @@ body:has(.ld-page-wrapper) {
                 </td>
                 <td>${statusBadge(lead)}</td>
                 <td class="lead-meta">${esc(formatAt(lead.updated_at))}</td>
-                <td class="lead-meta" title="${lead.connected_thread_label ? esc(lead.connected_thread_label + ' · ' + formatAt(lead.connected_thread_at)) : 'No connected thread'}">${esc(timeAgo(lead.connected_thread_at))}</td>
+                <td class="lead-meta" data-col="thread-age" title="${lead.connected_thread_label ? esc(lead.connected_thread_label + ' · ' + formatAt(lead.connected_thread_at)) : 'No connected thread'}">${esc(timeAgo(lead.connected_thread_at))}</td>
                 <td>
                     <button type="button" class="btn btn-secondary btn-sm" data-message="${lead.id}">Message</button>
                 </td>
@@ -1971,6 +1974,8 @@ body:has(.ld-page-wrapper) {
         if (state.source) q.set('source', state.source);
         if (state.assignedTo) q.set('assigned_to', state.assignedTo);
         if (state.noSharedThread) q.set('no_shared_thread', '1');
+        // Thread matching is deferred (see hydrateConnectedThreads) except when sorting by thread age.
+        if (state.sort === 'thread_age') q.set('include_threads', '1');
         state.labelIds.forEach(id => q.append('label_ids[]', id));
         try {
             const res = await fetch(api + '?' + q.toString(), { credentials: 'same-origin', headers: headers() });
@@ -1986,12 +1991,59 @@ body:has(.ld-page-wrapper) {
             document.getElementById('leadsPrev').disabled = (pag.current_page || 1) <= 1;
             document.getElementById('leadsNext').disabled = (pag.current_page || 1) >= (pag.last_page || 1);
             renderSourceFilter(data.sources || []);
-            loadStatusCounts();
+            if (data.status_counts && typeof data.status_counts === 'object') {
+                state.statusCounts = data.status_counts;
+                renderStatusTabs();
+            } else {
+                loadStatusCounts();
+            }
+            if (state.sort !== 'thread_age' && rows.length) {
+                hydrateConnectedThreads(rows.map(r => r.id));
+            }
         } catch (err) {
             body.innerHTML = '<tr><td colspan="10" class="empty-state">Could not load leads. Try again.</td></tr>';
             if (err?.message) console.error(err.message);
         } finally {
             if (opts.overlay !== false) setOverlay('leadsTableBusy', false);
+        }
+    }
+
+    async function hydrateConnectedThreads(leadIds) {
+        const ids = (leadIds || []).map(Number).filter(id => id > 0);
+        if (!ids.length) return;
+        try {
+            const q = new URLSearchParams();
+            ids.forEach(id => q.append('ids[]', String(id)));
+            const res = await fetch(api + '/connected-threads?' + q.toString(), { credentials: 'same-origin', headers: headers() });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.data) return;
+            const map = data.data;
+            ids.forEach(id => {
+                const patch = map[String(id)] || map[id];
+                if (!patch) return;
+                const row = body.querySelector(`tr[data-id="${id}"]`);
+                if (!row) return;
+                const lead = {
+                    id,
+                    source: row.dataset.leadSource || '',
+                    has_connected_thread: !!patch.has_connected_thread,
+                    connected_thread_url: patch.connected_thread_url,
+                    connected_thread_channel: patch.connected_thread_channel,
+                    connected_thread_label: patch.connected_thread_label,
+                    connected_thread_at: patch.connected_thread_at,
+                };
+                const sourceCell = row.querySelector('[data-col="source"]');
+                if (sourceCell) sourceCell.innerHTML = leadSourceCellHtml(lead);
+                const ageCell = row.querySelector('[data-col="thread-age"]');
+                if (ageCell) {
+                    ageCell.title = lead.connected_thread_label
+                        ? `${lead.connected_thread_label} · ${formatAt(lead.connected_thread_at)}`
+                        : 'No connected thread';
+                    ageCell.textContent = timeAgo(lead.connected_thread_at);
+                }
+            });
+        } catch (err) {
+            console.warn('Could not hydrate connected threads', err);
         }
     }
 

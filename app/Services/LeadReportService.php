@@ -125,57 +125,48 @@ class LeadReportService
      * Counts for status tabs. The All tab matches the list (archived excluded);
      * each status slug includes its own total under the current filters.
      *
+     * Uses one GROUP BY query instead of N separate COUNTs.
+     *
      * @param  array<string, mixed>|Request  $filters
      * @return array<string, int>
      */
     public function statusCounts(int $companyId, array|Request $filters): array
     {
         $filters = $this->normalizeFilters($filters);
-        $allFilters = $filters;
-        $allFilters['status'] = 'all';
-        $allFilters['statuses'] = [];
-        $allFilters['all_statuses'] = false;
 
-        $counts = [
-            'all' => $this->filteredQuery($companyId, $allFilters)->count(),
-        ];
-
-        $slugs = array_unique(array_merge(
-            $this->statusSlugsForCounts($companyId),
-            $this->distinctStatusSlugs($companyId, $filters)
-        ));
-
-        foreach ($slugs as $slug) {
-            $slugFilters = $filters;
-            $slugFilters['status'] = $slug;
-            $slugFilters['statuses'] = [];
-            $slugFilters['all_statuses'] = false;
-            $counts[$slug] = $this->filteredQuery($companyId, $slugFilters)->count();
-        }
-
-        return $counts;
-    }
-
-    /**
-     * @param  array<string, mixed>  $filters
-     * @return list<string>
-     */
-    protected function distinctStatusSlugs(int $companyId, array $filters): array
-    {
         $perStatusFilters = $filters;
         $perStatusFilters['status'] = 'all';
         $perStatusFilters['statuses'] = [];
         $perStatusFilters['all_statuses'] = true;
 
-        return $this->filteredQuery($companyId, $perStatusFilters)
-            ->whereNotNull('leads.status')
-            ->distinct()
-            ->orderBy('leads.status')
-            ->pluck('leads.status')
-            ->map(fn ($slug) => trim((string) $slug))
-            ->filter(fn ($slug) => $slug !== '')
-            ->values()
+        $grouped = $this->filteredQuery($companyId, $perStatusFilters)
+            ->select(['leads.status', DB::raw('COUNT(*) as aggregate')])
+            ->groupBy('leads.status')
+            ->pluck('aggregate', 'leads.status')
+            ->map(fn ($count) => (int) $count)
             ->all();
+
+        $slugs = array_unique(array_merge(
+            $this->statusSlugsForCounts($companyId),
+            array_keys($grouped)
+        ));
+
+        $counts = [];
+        $all = 0;
+        foreach ($slugs as $slug) {
+            $slug = trim((string) $slug);
+            if ($slug === '') {
+                continue;
+            }
+            $count = (int) ($grouped[$slug] ?? 0);
+            $counts[$slug] = $count;
+            if ($slug !== Lead::STATUS_ARCHIVED) {
+                $all += $count;
+            }
+        }
+        $counts['all'] = $all;
+
+        return $counts;
     }
 
     /**

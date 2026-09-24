@@ -35,6 +35,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -124,6 +125,8 @@ class LeadsController extends Controller
         $companyId = (int) Auth::user()->company_id;
         $sort = (string) $request->get('sort', 'updated_at');
         $direction = strtolower((string) $request->get('direction', 'desc')) === 'asc' ? 'asc' : 'desc';
+        $includeThreads = $request->boolean('include_threads')
+            || $sort === 'thread_age';
 
         if ($sort === 'thread_age') {
             return $this->listSortedByThreadAge($companyId, $request, $direction);
@@ -143,11 +146,15 @@ class LeadsController extends Controller
 
         $perPage = min(100, max(10, (int) $request->get('per_page', 20)));
         $leads = $query->paginate($perPage);
-        $threads = rescue(
-            fn () => $this->connectedThreads->forLeads($companyId, collect($leads->items())),
-            [],
-            report: true
-        );
+
+        $threads = [];
+        if ($includeThreads) {
+            $threads = rescue(
+                fn () => $this->connectedThreads->forLeads($companyId, collect($leads->items())),
+                [],
+                report: true
+            );
+        }
 
         return response()->json([
             'success' => true,
@@ -157,6 +164,11 @@ class LeadsController extends Controller
                 return $this->serialize($lead);
             })->all(),
             'sources' => $this->sourcesFor($companyId),
+            'status_counts' => rescue(
+                fn () => $this->leadReports->statusCounts($companyId, $request),
+                ['all' => 0],
+                report: true
+            ),
             'pagination' => [
                 'current_page' => $leads->currentPage(),
                 'last_page' => $leads->lastPage(),
@@ -167,17 +179,78 @@ class LeadsController extends Controller
     }
 
     /**
+     * Hydrate connected-thread columns for a page of lead ids (deferred after fast list).
+     */
+    public function connectedThreadsForIds(Request $request): JsonResponse
+    {
+        $companyId = (int) Auth::user()->company_id;
+        $ids = collect($request->input('ids', []))
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->take(100)
+            ->values()
+            ->all();
+
+        if ($ids === []) {
+            return response()->json(['success' => true, 'data' => (object) []]);
+        }
+
+        $leads = Lead::query()
+            ->where('company_id', $companyId)
+            ->whereIn('id', $ids)
+            ->with('identities')
+            ->get();
+
+        $threads = rescue(
+            fn () => $this->connectedThreads->forLeads($companyId, $leads),
+            [],
+            report: true
+        );
+
+        $payload = [];
+        foreach ($ids as $id) {
+            $thread = $threads[$id] ?? null;
+            $payload[(string) $id] = $thread ? [
+                'has_connected_thread' => true,
+                'connected_thread_url' => $thread['url'] ?? null,
+                'connected_thread_channel' => $thread['channel'] ?? null,
+                'connected_thread_label' => $thread['label'] ?? null,
+                'connected_thread_at' => $thread['at'] ?? null,
+            ] : [
+                'has_connected_thread' => false,
+                'connected_thread_url' => null,
+                'connected_thread_channel' => null,
+                'connected_thread_label' => null,
+                'connected_thread_at' => null,
+            ];
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $payload,
+        ]);
+    }
+
+    /**
      * Sorting by connected-thread age needs to happen after the thread is computed,
-     * so (unlike the default listing) this loads every filtered lead up front,
+     * so (unlike the default listing) this loads filtered leads up front (capped),
      * sorts in memory, and paginates the sorted collection.
      */
     protected function listSortedByThreadAge(int $companyId, Request $request, string $direction): JsonResponse
     {
         $perPage = min(100, max(10, (int) $request->get('per_page', 20)));
         $page = max(1, (int) $request->get('page', 1));
+        $cap = 750;
 
-        $allLeads = $this->leadReports->filteredQuery($companyId, $request)
+        $base = $this->leadReports->filteredQuery($companyId, $request);
+        $totalFiltered = (clone $base)->count();
+        $truncated = $totalFiltered > $cap;
+
+        $allLeads = (clone $base)
             ->with(['identities', 'assignedUser:id,name', 'labels'])
+            ->orderByDesc('updated_at')
+            ->limit($cap)
             ->get();
 
         $threads = rescue(
@@ -217,6 +290,13 @@ class LeadsController extends Controller
                 return $this->serialize($lead);
             })->all(),
             'sources' => $this->sourcesFor($companyId),
+            'status_counts' => rescue(
+                fn () => $this->leadReports->statusCounts($companyId, $request),
+                ['all' => 0],
+                report: true
+            ),
+            'thread_age_truncated' => $truncated,
+            'thread_age_cap' => $cap,
             'pagination' => [
                 'current_page' => $page,
                 'last_page' => max(1, (int) ceil($total / $perPage)),
@@ -231,16 +311,30 @@ class LeadsController extends Controller
      */
     protected function sourcesFor(int $companyId): array
     {
-        return Lead::query()
-            ->where('company_id', $companyId)
-            ->whereNotNull('source')
-            ->where('source', '!=', '')
-            ->distinct()
-            ->orderBy('source')
-            ->pluck('source')
-            ->map(fn ($source) => $this->sanitizeUtf8String((string) $source))
-            ->values()
-            ->all();
+        return Cache::remember(
+            'leads:sources:'.$companyId,
+            now()->addMinutes(5),
+            function () use ($companyId) {
+                return Lead::query()
+                    ->where('company_id', $companyId)
+                    ->whereNotNull('source')
+                    ->where('source', '!=', '')
+                    ->distinct()
+                    ->orderBy('source')
+                    ->pluck('source')
+                    ->map(fn ($source) => $this->sanitizeUtf8String((string) $source))
+                    ->values()
+                    ->all();
+            }
+        );
+    }
+
+    protected function forgetLeadSourcesCache(?int $companyId = null): void
+    {
+        $companyId = $companyId ?? (int) Auth::user()?->company_id;
+        if ($companyId > 0) {
+            Cache::forget('leads:sources:'.$companyId);
+        }
     }
 
     public function statusTabCounts(Request $request): JsonResponse
@@ -410,6 +504,7 @@ class LeadsController extends Controller
         }
         $lead->unsetRelation('identities');
         $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
+        $this->forgetLeadSourcesCache($companyId);
 
         return response()->json([
             'success' => true,
@@ -454,6 +549,7 @@ class LeadsController extends Controller
         $this->leadActivity->recordDiff($lead, $before);
         $lead->unsetRelation('identities');
         $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
+        $this->forgetLeadSourcesCache((int) $lead->company_id);
 
         return response()->json([
             'success' => true,
@@ -465,7 +561,9 @@ class LeadsController extends Controller
     public function destroy(Lead $lead): JsonResponse
     {
         $lead = $this->leadForUser($lead);
+        $companyId = (int) $lead->company_id;
         $lead->delete();
+        $this->forgetLeadSourcesCache($companyId);
 
         return response()->json([
             'success' => true,
