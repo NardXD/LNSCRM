@@ -5332,6 +5332,36 @@ html.inbox-is-popout .inbox-props {
         }
     }
 
+    function namedPastedImageFile(file) {
+        if (!file) return null;
+        if (file.name && file.name !== 'blob' && file.name !== 'image.png') return file;
+        const rawExt = ((file.type || 'image/png').split('/')[1] || 'png').split('+')[0];
+        const ext = rawExt === 'jpeg' ? 'jpg' : rawExt;
+        return new File([file], `pasted-image.${ext}`, { type: file.type || 'image/png' });
+    }
+
+    async function insertInlineImageAtCaret(editor, file) {
+        if (!editor || !file) return;
+        const imageFile = namedPastedImageFile(file);
+        if (imageFile.size > MAX_ATTACH_BYTES) {
+            alert(`${imageFile.name} is larger than 3 MB.`);
+            return;
+        }
+        try {
+            const attachment = await readFileAsAttachment(imageFile);
+            const imgHtml = `<img src="data:${attachment.contentType};base64,${attachment.contentBytes}" alt="${escapeHtml(imageFile.name)}" style="max-width:100%;height:auto;">`;
+            const beforeHtml = editor.innerHTML;
+            insertHtmlAtCaret(editor, imgHtml);
+            if (beforeHtml === editor.innerHTML && !editor.querySelector(`img[src^="data:${attachment.contentType}"]`)) {
+                editor.innerHTML = sanitizeHtml((beforeHtml || '') + imgHtml);
+                placeCaretAtEnd(editor);
+            }
+            decorateHtmlLinks(editor);
+        } catch (err) {
+            alert(err.message || 'Could not insert image.');
+        }
+    }
+
     async function insertHtmlEditorImage(editorKind, file) {
         if (!file) return;
         if (file.size > MAX_ATTACH_BYTES) {
@@ -5345,15 +5375,8 @@ html.inbox-is-popout .inbox-props {
             return;
         }
         try {
-            const attachment = await readFileAsAttachment(file);
-            const imgHtml = `<img src="data:${attachment.contentType};base64,${attachment.contentBytes}" alt="${escapeHtml(file.name)}" style="max-width:100%;height:auto;">`;
             restoreHtmlEditorSelection(editorKind) || placeCaretAtEnd(ed.visual);
-            const beforeHtml = ed.visual.innerHTML;
-            insertHtmlAtCaret(ed.visual, imgHtml);
-            if (!ed.visual.querySelector('img') && beforeHtml === ed.visual.innerHTML) {
-                ed.visual.innerHTML = sanitizeHtml((beforeHtml || '') + imgHtml);
-                placeCaretAtEnd(ed.visual);
-            }
+            await insertInlineImageAtCaret(ed.visual, file);
             if (ed.source) ed.source.value = sanitizeHtml(ed.visual?.innerHTML || '');
         } catch (err) {
             alert(err.message || 'Could not insert image.');
@@ -5525,6 +5548,20 @@ html.inbox-is-popout .inbox-props {
         editor?.addEventListener('paste', async (e) => {
             const files = filesFromClipboard(e);
             if (!files.length) return;
+
+            const images = files.filter((f) => (f.type || '').startsWith('image/'));
+            const others = files.filter((f) => !(f.type || '').startsWith('image/'));
+
+            // Compose/reply: paste images inline at the caret (screenshots, copied images).
+            if ((kind === 'compose' || kind === 'reply') && images.length) {
+                e.preventDefault();
+                for (const file of images) {
+                    await insertInlineImageAtCaret(editor, file);
+                }
+                if (others.length) await addAttachments(kind, others);
+                return;
+            }
+
             e.preventDefault();
             await addAttachments(kind, files);
         });
@@ -5545,6 +5582,17 @@ html.inbox-is-popout .inbox-props {
             const files = [...(e.dataTransfer?.files || [])];
             if (!files.length) return;
             e.preventDefault();
+
+            const images = files.filter((f) => (f.type || '').startsWith('image/'));
+            const others = files.filter((f) => !(f.type || '').startsWith('image/'));
+            if ((kind === 'compose' || kind === 'reply') && images.length) {
+                for (const file of images) {
+                    await insertInlineImageAtCaret(editor, file);
+                }
+                if (others.length) await addAttachments(kind, others);
+                return;
+            }
+
             await addAttachments(kind, files);
         });
 
