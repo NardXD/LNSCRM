@@ -590,15 +590,17 @@ class InboxController extends Controller
             )
             ->withExists('mergedConversations');
 
-        // Message/conversation ID lookup should find the thread in any folder.
-        // Advanced folder=any searches across all folders; otherwise apply sidebar view
-        // or an explicit advanced folder filter.
+        // Message/conversation ID lookup and quick search find threads in any folder.
+        // Advanced folder=any also searches across all folders; otherwise apply sidebar
+        // view or an explicit advanced folder filter.
         if ($idQuery) {
             // no folder/status lock
         } elseif ($folderFilter === 'any') {
             // no folder/status lock
         } elseif ($folderFilter) {
             $query->where('folder', $folderFilter);
+        } elseif ($search !== '') {
+            // Quick search ignores the current sidebar view/folder.
         } elseif ($view === 'open') {
             $query->where('folder', 'inbox')->where('status', 'open');
         } elseif ($view === 'archived') {
