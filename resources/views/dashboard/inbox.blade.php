@@ -25,7 +25,7 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
      data-connect="{{ route('inbox.connect.outlook') }}">
 
     @if(session('status') === 'outlook-mail-connected')
-        <div class="inbox-toast success">Outlook mailbox connected. Click Sync to import mail.</div>
+        <div class="inbox-toast success">Outlook mailbox connected. New mail will sync in the background.</div>
     @endif
     @if(session('error'))
         <div class="inbox-toast error">{{ session('error') }}</div>
@@ -45,9 +45,6 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
                 <div class="inbox-nav-actions">
                     <button type="button" class="inbox-icon-btn" id="btnCompose" title="New mail">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                    </button>
-                    <button type="button" class="inbox-icon-btn" id="btnSync" title="Sync selected mailbox">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                     </button>
                 </div>
             </div>
@@ -9884,7 +9881,6 @@ html.inbox-is-popout .inbox-props {
         const overlay = el('syncOverlay');
         if (!overlay) return;
         overlay.hidden = !show;
-        el('btnSync').classList.toggle('is-syncing', show);
         document.querySelectorAll('[data-sync-inbox]').forEach(btn => {
             btn.classList.toggle('is-syncing', show && Number(btn.dataset.syncInbox) === Number(state.syncingInboxId));
             btn.disabled = show;
@@ -9909,11 +9905,9 @@ html.inbox-is-popout .inbox-props {
 
         state.syncingInboxId = inbox.id;
         if (!quiet) {
-            el('btnSync').disabled = true;
             showSyncOverlay(true);
             setSyncProgress(0, 0, `Counting unsynced emails in ${inbox.name}…`, 0);
         } else {
-            el('btnSync')?.classList.add('is-syncing');
             document.querySelectorAll(`[data-sync-inbox="${inbox.id}"]`).forEach(btn => {
                 btn.classList.add('is-syncing');
             });
@@ -10127,10 +10121,7 @@ html.inbox-is-popout .inbox-props {
             state.syncingInboxId = null;
             if (!quiet) {
                 showSyncOverlay(false);
-                el('btnSync').disabled = false;
-                el('btnSync').title = 'Sync selected mailbox';
             } else {
-                el('btnSync')?.classList.remove('is-syncing');
                 document.querySelectorAll('[data-sync-inbox]').forEach(btn => {
                     btn.classList.remove('is-syncing');
                     btn.disabled = false;
@@ -10138,23 +10129,6 @@ html.inbox-is-popout .inbox-props {
             }
         }
     }
-
-    el('btnSync').addEventListener('click', async () => {
-        if (state.selectedInboxId) {
-            await runInboxSync(state.selectedInboxId);
-            return;
-        }
-        const connected = (state.inboxes || []).filter(i => i.connected);
-        if (connected.length === 1) {
-            await runInboxSync(connected[0].id);
-            return;
-        }
-        if (!connected.length) {
-            alert('Connect at least one personal or shared mailbox first.');
-            return;
-        }
-        alert('Select a mailbox in the sidebar, then sync — or use the sync icon on that mailbox.');
-    });
 
     el('btnConnectOutlook').addEventListener('click', () => { window.location = CONNECT; });
     el('btnDisconnectOutlook').addEventListener('click', async () => {
