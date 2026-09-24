@@ -593,7 +593,7 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
             <div class="inbox-html-visual" id="newTemplateVisual" contenteditable="true" data-placeholder="Write your template…"></div>
             <textarea class="form-input inbox-html-source" id="newTemplateBody" rows="12" hidden placeholder="<p>Hi,</p><p>Thanks for reaching out…</p>"></textarea>
         </div>
-        <p class="inbox-modal-help">Attach files (up to 5, 3 MB each) or insert images inline in Visual mode. Select text or an image, then click Link to make it clickable.</p>
+        <p class="inbox-modal-help">Attach files (up to 5, 10 MB each) or insert images inline in Visual mode. Select text or an image, then click Link to make it clickable.</p>
         <div class="inbox-modal-actions inbox-modal-actions-split">
             <button type="button" class="inbox-btn ghost" id="btnDeleteTemplate" style="display:none;">Delete</button>
             <div class="inbox-modal-actions-right">
@@ -4959,8 +4959,9 @@ html.inbox-is-popout .inbox-props {
         return range.toString();
     }
 
-    const MAX_ATTACH_BYTES = 3 * 1024 * 1024;
+    const MAX_ATTACH_BYTES = 10 * 1024 * 1024;
     const MAX_ATTACH_COUNT = 5;
+    const MAX_ATTACH_LABEL = '10 MB';
     const TEMPLATE_PAGE_SIZE = 5;
     const SIGNATURE_PAGE_SIZE = 5;
 
@@ -5355,7 +5356,7 @@ html.inbox-is-popout .inbox-props {
     function readFileAsAttachment(file) {
         return new Promise((resolve, reject) => {
             if (file.size > MAX_ATTACH_BYTES) {
-                reject(new Error(`${file.name} is larger than 3 MB.`));
+                reject(new Error(`${file.name} is larger than ${MAX_ATTACH_LABEL}.`));
                 return;
             }
             const reader = new FileReader();
@@ -5414,7 +5415,7 @@ html.inbox-is-popout .inbox-props {
         if (!editor || !file) return;
         const imageFile = namedPastedImageFile(file);
         if (imageFile.size > MAX_ATTACH_BYTES) {
-            alert(`${imageFile.name} is larger than 3 MB.`);
+            alert(`${imageFile.name} is larger than ${MAX_ATTACH_LABEL}.`);
             return;
         }
         try {
@@ -5435,7 +5436,7 @@ html.inbox-is-popout .inbox-props {
     async function insertHtmlEditorImage(editorKind, file) {
         if (!file) return;
         if (file.size > MAX_ATTACH_BYTES) {
-            alert(`${file.name} is larger than 3 MB.`);
+            alert(`${file.name} is larger than ${MAX_ATTACH_LABEL}.`);
             return;
         }
         const ed = getHtmlEditor(editorKind);

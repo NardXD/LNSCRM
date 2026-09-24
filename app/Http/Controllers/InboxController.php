@@ -49,6 +49,11 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class InboxController extends Controller
 {
+    private const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+    /** Base64 payload length that can hold ~10 MB decoded. */
+    private const MAX_ATTACHMENT_CONTENT_BYTES_CHARS = 15000000;
+
     public function __construct(
         protected OutlookMailService $mailService,
         protected CalendarOauthSettingsService $oauthSettings,
@@ -1581,7 +1586,7 @@ class InboxController extends Controller
             'attachments' => ['nullable', 'array', 'max:10'],
             'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
-            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:5000000'],
+            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:'.self::MAX_ATTACHMENT_CONTENT_BYTES_CHARS],
             'attachments.*.isInline' => ['nullable', 'boolean'],
             'attachments.*.contentId' => ['nullable', 'string', 'max:120'],
         ]);
@@ -1611,7 +1616,7 @@ class InboxController extends Controller
 
         $attachments = $this->normalizeAttachments($validated['attachments'] ?? []);
         if ($attachments === false) {
-            return response()->json(['message' => 'Attachments are too large. Keep each file under 3 MB.'], 422);
+            return response()->json(['message' => 'Attachments are too large. Keep each file under 10 MB.'], 422);
         }
 
         $prepared = $this->prepareTemplateContent((string) $validated['body'], $attachments);
@@ -1745,7 +1750,7 @@ class InboxController extends Controller
             'attachments' => ['nullable', 'array', 'max:10'],
             'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
-            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:5000000'],
+            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:'.self::MAX_ATTACHMENT_CONTENT_BYTES_CHARS],
             'attachments.*.isInline' => ['nullable', 'boolean'],
             'attachments.*.contentId' => ['nullable', 'string', 'max:120'],
         ]);
@@ -1778,7 +1783,7 @@ class InboxController extends Controller
 
         $attachments = $this->normalizeAttachments($validated['attachments'] ?? []);
         if ($attachments === false) {
-            return response()->json(['message' => 'Attachments are too large. Keep each file under 3 MB.'], 422);
+            return response()->json(['message' => 'Attachments are too large. Keep each file under 10 MB.'], 422);
         }
 
         $prepared = $this->prepareTemplateContent((string) $validated['body'], $attachments);
@@ -2078,7 +2083,7 @@ class InboxController extends Controller
             'attachments' => ['nullable', 'array', 'max:5'],
             'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
-            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:5000000'],
+            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:'.self::MAX_ATTACHMENT_CONTENT_BYTES_CHARS],
         ]);
 
         $html = $validated['body'];
@@ -2107,7 +2112,7 @@ class InboxController extends Controller
 
         $normalized = $this->normalizeAttachments($validated['attachments'] ?? []);
         if ($normalized === false) {
-            return response()->json(['message' => 'Attachments are too large. Keep each file under 3 MB.'], 422);
+            return response()->json(['message' => 'Attachments are too large. Keep each file under 10 MB.'], 422);
         }
 
         $comment = InboxConversationComment::create([
@@ -2302,7 +2307,7 @@ class InboxController extends Controller
             'attachments' => ['nullable', 'array', 'max:10'],
             'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
-            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:5000000'],
+            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:'.self::MAX_ATTACHMENT_CONTENT_BYTES_CHARS],
             'attachments.*.isInline' => ['nullable', 'boolean'],
             'attachments.*.contentId' => ['nullable', 'string', 'max:120'],
         ]);
@@ -2351,7 +2356,7 @@ class InboxController extends Controller
 
         $attachments = $this->normalizeAttachments($validated['attachments'] ?? []);
         if ($attachments === false) {
-            return response()->json(['message' => 'Attachments are too large. Keep each file under 3 MB.'], 422);
+            return response()->json(['message' => 'Attachments are too large. Keep each file under 10 MB.'], 422);
         }
 
         $prepared = $this->prepareTemplateContent($htmlBody, $attachments);
@@ -2900,7 +2905,7 @@ class InboxController extends Controller
             'attachments' => ['nullable', 'array', 'max:10'],
             'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
-            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:5000000'],
+            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:'.self::MAX_ATTACHMENT_CONTENT_BYTES_CHARS],
             'attachments.*.isInline' => ['nullable', 'boolean'],
             'attachments.*.contentId' => ['nullable', 'string', 'max:120'],
         ]);
@@ -2917,7 +2922,7 @@ class InboxController extends Controller
 
         $attachments = $this->normalizeAttachments($validated['attachments'] ?? []);
         if ($attachments === false) {
-            return response()->json(['message' => 'One or more attachments exceed the 3 MB limit.'], 422);
+            return response()->json(['message' => 'One or more attachments exceed the 10 MB limit.'], 422);
         }
 
         $prepared = $this->prepareTemplateContent((string) $bodyHtml, $attachments);
@@ -2957,7 +2962,7 @@ class InboxController extends Controller
             'attachments' => ['nullable', 'array', 'max:10'],
             'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
-            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:5000000'],
+            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:'.self::MAX_ATTACHMENT_CONTENT_BYTES_CHARS],
             'attachments.*.isInline' => ['nullable', 'boolean'],
             'attachments.*.contentId' => ['nullable', 'string', 'max:120'],
         ]);
@@ -2974,7 +2979,7 @@ class InboxController extends Controller
 
         $attachments = $this->normalizeAttachments($validated['attachments'] ?? []);
         if ($attachments === false) {
-            return response()->json(['message' => 'One or more attachments exceed the 3 MB limit.'], 422);
+            return response()->json(['message' => 'One or more attachments exceed the 10 MB limit.'], 422);
         }
 
         $prepared = $this->prepareTemplateContent((string) $bodyHtml, $attachments);
@@ -3608,9 +3613,9 @@ class InboxController extends Controller
                 continue;
             }
 
-            // Reject obviously oversized payloads (~3MB decoded).
+            // Reject oversized payloads (~10MB decoded).
             $approxBytes = (int) (strlen($bytes) * 0.75);
-            if ($approxBytes > 3 * 1024 * 1024) {
+            if ($approxBytes > self::MAX_ATTACHMENT_BYTES) {
                 return false;
             }
 
@@ -3670,7 +3675,7 @@ class InboxController extends Controller
                 $ext = strtolower($matches[3]);
                 $bytes = $matches[4];
                 $approxBytes = (int) (strlen($bytes) * 0.75);
-                if ($approxBytes > 3 * 1024 * 1024) {
+                if ($approxBytes > self::MAX_ATTACHMENT_BYTES) {
                     return $matches[0];
                 }
 
@@ -4349,7 +4354,7 @@ class InboxController extends Controller
             'attachments' => ['nullable', 'array', 'max:10'],
             'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
-            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:5000000'],
+            'attachments.*.contentBytes' => ['required_with:attachments', 'string', 'max:'.self::MAX_ATTACHMENT_CONTENT_BYTES_CHARS],
             'attachments.*.isInline' => ['nullable', 'boolean'],
             'attachments.*.contentId' => ['nullable', 'string', 'max:120'],
         ];
@@ -4406,7 +4411,7 @@ class InboxController extends Controller
         }
         $attachments = $this->normalizeAttachments($validated['attachments'] ?? []);
         if ($attachments === false) {
-            return response()->json(['message' => 'Attachments are too large. Keep each file under 3 MB.'], 422);
+            return response()->json(['message' => 'Attachments are too large. Keep each file under 10 MB.'], 422);
         }
         $prepared = $this->prepareTemplateContent($htmlBody, $attachments);
         if (count($prepared['attachments']) > 10) {
