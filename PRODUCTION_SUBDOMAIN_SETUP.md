@@ -418,6 +418,8 @@ CACHE_DRIVER=redis
 QUEUE_CONNECTION=redis
 ```
 
+For SiteGround without Redis, keep `QUEUE_CONNECTION=database` and see [docs/INBOX_QUEUE_SETUP.md](docs/INBOX_QUEUE_SETUP.md) for the minute cron `queue:work` entry.
+
 ---
 
 ## Additional Resources

@@ -4,12 +4,14 @@ namespace App\Notifications;
 
 use App\Models\InboxConversation;
 use App\Models\User;
+use App\Support\InboxQueue;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Str;
 
-class InboxThreadUpdateNotification extends Notification
+class InboxThreadUpdateNotification extends Notification implements ShouldQueue
 {
     use Queueable;
 
@@ -22,7 +24,9 @@ class InboxThreadUpdateNotification extends Notification
         public bool $isMention = false,
         public ?string $involves = null,
         public bool $sendMail = true,
-    ) {}
+    ) {
+        $this->onQueue(InboxQueue::NOTIFY);
+    }
 
     /**
      * @return array<int, string>

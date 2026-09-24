@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\ApplyInboxLeadRulesJob;
 use App\Models\InboxConversation;
 use App\Models\InboxConversationUserRead;
 use App\Models\InboxMessage;
@@ -80,7 +81,6 @@ class OutlookMailService
 
     public function __construct(
         protected CalendarOauthSettingsService $oauthSettings,
-        protected LeadAutoCreateService $leadAutoCreate
     ) {}
 
     /**
@@ -730,20 +730,12 @@ class OutlookMailService
             if ($folder === 'inbox' && $messageDirection === 'inbound') {
                 $fresh = $conversation->fresh(['inbox']);
                 if ($fresh) {
-                    $this->leadAutoCreate->applyRules(
-                        $this->leadAutoCreate->fromInboxConversation($fresh),
-                        'inbox',
-                        LeadRuleEngine::inboundTriggers($isNew),
-                        [
-                            'company_id' => (int) $fresh->company_id,
-                            'contact_name' => $fresh->from_name,
-                            'email' => $fresh->from_email,
-                            'subject' => $fresh->subject,
-                            'message' => $bodyText ?: $fresh->snippet,
-                            'inbox_id' => $fresh->shared_inbox_id,
-                            'shared_inbox_id' => $fresh->shared_inbox_id,
-                            'inbox_conversation_id' => $fresh->id,
-                        ]
+                    $bodyForRules = $bodyText ?: (string) ($fresh->snippet ?? '');
+                    ApplyInboxLeadRulesJob::dispatch(
+                        conversationId: (int) $fresh->id,
+                        isNew: $isNew,
+                        bodyText: $bodyForRules,
+                        dedupeKey: 'inbox-lead-rules:'.$fresh->id.':'.($externalMessageId ?: uniqid('msg', true)),
                     );
                 }
                 $this->notifyAssigneeOfCustomerReply($conversation, $fromName, $bodyText, $receivedAt);

@@ -7248,9 +7248,10 @@ html.inbox-is-popout .inbox-props {
                 state.checkedIds = state.checkedIds.filter(id =>
                     state.conversations.some(c => Number(c.id) === Number(id))
                 );
-                renderConversations();
                 const list = el('conversationList');
-                if (list) list.scrollTop = 0;
+                const prevScroll = preserveList && list ? list.scrollTop : 0;
+                renderConversations();
+                if (list) list.scrollTop = preserveList ? prevScroll : 0;
                 const matchedMessageId = data.meta?.matched_message_id || null;
                 if (batch.length === 1 && isInboxIdQuery(q)) {
                     const convId = batch[0].id;
@@ -11902,6 +11903,50 @@ html.inbox-is-popout .inbox-props {
 
     // Keep relative hours/minutes fresh while the inbox is open.
     setInterval(refreshConversationTimes, 30000);
+
+    // Poll conversation list + sidebar counts when the tab is focused so queued
+    // background sync shows up without a manual refresh (no Redis/Reverb required).
+    const LIST_POLL_MS = 45000;
+    let listPollTimer = null;
+    let listPolling = false;
+
+    async function pollConversationList() {
+        if (INBOX_POPOUT || document.hidden || listPolling || state.listLoading) return;
+        if (el('modalBackdrop')?.style.display === 'flex') return;
+        listPolling = true;
+        try {
+            await loadConversations({ append: false, preserveList: true });
+            await loadBootstrap({ conversations: false });
+        } catch (_) {
+            // Ignore transient poll errors; next tick retries.
+        } finally {
+            listPolling = false;
+        }
+    }
+
+    function startListPolling() {
+        if (INBOX_POPOUT || listPollTimer) return;
+        listPollTimer = setInterval(pollConversationList, LIST_POLL_MS);
+    }
+
+    function stopListPolling() {
+        if (!listPollTimer) return;
+        clearInterval(listPollTimer);
+        listPollTimer = null;
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            stopListPolling();
+            return;
+        }
+        startListPolling();
+        pollConversationList();
+    });
+
+    if (!document.hidden) {
+        startListPolling();
+    }
 })();
 </script>
 @endsection

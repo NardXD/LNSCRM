@@ -3,17 +3,21 @@
 namespace App\Notifications;
 
 use App\Models\InboxConversation;
+use App\Support\InboxQueue;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Str;
 
-class InboxMessageNotification extends Notification
+class InboxMessageNotification extends Notification implements ShouldQueue
 {
     use Queueable;
 
     public function __construct(
         public InboxConversation $conversation
-    ) {}
+    ) {
+        $this->onQueue(InboxQueue::NOTIFY);
+    }
 
     /**
      * @return array<int, string>

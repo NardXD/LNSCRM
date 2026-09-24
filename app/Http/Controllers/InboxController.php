@@ -78,20 +78,20 @@ class InboxController extends Controller
         $companyId = $user->company_id;
 
         // Scheduled send/snooze already run every minute via the scheduler.
-        // Flush after the HTTP response so opening Inbox is never blocked by Graph.
+        // Queue due work after the HTTP response so opening Inbox never blocks on Graph.
         if (Cache::add('inbox:flush-scheduled-sends', 1, now()->addMinute())) {
             dispatch(function () {
                 try {
-                    app(InboxReplyService::class)->processDue(20);
+                    app(InboxReplyService::class)->dispatchDue(20);
                 } catch (\Throwable $e) {
-                    Log::warning('Inbox bootstrap scheduled send flush failed', [
+                    Log::warning('Inbox bootstrap scheduled send queue failed', [
                         'message' => $e->getMessage(),
                     ]);
                 }
                 try {
-                    app(InboxReopenService::class)->processDue(100);
+                    app(InboxReopenService::class)->dispatchDue(100);
                 } catch (\Throwable $e) {
-                    Log::warning('Inbox bootstrap snooze reopen flush failed', [
+                    Log::warning('Inbox bootstrap snooze reopen queue failed', [
                         'message' => $e->getMessage(),
                     ]);
                 }

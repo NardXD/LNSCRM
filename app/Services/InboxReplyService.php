@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\ProcessScheduledInboxReplyJob;
 use App\Models\InboxConversation;
 use App\Models\InboxConversationActivity;
 use App\Models\InboxMessage;
@@ -279,6 +280,28 @@ class InboxReplyService
     }
 
     /**
+     * Queue jobs for pending scheduled replies/composes whose send_at has passed.
+     */
+    public function dispatchDue(int $limit = 50): int
+    {
+        $this->releaseStaleSending();
+
+        $ids = ScheduledInboxReply::query()
+            ->where('status', ScheduledInboxReply::STATUS_PENDING)
+            ->where('send_at', '<=', now())
+            ->orderBy('send_at')
+            ->orderBy('id')
+            ->limit(max(1, $limit))
+            ->pluck('id');
+
+        foreach ($ids as $id) {
+            ProcessScheduledInboxReplyJob::dispatch((int) $id);
+        }
+
+        return $ids->count();
+    }
+
+    /**
      * Send any pending scheduled replies/composes whose send_at has passed.
      *
      * @return array{sent: int, failed: int}
@@ -288,13 +311,7 @@ class InboxReplyService
         $sent = 0;
         $failed = 0;
 
-        ScheduledInboxReply::query()
-            ->where('status', ScheduledInboxReply::STATUS_SENDING)
-            ->where('updated_at', '<', now()->subMinutes(10))
-            ->update([
-                'status' => ScheduledInboxReply::STATUS_PENDING,
-                'error_message' => null,
-            ]);
+        $this->releaseStaleSending();
 
         $due = ScheduledInboxReply::query()
             ->where('status', ScheduledInboxReply::STATUS_PENDING)
@@ -325,6 +342,17 @@ class InboxReplyService
         }
 
         return ['sent' => $sent, 'failed' => $failed];
+    }
+
+    private function releaseStaleSending(): void
+    {
+        ScheduledInboxReply::query()
+            ->where('status', ScheduledInboxReply::STATUS_SENDING)
+            ->where('updated_at', '<', now()->subMinutes(10))
+            ->update([
+                'status' => ScheduledInboxReply::STATUS_PENDING,
+                'error_message' => null,
+            ]);
     }
 
     /**
