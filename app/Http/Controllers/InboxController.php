@@ -105,12 +105,7 @@ class InboxController extends Controller
             ->orderBy('name')
             ->get();
 
-        if (! $lite) {
-            foreach ($inboxModels as $inbox) {
-                $this->mailService->repairInboxBinding($inbox);
-            }
-        }
-
+        // Binding repair runs on sync, not page load — a mismatch can wipe conversations.
         $counts = $lite
             ? [
                 'by_inbox' => [],
@@ -141,11 +136,21 @@ class InboxController extends Controller
                 'name' => $tag->name,
                 'color' => $tag->color,
             ]);
-        $templates = InboxTemplate::where('company_id', $companyId)
-            ->orderBy('name')
-            ->get()
-            ->map(fn (InboxTemplate $template) => $this->formatTemplate($template));
-        $signaturePayload = $this->formattedSignaturesPayload($user);
+
+        // Heavy HTML bodies are deferred to /composer-tools when lite (normal page shell).
+        if ($lite) {
+            $templates = collect();
+            $signaturePayload = [
+                'signatures' => [],
+                'default_signature_id' => null,
+            ];
+        } else {
+            $templates = InboxTemplate::where('company_id', $companyId)
+                ->orderBy('name')
+                ->get()
+                ->map(fn (InboxTemplate $template) => $this->formatTemplate($template));
+            $signaturePayload = $this->formattedSignaturesPayload($user);
+        }
 
         $members = User::where('company_id', $companyId)
             ->orderBy('name')
@@ -231,6 +236,57 @@ class InboxController extends Controller
                 'create_templates' => $user->hasPermission('create_inbox_templates'),
             ],
             'redirect_url_outlook_mail' => rtrim(config('app.url'), '/').'/inbox/connect/outlook/callback',
+        ]);
+    }
+
+    /**
+     * Sidebar folder / assignment / label counts only — used after lite bootstrap and on poll.
+     */
+    public function navCounts(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $inboxIds = $this->accessibleInboxes($user)->pluck('id');
+        $counts = $this->conversationCountsByInbox($user, $inboxIds);
+
+        $settings = InboxUserSetting::query()->where('user_id', $user->id)->first();
+        $sidebarLabelIds = is_array($settings?->sidebar_label_ids)
+            ? collect($settings->sidebar_label_ids)->map(fn ($id) => (int) $id)->filter()->values()
+            : null;
+
+        $labelCounts = $this->leadLabelCounts($inboxIds, $sidebarLabelIds);
+
+        return response()->json([
+            'assigned_to_me_count' => $counts['assigned_to_me'],
+            'assigned_archived_count' => $counts['assigned_archived'],
+            'assigned_snoozed_count' => $counts['assigned_snoozed'],
+            'reopened_archived_count' => $counts['reopened_archived'],
+            'reopened_snoozed_count' => $counts['reopened_snoozed'],
+            'archived_count' => $counts['archived'],
+            'snoozed_count' => $counts['snoozed'],
+            'by_inbox' => $counts['by_inbox'],
+            'lead_label_counts' => $labelCounts,
+        ]);
+    }
+
+    /**
+     * Templates + signatures (large HTML) — loaded after the inbox shell paints.
+     */
+    public function composerTools(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $templates = InboxTemplate::where('company_id', $user->company_id)
+            ->orderBy('name')
+            ->get()
+            ->map(fn (InboxTemplate $template) => $this->formatTemplate($template));
+        $signaturePayload = $this->formattedSignaturesPayload($user);
+
+        return response()->json([
+            'templates' => $templates,
+            'signatures' => $signaturePayload['signatures'],
+            'default_signature_id' => $signaturePayload['default_signature_id'],
+            'permissions' => [
+                'create_templates' => $user->hasPermission('create_inbox_templates'),
+            ],
         ]);
     }
 
@@ -2647,6 +2703,10 @@ class InboxController extends Controller
                 return response()->json(['message' => 'Inbox not found or not connected.'], 404);
             }
 
+            if (! $this->mailService->repairInboxBinding($inbox)) {
+                return response()->json(['message' => 'Inbox account no longer matches this mailbox.'], 422);
+            }
+
             if (! isset(OutlookMailService::FOLDERS[$folder])) {
                 return response()->json(['message' => 'Invalid folder.'], 422);
             }
@@ -2696,6 +2756,12 @@ class InboxController extends Controller
         foreach ($query->get() as $inbox) {
             if (! $inbox->account) {
                 $skipped[] = ['id' => $inbox->id, 'name' => $inbox->name, 'reason' => 'not_connected'];
+
+                continue;
+            }
+
+            if (! $this->mailService->repairInboxBinding($inbox)) {
+                $skipped[] = ['id' => $inbox->id, 'name' => $inbox->name, 'reason' => 'account_mismatch'];
 
                 continue;
             }
@@ -3500,11 +3566,16 @@ class InboxController extends Controller
      * Open-inbox conversation counts per lead label for the sidebar.
      *
      * @param  Collection<int, int|string>  $inboxIds
+     * @param  Collection<int, int>|null  $labelIds  When set, only count these labels (customized sidebar).
      * @return array<int, int>
      */
-    private function leadLabelCounts(Collection $inboxIds): array
+    private function leadLabelCounts(Collection $inboxIds, ?Collection $labelIds = null): array
     {
         if ($inboxIds->isEmpty()) {
+            return [];
+        }
+
+        if ($labelIds !== null && $labelIds->isEmpty()) {
             return [];
         }
 
@@ -3518,11 +3589,17 @@ class InboxController extends Controller
         $fromConversation = $base()
             ->join('inbox_conversation_lead_label as cl', 'cl.inbox_conversation_id', '=', 'inbox_conversations.id')
             ->select('cl.lead_label_id', 'inbox_conversations.id as conversation_id');
+        if ($labelIds !== null) {
+            $fromConversation->whereIn('cl.lead_label_id', $labelIds);
+        }
 
         $fromLead = $base()
             ->whereNotNull('inbox_conversations.lead_id')
             ->join('lead_lead_label as ll', 'll.lead_id', '=', 'inbox_conversations.lead_id')
             ->select('ll.lead_label_id', 'inbox_conversations.id as conversation_id');
+        if ($labelIds !== null) {
+            $fromLead->whereIn('ll.lead_label_id', $labelIds);
+        }
 
         return DB::query()
             ->fromSub($fromConversation->union($fromLead), 'inbox_label_hits')

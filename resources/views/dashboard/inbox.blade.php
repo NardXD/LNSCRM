@@ -9441,7 +9441,7 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         return String(str ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
     }
 
-    async function loadBootstrap({ conversations = true, lite = false } = {}) {
+    async function loadBootstrap({ conversations = true, lite = true, counts = true, composerTools = false, awaitComposerTools = false } = {}) {
         const data = await api('/bootstrap' + (lite ? '?lite=1' : ''));
         state.inboxes = data.inboxes || [];
         state.assignedToMeCount = Number(data.assigned_to_me_count || 0);
@@ -9451,13 +9451,16 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         state.reopenedSnoozedCount = Number(data.reopened_snoozed_count || 0);
         state.archivedCount = Number(data.archived_count || 0);
         state.snoozedCount = Number(data.snoozed_count || 0);
-        state.templates = (data.templates || []).map(t => ({
-            ...t,
-            body: t.body || t.body_text || '',
-            body_html: t.body_html || null,
-            format: 'html',
-        }));
-        applySignaturesPayload(data);
+        // Lite shell omits template/signature bodies — don't wipe tools already in memory.
+        if (!lite) {
+            state.templates = (data.templates || []).map(t => ({
+                ...t,
+                body: t.body || t.body_text || '',
+                body_html: t.body_html || null,
+                format: 'html',
+            }));
+            applySignaturesPayload(data);
+        }
         state.rules = data.rules || [];
         state.members = data.members || [];
         state.leadLabels = data.lead_labels || [];
@@ -9472,13 +9475,68 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         el('btnConnectOutlook').style.display = data.mail_connected ? 'none' : '';
         el('btnDisconnectOutlook').style.display = data.mail_connected ? '' : 'none';
         el('btnConnectOutlook').disabled = !data.outlook_configured && !data.mail_connected;
+        renderNav();
+
+        const followUps = [];
+        if (counts) followUps.push(loadNavCounts());
+        if (composerTools) {
+            const toolsPromise = loadComposerTools().catch(err => {
+                console.warn('Composer tools failed', err);
+            });
+            // Popout needs signatures before applying the reply composer; main inbox can paint without them.
+            if (awaitComposerTools) followUps.push(toolsPromise);
+        }
+        if (conversations) followUps.push(loadConversations({ preserveList: state.conversations.length > 0 }));
+        if (followUps.length) await Promise.all(followUps);
+    }
+
+    function applyNavCounts(data) {
+        if (!data || typeof data !== 'object') return;
+        state.assignedToMeCount = Number(data.assigned_to_me_count || 0);
+        state.assignedArchivedCount = Number(data.assigned_archived_count || 0);
+        state.assignedSnoozedCount = Number(data.assigned_snoozed_count || 0);
+        state.reopenedArchivedCount = Number(data.reopened_archived_count || 0);
+        state.reopenedSnoozedCount = Number(data.reopened_snoozed_count || 0);
+        state.archivedCount = Number(data.archived_count || 0);
+        state.snoozedCount = Number(data.snoozed_count || 0);
+
+        const byInbox = data.by_inbox || {};
+        state.inboxes = (state.inboxes || []).map(inbox => {
+            const bucket = byInbox[String(inbox.id)] || byInbox[inbox.id] || null;
+            return bucket ? { ...inbox, ...bucket } : inbox;
+        });
+
+        const labelCounts = data.lead_label_counts || {};
+        state.leadLabels = (state.leadLabels || []).map(label => ({
+            ...label,
+            count: Number(labelCounts[String(label.id)] ?? labelCounts[label.id] ?? label.count ?? 0),
+        }));
+    }
+
+    async function loadNavCounts() {
+        const data = await api('/nav-counts');
+        applyNavCounts(data);
+        renderNav();
+    }
+
+    async function loadComposerTools() {
+        const data = await api('/composer-tools');
+        state.templates = (data.templates || []).map(t => ({
+            ...t,
+            body: t.body || t.body_text || '',
+            body_html: t.body_html || null,
+            format: 'html',
+        }));
+        applySignaturesPayload(data);
+        if (data.permissions && typeof data.permissions.create_templates === 'boolean') {
+            state.permissions.create_templates = data.permissions.create_templates;
+            if (el('btnNewTemplate')) el('btnNewTemplate').style.display = state.permissions.create_templates ? '' : 'none';
+        }
         await migrateLocalTemplatesIfNeeded();
         await migrateLocalSignaturesIfNeeded();
-        renderNav();
         refreshTemplateSelects();
-        if (conversations) {
-            await loadConversations({ preserveList: state.conversations.length > 0 });
-        }
+        updateTemplateCount();
+        updateSignatureCount();
     }
 
     async function migrateLocalTemplatesIfNeeded() {
@@ -12004,7 +12062,17 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         ? openConversation(startupConversationId, startupMessageId ? { messageId: startupMessageId } : {})
         : null;
 
-    const inboxStartup = [loadBootstrap({ conversations: false, lite: INBOX_POPOUT })];
+    // Shell first (lite), then counts in parallel with the conversation list.
+    // Composer tools (large HTML) load in the background and only block popout.
+    const inboxStartup = [
+        loadBootstrap({
+            conversations: false,
+            lite: true,
+            counts: !INBOX_POPOUT,
+            composerTools: true,
+            awaitComposerTools: INBOX_POPOUT,
+        }),
+    ];
     if (!INBOX_POPOUT) inboxStartup.push(loadConversations());
     Promise.all(inboxStartup).then(async () => {
         const params = startupParams;
@@ -12070,7 +12138,7 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         listPolling = true;
         try {
             await loadConversations({ append: false, preserveList: true });
-            await loadBootstrap({ conversations: false });
+            await loadNavCounts();
         } catch (_) {
             // Ignore transient poll errors; next tick retries.
         } finally {

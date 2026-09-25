@@ -660,6 +660,8 @@ Route::middleware(['auth', 'company.active'])->group(function () {
 
     Route::prefix('api/inbox')->middleware('permission:view_inbox')->group(function () {
         Route::get('/bootstrap', [InboxController::class, 'bootstrap'])->name('api.inbox.bootstrap');
+        Route::get('/nav-counts', [InboxController::class, 'navCounts'])->name('api.inbox.nav-counts');
+        Route::get('/composer-tools', [InboxController::class, 'composerTools'])->name('api.inbox.composer-tools');
         Route::post('/disconnect', [InboxController::class, 'disconnectMail'])->name('api.inbox.disconnect');
         Route::post('/sync', [InboxController::class, 'sync'])->name('api.inbox.sync');
         Route::post('/sync-totals', [InboxController::class, 'syncTotals'])->name('api.inbox.sync-totals');
