@@ -444,7 +444,14 @@ class OutlookMailService
             ->withHeaders(['Prefer' => 'odata.maxpagesize='.self::PAGE_SIZE]);
 
         if ($nextLink) {
-            if (! str_starts_with($nextLink, self::GRAPH_BASE.'/')) {
+            if (! $this->nextLinkMatchesMailbox($nextLink, $mailboxPath)) {
+                Log::warning('Outlook mail folder page sync dropped stale nextLink for wrong mailbox', [
+                    'inbox_id' => $inbox->id,
+                    'folder' => $folder,
+                    'mailbox_path' => $mailboxPath,
+                    'next_link' => mb_substr($nextLink, 0, 200),
+                ]);
+
                 return ['imported' => 0, 'fetched' => 0, 'skipped' => 0, 'next_link' => null, 'done' => true, 'failed' => false];
             }
         }
@@ -1620,11 +1627,25 @@ class OutlookMailService
             return true;
         }
 
-        $this->clearInboxConversations($inbox);
+        $this->resetInboxMailState($inbox);
         $inbox->outlook_mail_account_id = null;
         $inbox->save();
 
         return false;
+    }
+
+    /**
+     * Drop imported mail + Graph pagination cursors so a rebind cannot resume
+     * another mailbox's nextLink into this inbox.
+     */
+    public function resetInboxMailState(SharedInbox $inbox): void
+    {
+        $this->clearInboxConversations($inbox);
+        $inbox->folder_sync_state = null;
+        $inbox->last_synced_at = null;
+        if ($inbox->isDirty()) {
+            $inbox->save();
+        }
     }
 
     /**
@@ -1668,8 +1689,39 @@ class OutlookMailService
     }
 
     /**
-     * mailbox_login inboxes must use a matching MS365 account.
-     * shared_mailbox inboxes may use a delegate account + /users/{address}.
+     * Reject Graph @odata.nextLink URLs that belong to a different mailbox path
+     * (e.g. leftover /users/team@... cursor after reconnecting personal as /me).
+     */
+    private function nextLinkMatchesMailbox(?string $nextLink, string $mailboxPath): bool
+    {
+        if ($nextLink === null || $nextLink === '') {
+            return true;
+        }
+
+        if (! str_starts_with($nextLink, self::GRAPH_BASE.'/')) {
+            return false;
+        }
+
+        $expected = self::GRAPH_BASE.'/'.$mailboxPath.'/';
+        if (str_starts_with($nextLink, $expected)) {
+            return true;
+        }
+
+        // Graph sometimes encodes the mailbox segment differently.
+        if ($mailboxPath !== 'me' && str_starts_with($mailboxPath, 'users/')) {
+            $email = rawurldecode(substr($mailboxPath, strlen('users/')));
+            $alt = self::GRAPH_BASE.'/users/'.strtolower($email).'/';
+            if (str_starts_with(strtolower($nextLink), strtolower($alt))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * mailbox_login / personal inboxes must use a matching MS365 account.
+     * Only TYPE_SHARED may use a delegate account + /users/{address}.
      */
     private function assertAccountMatchesInbox(SharedInbox $inbox, OutlookMailAccount $account): bool
     {
@@ -1680,14 +1732,18 @@ class OutlookMailService
 
         $accountEmail = strtolower(trim((string) $account->email));
 
-        // Delegate access to a different shared mailbox address is allowed.
-        if (! empty($inbox->external_mailbox) && strcasecmp($target, $accountEmail) !== 0) {
+        // Delegate access to a different mailbox address is only for shared inboxes.
+        // Personal must never import a team/colleague mailbox via external_mailbox.
+        if ($inbox->type === SharedInbox::TYPE_SHARED
+            && ! empty($inbox->external_mailbox)
+            && strcasecmp($target, $accountEmail) !== 0) {
             return true;
         }
 
         if (strcasecmp($target, $accountEmail) !== 0) {
             Log::warning('Outlook inbox refused sync: account email does not match inbox address', [
                 'inbox_id' => $inbox->id,
+                'inbox_type' => $inbox->type,
                 'inbox_email' => $target,
                 'account_email' => $account->email,
             ]);

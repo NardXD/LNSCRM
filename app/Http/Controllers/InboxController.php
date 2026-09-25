@@ -361,6 +361,18 @@ class InboxController extends Controller
             return $this->outlookConnectRedirect($state, 'error', 'Missing authorization code.');
         }
 
+        // Corrupt/missing state used to fall back to "personal", which could bind a
+        // shared-mailbox OAuth into the user's Personal inbox. Fail closed instead.
+        $intent = (string) ($state['intent'] ?? '');
+        if ($intent === '' || empty($state['user_id']) || (int) $state['user_id'] !== (int) $request->user()->id) {
+            Log::warning('Outlook mail OAuth state invalid or missing', [
+                'user_id' => $request->user()->id,
+                'state_keys' => array_keys($state),
+            ]);
+
+            return $this->outlookConnectRedirect($state, 'error', 'Microsoft sign-in expired. Please connect again.');
+        }
+
         $tenant = $this->oauthSettings->getMicrosoftTenant($companyId);
         $response = Http::asForm()->post(
             "https://login.microsoftonline.com/{$tenant}/oauth2/v2.0/token",
@@ -405,7 +417,15 @@ class InboxController extends Controller
                 ]
             );
 
-            if (($state['intent'] ?? 'personal') === 'personal') {
+            if ($intent === 'personal') {
+                $existingPersonal = SharedInbox::query()
+                    ->where('company_id', $user->company_id)
+                    ->where('type', SharedInbox::TYPE_PERSONAL)
+                    ->where('created_by', $user->id)
+                    ->first();
+                $previousAccountId = $existingPersonal?->outlook_mail_account_id;
+                $previousEmail = strtolower(trim((string) ($existingPersonal?->email ?? '')));
+
                 $inbox = SharedInbox::updateOrCreate(
                     [
                         'company_id' => $user->company_id,
@@ -425,10 +445,22 @@ class InboxController extends Controller
                     ['shared_inbox_id' => $inbox->id, 'user_id' => $user->id],
                     ['role' => 'admin']
                 );
+
+                // Rebinding to a different MS account must not keep the old mailbox's
+                // conversations. Always drop Graph pagination cursors (they can point at
+                // another mailbox path like /users/team@...).
+                $emailChanged = $previousEmail !== '' && strcasecmp($previousEmail, (string) $email) !== 0;
+                $accountChanged = $previousAccountId && (int) $previousAccountId !== (int) $account->id;
+                if ($existingPersonal && ($emailChanged || $accountChanged)) {
+                    $this->mailService->resetInboxMailState($inbox->fresh());
+                } else {
+                    $inbox->folder_sync_state = null;
+                    $inbox->save();
+                }
                 // Sync is started by the inbox UI after redirect (paged) — never block OAuth callback.
             }
 
-            if (($state['intent'] ?? '') === 'broadcast') {
+            if ($intent === 'broadcast') {
                 $displayName = trim((string) ($userInfo['displayName'] ?? ''));
                 $inbox = SharedInbox::updateOrCreate(
                     [
@@ -451,7 +483,7 @@ class InboxController extends Controller
                 );
             }
 
-            if (($state['intent'] ?? '') === 'quotation') {
+            if ($intent === 'quotation') {
                 $displayName = trim((string) ($userInfo['displayName'] ?? ''));
                 SharedInbox::updateOrCreate(
                     [
@@ -470,7 +502,7 @@ class InboxController extends Controller
                 );
             }
 
-            if (($state['intent'] ?? '') === 'contract') {
+            if ($intent === 'contract') {
                 $displayName = trim((string) ($userInfo['displayName'] ?? ''));
                 SharedInbox::updateOrCreate(
                     [
@@ -550,9 +582,9 @@ class InboxController extends Controller
         try {
             $state = decrypt((string) $request->input('state', ''));
 
-            return is_array($state) ? $state : ['intent' => 'personal'];
+            return is_array($state) ? $state : [];
         } catch (\Throwable) {
-            return ['intent' => 'personal'];
+            return [];
         }
     }
 

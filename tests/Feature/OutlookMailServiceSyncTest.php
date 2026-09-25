@@ -185,4 +185,74 @@ class OutlookMailServiceSyncTest extends TestCase
         // folder (1 request) = 6 total, not 5 x (1 + retries) = 15.
         Http::assertSentCount(6);
     }
+
+    public function test_stale_next_link_for_another_mailbox_is_dropped(): void
+    {
+        $inbox = $this->makeInbox();
+        $account = $inbox->account;
+
+        Http::fake();
+
+        /** @var OutlookMailService $service */
+        $service = app(OutlookMailService::class);
+
+        $result = $service->syncFolderPage(
+            $inbox,
+            $account,
+            'inbox',
+            OutlookMailService::FOLDERS['inbox'],
+            'https://graph.microsoft.com/v1.0/users/team%40example.com/mailFolders/inbox/messages?$skip=25',
+            25,
+            false
+        );
+
+        $this->assertTrue($result['done']);
+        $this->assertFalse($result['failed']);
+        $this->assertNull($result['next_link']);
+        $this->assertSame(0, $result['imported']);
+        Http::assertNothingSent();
+    }
+
+    public function test_personal_inbox_with_external_mailbox_is_unlinked_on_repair(): void
+    {
+        $company = Company::create(['name' => 'Acme']);
+        $user = User::factory()->create(['company_id' => $company->id]);
+
+        $account = OutlookMailAccount::create([
+            'company_id' => $company->id,
+            'user_id' => $user->id,
+            'email' => 'alice@example.com',
+            'access_token' => 'token',
+            'refresh_token' => 'refresh',
+            'token_expires_at' => now()->addHour(),
+            'is_active' => true,
+        ]);
+
+        $inbox = SharedInbox::create([
+            'company_id' => $company->id,
+            'created_by' => $user->id,
+            'outlook_mail_account_id' => $account->id,
+            'name' => 'Personal',
+            'email' => 'alice@example.com',
+            'external_mailbox' => 'team@example.com',
+            'type' => SharedInbox::TYPE_PERSONAL,
+            'is_active' => true,
+            'folder_sync_state' => [
+                'inbox' => [
+                    'next_link' => 'https://graph.microsoft.com/v1.0/users/team@example.com/mailFolders/inbox/messages',
+                    'fetched' => 50,
+                    'backfill_done' => false,
+                ],
+            ],
+        ]);
+
+        /** @var OutlookMailService $service */
+        $service = app(OutlookMailService::class);
+
+        $this->assertFalse($service->repairInboxBinding($inbox->fresh(['account'])));
+
+        $inbox->refresh();
+        $this->assertNull($inbox->outlook_mail_account_id);
+        $this->assertNull($inbox->folder_sync_state);
+    }
 }
