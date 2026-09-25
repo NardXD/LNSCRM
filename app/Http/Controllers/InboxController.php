@@ -76,10 +76,11 @@ class InboxController extends Controller
     {
         $user = $request->user();
         $companyId = $user->company_id;
+        $lite = $request->boolean('lite');
 
         // Scheduled send/snooze already run every minute via the scheduler.
         // Queue due work after the HTTP response so opening Inbox never blocks on Graph.
-        if (Cache::add('inbox:flush-scheduled-sends', 1, now()->addMinute())) {
+        if (! $lite && Cache::add('inbox:flush-scheduled-sends', 1, now()->addMinute())) {
             dispatch(function () {
                 try {
                     app(InboxReplyService::class)->dispatchDue(20);
@@ -104,14 +105,29 @@ class InboxController extends Controller
             ->orderBy('name')
             ->get();
 
-        foreach ($inboxModels as $inbox) {
-            $this->mailService->repairInboxBinding($inbox);
+        if (! $lite) {
+            foreach ($inboxModels as $inbox) {
+                $this->mailService->repairInboxBinding($inbox);
+            }
         }
 
-        $counts = $this->conversationCountsByInbox($user, $inboxModels->pluck('id'));
-        $inboxes = $inboxModels->map(function (SharedInbox $inbox) use ($counts) {
-            foreach ($counts['by_inbox'][(int) $inbox->id] ?? [] as $key => $value) {
-                $inbox->setAttribute($key, $value);
+        $counts = $lite
+            ? [
+                'by_inbox' => [],
+                'assigned_to_me' => 0,
+                'archived' => 0,
+                'snoozed' => 0,
+                'assigned_archived' => 0,
+                'assigned_snoozed' => 0,
+                'reopened_archived' => 0,
+                'reopened_snoozed' => 0,
+            ]
+            : $this->conversationCountsByInbox($user, $inboxModels->pluck('id'));
+        $inboxes = $inboxModels->map(function (SharedInbox $inbox) use ($counts, $lite) {
+            if (! $lite) {
+                foreach ($counts['by_inbox'][(int) $inbox->id] ?? [] as $key => $value) {
+                    $inbox->setAttribute($key, $value);
+                }
             }
 
             return $this->formatInbox($inbox);
@@ -161,7 +177,7 @@ class InboxController extends Controller
             ->where('company_id', $companyId)
             ->orderBy('name')
             ->get(['id', 'name', 'color']);
-        $labelCounts = $this->leadLabelCounts($inboxModels->pluck('id'));
+        $labelCounts = $lite ? [] : $this->leadLabelCounts($inboxModels->pluck('id'));
         $leadLabels = $labelRows->map(fn (LeadLabel $label) => [
             'id' => (int) $label->id,
             'name' => $label->name,

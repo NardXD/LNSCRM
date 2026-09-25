@@ -3751,6 +3751,39 @@ html.inbox-is-popout .inbox-props {
     bottom: auto !important;
     box-shadow: none !important;
 }
+html.inbox-is-popout .inbox-composer.has-inline-mail {
+    max-height: min(58vh, 640px);
+    overflow: auto;
+}
+html.inbox-is-popout .inbox-modal.inbox-inline-composer {
+    width: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0;
+    padding: 0.65rem 0.15rem 0.25rem;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+    gap: 0.55rem;
+}
+html.inbox-is-popout .inbox-modal.inbox-inline-composer h3 {
+    font-size: 0.95rem;
+    margin: 0;
+}
+html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-help {
+    margin: 0;
+    font-size: 0.78rem;
+}
+html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-composer-editor.form-input {
+    min-height: 110px;
+    max-height: 200px;
+}
+html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
+    position: sticky;
+    bottom: 0;
+    background: #fff;
+    padding-top: 0.35rem;
+}
 </style>
 
 <script>
@@ -3858,6 +3891,7 @@ html.inbox-is-popout .inbox-props {
         composerMode: 'comment',
         composerCanReply: true,
         composerExpanded: false,
+        inlineComposerModal: null,
         propsOpen: false,
         expandedMessageIds: {},
         focusMessageId: null,
@@ -4488,12 +4522,84 @@ html.inbox-is-popout .inbox-props {
         return { body: preparedBody, attachments };
     }
 
-    function setComposerMode() {
-        state.composerMode = 'comment';
+    function syncComposerModeButtons(mode) {
+        state.composerMode = mode || 'comment';
         document.querySelectorAll('[data-composer-mode]').forEach(btn => {
-            btn.classList.toggle('is-active', btn.dataset.composerMode === 'comment');
+            btn.classList.toggle('is-active', btn.dataset.composerMode === state.composerMode);
         });
+    }
+
+    function setComposerMode() {
+        if (state.inlineComposerModal) {
+            undockInlineComposer();
+        }
+        syncComposerModeButtons('comment');
         hideMentionPopup('comment');
+    }
+
+    function shouldDockComposerModal(id) {
+        return INBOX_POPOUT && (id === 'modalReply' || id === 'modalCompose');
+    }
+
+    function undockInlineComposer() {
+        const backdrop = el('modalBackdrop');
+        const commentPanel = el('commentComposerPanel');
+        if (!backdrop) {
+            state.inlineComposerModal = null;
+            return;
+        }
+        ['modalReply', 'modalCompose'].forEach(id => {
+            const modal = el(id);
+            if (!modal) return;
+            if (modal.parentElement !== backdrop) {
+                backdrop.appendChild(modal);
+            }
+            modal.classList.remove('inbox-inline-composer');
+            if (state.inlineComposerModal === id || modal.style.display === 'grid') {
+                modal.style.display = 'none';
+            }
+        });
+        if (commentPanel) commentPanel.hidden = false;
+        el('composerArea')?.classList.remove('has-inline-mail');
+        state.inlineComposerModal = null;
+    }
+
+    function dockInlineComposer(id) {
+        const card = el('composerArea')?.querySelector('.inbox-composer-card');
+        const commentPanel = el('commentComposerPanel');
+        const backdrop = el('modalBackdrop');
+        const modal = el(id);
+        if (!card || !modal || !backdrop) return false;
+
+        ['modalReply', 'modalCompose'].forEach(otherId => {
+            if (otherId === id) return;
+            const other = el(otherId);
+            if (!other) return;
+            if (other.parentElement !== backdrop) backdrop.appendChild(other);
+            other.classList.remove('inbox-inline-composer');
+            other.style.display = 'none';
+        });
+
+        if (commentPanel) commentPanel.hidden = true;
+        card.appendChild(modal);
+        modal.classList.add('inbox-inline-composer');
+        modal.style.display = 'grid';
+        state.inlineComposerModal = id;
+        state.composerExpanded = true;
+        el('composerArea')?.classList.add('is-expanded', 'has-inline-mail');
+        backdrop.style.display = 'none';
+
+        ['modalCompose','modalReply','modalInbox','modalTemplateList','modalTemplate','modalSignatureList','modalSignature','modalRule','modalMembers','modalMerge','modalAdvancedSearch','modalSidebarLabels'].forEach(m => {
+            if (m === id) return;
+            const node = el(m);
+            if (node && node.parentElement === backdrop) node.style.display = 'none';
+        });
+
+        requestAnimationFrame(() => {
+            el('threadMessages')?.scrollTo?.({ top: el('threadMessages').scrollHeight });
+            el('composerArea')?.scrollIntoView?.({ block: 'nearest' });
+        });
+        return true;
     }
 
     function setReplyModalCopy(title, help) {
@@ -4512,6 +4618,7 @@ html.inbox-is-popout .inbox-props {
         state.shareDraftSelected.reply = {};
         setReplyModalCopy(replyAll ? 'Reply all' : 'Reply', 'Email reply via Outlook.');
         hideMentionPopup('reply');
+        syncComposerModeButtons('reply');
         openModal('modalReply');
         populateReplyHeaders(message, { replyAll, force });
         applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
@@ -4528,6 +4635,7 @@ html.inbox-is-popout .inbox-props {
             : null;
         setReplyModalCopy('Edit draft', 'Send draft via Outlook.');
         hideMentionPopup('reply');
+        syncComposerModeButtons('reply');
         openModal('modalReply');
         fillReplyFromSelect();
         if (el('replyTo')) el('replyTo').value = parseEmailList(message.to || message.to_emails).join(', ');
@@ -5925,6 +6033,12 @@ html.inbox-is-popout .inbox-props {
     }
 
     function openModal(id) {
+        if (shouldDockComposerModal(id) && dockInlineComposer(id)) {
+            state.advancedOpen = false;
+            updateAdvancedToggleState();
+            return;
+        }
+        if (state.inlineComposerModal) undockInlineComposer();
         el('modalBackdrop').style.display = 'flex';
         ['modalCompose','modalReply','modalInbox','modalTemplateList','modalTemplate','modalSignatureList','modalSignature','modalRule','modalMembers','modalMerge','modalAdvancedSearch','modalSidebarLabels'].forEach(m => {
             const node = el(m);
@@ -5950,6 +6064,8 @@ html.inbox-is-popout .inbox-props {
             openSignatureListModal();
             return;
         }
+        const wasInline = !!state.inlineComposerModal;
+        undockInlineComposer();
         el('modalBackdrop').style.display = 'none';
         closeHtmlLinkDialog();
         state.advancedOpen = false;
@@ -5961,6 +6077,10 @@ html.inbox-is-popout .inbox-props {
         state.templateAttachments = [];
         renderAttachChips('template');
         closeTemplatePickers();
+        if (wasInline || INBOX_POPOUT) {
+            syncComposerModeButtons('comment');
+            hideMentionPopup('comment');
+        }
     }
 
     let mergeSearchTimer = null;
@@ -6171,6 +6291,10 @@ html.inbox-is-popout .inbox-props {
             opts.title || 'New message',
             opts.help || 'Send email through a connected Outlook inbox.'
         );
+        if (INBOX_POPOUT) {
+            const title = String(opts.title || '').toLowerCase();
+            syncComposerModeButtons(title.includes('forward') ? 'forward' : 'comment');
+        }
         openModal('modalCompose');
         setTimeout(() => el(opts.focus || 'composeTo')?.focus(), 50);
     }
@@ -8347,7 +8471,7 @@ html.inbox-is-popout .inbox-props {
         });
         try {
             const attachments = await loadMessageAttachmentsForCompose(source);
-            if (el('modalCompose')?.style.display === 'grid' && attachments.length) {
+            if ((el('modalCompose')?.style.display === 'grid' || state.inlineComposerModal === 'modalCompose') && attachments.length) {
                 state.composeAttachments = attachments;
                 renderAttachChips('compose');
             }
@@ -8371,6 +8495,7 @@ html.inbox-is-popout .inbox-props {
         state.shareDraftSelected.reply = {};
         setReplyModalCopy('Resend', 'Send this message again. You can edit it first.');
         hideMentionPopup('reply');
+        syncComposerModeButtons('resend');
         openModal('modalReply');
         fillReplyFromSelect();
         if (el('replyTo')) el('replyTo').value = parseEmailList(source.to || source.to_emails).join(', ');
@@ -8382,7 +8507,7 @@ html.inbox-is-popout .inbox-props {
         el('replyBody')?.focus();
         try {
             const attachments = await loadMessageAttachmentsForCompose(source);
-            if (el('modalReply')?.style.display === 'grid' && attachments.length) {
+            if ((el('modalReply')?.style.display === 'grid' || state.inlineComposerModal === 'modalReply') && attachments.length) {
                 state.replyAttachments = attachments;
                 renderAttachChips('reply');
             }
@@ -8877,7 +9002,14 @@ html.inbox-is-popout .inbox-props {
             resendModeBtn.disabled = !canResend;
             resendModeBtn.title = canResend ? 'Resend the last sent message' : (canReply ? 'No sent message to resend' : 'Resend unavailable in this folder');
         }
-        setComposerMode();
+        const mailComposerOpen = !!state.inlineComposerModal
+            || el('modalReply')?.style.display === 'grid'
+            || el('modalCompose')?.style.display === 'grid';
+        if (mailComposerOpen) {
+            syncComposerModeButtons(state.composerMode);
+        } else {
+            setComposerMode();
+        }
         if (!state.replyAll) {
             el('composerHint').textContent = folder === 'drafts' ? 'Send draft via Outlook' : 'Reply via Outlook';
         }
@@ -9309,8 +9441,8 @@ html.inbox-is-popout .inbox-props {
         return String(str ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
     }
 
-    async function loadBootstrap({ conversations = true } = {}) {
-        const data = await api('/bootstrap');
+    async function loadBootstrap({ conversations = true, lite = false } = {}) {
+        const data = await api('/bootstrap' + (lite ? '?lite=1' : ''));
         state.inboxes = data.inboxes || [];
         state.assignedToMeCount = Number(data.assigned_to_me_count || 0);
         state.assignedArchivedCount = Number(data.assigned_archived_count || 0);
@@ -10943,6 +11075,7 @@ html.inbox-is-popout .inbox-props {
         state.shareDraftSelected.reply = {};
         setReplyModalCopy(snapshot.title, snapshot.help);
         hideMentionPopup('reply');
+        syncComposerModeButtons(String(snapshot.title || '').toLowerCase().includes('resend') ? 'resend' : 'reply');
         openModal('modalReply');
         fillReplyFromSelect();
         if (el('replyFrom') && snapshot.inboxId) el('replyFrom').value = String(snapshot.inboxId);
@@ -11861,13 +11994,23 @@ html.inbox-is-popout .inbox-props {
     });
     loadLocalTools();
     renderViewGroups();
-    const inboxStartup = [loadBootstrap({ conversations: false })];
+    const startupParams = new URLSearchParams(window.location.search);
+    const startupConversationId = Number(startupParams.get('conversation') || 0);
+    const startupMessageId = Number(startupParams.get('message') || 0);
+    const startupLabelId = Number(startupParams.get('label') || 0);
+
+    // Popout: fetch the thread immediately — don't wait on sidebar bootstrap/counts.
+    const popoutOpenPromise = (INBOX_POPOUT && startupConversationId)
+        ? openConversation(startupConversationId, startupMessageId ? { messageId: startupMessageId } : {})
+        : null;
+
+    const inboxStartup = [loadBootstrap({ conversations: false, lite: INBOX_POPOUT })];
     if (!INBOX_POPOUT) inboxStartup.push(loadConversations());
     Promise.all(inboxStartup).then(async () => {
-        const params = new URLSearchParams(window.location.search);
-        const conversationId = Number(params.get('conversation') || 0);
-        const messageId = Number(params.get('message') || 0);
-        const labelId = Number(params.get('label') || 0);
+        const params = startupParams;
+        const conversationId = startupConversationId;
+        const messageId = startupMessageId;
+        const labelId = startupLabelId;
         if (labelId && !INBOX_POPOUT) {
             state.selectedLabelId = labelId;
             state.selectedInboxId = null;
@@ -11877,7 +12020,7 @@ html.inbox-is-popout .inbox-props {
             await loadConversations();
             params.delete('label');
         }
-        if (conversationId) {
+        if (conversationId && !popoutOpenPromise) {
             await openConversation(conversationId, messageId ? { messageId } : {});
             if (!INBOX_POPOUT) {
                 params.delete('conversation');
@@ -11885,9 +12028,21 @@ html.inbox-is-popout .inbox-props {
                 const next = params.toString();
                 window.history.replaceState({}, '', window.location.pathname + (next ? '?' + next : ''));
             }
+        } else if (popoutOpenPromise) {
+            await popoutOpenPromise;
+            // Bootstrap finished after the thread — refresh composer tools that depend on it.
+            refreshTemplateSelects();
+            if (!state.replyDraftId) {
+                const replyPlain = htmlToPlain(getComposerHtml('reply') || '').trim();
+                if (!replyPlain) applyComposerSignature('reply');
+            }
         }
     }).catch(err => {
         if (INBOX_POPOUT) {
+            if (state.conversation) {
+                console.warn('Inbox popout bootstrap failed', err);
+                return;
+            }
             el('threadPlaceholder').style.display = 'none';
             el('threadView').style.display = 'flex';
             el('threadView')?.classList.remove('is-loading');
