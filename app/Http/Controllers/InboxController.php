@@ -667,6 +667,21 @@ class InboxController extends Controller
             $inboxIds = collect([(int) $validated['inbox_id']]);
         }
 
+        // Views → Open is the shared-inbox work queue. Personal mail stays under each
+        // user's Personal mailbox in the sidebar (when inbox_id is set).
+        $globalOpen = ($validated['view'] ?? 'open') === 'open'
+            && empty($validated['inbox_id'])
+            && empty($validated['label_id'])
+            && ! $idQuery
+            && $search === ''
+            && empty($folderFilter);
+
+        if ($globalOpen) {
+            $inboxIds = $this->accessibleInboxes($user)
+                ->where('type', SharedInbox::TYPE_SHARED)
+                ->pluck('id');
+        }
+
         $query = InboxConversation::with([
             'assignee:id,name,email',
             'tags:id,name,color',

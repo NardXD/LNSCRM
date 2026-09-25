@@ -406,6 +406,51 @@ class InboxAssignedToMeTest extends TestCase
             ->assertJsonPath('assigned_to_me_count', 1);
     }
 
+    public function test_global_open_view_excludes_personal_inbox_mail(): void
+    {
+        [$user, $other, $shared] = $this->inboxWithTwoAgents();
+
+        $personal = SharedInbox::query()->create([
+            'company_id' => $user->company_id,
+            'created_by' => $user->id,
+            'name' => 'Personal',
+            'email' => $user->email,
+            'type' => SharedInbox::TYPE_PERSONAL,
+            'is_active' => true,
+        ]);
+
+        $sharedThread = $this->makeConversation($shared, [
+            'subject' => 'Shared open',
+            'from_email' => 'shared-customer@example.com',
+        ]);
+        $personalThread = $this->makeConversation($personal, [
+            'subject' => 'Personal open',
+            'from_email' => 'personal-customer@example.com',
+        ]);
+
+        $globalIds = collect($this->actingAs($user)
+            ->getJson('/api/inbox/conversations?view=open')
+            ->assertOk()
+            ->json('conversations'))
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $this->assertContains($sharedThread->id, $globalIds);
+        $this->assertNotContains($personalThread->id, $globalIds);
+
+        $personalIds = collect($this->actingAs($user)
+            ->getJson('/api/inbox/conversations?view=open&inbox_id='.$personal->id)
+            ->assertOk()
+            ->json('conversations'))
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $this->assertContains($personalThread->id, $personalIds);
+        $this->assertNotContains($sharedThread->id, $personalIds);
+    }
+
     public function test_conversation_list_includes_attached_lead_and_skips_unattached_fuzzy_match(): void
     {
         [$user, $other, $inbox] = $this->inboxWithTwoAgents();

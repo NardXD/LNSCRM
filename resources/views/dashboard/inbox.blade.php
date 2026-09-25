@@ -6580,7 +6580,9 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
             toolsToggle.setAttribute('aria-expanded', state.inboxToolsOpen ? 'true' : 'false');
         }
 
-        const openCount = state.inboxes.reduce((n, i) => n + (i.open_count || 0), 0);
+        const openCount = state.inboxes
+            .filter(i => i.type === 'shared')
+            .reduce((n, i) => n + (i.open_count || 0), 0);
         el('countOpen').textContent = openCount;
         renderViewGroups();
 
