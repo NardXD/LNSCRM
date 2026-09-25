@@ -2316,7 +2316,23 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 }
 .inbox-msg-clip { display: inline-flex; color: #9ca3af; }
 .inbox-msg-clip svg { width: 14px; height: 14px; }
-.inbox-msg-time { white-space: nowrap; }
+.inbox-msg-time {
+    white-space: nowrap;
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 0 0.15rem;
+}
+.inbox-msg-time:hover { color: var(--inbox-accent); }
+.inbox-msg-time.is-absolute {
+    color: var(--inbox-text);
+    font-weight: 600;
+}
+.inbox-msg-time:not([data-msg-time]) {
+    cursor: default;
+}
+.inbox-msg-time:not([data-msg-time]):hover {
+    color: inherit;
+}
 .inbox-msg-expanded { display: none; padding: 0 0.9rem 0.9rem 3.4rem; }
 .inbox-msg.is-expanded .inbox-msg-expanded { display: block; }
 .inbox-msg-recipients {
@@ -5885,20 +5901,26 @@ html.inbox-is-popout .inbox-props {
         return formatRelativeTime(iso);
     }
 
+    function applyTimestampDisplay(node, iso, relativeFn) {
+        if (!iso) {
+            node.textContent = '';
+            return;
+        }
+        if (node.classList.contains('is-absolute')) {
+            node.textContent = formatAbsoluteTime(iso);
+            node.title = 'Click to show relative time';
+        } else {
+            node.textContent = relativeFn(iso);
+            node.title = 'Click to show date & time';
+        }
+    }
+
     function refreshConversationTimes() {
         document.querySelectorAll('[data-conv-time]').forEach(node => {
-            const iso = node.dataset.convTime;
-            if (!iso) {
-                node.textContent = '';
-                return;
-            }
-            if (node.classList.contains('is-absolute')) {
-                node.textContent = formatAbsoluteTime(iso);
-                node.title = 'Click to show relative time';
-            } else {
-                node.textContent = formatRelativeTime(iso);
-                node.title = 'Click to show date & time';
-            }
+            applyTimestampDisplay(node, node.dataset.convTime, formatRelativeTime);
+        });
+        document.querySelectorAll('[data-msg-time]').forEach(node => {
+            applyTimestampDisplay(node, node.dataset.msgTime, formatThreadTime);
         });
     }
 
@@ -8646,7 +8668,7 @@ html.inbox-is-popout .inbox-props {
                     <div class="inbox-msg-meta">
         ${m.direction === 'inbound' && m.is_read ? '<span class="inbox-seen">Seen</span>' : ''}
                         ${(m.attachments || []).length ? clipIconHtml() : ''}
-                        <span class="inbox-msg-time" title="${escapeHtml(m.sent_at ? formatAbsoluteTime(m.sent_at) : '')}">${escapeHtml(formatThreadTime(m.sent_at))}</span>
+                        <span class="inbox-msg-time"${m.sent_at ? ` data-msg-time="${escapeHtml(m.sent_at)}" title="Click to show date & time"` : ''}>${escapeHtml(formatThreadTime(m.sent_at))}</span>
                         <div class="inbox-msg-head-actions">
                             ${isDraft ? `
                                 <button type="button" data-edit-draft="${escapeHtml(String(m.id))}" title="Continue editing draft">
@@ -8699,7 +8721,7 @@ html.inbox-is-popout .inbox-props {
                     </div>
                     <div class="inbox-msg-meta">
                         ${(comment.attachments || []).length ? clipIconHtml() : ''}
-                        <span class="inbox-msg-time" title="${escapeHtml(comment.created_at ? formatAbsoluteTime(comment.created_at) : '')}">${escapeHtml(formatThreadTime(comment.created_at))}</span>
+                        <span class="inbox-msg-time"${comment.created_at ? ` data-msg-time="${escapeHtml(comment.created_at)}" title="Click to show date & time"` : ''}>${escapeHtml(formatThreadTime(comment.created_at))}</span>
                         ${canEdit ? `
                         <div class="inbox-msg-head-actions">
                             <button type="button" data-edit-comment="${commentId}" title="Edit comment">
@@ -9619,14 +9641,7 @@ html.inbox-is-popout .inbox-props {
             e.preventDefault();
             e.stopPropagation();
             time.classList.toggle('is-absolute');
-            const iso = time.dataset.convTime;
-            if (time.classList.contains('is-absolute')) {
-                time.textContent = formatAbsoluteTime(iso);
-                time.title = 'Click to show relative time';
-            } else {
-                time.textContent = formatRelativeTime(iso);
-                time.title = 'Click to show date & time';
-            }
+            applyTimestampDisplay(time, time.dataset.convTime, formatRelativeTime);
             return;
         }
         const row = e.target.closest('[data-conv-id]');
@@ -10365,6 +10380,16 @@ html.inbox-is-popout .inbox-props {
         }
     });
     el('threadMessages')?.addEventListener('click', (e) => {
+        const msgTime = e.target.closest('[data-msg-time]');
+        if (msgTime) {
+            e.preventDefault();
+            e.stopPropagation();
+            const iso = msgTime.dataset.msgTime;
+            if (!iso) return;
+            msgTime.classList.toggle('is-absolute');
+            applyTimestampDisplay(msgTime, iso, formatThreadTime);
+            return;
+        }
         const bodyImg = emailBodyImageFromEvent(e);
         if (bodyImg) {
             e.preventDefault();
