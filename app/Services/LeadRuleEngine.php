@@ -427,6 +427,16 @@ class LeadRuleEngine
 
                     continue;
                 }
+                if ($type === 'add_label') {
+                    $this->addLabelAction($lead, $value, $context, $companyId, $rule);
+
+                    continue;
+                }
+                if ($type === 'reopen_email_thread') {
+                    $this->reopenEmailThread($lead, $context, $companyId);
+
+                    continue;
+                }
                 if (! $lead) {
                     $this->ruleLog('debug', 'Action skipped: no lead yet', [
                         'rule_id' => $rule?->id,
@@ -455,24 +465,12 @@ class LeadRuleEngine
 
                     continue;
                 }
-                if ($type === 'add_label') {
-                    $this->addLabel($lead, $value);
-                    $this->ruleLog('info', 'Action: add_label', [
-                        'rule_id' => $rule?->id,
-                        'lead_id' => $lead->id,
-                        'label_value' => $value,
-                        'labels_after' => $lead->labels()->pluck('name')->all(),
-                    ]);
-
-                    continue;
-                }
                 match ($type) {
                     'set_status' => $this->setStatus($lead, $value),
                     'set_status_after_days' => $this->scheduleStatus($lead, $value),
                     'notify_assignee' => $this->notifyAssignee($lead),
                     'reopen_after_days' => $this->scheduleReopen($lead, $value),
                     'unsnooze' => $this->unsnooze($lead),
-                    'reopen_email_thread' => $this->reopenEmailThread($lead, $context),
                     'send_email' => $this->sendEmail($lead, $value, $rule),
                     'attach_shared_inbox' => $this->attachSharedInbox($lead, $context, $rule),
                     default => null,
@@ -723,6 +721,56 @@ class LeadRuleEngine
         return (int) $raw;
     }
 
+    /**
+     * @param  array{company_id?: int, inbox_conversation_id?: int|string|null}  $context
+     */
+    private function addLabelAction(?Lead $lead, mixed $labelIdOrName, array $context, int $companyId, ?LeadRule $rule): void
+    {
+        if ($lead) {
+            $this->addLabel($lead, $labelIdOrName);
+            $this->ruleLog('info', 'Action: add_label', [
+                'rule_id' => $rule?->id,
+                'lead_id' => $lead->id,
+                'label_value' => $labelIdOrName,
+                'labels_after' => $lead->labels()->pluck('name')->all(),
+            ]);
+
+            return;
+        }
+
+        $conversationId = (int) ($context['inbox_conversation_id'] ?? 0);
+        if ($conversationId < 1) {
+            $this->ruleLog('debug', 'Action skipped: add_label needs a lead or inbox thread', [
+                'rule_id' => $rule?->id,
+            ]);
+
+            return;
+        }
+
+        $resolvedCompanyId = $companyId > 0 ? $companyId : (int) ($context['company_id'] ?? 0);
+        $conversation = InboxConversation::query()
+            ->when($resolvedCompanyId > 0, fn ($q) => $q->where('company_id', $resolvedCompanyId))
+            ->whereKey($conversationId)
+            ->first();
+        if (! $conversation) {
+            $this->ruleLog('debug', 'Action skipped: inbox thread not found for add_label', [
+                'rule_id' => $rule?->id,
+                'inbox_conversation_id' => $conversationId,
+            ]);
+
+            return;
+        }
+
+        $added = $this->addLabelsToInboxConversation($conversation, $labelIdOrName);
+        $this->ruleLog('info', 'Action: add_label (inbox thread)', [
+            'rule_id' => $rule?->id,
+            'inbox_conversation_id' => $conversation->id,
+            'label_value' => $labelIdOrName,
+            'labels_added' => $added,
+            'labels_after' => $conversation->leadLabels()->pluck('name')->all(),
+        ]);
+    }
+
     private function addLabel(Lead $lead, mixed $labelIdOrName): void
     {
         $values = is_array($labelIdOrName) ? array_values($labelIdOrName) : [$labelIdOrName];
@@ -731,13 +779,71 @@ class LeadRuleEngine
         }
     }
 
+    /**
+     * @return list<string>
+     */
+    private function addLabelsToInboxConversation(InboxConversation $conversation, mixed $labelIdOrName): array
+    {
+        $values = is_array($labelIdOrName) ? array_values($labelIdOrName) : [$labelIdOrName];
+        $added = [];
+        foreach ($values as $value) {
+            $name = $this->addOneLabelToInboxConversation($conversation, $value);
+            if ($name !== null) {
+                $added[] = $name;
+            }
+        }
+
+        return $added;
+    }
+
+    private function addOneLabelToInboxConversation(InboxConversation $conversation, mixed $labelIdOrName): ?string
+    {
+        $label = $this->resolveLeadLabel((int) $conversation->company_id, $labelIdOrName);
+        if (! $label) {
+            return null;
+        }
+
+        $already = $conversation->leadLabels()->where('lead_labels.id', $label->id)->exists();
+        $conversation->leadLabels()->syncWithoutDetaching([$label->id]);
+        if (! $already) {
+            InboxConversationActivity::create([
+                'inbox_conversation_id' => $conversation->id,
+                'user_id' => null,
+                'action' => 'label_added',
+                'summary' => 'Lead rule added label: '.$label->name,
+                'meta' => [
+                    'source' => 'lead_rule',
+                    'label_id' => $label->id,
+                    'label_name' => $label->name,
+                ],
+            ]);
+        }
+
+        return $label->name;
+    }
+
     private function addOneLabel(Lead $lead, mixed $labelIdOrName): void
     {
-        if ($labelIdOrName === null || $labelIdOrName === '' || is_array($labelIdOrName)) {
+        $label = $this->resolveLeadLabel((int) $lead->company_id, $labelIdOrName);
+        if (! $label) {
             return;
         }
 
-        $companyId = (int) $lead->company_id;
+        $already = $lead->labels()->where('lead_labels.id', $label->id)->exists();
+        $lead->labels()->syncWithoutDetaching([$label->id]);
+        if (! $already) {
+            $this->leadActivity->recordLabel($lead, $label->name, true, labelId: $label->id);
+            $lead->unsetRelation('labels');
+            $lead->load('labels');
+        }
+    }
+
+    private function resolveLeadLabel(int $companyId, mixed $labelIdOrName): ?LeadLabel
+    {
+        if ($labelIdOrName === null || $labelIdOrName === '' || is_array($labelIdOrName) || $companyId < 1) {
+            return null;
+        }
+
         $label = null;
         if (is_numeric($labelIdOrName)) {
             $label = LeadLabel::query()
@@ -761,17 +867,7 @@ class LeadRuleEngine
             }
         }
 
-        if (! $label) {
-            return;
-        }
-
-        $already = $lead->labels()->where('lead_labels.id', $label->id)->exists();
-        $lead->labels()->syncWithoutDetaching([$label->id]);
-        if (! $already) {
-            $this->leadActivity->recordLabel($lead, $label->name, true, labelId: $label->id);
-            $lead->unsetRelation('labels');
-            $lead->load('labels');
-        }
+        return $label;
     }
 
     private function setStatus(Lead $lead, mixed $status): void
@@ -866,25 +962,38 @@ class LeadRuleEngine
     }
 
     /**
-     * @param  array{inbox_conversation_id?: int|string|null}  $context
+     * @param  array{inbox_conversation_id?: int|string|null, company_id?: int}  $context
      */
-    private function reopenEmailThread(Lead $lead, array $context): void
+    private function reopenEmailThread(?Lead $lead, array $context, int $companyId = 0): void
     {
         $contextId = (int) ($context['inbox_conversation_id'] ?? 0);
+        $resolvedCompanyId = (int) ($lead?->company_id ?: ($companyId ?: ($context['company_id'] ?? 0)));
+        if ($resolvedCompanyId < 1) {
+            return;
+        }
 
         $conversations = InboxConversation::query()
-            ->where('company_id', $lead->company_id)
+            ->where('company_id', $resolvedCompanyId)
             ->whereNull('merged_into_id')
             ->where('status', 'archived')
             ->where(function ($query) use ($lead, $contextId) {
-                $query->where('lead_id', $lead->id);
+                if ($lead) {
+                    $query->where('lead_id', $lead->id);
+                    if ($contextId > 0) {
+                        $query->orWhere(function ($match) use ($lead, $contextId) {
+                            $match->whereKey($contextId)
+                                ->where(function ($owner) use ($lead) {
+                                    $owner->whereNull('lead_id')->orWhere('lead_id', $lead->id);
+                                });
+                        });
+                    }
+
+                    return;
+                }
                 if ($contextId > 0) {
-                    $query->orWhere(function ($match) use ($lead, $contextId) {
-                        $match->whereKey($contextId)
-                            ->where(function ($owner) use ($lead) {
-                                $owner->whereNull('lead_id')->orWhere('lead_id', $lead->id);
-                            });
-                    });
+                    $query->whereKey($contextId)->whereNull('lead_id');
+                } else {
+                    $query->whereRaw('0 = 1');
                 }
             })
             ->get();
@@ -904,14 +1013,18 @@ class LeadRuleEngine
                 'user_id' => null,
                 'action' => 'reopened',
                 'summary' => 'Conversation reopened by a lead rule',
-                'meta' => ['source' => 'lead_rule', 'lead_id' => $lead->id],
+                'meta' => [
+                    'source' => 'lead_rule',
+                    'lead_id' => $lead?->id,
+                ],
             ]);
 
             $this->notifyAssigneeOfThreadReopen($conversation);
         }
 
         $this->ruleLog('info', 'Action: reopen_email_thread', [
-            'lead_id' => $lead->id,
+            'lead_id' => $lead?->id,
+            'inbox_conversation_id' => $contextId ?: null,
             'reopened' => $conversations->pluck('id')->all(),
         ]);
     }

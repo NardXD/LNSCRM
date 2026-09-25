@@ -99,7 +99,7 @@ class LeadRuleAddLabelTest extends TestCase
         $this->assertFalse($lead->labels()->where('lead_labels.id', $labelA->id)->exists());
     }
 
-    public function test_add_label_is_skipped_when_no_lead_exists(): void
+    public function test_add_label_applies_to_inbox_thread_when_no_lead_exists(): void
     {
         [$inbox, $otherInbox, , $conversation, $labelA] = $this->setupThread(withLead: false);
 
@@ -116,6 +116,7 @@ class LeadRuleAddLabelTest extends TestCase
             ],
             'actions' => [
                 ['type' => 'add_label', 'value' => [$labelA->id]],
+                ['type' => 'reopen_email_thread', 'value' => null],
             ],
         ]);
 
@@ -126,8 +127,11 @@ class LeadRuleAddLabelTest extends TestCase
             subject: 'Newport villa',
         ))->handle(app(\App\Services\LeadAutoCreateService::class));
 
+        $conversation->refresh();
         $this->assertSame(0, $labelA->leads()->count());
-        $this->assertNull($conversation->fresh()->lead_id);
+        $this->assertNull($conversation->lead_id);
+        $this->assertTrue($conversation->leadLabels()->where('lead_labels.id', $labelA->id)->exists());
+        $this->assertSame('open', $conversation->status);
 
         $rule = LeadRule::query()->where('name', 'Newport no lead')->first();
         $this->assertNotNull($rule?->last_applied_at);

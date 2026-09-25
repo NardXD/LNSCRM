@@ -3924,7 +3924,7 @@ body:has(.ld-page-wrapper) {
         }
         if (type === 'add_label') {
             row.insertAdjacentHTML('beforeend', labelMultiSelectHtml(preset.value || [], 'data-rule-action-labels'));
-            row.insertAdjacentHTML('beforeend', '<p class="leads-rule-delayed-help">Check every label this rule should add.</p>');
+            row.insertAdjacentHTML('beforeend', '<p class="leads-rule-delayed-help">Check every label this rule should add. On inbox threads without a lead yet, labels are applied to the email thread and move to the lead when it is saved.</p>');
         }
         if (type === 'set_status_after_days') {
             valueSel?.insertAdjacentHTML('afterend', delayedStatusSelectHtml(delayedStatusSlug(preset.value)));
@@ -3935,7 +3935,7 @@ body:has(.ld-page-wrapper) {
             row.insertAdjacentHTML('beforeend', '<p class="leads-rule-delayed-help">Sends the chosen template by email, either immediately or after a delay measured from when this rule’s trigger happens.</p>');
         }
         if (type === 'reopen_email_thread') {
-            row.insertAdjacentHTML('beforeend', '<p class="leads-rule-delayed-help">Reopens archived or snoozed email threads linked to this lead.</p>');
+            row.insertAdjacentHTML('beforeend', '<p class="leads-rule-delayed-help">Reopens the matching archived or snoozed email thread, even when it is not saved as a lead yet.</p>');
         }
         syncAssignTeammatePicker(row, preset);
     }
