@@ -14,7 +14,6 @@ use App\Support\EmailQuotedHistory;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 
 class OutlookMailService
 {
@@ -1015,130 +1014,16 @@ class OutlookMailService
 
             $items = $response->json('value') ?? [];
             $files = $this->normalizeGraphAttachmentList(is_array($items) ? $items : []);
-            $files = $this->preserveLocalAttachmentPaths($message->attachments, $files);
 
             $message->attachments = $files;
 
             $html = (string) ($message->body_html ?? '');
             if ($html !== '' && preg_match('/cid:/i', $html)) {
                 $message->body_html = $this->embedCidImages($html, is_array($items) ? $items : []);
-                // If Graph CIDs differ from the ones we stored at send time, still resolve
-                // from local copies kept on the message attachments.
-                $message->body_html = $this->embedCidImagesFromStoredAttachments(
-                    (string) $message->body_html,
-                    is_array($message->attachments) ? $message->attachments : []
-                );
             }
 
             $message->save();
         }
-    }
-
-    /**
-     * Keep local disk paths (and content_id maps) when Graph metadata is refreshed.
-     *
-     * @param  array<int, mixed>|null  $existing
-     * @param  array<int, array<string, mixed>>  $graphFiles
-     * @return array<int, array<string, mixed>>
-     */
-    private function preserveLocalAttachmentPaths(?array $existing, array $graphFiles): array
-    {
-        if (! is_array($existing) || $existing === []) {
-            return $graphFiles;
-        }
-
-        $byName = [];
-        $byContentId = [];
-        foreach ($existing as $item) {
-            if (! is_array($item) || empty($item['path'])) {
-                continue;
-            }
-            $name = strtolower(trim((string) ($item['name'] ?? '')));
-            $cid = trim((string) ($item['content_id'] ?? $item['contentId'] ?? ''), "<> \t\r\n");
-            if ($name !== '') {
-                $byName[$name] = $item;
-            }
-            if ($cid !== '') {
-                $byContentId[strtolower($cid)] = $item;
-            }
-        }
-
-        if ($byName === [] && $byContentId === []) {
-            return $graphFiles;
-        }
-
-        foreach ($graphFiles as &$file) {
-            $name = strtolower(trim((string) ($file['name'] ?? '')));
-            $cid = trim((string) ($file['content_id'] ?? ''), "<> \t\r\n");
-            $local = ($name !== '' ? ($byName[$name] ?? null) : null)
-                ?: ($cid !== '' ? ($byContentId[strtolower($cid)] ?? null) : null);
-            if (! is_array($local)) {
-                continue;
-            }
-            $file['path'] = $local['path'];
-            if (empty($file['content_id']) && ! empty($local['content_id'])) {
-                $file['content_id'] = $local['content_id'];
-                $file['is_inline'] = ! empty($local['is_inline']) || ! empty($file['is_inline']);
-            }
-        }
-        unset($file);
-
-        // Keep local-only inline attachments Graph omitted (still needed for cid rewrite).
-        $graphNames = collect($graphFiles)
-            ->map(fn ($f) => strtolower(trim((string) ($f['name'] ?? ''))))
-            ->filter()
-            ->all();
-        foreach ($existing as $item) {
-            if (! is_array($item) || empty($item['path'])) {
-                continue;
-            }
-            $name = strtolower(trim((string) ($item['name'] ?? '')));
-            if ($name === '' || in_array($name, $graphNames, true)) {
-                continue;
-            }
-            if (empty($item['is_inline']) && empty($item['isInline']) && empty($item['content_id']) && empty($item['contentId'])) {
-                continue;
-            }
-            $graphFiles[] = $item;
-        }
-
-        return $graphFiles;
-    }
-
-    /**
-     * Embed cid: images using locally stored attachment files when Graph embedding missed them.
-     *
-     * @param  array<int, mixed>  $attachments
-     */
-    private function embedCidImagesFromStoredAttachments(string $html, array $attachments): string
-    {
-        if ($html === '' || ! preg_match('/src=["\']cid:/i', $html)) {
-            return $html;
-        }
-
-        foreach ($attachments as $item) {
-            if (! is_array($item)) {
-                continue;
-            }
-            $cid = trim((string) ($item['content_id'] ?? $item['contentId'] ?? ''), "<> \t\r\n");
-            $path = (string) ($item['path'] ?? '');
-            if ($cid === '' || $path === '' || ! Storage::disk('local')->exists($path)) {
-                continue;
-            }
-            $contentType = (string) ($item['content_type'] ?? $item['contentType'] ?? 'application/octet-stream');
-            if ($contentType === '') {
-                $contentType = 'application/octet-stream';
-            }
-            $dataUri = 'data:'.$contentType.';base64,'.base64_encode((string) Storage::disk('local')->get($path));
-            $quoted = preg_quote($cid, '/');
-            $html = preg_replace(
-                '/(src\s*=\s*["\'])cid:'.$quoted.'(?:@[^"\']*)?(["\'])/i',
-                '$1'.$dataUri.'$2',
-                $html
-            ) ?? $html;
-        }
-
-        return $html;
     }
 
     /**

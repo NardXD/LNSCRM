@@ -4505,8 +4505,8 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         }));
         let inlineCount = 0;
         const preparedBody = String(body || '').replace(
-            /<img\b([^>]*?)\bsrc=(["'])data:image\/([^;]+);base64,([^"']+)\2([^>]*)>/gi,
-            (match, before, quote, ext, bytes, after) => {
+            /<img\b[^>]*\ssrc=(["'])data:image\/([^;]+);base64,([^"']+)\1[^>]*>/gi,
+            (match, quote, ext, bytes) => {
                 inlineCount += 1;
                 const contentId = `inbox-img-${inlineCount}-${Math.random().toString(36).slice(2, 8)}`;
                 attachments.push({
@@ -4516,9 +4516,7 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
                     isInline: true,
                     contentId,
                 });
-                const prefix = String(before || '').trim();
-                const suffix = String(after || '').trim();
-                return `<img${prefix ? ' ' + prefix : ''} src=${quote}cid:${contentId}${quote}${suffix ? ' ' + suffix : ''}>`;
+                return match.replace(/src=(["'])data:image\/[^"']+\1/i, `src=${quote}cid:${contentId}${quote}`);
             }
         );
         return { body: preparedBody, attachments };
