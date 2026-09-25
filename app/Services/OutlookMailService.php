@@ -14,6 +14,7 @@ use App\Support\EmailQuotedHistory;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class OutlookMailService
 {
@@ -1014,16 +1015,130 @@ class OutlookMailService
 
             $items = $response->json('value') ?? [];
             $files = $this->normalizeGraphAttachmentList(is_array($items) ? $items : []);
+            $files = $this->preserveLocalAttachmentPaths($message->attachments, $files);
 
             $message->attachments = $files;
 
             $html = (string) ($message->body_html ?? '');
             if ($html !== '' && preg_match('/cid:/i', $html)) {
                 $message->body_html = $this->embedCidImages($html, is_array($items) ? $items : []);
+                // If Graph CIDs differ from the ones we stored at send time, still resolve
+                // from local copies kept on the message attachments.
+                $message->body_html = $this->embedCidImagesFromStoredAttachments(
+                    (string) $message->body_html,
+                    is_array($message->attachments) ? $message->attachments : []
+                );
             }
 
             $message->save();
         }
+    }
+
+    /**
+     * Keep local disk paths (and content_id maps) when Graph metadata is refreshed.
+     *
+     * @param  array<int, mixed>|null  $existing
+     * @param  array<int, array<string, mixed>>  $graphFiles
+     * @return array<int, array<string, mixed>>
+     */
+    private function preserveLocalAttachmentPaths(?array $existing, array $graphFiles): array
+    {
+        if (! is_array($existing) || $existing === []) {
+            return $graphFiles;
+        }
+
+        $byName = [];
+        $byContentId = [];
+        foreach ($existing as $item) {
+            if (! is_array($item) || empty($item['path'])) {
+                continue;
+            }
+            $name = strtolower(trim((string) ($item['name'] ?? '')));
+            $cid = trim((string) ($item['content_id'] ?? $item['contentId'] ?? ''), "<> \t\r\n");
+            if ($name !== '') {
+                $byName[$name] = $item;
+            }
+            if ($cid !== '') {
+                $byContentId[strtolower($cid)] = $item;
+            }
+        }
+
+        if ($byName === [] && $byContentId === []) {
+            return $graphFiles;
+        }
+
+        foreach ($graphFiles as &$file) {
+            $name = strtolower(trim((string) ($file['name'] ?? '')));
+            $cid = trim((string) ($file['content_id'] ?? ''), "<> \t\r\n");
+            $local = ($name !== '' ? ($byName[$name] ?? null) : null)
+                ?: ($cid !== '' ? ($byContentId[strtolower($cid)] ?? null) : null);
+            if (! is_array($local)) {
+                continue;
+            }
+            $file['path'] = $local['path'];
+            if (empty($file['content_id']) && ! empty($local['content_id'])) {
+                $file['content_id'] = $local['content_id'];
+                $file['is_inline'] = ! empty($local['is_inline']) || ! empty($file['is_inline']);
+            }
+        }
+        unset($file);
+
+        // Keep local-only inline attachments Graph omitted (still needed for cid rewrite).
+        $graphNames = collect($graphFiles)
+            ->map(fn ($f) => strtolower(trim((string) ($f['name'] ?? ''))))
+            ->filter()
+            ->all();
+        foreach ($existing as $item) {
+            if (! is_array($item) || empty($item['path'])) {
+                continue;
+            }
+            $name = strtolower(trim((string) ($item['name'] ?? '')));
+            if ($name === '' || in_array($name, $graphNames, true)) {
+                continue;
+            }
+            if (empty($item['is_inline']) && empty($item['isInline']) && empty($item['content_id']) && empty($item['contentId'])) {
+                continue;
+            }
+            $graphFiles[] = $item;
+        }
+
+        return $graphFiles;
+    }
+
+    /**
+     * Embed cid: images using locally stored attachment files when Graph embedding missed them.
+     *
+     * @param  array<int, mixed>  $attachments
+     */
+    private function embedCidImagesFromStoredAttachments(string $html, array $attachments): string
+    {
+        if ($html === '' || ! preg_match('/src=["\']cid:/i', $html)) {
+            return $html;
+        }
+
+        foreach ($attachments as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $cid = trim((string) ($item['content_id'] ?? $item['contentId'] ?? ''), "<> \t\r\n");
+            $path = (string) ($item['path'] ?? '');
+            if ($cid === '' || $path === '' || ! Storage::disk('local')->exists($path)) {
+                continue;
+            }
+            $contentType = (string) ($item['content_type'] ?? $item['contentType'] ?? 'application/octet-stream');
+            if ($contentType === '') {
+                $contentType = 'application/octet-stream';
+            }
+            $dataUri = 'data:'.$contentType.';base64,'.base64_encode((string) Storage::disk('local')->get($path));
+            $quoted = preg_quote($cid, '/');
+            $html = preg_replace(
+                '/(src\s*=\s*["\'])cid:'.$quoted.'(?:@[^"\']*)?(["\'])/i',
+                '$1'.$dataUri.'$2',
+                $html
+            ) ?? $html;
+        }
+
+        return $html;
     }
 
     /**
@@ -1057,8 +1172,7 @@ class OutlookMailService
      */
     private function embedCidImages(string $html, array $graphAttachments): string
     {
-        $used = [];
-        foreach ($graphAttachments as $index => $item) {
+        foreach ($graphAttachments as $item) {
             if (! is_array($item)) {
                 continue;
             }
@@ -1074,7 +1188,6 @@ class OutlookMailService
             }
             $dataUri = 'data:'.$contentType.';base64,'.$bytes;
             $quoted = preg_quote($cid, '/');
-            $before = $html;
 
             // src="cid:foo" / src='cid:foo' / src="cid:foo@bar"
             $html = preg_replace(
@@ -1089,49 +1202,9 @@ class OutlookMailService
                 '$1'.$dataUri.'$2',
                 $html
             ) ?? $html;
-
-            if ($html !== $before) {
-                $used[$index] = true;
-            }
         }
 
-        // Outlook sometimes rewrites contentIds. Map any leftover cid: images to unused
-        // inline Graph attachments (with bytes) in order so CRM display still works.
-        if (! preg_match('/src=["\']cid:/i', $html)) {
-            return $html;
-        }
-
-        $pool = [];
-        foreach ($graphAttachments as $index => $item) {
-            if (isset($used[$index]) || ! is_array($item)) {
-                continue;
-            }
-            if (empty($item['isInline'])) {
-                continue;
-            }
-            $bytes = $item['contentBytes'] ?? null;
-            if (! is_string($bytes) || $bytes === '') {
-                continue;
-            }
-            $pool[] = $item;
-        }
-
-        return preg_replace_callback(
-            '/(src\s*=\s*["\'])cid:([^"\']+)(["\'])/i',
-            function (array $matches) use (&$pool) {
-                $item = array_shift($pool);
-                if (! is_array($item)) {
-                    return $matches[0];
-                }
-                $contentType = (string) ($item['contentType'] ?? 'application/octet-stream');
-                if ($contentType === '') {
-                    $contentType = 'application/octet-stream';
-                }
-
-                return $matches[1].'data:'.$contentType.';base64,'.$item['contentBytes'].$matches[3];
-            },
-            $html
-        ) ?? $html;
+        return $html;
     }
 
     /**
@@ -1322,25 +1395,18 @@ class OutlookMailService
             $result['conversationId'] = $conversationId;
         }
 
-        $rawAttachments = $this->fetchMessageAttachmentsRaw($account, $mailboxPath, $draftId);
-        if ($rawAttachments !== null) {
-            $result['attachments'] = $this->normalizeGraphAttachmentList($rawAttachments);
-            // Align our cid: refs with Outlook's contentIds so CRM display can load
-            // inline images from Graph (no local copies needed).
-            $result['body'] = $this->reconcileOutboundBodyCids(
-                (string) ($payload['body'] ?? ''),
-                is_array($payload['attachments'] ?? null) ? $payload['attachments'] : [],
-                $rawAttachments
-            );
+        $attachmentMeta = $this->listMessageAttachmentMeta($account, $mailboxPath, $draftId);
+        if ($attachmentMeta !== null) {
+            $result['attachments'] = $attachmentMeta;
         }
 
         return $result;
     }
 
     /**
-     * @return array<int, mixed>|null  null = fetch failed
+     * @return array<int, array<string, mixed>>|null  null = fetch failed (retry later)
      */
-    private function fetchMessageAttachmentsRaw(
+    private function listMessageAttachmentMeta(
         OutlookMailAccount $account,
         string $mailboxPath,
         string $messageId
@@ -1360,116 +1426,7 @@ class OutlookMailService
             return null;
         }
 
-        $items = $response->json('value') ?? [];
-
-        return is_array($items) ? $items : [];
-    }
-
-    /**
-     * Rewrite outbound HTML cid: refs to match Outlook attachment contentIds.
-     *
-     * @param  array<int, array{name?: string, isInline?: bool, contentId?: string}>  $requestedAttachments
-     * @param  array<int, mixed>  $graphItems
-     */
-    private function reconcileOutboundBodyCids(string $html, array $requestedAttachments, array $graphItems): string
-    {
-        if ($html === '' || ! preg_match('/cid:/i', $html)) {
-            return $html;
-        }
-
-        // Exact contentId matches first (when Outlook kept our ids).
-        $html = $this->remapBodyCidsByExactContentId($html, $graphItems);
-
-        $requestedInline = [];
-        foreach ($requestedAttachments as $attachment) {
-            if (! is_array($attachment)) {
-                continue;
-            }
-            if (empty($attachment['isInline']) || empty($attachment['contentId'])) {
-                continue;
-            }
-            $requestedInline[] = $attachment;
-        }
-
-        $graphInline = [];
-        foreach ($graphItems as $item) {
-            if (! is_array($item)) {
-                continue;
-            }
-            $type = (string) ($item['@odata.type'] ?? '');
-            if ($type !== '' && $type !== '#microsoft.graph.fileAttachment') {
-                continue;
-            }
-            if (empty($item['isInline'])) {
-                continue;
-            }
-            $cid = trim((string) ($item['contentId'] ?? ''), "<> \t\r\n");
-            if ($cid === '') {
-                continue;
-            }
-            $graphInline[] = $item;
-        }
-
-        foreach ($requestedInline as $index => $requested) {
-            $graph = $graphInline[$index] ?? null;
-            if (! is_array($graph)) {
-                continue;
-            }
-            $ourCid = trim((string) ($requested['contentId'] ?? ''), "<> \t\r\n");
-            $graphCid = trim((string) ($graph['contentId'] ?? ''), "<> \t\r\n");
-            if ($ourCid === '' || $graphCid === '' || strcasecmp($ourCid, $graphCid) === 0) {
-                continue;
-            }
-            $quoted = preg_quote($ourCid, '/');
-            $html = preg_replace(
-                '/(cid:)'.$quoted.'(?:@[^"\'\s>]*)?/i',
-                '${1}'.$graphCid,
-                $html
-            ) ?? $html;
-        }
-
-        return $html;
-    }
-
-    /**
-     * @param  array<int, mixed>  $graphItems
-     */
-    private function remapBodyCidsByExactContentId(string $html, array $graphItems): string
-    {
-        foreach ($graphItems as $item) {
-            if (! is_array($item)) {
-                continue;
-            }
-            $cid = trim((string) ($item['contentId'] ?? ''), "<> \t\r\n");
-            if ($cid === '') {
-                continue;
-            }
-            // Normalize possible "cid:foo@host" leftovers to the bare Graph contentId.
-            $quoted = preg_quote($cid, '/');
-            $html = preg_replace(
-                '/(cid:)'.$quoted.'@[^\s"\'>]+/i',
-                '${1}'.$cid,
-                $html
-            ) ?? $html;
-        }
-
-        return $html;
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>|null  null = fetch failed (retry later)
-     */
-    private function listMessageAttachmentMeta(
-        OutlookMailAccount $account,
-        string $mailboxPath,
-        string $messageId
-    ): ?array {
-        $raw = $this->fetchMessageAttachmentsRaw($account, $mailboxPath, $messageId);
-        if ($raw === null) {
-            return null;
-        }
-
-        return $this->normalizeGraphAttachmentList($raw);
+        return $this->normalizeGraphAttachmentList($response->json('value') ?? []);
     }
 
     /**

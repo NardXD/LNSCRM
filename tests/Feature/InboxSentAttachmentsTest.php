@@ -62,7 +62,7 @@ class InboxSentAttachmentsTest extends TestCase
         $this->assertNotEmpty($message->attachments);
         $this->assertSame('graph-attach-1', $message->attachments[0]['id']);
         $this->assertSame('quote.pdf', $message->attachments[0]['name']);
-        $this->assertArrayNotHasKey('path', $message->attachments[0]);
+        $this->assertNotEmpty($message->attachments[0]['path'] ?? null);
 
         $conversation = InboxConversation::query()->findOrFail($conversationId);
         $this->assertSame('graph-conv-compose-1', $conversation->external_conversation_id);
@@ -75,7 +75,7 @@ class InboxSentAttachmentsTest extends TestCase
         $this->assertCount(1, $shown);
         $this->assertSame('quote.pdf', $shown[0]['name']);
         $this->assertNotEmpty($shown[0]['download_url']);
-        $this->assertFalse($shown[0]['local']);
+        $this->assertNotEmpty($shown[0]['id']);
     }
 
     public function test_reply_uses_outlook_attachment_metadata_on_the_outbound_message(): void
@@ -133,7 +133,7 @@ class InboxSentAttachmentsTest extends TestCase
         $this->assertNotNull($outbound);
         $this->assertSame('graph-msg-reply-1', $outbound->external_message_id);
         $this->assertSame('graph-attach-2', $outbound->attachments[0]['id']);
-        $this->assertArrayNotHasKey('path', $outbound->attachments[0]);
+        $this->assertNotEmpty($outbound->attachments[0]['path'] ?? null);
 
         $shown = $this->actingAs($user)
             ->getJson('/api/inbox/conversations/'.$conversation->id)
@@ -144,10 +144,10 @@ class InboxSentAttachmentsTest extends TestCase
         $this->assertNotNull($outboundPayload);
         $this->assertCount(1, $outboundPayload['attachments']);
         $this->assertSame('spec.docx', $outboundPayload['attachments'][0]['name']);
-        $this->assertFalse($outboundPayload['attachments'][0]['local']);
+        $this->assertNotEmpty($outboundPayload['attachments'][0]['id']);
     }
 
-    public function test_outbound_inline_image_uses_outlook_content_id_for_display(): void
+    public function test_outbound_inline_pasted_image_is_rewritten_for_display(): void
     {
         [$user, $inbox] = $this->connectedInboxFixture();
 
@@ -166,38 +166,27 @@ class InboxSentAttachmentsTest extends TestCase
             'last_message_at' => now(),
         ]);
 
-        $pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+        $pngBase64 = base64_encode(base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='));
 
-        $this->mock(OutlookMailService::class, function ($mock) use ($pngBase64) {
-            $mock->shouldReceive('sendMail')->once()->andReturnUsing(function ($inbox, $payload) use ($pngBase64) {
-                return [
-                    'sent' => true,
-                    'id' => 'graph-msg-inline-1',
-                    // Outlook rewrote our cid to its own contentId — sendMail reconciles body.
-                    'body' => '<p>See below</p><img alt="pasted-image.png" src="cid:outlook-cid-99">',
-                    'attachments' => [[
-                        'id' => 'graph-inline-1',
-                        'name' => 'image-1.png',
-                        'content_type' => 'image/png',
-                        'size' => 70,
-                        'is_inline' => true,
-                        'content_id' => 'outlook-cid-99',
-                    ]],
-                ];
-            });
+        $this->mock(OutlookMailService::class, function ($mock) {
+            $mock->shouldReceive('sendMail')->once()->andReturn([
+                'sent' => true,
+                'id' => 'graph-msg-inline-1',
+                'attachments' => [[
+                    'id' => 'graph-inline-1',
+                    'name' => 'image-1.png',
+                    'content_type' => 'image/png',
+                    'size' => 70,
+                    'is_inline' => true,
+                    'content_id' => 'inbox-img-1-abc123',
+                ]],
+            ]);
         });
 
         $this->actingAs($user)
             ->postJson('/api/inbox/conversations/'.$conversation->id.'/reply', [
                 'to' => 'customer@example.com',
-                'body' => '<p>See below</p><img alt="pasted-image.png" src="cid:inbox-img-1-abc123">',
-                'attachments' => [[
-                    'name' => 'image-1.png',
-                    'contentType' => 'image/png',
-                    'contentBytes' => $pngBase64,
-                    'isInline' => true,
-                    'contentId' => 'inbox-img-1-abc123',
-                ]],
+                'body' => '<p>See below</p><img alt="pasted-image.png" src="data:image/png;base64,'.$pngBase64.'">',
             ])
             ->assertOk();
 
@@ -208,9 +197,11 @@ class InboxSentAttachmentsTest extends TestCase
             ->first();
 
         $this->assertNotNull($outbound);
-        $this->assertStringContainsString('cid:outlook-cid-99', (string) $outbound->body_html);
-        $this->assertSame('outlook-cid-99', $outbound->attachments[0]['content_id']);
-        $this->assertArrayNotHasKey('path', $outbound->attachments[0]);
+        $this->assertMatchesRegularExpression('/src=["\']cid:/i', (string) $outbound->body_html);
+        $this->assertNotEmpty($outbound->attachments);
+        $this->assertTrue(! empty($outbound->attachments[0]['is_inline']));
+        $this->assertNotEmpty($outbound->attachments[0]['path'] ?? null);
+        $this->assertNotEmpty($outbound->attachments[0]['content_id'] ?? null);
 
         $shown = $this->actingAs($user)
             ->getJson('/api/inbox/conversations/'.$conversation->id)
@@ -219,8 +210,7 @@ class InboxSentAttachmentsTest extends TestCase
 
         $outboundPayload = collect($shown)->firstWhere('id', $outbound->id);
         $this->assertNotNull($outboundPayload);
-        $this->assertStringContainsString('/attachments/', (string) $outboundPayload['body_html']);
-        $this->assertStringContainsString('inline=1', (string) $outboundPayload['body_html']);
+        $this->assertStringContainsString('data:image/png;base64,', (string) $outboundPayload['body_html']);
         $this->assertStringNotContainsString('cid:', (string) $outboundPayload['body_html']);
         $this->assertSame([], $outboundPayload['attachments']);
     }
