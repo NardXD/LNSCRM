@@ -55,7 +55,7 @@ class InboxReplyService
         }
 
         $externalId = ! empty($result['id']) ? (string) $result['id'] : 'local-'.uniqid();
-        $storedAttachments = $this->outlookAttachmentsForLocalMessage($result, $attachments);
+        $outlookMeta = $this->outlookAttachmentsForLocalMessage($result, $attachments);
 
         $message = InboxMessage::create([
             'inbox_conversation_id' => $conversation->id,
@@ -70,7 +70,11 @@ class InboxReplyService
             'body_text' => strip_tags($body),
             'is_read' => true,
             'sent_at' => now(),
-            'attachments' => $storedAttachments,
+            'attachments' => is_array($outlookMeta) ? $outlookMeta : null,
+        ]);
+
+        $message->update([
+            'attachments' => $this->finalizeOutboundAttachments($message, $attachments, $outlookMeta),
         ]);
 
         $this->consumeDraftMessages($conversation);
@@ -266,7 +270,11 @@ class InboxReplyService
             'body_text' => strip_tags($body),
             'is_read' => true,
             'sent_at' => now(),
-            'attachments' => $storedAttachments,
+            'attachments' => is_array($storedAttachments) ? $storedAttachments : null,
+        ]);
+
+        $message->update([
+            'attachments' => $this->finalizeOutboundAttachments($message, $attachments, $storedAttachments),
         ]);
 
         if ($draft) {
@@ -274,7 +282,7 @@ class InboxReplyService
         }
 
         return [
-            'message' => $message,
+            'message' => $message->fresh() ?? $message,
             'conversation' => $conversation->fresh(['assignee', 'tags', 'inbox', 'messages']) ?? $conversation,
         ];
     }
@@ -657,6 +665,81 @@ class InboxReplyService
         }
 
         return [];
+    }
+
+    /**
+     * Keep local copies of outbound attachments (especially cid: inline images) so the CRM
+     * can render them without depending on Graph message ids after send.
+     *
+     * @param  array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>  $requestedAttachments
+     * @param  array<int, array<string, mixed>>|null  $outlookMeta
+     * @return array<int, array<string, mixed>>|null
+     */
+    private function finalizeOutboundAttachments(
+        InboxMessage $message,
+        array $requestedAttachments,
+        ?array $outlookMeta
+    ): ?array {
+        if ($requestedAttachments === []) {
+            return is_array($outlookMeta) ? $outlookMeta : ($outlookMeta === null ? null : []);
+        }
+
+        $local = $this->storeMessageAttachments($message, $requestedAttachments);
+
+        return $this->mergeLocalAndOutlookAttachments($local, $outlookMeta);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $local
+     * @param  array<int, array<string, mixed>>|null  $outlookMeta
+     * @return array<int, array<string, mixed>>
+     */
+    private function mergeLocalAndOutlookAttachments(array $local, ?array $outlookMeta): array
+    {
+        if (! is_array($outlookMeta) || $outlookMeta === []) {
+            return array_values($local);
+        }
+
+        $byName = [];
+        foreach ($outlookMeta as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $name = strtolower(trim((string) ($item['name'] ?? '')));
+            if ($name !== '') {
+                $byName[$name] = $item;
+            }
+        }
+
+        $merged = [];
+        $usedNames = [];
+        foreach ($local as $index => $item) {
+            $name = strtolower(trim((string) ($item['name'] ?? '')));
+            $outlook = $name !== '' ? ($byName[$name] ?? null) : null;
+            if (is_array($outlook) && ! empty($outlook['id'])) {
+                // Keep local path + content_id (matches body cid: refs); add Graph id for downloads.
+                $item['id'] = $outlook['id'];
+            }
+            $item['index'] = $item['index'] ?? $index;
+            $merged[] = $item;
+            if ($name !== '') {
+                $usedNames[$name] = true;
+            }
+        }
+
+        foreach ($outlookMeta as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $name = strtolower(trim((string) ($item['name'] ?? '')));
+            if ($name === '' || isset($usedNames[$name])) {
+                continue;
+            }
+            $item['index'] = $item['index'] ?? count($merged);
+            $merged[] = $item;
+        }
+
+        return $merged;
     }
 
     /**

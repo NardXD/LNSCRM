@@ -3728,7 +3728,7 @@ class InboxController extends Controller
         $inlineCount = 0;
 
         $body = preg_replace_callback(
-            '/<img\b([^>]*)\ssrc=(["\'])data:image\/([^;]+);base64,([^"\']+)\2([^>]*)>/i',
+            '/<img\b([^>]*?)\bsrc=(["\'])data:image\/([^;]+);base64,([^"\']+)\2([^>]*)>/i',
             function (array $matches) use (&$attachments, &$inlineCount) {
                 if (count($attachments) >= 10) {
                     return $matches[0];
@@ -4366,7 +4366,8 @@ class InboxController extends Controller
     }
 
     /**
-     * Fallback: map any remaining cid: refs to authenticated attachment URLs for display.
+     * Fallback: map any remaining cid: refs to data URIs (local files) or authenticated
+     * attachment URLs for display.
      *
      * @param  Collection<int, mixed>  $allAttachments
      */
@@ -4384,17 +4385,29 @@ class InboxController extends Controller
             if ($cid === '') {
                 continue;
             }
-            $attachIndex = $file['index'] ?? $index;
-            $url = url('/api/inbox/conversations/'.$m->inbox_conversation_id.'/messages/'.$m->id.'/attachments/'.$attachIndex.'?inline=1');
+
+            $replacement = null;
+            $path = (string) ($file['path'] ?? '');
+            if ($path !== '' && Storage::disk('local')->exists($path)) {
+                $contentType = (string) ($file['content_type'] ?? $file['contentType'] ?? 'application/octet-stream');
+                if ($contentType === '') {
+                    $contentType = 'application/octet-stream';
+                }
+                $replacement = 'data:'.$contentType.';base64,'.base64_encode((string) Storage::disk('local')->get($path));
+            } else {
+                $attachIndex = $file['index'] ?? $index;
+                $replacement = url('/api/inbox/conversations/'.$m->inbox_conversation_id.'/messages/'.$m->id.'/attachments/'.$attachIndex.'?inline=1');
+            }
+
             $quoted = preg_quote($cid, '/');
             $html = preg_replace(
                 '/(src\s*=\s*["\'])cid:'.$quoted.'(?:@[^"\']*)?(["\'])/i',
-                '$1'.$url.'$2',
+                '$1'.$replacement.'$2',
                 $html
             ) ?? $html;
             $html = preg_replace(
                 '/(url\(\s*[\'"]?)cid:'.$quoted.'(?:@[^\'"\)]*)?([\'"]?\s*\))/i',
-                '$1'.$url.'$2',
+                '$1'.$replacement.'$2',
                 $html
             ) ?? $html;
         }
