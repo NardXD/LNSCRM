@@ -3336,6 +3336,7 @@ body:has(.ld-page-wrapper) {
         { value: 'inbound_message_new', label: 'Inbound message is received (new conversation)', help: 'Only the first inbound message that starts a conversation.' },
         { value: 'outbound_message_new', label: 'Outbound message is sent (new conversation)', help: 'When you start a new Inbox, Viber, WhatsApp, Facebook, or SMS thread.' },
         { value: 'outbound_reply', label: 'Outbound reply is sent', help: 'When a reply is sent on an existing conversation.' },
+        { value: 'outbound_email_synced', label: 'Outbound email synced from Sent', help: 'When an email sent outside this CRM (for example from Outlook or an external automation) is imported from the shared inbox Sent folder. Only mail from the last 3 days is considered.' },
         { value: 'inbound_call', label: 'Inbound call is received', help: 'When a phone call comes in.' },
         { value: 'outbound_call', label: 'Outbound call is placed', help: 'When an outbound phone call is placed.' },
         { value: 'lead_assigned', label: 'Lead is assigned', help: 'When a teammate is assigned to the lead.' },

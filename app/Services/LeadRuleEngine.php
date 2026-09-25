@@ -29,6 +29,8 @@ class LeadRuleEngine
 
     public const TRIGGER_OUTBOUND_REPLY = 'outbound_reply';
 
+    public const TRIGGER_OUTBOUND_EMAIL_SYNCED = 'outbound_email_synced';
+
     public const TRIGGER_INBOUND_CALL = 'inbound_call';
 
     public const TRIGGER_OUTBOUND_CALL = 'outbound_call';
@@ -78,6 +80,7 @@ class LeadRuleEngine
             self::TRIGGER_INBOUND_MESSAGE_NEW => 'Inbound message is received (new conversation)',
             self::TRIGGER_OUTBOUND_MESSAGE_NEW => 'Outbound message is sent (new conversation)',
             self::TRIGGER_OUTBOUND_REPLY => 'Outbound reply is sent',
+            self::TRIGGER_OUTBOUND_EMAIL_SYNCED => 'Outbound email synced from Sent',
             self::TRIGGER_INBOUND_CALL => 'Inbound call is received',
             self::TRIGGER_OUTBOUND_CALL => 'Outbound call is placed',
             self::TRIGGER_LEAD_ASSIGNED => 'Lead is assigned',

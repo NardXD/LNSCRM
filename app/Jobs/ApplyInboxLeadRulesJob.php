@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\InboxConversation;
+use App\Models\Lead;
 use App\Services\LeadAutoCreateService;
 use App\Services\LeadRuleEngine;
 use App\Support\InboxQueue;
@@ -22,11 +23,17 @@ class ApplyInboxLeadRulesJob implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 120;
 
+    /**
+     * @param  list<string>|null  $triggers  When null, uses inboundTriggers($isNew).
+     */
     public function __construct(
         public int $conversationId,
         public bool $isNew,
         public string $bodyText = '',
         public ?string $dedupeKey = null,
+        public ?array $triggers = null,
+        public ?string $contactEmail = null,
+        public ?string $subject = null,
     ) {
         $this->onQueue(InboxQueue::DEFAULT);
     }
@@ -40,7 +47,7 @@ class ApplyInboxLeadRulesJob implements ShouldBeUnique, ShouldQueue
     public function handle(LeadAutoCreateService $leadAutoCreate): void
     {
         $conversation = InboxConversation::query()
-            ->with('inbox')
+            ->with(['inbox', 'lead'])
             ->find($this->conversationId);
 
         if (! $conversation) {
@@ -51,16 +58,23 @@ class ApplyInboxLeadRulesJob implements ShouldBeUnique, ShouldQueue
             ? $this->bodyText
             : (string) ($conversation->snippet ?? '');
 
+        $contactEmail = $this->resolveContactEmail($conversation);
+        $lead = $this->resolveLead($leadAutoCreate, $conversation, $contactEmail);
+        $triggers = $this->triggers ?? LeadRuleEngine::inboundTriggers($this->isNew);
+        $subject = trim((string) ($this->subject ?? '')) !== ''
+            ? $this->subject
+            : $conversation->subject;
+
         try {
             $leadAutoCreate->applyRules(
-                $leadAutoCreate->fromInboxConversation($conversation),
+                $lead,
                 'inbox',
-                LeadRuleEngine::inboundTriggers($this->isNew),
+                $triggers,
                 [
                     'company_id' => (int) $conversation->company_id,
                     'contact_name' => $conversation->from_name,
-                    'email' => $conversation->from_email,
-                    'subject' => $conversation->subject,
+                    'email' => $contactEmail,
+                    'subject' => $subject,
                     'message' => $body,
                     'inbox_id' => $conversation->shared_inbox_id,
                     'shared_inbox_id' => $conversation->shared_inbox_id,
@@ -75,5 +89,41 @@ class ApplyInboxLeadRulesJob implements ShouldBeUnique, ShouldQueue
 
             throw $e;
         }
+    }
+
+    private function resolveContactEmail(InboxConversation $conversation): ?string
+    {
+        $override = trim((string) ($this->contactEmail ?? ''));
+        if ($override !== '') {
+            return $override;
+        }
+
+        $from = trim((string) ($conversation->from_email ?? ''));
+
+        return $from !== '' ? $from : null;
+    }
+
+    private function resolveLead(
+        LeadAutoCreateService $leadAutoCreate,
+        InboxConversation $conversation,
+        ?string $contactEmail
+    ): ?Lead {
+        if ($conversation->lead_id && $conversation->lead) {
+            return $conversation->lead;
+        }
+
+        if (! $conversation->inbox) {
+            return null;
+        }
+
+        if ($contactEmail) {
+            return $leadAutoCreate->fromSharedInbox(
+                $conversation->inbox,
+                $conversation->from_name,
+                $contactEmail
+            );
+        }
+
+        return $leadAutoCreate->fromInboxConversation($conversation);
     }
 }

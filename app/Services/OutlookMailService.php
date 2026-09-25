@@ -747,6 +747,27 @@ class OutlookMailService
                 }
                 $this->notifyAssigneeOfCustomerReply($conversation, $fromName, $bodyText, $receivedAt);
             }
+            if (
+                $folder === 'sent'
+                && $messageDirection === 'outbound'
+                && ! ($msg['isDraft'] ?? false)
+                && ! $receivedAt->lt(now()->subDays(3))
+            ) {
+                $fresh = $messageHome->fresh(['inbox']);
+                if ($fresh) {
+                    $bodyForRules = $bodyText ?: (string) ($fresh->snippet ?? '');
+                    $subjectForRules = $subject === '(No subject)' ? null : $subject;
+                    ApplyInboxLeadRulesJob::dispatch(
+                        conversationId: (int) $fresh->id,
+                        isNew: false,
+                        bodyText: $bodyForRules,
+                        dedupeKey: 'inbox-lead-rules-synced:'.$fresh->id.':'.($externalMessageId ?: uniqid('msg', true)),
+                        triggers: [LeadRuleEngine::TRIGGER_OUTBOUND_EMAIL_SYNCED],
+                        contactEmail: $this->firstRecipientEmail($toEmails),
+                        subject: $subjectForRules,
+                    );
+                }
+            }
 
             return true;
         }
@@ -1601,6 +1622,17 @@ class OutlookMailService
             ->map(fn ($r) => $r['emailAddress']['address'] ?? null)
             ->filter()
             ->implode(', ');
+    }
+
+    private function firstRecipientEmail(?string $toEmails): ?string
+    {
+        if ($toEmails === null || trim($toEmails) === '') {
+            return null;
+        }
+
+        $first = trim(explode(',', $toEmails)[0] ?? '');
+
+        return $first !== '' ? $first : null;
     }
 
     private function truncate(?string $value, int $max): ?string
