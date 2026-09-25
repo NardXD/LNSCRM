@@ -2051,6 +2051,10 @@ class LeadsController extends Controller
             'conditions' => $rule->conditions ?? [],
             'actions' => $rule->actions ?? [],
             'last_applied_at' => $rule->last_applied_at?->toIso8601String(),
+            'last_applied_lead_id' => $rule->last_applied_lead_id ? (int) $rule->last_applied_lead_id : null,
+            'last_applied_inbox_conversation_id' => $rule->last_applied_inbox_conversation_id
+                ? (int) $rule->last_applied_inbox_conversation_id
+                : null,
             'created_at' => $rule->created_at?->toIso8601String(),
             'updated_at' => $rule->updated_at?->toIso8601String(),
         ];

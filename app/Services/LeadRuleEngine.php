@@ -206,7 +206,12 @@ class LeadRuleEngine
                     'action_count' => count($rule->actions ?? []),
                 ]);
                 $lead = $this->runActions($lead, $rule->actions ?? [], $channel, $context, $companyId, $rule);
-                LeadRule::whereKey($rule->id)->update(['last_applied_at' => now()]);
+                $conversationId = (int) ($context['inbox_conversation_id'] ?? 0);
+                LeadRule::whereKey($rule->id)->update([
+                    'last_applied_at' => now(),
+                    'last_applied_lead_id' => $lead?->id,
+                    'last_applied_inbox_conversation_id' => $conversationId > 0 ? $conversationId : null,
+                ]);
                 if ($rule->stop_processing) {
                     $this->ruleLog('debug', 'Rule stopped further processing', ['rule_id' => $rule->id]);
                     break;

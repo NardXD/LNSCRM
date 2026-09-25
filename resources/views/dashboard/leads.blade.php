@@ -974,6 +974,8 @@ body:has(.ld-page-wrapper) {
 .leads-rule-row-main { flex: 1; min-width: 0; }
 .leads-rule-row-name { font-size: 0.75rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .leads-rule-row-meta { margin-top: 0.15rem; font-size: 0.6875rem; color: var(--text-muted); }
+.leads-rule-row-meta a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.leads-rule-row-meta a:hover { color: var(--text-primary); }
 .leads-rule-row-actions { display: flex; flex-wrap: wrap; gap: 0.25rem; flex-shrink: 0; align-items: center; }
 .leads-rule-name-label { display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.75rem; }
 .leads-rule-name-label input { width: 100%; margin-top: 0.3rem; padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; }
@@ -3440,11 +3442,21 @@ body:has(.ld-page-wrapper) {
         if (!state.rules.length) {
             list.innerHTML = `<div class="chp-empty">${state.rulesSearch ? 'No rules match this search.' : 'No rules yet.'}</div>`;
         } else {
-            list.innerHTML = state.rules.map(rule => `
+            list.innerHTML = state.rules.map(rule => {
+                const when = rule.last_applied_at ? esc(formatAt(rule.last_applied_at)) : '';
+                let lastApplied = 'Last applied never';
+                if (rule.last_applied_at && rule.last_applied_lead_id) {
+                    lastApplied = `<a href="${esc('/leads?lead=' + rule.last_applied_lead_id)}" data-open-last-applied-lead="${esc(String(rule.last_applied_lead_id))}" title="Open the lead this rule last ran on">Last applied ${when}</a>`;
+                } else if (rule.last_applied_at && rule.last_applied_inbox_conversation_id) {
+                    lastApplied = `<a href="${esc('/inbox?conversation=' + rule.last_applied_inbox_conversation_id)}" title="Open the inbox thread this rule last ran on">Last applied ${when}</a>`;
+                } else if (rule.last_applied_at) {
+                    lastApplied = `Last applied ${when}`;
+                }
+                return `
                 <div class="leads-rule-row" title="${esc(rule.name)}">
                     <div class="leads-rule-row-main">
                         <div class="leads-rule-row-name">${esc(rule.name)}</div>
-                        <div class="leads-rule-row-meta">${rule.is_active ? 'On' : 'Off'} · Last applied ${rule.last_applied_at ? formatAt(rule.last_applied_at) : 'never'}</div>
+                        <div class="leads-rule-row-meta">${rule.is_active ? 'On' : 'Off'} · ${lastApplied}</div>
                     </div>
                     ${state.canManageRules ? `
                         <div class="leads-rule-row-actions">
@@ -3454,7 +3466,8 @@ body:has(.ld-page-wrapper) {
                         </div>
                     ` : ''}
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
         const info = document.getElementById('leadRulesPageInfo');
         const prev = document.getElementById('leadRulesPrev');
@@ -4342,6 +4355,20 @@ body:has(.ld-page-wrapper) {
         if (btn) btn.closest('.leads-rule-extra-card')?.remove();
     });
     document.getElementById('leadRuleList')?.addEventListener('click', async (e) => {
+        const lastApplied = e.target.closest('[data-open-last-applied-lead]');
+        if (lastApplied) {
+            e.preventDefault();
+            e.stopPropagation();
+            const leadId = lastApplied.dataset.openLastAppliedLead;
+            if (!leadId) return;
+            closeRulesModal();
+            try {
+                await openLead(leadId);
+            } catch (err) {
+                alert(err.message || 'Lead not found.');
+            }
+            return;
+        }
         if (!state.canManageRules) return;
         const del = e.target.closest('[data-delete-lead-rule]');
         if (del) {

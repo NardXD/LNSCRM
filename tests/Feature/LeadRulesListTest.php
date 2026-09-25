@@ -76,6 +76,8 @@ class LeadRulesListTest extends TestCase
 
         $this->assertCount(1, $search);
         $this->assertSame('Welcome SMS', $search[0]['name']);
+        $this->assertArrayHasKey('last_applied_lead_id', $search[0]);
+        $this->assertNull($search[0]['last_applied_lead_id']);
     }
 
     /**

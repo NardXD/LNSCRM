@@ -54,7 +54,10 @@ class RunLeadRule extends Command
         $this->newLine();
         $this->info('Executing for real...');
         $lead = $engine->runActions($lead, $actions, '', ['company_id' => (int) $rule->company_id], (int) $rule->company_id, $rule);
-        LeadRule::whereKey($rule->id)->update(['last_applied_at' => now()]);
+        LeadRule::whereKey($rule->id)->update([
+            'last_applied_at' => now(),
+            'last_applied_lead_id' => $lead?->id,
+        ]);
 
         if (! $lead) {
             $this->error('Result: no lead. The engine returned null.');
