@@ -129,7 +129,23 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
             <div class="inbox-list-header">
                 <div class="inbox-list-header-row">
                     <h2 id="listTitle">Open</h2>
-                    <button type="button" class="inbox-btn primary" id="btnComposeHeader">Compose</button>
+                    <div class="inbox-list-header-actions">
+                        <div class="inbox-pop" id="sortPop">
+                            <button type="button" class="inbox-icon-action" id="btnSortMenu" title="Sort conversations" aria-haspopup="menu" aria-expanded="false" aria-controls="sortMenu">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <path d="M7 3v18"/><polyline points="3 7 7 3 11 7"/>
+                                    <path d="M17 21V3"/><polyline points="13 17 17 21 21 17"/>
+                                </svg>
+                            </button>
+                            <div class="inbox-pop-menu inbox-sort-menu" id="sortMenu" hidden role="menu" aria-label="Sort conversations">
+                                <button type="button" role="menuitemradio" data-sort="newest">Newest <span class="inbox-sort-check" aria-hidden="true">✓</span></button>
+                                <button type="button" role="menuitemradio" data-sort="oldest">Oldest <span class="inbox-sort-check" aria-hidden="true">✓</span></button>
+                                <button type="button" role="menuitemradio" data-sort="newest_unreplied">Newest unreplied <span class="inbox-sort-check" aria-hidden="true">✓</span></button>
+                                <button type="button" role="menuitemradio" data-sort="oldest_unreplied">Oldest unreplied <span class="inbox-sort-check" aria-hidden="true">✓</span></button>
+                            </div>
+                        </div>
+                        <button type="button" class="inbox-btn primary" id="btnComposeHeader">Compose</button>
+                    </div>
                 </div>
                 <div class="inbox-search">
                     <div class="inbox-search-row">

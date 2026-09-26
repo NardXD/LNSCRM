@@ -663,6 +663,7 @@ class InboxController extends Controller
             'is_read' => ['nullable', 'in:0,1,true,false'],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date'],
+            'sort' => ['nullable', 'string', 'in:newest,oldest,newest_unreplied,oldest_unreplied'],
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
 
@@ -904,8 +905,8 @@ class InboxController extends Controller
 
         $page = max(1, (int) ($validated['page'] ?? 1));
         $perPage = 40;
-        $rows = $query->orderByDesc('inbox_conversations.last_message_at')
-            ->orderByDesc('inbox_conversations.id')
+        $this->applyConversationSort($query, (string) ($validated['sort'] ?? 'newest'));
+        $rows = $query
             ->skip(($page - 1) * $perPage)
             ->take($perPage + 1)
             ->get();
@@ -3949,6 +3950,36 @@ class InboxController extends Controller
                     fn ($labels) => $labels->whereIn('lead_labels.id', $labelIds)
                 ));
         });
+    }
+
+    private function applyConversationSort($query, string $sort): void
+    {
+        // Latest non-draft message direction = inbound means waiting on a reply.
+        $unrepliedSql = "(
+            SELECT m.direction
+            FROM inbox_messages m
+            WHERE m.inbox_conversation_id = inbox_conversations.id
+              AND COALESCE(m.is_draft, 0) = 0
+            ORDER BY m.sent_at DESC, m.id DESC
+            LIMIT 1
+        ) = 'inbound'";
+
+        match ($sort) {
+            'oldest' => $query
+                ->orderBy('inbox_conversations.last_message_at')
+                ->orderBy('inbox_conversations.id'),
+            'newest_unreplied' => $query
+                ->orderByRaw("CASE WHEN {$unrepliedSql} THEN 0 ELSE 1 END")
+                ->orderByDesc('inbox_conversations.last_message_at')
+                ->orderByDesc('inbox_conversations.id'),
+            'oldest_unreplied' => $query
+                ->orderByRaw("CASE WHEN {$unrepliedSql} THEN 0 ELSE 1 END")
+                ->orderBy('inbox_conversations.last_message_at')
+                ->orderBy('inbox_conversations.id'),
+            default => $query
+                ->orderByDesc('inbox_conversations.last_message_at')
+                ->orderByDesc('inbox_conversations.id'),
+        };
     }
 
     /**

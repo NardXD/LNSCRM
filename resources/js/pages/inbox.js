@@ -93,6 +93,7 @@
         subscribedSnoozedCount: 0,
         viewGroup: null,
         expandedViewGroups: {},
+        sort: 'newest',
         conversations: [],
         checkedIds: [],
         selectedInboxId: null,
@@ -151,6 +152,43 @@
     };
 
     const TOOLS_STORAGE_KEY = 'lnscrm_inbox_tools_v1';
+    const SORT_STORAGE_KEY = 'lnscrm_inbox_sort_v1';
+    const SORT_OPTIONS = {
+        newest: 'Newest',
+        oldest: 'Oldest',
+        newest_unreplied: 'Newest unreplied',
+        oldest_unreplied: 'Oldest unreplied',
+    };
+
+    function loadSavedSort() {
+        try {
+            const raw = localStorage.getItem(SORT_STORAGE_KEY);
+            if (raw && SORT_OPTIONS[raw]) state.sort = raw;
+        } catch (_) { /* ignore */ }
+    }
+
+    function saveSortPreference() {
+        try {
+            localStorage.setItem(SORT_STORAGE_KEY, state.sort || 'newest');
+        } catch (_) { /* ignore */ }
+    }
+
+    function syncSortMenu() {
+        const menu = el('sortMenu');
+        const btn = el('btnSortMenu');
+        if (!menu) return;
+        const current = SORT_OPTIONS[state.sort] ? state.sort : 'newest';
+        state.sort = current;
+        menu.querySelectorAll('[data-sort]').forEach(item => {
+            const active = item.dataset.sort === current;
+            item.classList.toggle('is-active', active);
+            item.setAttribute('aria-checked', active ? 'true' : 'false');
+        });
+        if (btn) {
+            btn.title = 'Sort: ' + (SORT_OPTIONS[current] || 'Newest');
+            btn.classList.toggle('is-active', current !== 'newest');
+        }
+    }
 
     function loadLocalTools() {
         try {
@@ -3666,6 +3704,7 @@
             if (f.is_read !== '' && f.is_read != null) params.set('is_read', String(f.is_read));
             if (f.date_from) params.set('date_from', f.date_from);
             if (f.date_to) params.set('date_to', f.date_to);
+            if (state.sort && state.sort !== 'newest') params.set('sort', state.sort);
 
             const data = await api('/conversations?' + params.toString());
             const batch = data.conversations || [];
@@ -4453,13 +4492,14 @@
 
     function closeThreadPops() {
         closeSearchSelects();
-        ['threadMoreMenu', 'snoozeMenu', 'assignMenu', 'commentEmojiMenu', 'sendReplyMenu', 'composeSendMenu', 'participantsMenu', 'tagsMenu'].forEach(id => {
+        ['threadMoreMenu', 'snoozeMenu', 'assignMenu', 'commentEmojiMenu', 'sendReplyMenu', 'composeSendMenu', 'participantsMenu', 'tagsMenu', 'sortMenu'].forEach(id => {
             const node = el(id);
             if (node) node.hidden = true;
         });
         document.querySelectorAll('.inbox-icon-action.is-open, .inbox-assign-btn.is-open, .inbox-send-caret.is-open, .inbox-participants-chip.is-open').forEach(btn => {
             btn.classList.remove('is-open');
             if (btn.id === 'btnParticipants' || btn.id === 'btnTags') btn.setAttribute('aria-expanded', 'false');
+            if (btn.id === 'btnSortMenu') btn.setAttribute('aria-expanded', 'false');
         });
         const laterFields = el('sendLaterFields');
         if (laterFields) laterFields.hidden = true;
@@ -4478,7 +4518,7 @@
         closeThreadPops();
         menu.hidden = !willOpen;
         btn?.classList.toggle('is-open', willOpen);
-        if (btn?.id === 'btnParticipants' || btn?.id === 'btnTags') {
+        if (btn?.id === 'btnParticipants' || btn?.id === 'btnTags' || btn?.id === 'btnSortMenu') {
             btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
         }
     }
@@ -8072,6 +8112,25 @@
     });
     el('btnCompose').addEventListener('click', openComposeModal);
     el('btnComposeHeader').addEventListener('click', openComposeModal);
+
+    el('btnSortMenu')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePop('sortMenu', e.currentTarget);
+    });
+    el('sortMenu')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-sort]');
+        if (!btn) return;
+        const next = btn.dataset.sort;
+        if (!SORT_OPTIONS[next] || next === state.sort) {
+            closeThreadPops();
+            return;
+        }
+        state.sort = next;
+        saveSortPreference();
+        syncSortMenu();
+        closeThreadPops();
+        await loadConversations({ append: false });
+    });
     document.querySelectorAll('[data-close-modal]').forEach(b => b.addEventListener('click', closeModal));
     el('modalBackdrop').addEventListener('click', (e) => { if (e.target === el('modalBackdrop')) closeModal(); });
 
@@ -8716,6 +8775,8 @@
         }
     });
     loadLocalTools();
+    loadSavedSort();
+    syncSortMenu();
     renderViewGroups();
     const startupParams = new URLSearchParams(window.location.search);
     const startupConversationId = Number(startupParams.get('conversation') || 0);
