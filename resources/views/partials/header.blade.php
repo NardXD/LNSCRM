@@ -1,8 +1,15 @@
 <!-- Header -->
 <header class="header">
     <div class="header-left">
-        <button class="mobile-menu-btn" onclick="toggleMobileSidebar()">
+        <button class="mobile-menu-btn" onclick="toggleMobileSidebar()" aria-label="Open menu">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="3" y1="12" x2="21" y2="12"/>
+                <line x1="3" y1="6" x2="21" y2="6"/>
+                <line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+        </button>
+        <button type="button" class="desktop-sidebar-toggle" id="desktopSidebarToggle" onclick="toggleSidebar()" title="Open sidebar" aria-label="Open sidebar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <line x1="3" y1="12" x2="21" y2="12"/>
                 <line x1="3" y1="6" x2="21" y2="6"/>
                 <line x1="3" y1="18" x2="21" y2="18"/>

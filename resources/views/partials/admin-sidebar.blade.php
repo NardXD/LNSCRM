@@ -1,5 +1,5 @@
 <!-- Admin Sidebar -->
-<aside class="sidebar" id="sidebar">
+<aside class="sidebar collapsed" id="sidebar">
     <div class="sidebar-header">
         <div class="logo">
             <div class="logo-icon" style="background: linear-gradient(135deg, #5f61e6 0%, #7c3aed 100%);">
@@ -10,10 +10,16 @@
             </div>
             <span class="logo-text">Admin Panel</span>
         </div>
-        <button class="sidebar-toggle" onclick="toggleSidebar()" id="sidebarToggleBtn">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="toggleIcon">
-                <line x1="18" y1="6" x2="6" y2="18"/>
-                <line x1="6" y1="6" x2="18" y2="18"/>
+        <button class="sidebar-toggle" onclick="toggleSidebar()" id="sidebarToggleBtn" title="Expand sidebar" aria-label="Expand sidebar" aria-expanded="false">
+            <svg class="sidebar-toggle-icon sidebar-toggle-icon-collapse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <path d="M9 3v18"/>
+                <path d="M14 9l-3 3 3 3"/>
+            </svg>
+            <svg class="sidebar-toggle-icon sidebar-toggle-icon-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <path d="M9 3v18"/>
+                <path d="M13 15l3-3-3-3"/>
             </svg>
         </button>
     </div>

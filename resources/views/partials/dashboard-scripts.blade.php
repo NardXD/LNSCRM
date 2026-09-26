@@ -1,4 +1,54 @@
 <script>
+    const SIDEBAR_STORAGE_KEY = 'crm.sidebar.collapsed';
+
+    function isSidebarCollapsedPreferred() {
+        try {
+            const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+            if (saved === null) return true; // default closed
+            return saved === '1';
+        } catch (e) {
+            return true;
+        }
+    }
+
+    function setSidebarCollapsedPreference(collapsed) {
+        try {
+            localStorage.setItem(SIDEBAR_STORAGE_KEY, collapsed ? '1' : '0');
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    function syncSidebarUiState() {
+        const sidebar = document.getElementById('sidebar');
+        const toggleBtn = document.getElementById('sidebarToggleBtn');
+        const desktopToggle = document.getElementById('desktopSidebarToggle');
+        if (!sidebar) return;
+
+        const collapsed = sidebar.classList.contains('collapsed');
+        document.body.classList.toggle('sidebar-is-collapsed', collapsed && window.innerWidth > 768);
+
+        if (toggleBtn) {
+            toggleBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            toggleBtn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+            toggleBtn.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+        }
+
+        if (desktopToggle) {
+            desktopToggle.hidden = !collapsed || window.innerWidth <= 768;
+            desktopToggle.title = 'Open sidebar';
+        }
+    }
+
+    function applySidebarCollapsed(collapsed) {
+        const sidebar = document.getElementById('sidebar');
+        if (!sidebar || window.innerWidth <= 768) return;
+
+        sidebar.classList.toggle('collapsed', collapsed);
+        setSidebarCollapsedPreference(collapsed);
+        syncSidebarUiState();
+    }
+
     function toggleSidebar() {
         const sidebar = document.getElementById('sidebar');
         // On mobile, close the sidebar
@@ -6,7 +56,8 @@
             closeMobileSidebar();
         } else {
             // On desktop, toggle collapse
-            sidebar.classList.toggle('collapsed');
+            const nextCollapsed = !sidebar.classList.contains('collapsed');
+            applySidebarCollapsed(nextCollapsed);
         }
     }
 
@@ -56,31 +107,63 @@
         });
     });
 
+    // Tooltips for collapsed icon rail (fallback when not hovering full peek)
+    function refreshSidebarNavTitles() {
+        const sidebar = document.getElementById('sidebar');
+        if (!sidebar) return;
+        const collapsed = sidebar.classList.contains('collapsed');
+        sidebar.querySelectorAll('.nav-item, .nav-subitem').forEach(item => {
+            const label = item.querySelector('.nav-text')?.textContent?.trim();
+            if (!label) return;
+            if (collapsed) {
+                item.setAttribute('title', label);
+            } else {
+                item.removeAttribute('title');
+            }
+        });
+    }
+
     // Handle window resize
     window.addEventListener('resize', function() {
         const sidebar = document.getElementById('sidebar');
         const overlay = document.getElementById('sidebarOverlay');
         
         if (window.innerWidth > 768) {
-            // Desktop: remove mobile classes
+            // Desktop: remove mobile classes and restore preference
             sidebar.classList.remove('open');
             overlay.classList.remove('active');
             document.body.style.overflow = '';
+            applySidebarCollapsed(isSidebarCollapsedPreferred());
         } else {
             // Mobile: ensure sidebar is closed by default
             if (!sidebar.classList.contains('open')) {
                 sidebar.classList.remove('open');
                 overlay.classList.remove('active');
             }
+            document.body.classList.remove('sidebar-is-collapsed');
         }
+        refreshSidebarNavTitles();
     });
 
-    // Initialize: close sidebar on mobile by default
-    if (window.innerWidth <= 768) {
+    // Initialize sidebar state (default closed on desktop)
+    (function initSidebarState() {
         const sidebar = document.getElementById('sidebar');
-        if (sidebar) {
+        if (!sidebar) return;
+
+        if (window.innerWidth <= 768) {
             sidebar.classList.remove('open');
+            document.body.classList.remove('sidebar-is-collapsed');
+        } else {
+            applySidebarCollapsed(isSidebarCollapsedPreferred());
         }
+        refreshSidebarNavTitles();
+    })();
+
+    // Keep titles in sync when toggling
+    const sidebarEl = document.getElementById('sidebar');
+    if (sidebarEl) {
+        const observer = new MutationObserver(refreshSidebarNavTitles);
+        observer.observe(sidebarEl, { attributes: true, attributeFilter: ['class'] });
     }
 
     // Submenu toggle function
