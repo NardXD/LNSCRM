@@ -62,8 +62,55 @@ class InboxQueueJobsTest extends TestCase
         $this->artisan('inbox:sync-mail')
             ->assertSuccessful();
 
+        Queue::assertPushedOn(InboxQueue::MAIL, SyncSharedInboxMailJob::class);
         Queue::assertPushed(SyncSharedInboxMailJob::class, function (SyncSharedInboxMailJob $job) use ($inbox) {
             return $job->inboxId === (int) $inbox->id && $job->full === false;
+        });
+    }
+
+    public function test_sync_mail_command_skips_fresh_shared_inbox_on_recent_run(): void
+    {
+        [, $inbox] = $this->agentWithInbox(withAccount: true);
+        $inbox->forceFill(['last_synced_at' => now()->subSeconds(20)])->save();
+
+        Queue::fake();
+
+        $this->artisan('inbox:sync-mail')
+            ->assertSuccessful();
+
+        Queue::assertNotPushed(SyncSharedInboxMailJob::class);
+    }
+
+    public function test_sync_mail_command_queues_stale_personal_inbox_after_three_minutes(): void
+    {
+        [, $inbox] = $this->agentWithInbox(withAccount: true, type: SharedInbox::TYPE_PERSONAL);
+        $inbox->forceFill(['last_synced_at' => now()->subMinutes(4)])->save();
+
+        Queue::fake();
+
+        $this->artisan('inbox:sync-mail')
+            ->assertSuccessful();
+
+        Queue::assertPushedOn(InboxQueue::MAIL, SyncSharedInboxMailJob::class);
+    }
+
+    public function test_sync_mail_command_queues_full_when_backfill_incomplete(): void
+    {
+        [, $inbox] = $this->agentWithInbox(withAccount: true);
+        $inbox->forceFill([
+            'last_synced_at' => now(),
+            'folder_sync_state' => [
+                'inbox' => ['backfill_done' => false, 'next_link' => 'https://example.test/next', 'fetched' => 25],
+            ],
+        ])->save();
+
+        Queue::fake();
+
+        $this->artisan('inbox:sync-mail', ['--full' => true])
+            ->assertSuccessful();
+
+        Queue::assertPushed(SyncSharedInboxMailJob::class, function (SyncSharedInboxMailJob $job) use ($inbox) {
+            return $job->inboxId === (int) $inbox->id && $job->full === true;
         });
     }
 
@@ -149,7 +196,7 @@ class InboxQueueJobsTest extends TestCase
     /**
      * @return array{0: User, 1: SharedInbox}
      */
-    private function agentWithInbox(bool $withAccount = false): array
+    private function agentWithInbox(bool $withAccount = false, string $type = SharedInbox::TYPE_SHARED): array
     {
         $company = Company::query()->create([
             'name' => 'LNS',
@@ -180,11 +227,12 @@ class InboxQueueJobsTest extends TestCase
         ]);
 
         $accountId = null;
+        $accountEmail = 'mail-'.uniqid().'@lns.test';
         if ($withAccount) {
             $account = OutlookMailAccount::query()->create([
                 'user_id' => $user->id,
                 'company_id' => $company->id,
-                'email' => 'mail-'.uniqid().'@lns.test',
+                'email' => $accountEmail,
                 'access_token' => 'token',
                 'refresh_token' => 'refresh',
                 'token_expires_at' => now()->addHour(),
@@ -196,8 +244,8 @@ class InboxQueueJobsTest extends TestCase
         $inbox = SharedInbox::query()->create([
             'company_id' => $company->id,
             'name' => 'Support',
-            'type' => SharedInbox::TYPE_SHARED,
-            'email' => 'support-'.uniqid().'@lns.test',
+            'type' => $type,
+            'email' => $type === SharedInbox::TYPE_PERSONAL ? $accountEmail : 'support-'.uniqid().'@lns.test',
             'is_active' => true,
             'outlook_mail_account_id' => $accountId,
             'created_by' => $user->id,

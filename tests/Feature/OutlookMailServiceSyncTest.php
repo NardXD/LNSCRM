@@ -94,13 +94,27 @@ class OutlookMailServiceSyncTest extends TestCase
 
         $page1 = ['value' => [$this->messageStub('m1')]];
         $emptyPage = ['value' => []];
+        $deltaLink = 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=abc';
 
-        Http::fake([
-            'graph.microsoft.com/v1.0/me/mailFolders/inbox/messages*' => Http::sequence()
-                ->push($page1, 200)
-                ->push($emptyPage, 200),
-            'graph.microsoft.com/*' => Http::response(['value' => []], 200),
-        ]);
+        Http::fake(function (\Illuminate\Http\Client\Request $request) use ($page1, $emptyPage, $deltaLink) {
+            $url = $request->url();
+
+            if (str_contains($url, '/messages/delta')) {
+                return Http::response([
+                    'value' => [$this->messageStub('m1')],
+                    '@odata.deltaLink' => $deltaLink,
+                ], 200);
+            }
+
+            if (str_contains($url, '/mailFolders/inbox/messages')) {
+                static $listCalls = 0;
+                $listCalls++;
+
+                return Http::response($listCalls === 1 ? $page1 : $emptyPage, 200);
+            }
+
+            return Http::response(['value' => []], 200);
+        });
 
         /** @var OutlookMailService $service */
         $service = app(OutlookMailService::class);
@@ -114,22 +128,162 @@ class OutlookMailServiceSyncTest extends TestCase
         $this->assertTrue($state['backfill_done'], 'Reaching Graph\'s real end must mark the folder backfill-complete.');
         $this->assertNull($state['next_link']);
 
-        // Second run: folder is already fully backfilled, so it must start a fresh
-        // newest-first pass from scratch (not resume a stale cursor) and re-fetching
-        // the same already-imported message must not count as new.
-        Http::fake([
-            'graph.microsoft.com/v1.0/me/mailFolders/inbox/messages*' => Http::response($page1, 200),
-            'graph.microsoft.com/*' => Http::response(['value' => []], 200),
-        ]);
-
-        $imported2 = $service->syncInbox($inbox, 'inbox');
+        // Second run: folder is already fully backfilled, so it must use Graph delta
+        // (not resume a stale list cursor) and re-applying an already-imported message
+        // must not count as new.
+        $imported2 = $service->syncInbox($inbox->fresh(['account']), 'inbox');
         $this->assertSame(0, $imported2, 'Re-fetching an already-imported message must not count as new.');
         $this->assertSame(1, InboxMessage::count(), 'No duplicate message should have been created.');
 
         $inbox->refresh();
         $stateAfter = $inbox->folder_sync_state['inbox'] ?? null;
         $this->assertTrue($stateAfter['backfill_done'], 'A completed folder must stay marked backfill-complete.');
-        $this->assertNull($stateAfter['next_link']);
+        $this->assertSame($deltaLink, $stateAfter['delta_link'] ?? null);
+    }
+
+    public function test_sync_recent_applies_delta_and_persists_delta_link(): void
+    {
+        $inbox = $this->makeInbox();
+        $inbox->folder_sync_state = [
+            'inbox' => ['backfill_done' => true],
+            'sent' => ['backfill_done' => true],
+        ];
+        $inbox->save();
+
+        Http::fake(function (\Illuminate\Http\Client\Request $request) {
+            $url = $request->url();
+
+            if (str_contains($url, 'mailFolders/inbox/messages/delta')) {
+                return Http::response([
+                    'value' => [$this->messageStub('new-1')],
+                    '@odata.deltaLink' => 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=inbox-1',
+                ], 200);
+            }
+
+            if (str_contains($url, 'mailFolders/sentitems/messages/delta')) {
+                return Http::response([
+                    'value' => [],
+                    '@odata.deltaLink' => 'https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages/delta?$deltatoken=sent-1',
+                ], 200);
+            }
+
+            return Http::response(['value' => []], 200);
+        });
+
+        /** @var OutlookMailService $service */
+        $service = app(OutlookMailService::class);
+
+        $imported = $service->syncRecent($inbox->fresh(['account']));
+
+        $this->assertSame(1, $imported);
+        $this->assertSame(1, InboxMessage::count());
+
+        $inbox->refresh();
+        $this->assertSame(
+            'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=inbox-1',
+            $inbox->folder_sync_state['inbox']['delta_link'] ?? null
+        );
+        $this->assertSame(
+            'https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages/delta?$deltatoken=sent-1',
+            $inbox->folder_sync_state['sent']['delta_link'] ?? null
+        );
+    }
+
+    public function test_sync_recent_follows_stored_delta_link_for_incremental_mail(): void
+    {
+        $inbox = $this->makeInbox();
+        $inbox->folder_sync_state = [
+            'inbox' => [
+                'backfill_done' => true,
+                'delta_link' => 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=prev',
+            ],
+            'sent' => [
+                'backfill_done' => true,
+                'delta_link' => 'https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages/delta?$deltatoken=sent-prev',
+            ],
+        ];
+        $inbox->save();
+
+        Http::fake(function (\Illuminate\Http\Client\Request $request) {
+            $url = $request->url();
+
+            if (str_contains($url, 'deltatoken=prev')) {
+                return Http::response([
+                    'value' => [$this->messageStub('delta-new')],
+                    '@odata.deltaLink' => 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=next',
+                ], 200);
+            }
+
+            if (str_contains($url, 'deltatoken=sent-prev')) {
+                return Http::response([
+                    'value' => [],
+                    '@odata.deltaLink' => 'https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages/delta?$deltatoken=sent-next',
+                ], 200);
+            }
+
+            return Http::response(['value' => []], 200);
+        });
+
+        /** @var OutlookMailService $service */
+        $service = app(OutlookMailService::class);
+
+        $imported = $service->syncRecent($inbox->fresh(['account']));
+
+        $this->assertSame(1, $imported);
+        $this->assertTrue(InboxMessage::query()->where('external_message_id', 'delta-new')->exists());
+
+        $inbox->refresh();
+        $this->assertSame(
+            'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=next',
+            $inbox->folder_sync_state['inbox']['delta_link'] ?? null
+        );
+    }
+
+    public function test_sync_recent_clears_delta_link_on_410_gone(): void
+    {
+        $inbox = $this->makeInbox();
+        $inbox->folder_sync_state = [
+            'inbox' => [
+                'backfill_done' => true,
+                'delta_link' => 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=stale',
+            ],
+            'sent' => [
+                'backfill_done' => true,
+                'delta_link' => 'https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages/delta?$deltatoken=sent-ok',
+            ],
+        ];
+        $inbox->save();
+
+        Http::fake(function (\Illuminate\Http\Client\Request $request) {
+            $url = $request->url();
+
+            if (str_contains($url, 'deltatoken=stale')) {
+                return Http::response('gone', 410);
+            }
+
+            if (str_contains($url, 'deltatoken=sent-ok')) {
+                return Http::response([
+                    'value' => [],
+                    '@odata.deltaLink' => 'https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages/delta?$deltatoken=sent-ok-2',
+                ], 200);
+            }
+
+            return Http::response(['value' => []], 200);
+        });
+
+        /** @var OutlookMailService $service */
+        $service = app(OutlookMailService::class);
+
+        $service->syncRecent($inbox->fresh(['account']));
+
+        $inbox->refresh();
+        $this->assertArrayHasKey('inbox', $inbox->folder_sync_state ?? []);
+        $this->assertNull($inbox->folder_sync_state['inbox']['delta_link']);
+        $this->assertNull($inbox->folder_sync_state['inbox']['delta_next_link']);
+        $this->assertSame(
+            'https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages/delta?$deltatoken=sent-ok-2',
+            $inbox->folder_sync_state['sent']['delta_link'] ?? null
+        );
     }
 
     public function test_mailbox_totals_fetches_folder_counts_concurrently(): void

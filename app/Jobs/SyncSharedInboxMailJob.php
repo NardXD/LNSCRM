@@ -23,7 +23,7 @@ class SyncSharedInboxMailJob implements ShouldQueue
         public int $inboxId,
         public bool $full = false,
     ) {
-        $this->onQueue(InboxQueue::DEFAULT);
+        $this->onQueue(InboxQueue::MAIL);
     }
 
     /**
@@ -53,6 +53,28 @@ class SyncSharedInboxMailJob implements ShouldQueue
 
         if (! $inbox) {
             return;
+        }
+
+        $account = $inbox->account;
+        if (! $account) {
+            return;
+        }
+
+        // Soft-fail dead tokens instead of retry storms — refreshTokenIfNeeded logs
+        // and returns the account unchanged when Microsoft rejects the refresh.
+        if ($account->needsRefresh()) {
+            $account = $mailService->refreshTokenIfNeeded($account);
+            $inbox->setRelation('account', $account);
+
+            if ($account->needsRefresh()) {
+                Log::warning('Queued inbox mail sync skipped — token refresh failed', [
+                    'inbox_id' => $this->inboxId,
+                    'account_id' => $account->id,
+                    'full' => $this->full,
+                ]);
+
+                return;
+            }
         }
 
         try {

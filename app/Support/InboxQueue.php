@@ -8,12 +8,12 @@ namespace App\Support;
  */
 final class InboxQueue
 {
-    /** Scheduled sends + snooze reopens (highest priority). */
+    /** Scheduled sends, snooze reopens, and Outlook mail sync (highest priority). */
     public const MAIL = 'inbox-mail';
 
     /** Thread / assignee notifications. */
     public const NOTIFY = 'inbox-notify';
 
-    /** Mail sync pages + inbound lead rules. */
+    /** Inbound lead rules and other non-urgent inbox work. */
     public const DEFAULT = 'default';
 }

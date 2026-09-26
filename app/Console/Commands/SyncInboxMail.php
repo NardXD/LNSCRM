@@ -6,6 +6,7 @@ use App\Jobs\SyncSharedInboxMailJob;
 use App\Models\SharedInbox;
 use App\Services\InboxReopenService;
 use App\Services\InboxReplyService;
+use Carbon\CarbonInterface;
 use Illuminate\Console\Command;
 
 class SyncInboxMail extends Command
@@ -16,6 +17,18 @@ class SyncInboxMail extends Command
                             {--sync : Run sync inline instead of queueing jobs}';
 
     protected $description = 'Queue (or run) background sync for connected personal and shared Outlook inboxes';
+
+    /** Recent sync: shared / quotation / contract must be older than this. */
+    private const RECENT_SHARED_SECONDS = 60;
+
+    /** Recent sync: personal must be older than this. */
+    private const RECENT_PERSONAL_SECONDS = 180;
+
+    /** Full sync: shared-family must be older than this (unless backfill incomplete). */
+    private const FULL_SHARED_SECONDS = 900;
+
+    /** Full sync: personal must be older than this (unless backfill incomplete). */
+    private const FULL_PERSONAL_SECONDS = 1800;
 
     public function handle(
         InboxReplyService $replies,
@@ -41,7 +54,8 @@ class SyncInboxMail extends Command
 
         $full = (bool) $this->option('full');
         $inline = (bool) $this->option('sync');
-        $inboxes = $query->get(['id', 'name', 'type']);
+        $forceDue = $this->option('inbox') || $inline;
+        $inboxes = $query->get(['id', 'name', 'type', 'last_synced_at', 'folder_sync_state']);
 
         if ($inboxes->isEmpty()) {
             $this->info('No connected personal or shared inboxes to sync.');
@@ -49,18 +63,66 @@ class SyncInboxMail extends Command
             return self::SUCCESS;
         }
 
-        if ($inline) {
-            return $this->runInline($inboxes, $full);
+        $due = $forceDue
+            ? $inboxes
+            : $inboxes->filter(fn (SharedInbox $inbox) => $this->isDue($inbox, $full))->values();
+
+        if ($due->isEmpty()) {
+            $this->info('No inboxes due for '.($full ? 'full' : 'recent').' sync.');
+
+            return self::SUCCESS;
         }
 
-        foreach ($inboxes as $inbox) {
+        if ($inline) {
+            return $this->runInline($due, $full);
+        }
+
+        foreach ($due as $inbox) {
             SyncSharedInboxMailJob::dispatch((int) $inbox->id, $full);
         }
 
-        $this->info('Queued sync for '.$inboxes->count().' inbox(es)'
-            .($full ? ' (full)' : ' (recent)').'.');
+        $skipped = $inboxes->count() - $due->count();
+        $this->info('Queued sync for '.$due->count().' inbox(es)'
+            .($full ? ' (full)' : ' (recent)')
+            .($skipped > 0 ? ", skipped {$skipped} still fresh" : '').'.');
 
         return self::SUCCESS;
+    }
+
+    private function isDue(SharedInbox $inbox, bool $full): bool
+    {
+        if ($full && $this->hasIncompleteBackfill($inbox)) {
+            return true;
+        }
+
+        $thresholdSeconds = $inbox->type === SharedInbox::TYPE_PERSONAL
+            ? ($full ? self::FULL_PERSONAL_SECONDS : self::RECENT_PERSONAL_SECONDS)
+            : ($full ? self::FULL_SHARED_SECONDS : self::RECENT_SHARED_SECONDS);
+
+        $lastSynced = $inbox->last_synced_at;
+        if (! $lastSynced instanceof CarbonInterface) {
+            return true;
+        }
+
+        return $lastSynced->lte(now()->subSeconds($thresholdSeconds));
+    }
+
+    private function hasIncompleteBackfill(SharedInbox $inbox): bool
+    {
+        $state = $inbox->folder_sync_state;
+        if (! is_array($state) || $state === []) {
+            // Never backfilled — full sync should run.
+            return true;
+        }
+
+        foreach (array_keys(\App\Services\OutlookMailService::FOLDERS) as $folder) {
+            $folderState = $state[$folder] ?? null;
+            if (! is_array($folderState) || ! ($folderState['backfill_done'] ?? false)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

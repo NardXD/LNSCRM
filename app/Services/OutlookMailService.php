@@ -28,6 +28,12 @@ class OutlookMailService
     private const MAX_BACKFILL_PAGES_PER_RUN = 200;
 
     /**
+     * Graph delta pages walked per folder per syncRecent()/post-backfill syncInbox()
+     * invocation. Bounds wall-clock time; unfinished seeds resume via delta_next_link.
+     */
+    private const MAX_DELTA_PAGES_PER_RUN = 50;
+
+    /**
      * Retry rounds for a transient (5xx/429/timeout) per-folder Graph count lookup
      * in getMailboxMessageTotals() before giving up on that folder for this call.
      * Rounds run concurrently across folders (Http::pool), so worst case is roughly
@@ -182,13 +188,25 @@ class OutlookMailService
         // next invocation resumes from the persisted cursor instead of restarting
         // at page 1, which would otherwise immediately re-trip the newest-first
         // "already synced" short-circuit and never make further progress.
-        // Once a folder finishes its one-time backfill, it switches to the cheap
-        // caught-up-short-circuit mode used everywhere else.
+        // Once inbox/sent finish backfill they switch to Graph delta; other folders
+        // keep the cheap caught-up newest-first pass.
         $cursors = $inbox->folder_sync_state ?? [];
 
         foreach ($folders as $folder => $meta) {
-            $state = $cursors[$folder] ?? [];
+            $state = is_array($cursors[$folder] ?? null) ? $cursors[$folder] : [];
             $backfillDone = (bool) ($state['backfill_done'] ?? false);
+
+            if ($backfillDone && in_array($folder, ['inbox', 'sent'], true)) {
+                $delta = $this->syncFolderDelta($inbox, $account, $folder, $meta, $state);
+                $imported += $delta['imported'];
+                $cursors[$folder] = array_merge($state, $delta['state'], ['backfill_done' => true]);
+                $inbox->folder_sync_state = $cursors;
+                $inbox->save();
+                $account = $inbox->account()->first() ?: $account;
+
+                continue;
+            }
+
             $nextLink = $backfillDone ? null : ($state['next_link'] ?? null);
             $fetched = $backfillDone ? 0 : (int) ($state['fetched'] ?? 0);
 
@@ -210,6 +228,8 @@ class OutlookMailService
                     'next_link' => $reachedEnd ? null : $nextLink,
                     'fetched' => $reachedEnd ? 0 : $fetched,
                     'backfill_done' => $reachedEnd,
+                    'delta_link' => $state['delta_link'] ?? null,
+                    'delta_next_link' => $state['delta_next_link'] ?? null,
                 ];
                 // Persist after each folder so a timeout/crash later in this run
                 // (a different folder, a different inbox) doesn't lose this progress.
@@ -225,8 +245,10 @@ class OutlookMailService
     }
 
     /**
-     * Lightweight newest-first probe for background / scheduled sync.
-     * Mirrors the inbox UI auto-sync (Inbox + Sent only, few pages, early stop).
+     * Lightweight background sync for Inbox + Sent via Graph delta queries.
+     * Falls back to a short newest-first probe only when a folder has no delta
+     * cursor yet and is still mid-backfill (avoids a full-folder delta seed on
+     * huge mailboxes before historical import finishes).
      */
     public function syncRecent(SharedInbox $inbox): int
     {
@@ -245,45 +267,260 @@ class OutlookMailService
 
         $account = $this->refreshTokenIfNeeded($account);
         $imported = 0;
+        $cursors = $inbox->folder_sync_state ?? [];
 
-        // Same probe targets as the /inbox auto-sync (quiet + recentOnly).
-        $probes = [
-            'inbox' => 2,
-            'sent' => 1,
-        ];
-
-        foreach ($probes as $folder => $maxPages) {
+        foreach (['inbox', 'sent'] as $folder) {
             if (! isset(self::FOLDERS[$folder])) {
                 continue;
             }
 
             $meta = self::FOLDERS[$folder];
-            $nextLink = null;
-            $fetched = 0;
+            $state = is_array($cursors[$folder] ?? null) ? $cursors[$folder] : [];
+            $hasDeltaCursor = ! empty($state['delta_link']) || ! empty($state['delta_next_link']);
+            $backfillDone = (bool) ($state['backfill_done'] ?? false);
 
-            for ($page = 0; $page < $maxPages; $page++) {
-                $result = $this->syncFolderPage($inbox, $account, $folder, $meta, $nextLink, $fetched);
-                $imported += $result['imported'];
-                $fetched += $result['fetched'];
-                $account = $inbox->account()->first() ?: $account;
-
-                // First page all already synced → recent mail is current.
-                if ($result['imported'] === 0 && $result['fetched'] > 0 && $page === 0) {
-                    break;
+            if ($hasDeltaCursor || $backfillDone) {
+                $delta = $this->syncFolderDelta($inbox, $account, $folder, $meta, $state);
+                $imported += $delta['imported'];
+                $cursors[$folder] = array_merge($state, $delta['state']);
+                if ($backfillDone) {
+                    $cursors[$folder]['backfill_done'] = true;
                 }
+            } else {
+                // Pre-delta: same quiet probe as the /inbox UI (inbox 2 pages, sent 1).
+                $maxPages = $folder === 'inbox' ? 2 : 1;
+                $nextLink = null;
+                $fetched = 0;
 
-                if ($result['done'] || ($result['caught_up'] ?? false) || ! $result['next_link']) {
-                    break;
+                for ($page = 0; $page < $maxPages; $page++) {
+                    $result = $this->syncFolderPage($inbox, $account, $folder, $meta, $nextLink, $fetched);
+                    $imported += $result['imported'];
+                    $fetched += $result['fetched'];
+                    $account = $inbox->account()->first() ?: $account;
+
+                    if ($result['imported'] === 0 && $result['fetched'] > 0 && $page === 0) {
+                        break;
+                    }
+
+                    if ($result['done'] || ($result['caught_up'] ?? false) || ! $result['next_link']) {
+                        break;
+                    }
+
+                    $nextLink = $result['next_link'];
                 }
-
-                $nextLink = $result['next_link'];
             }
+
+            $inbox->folder_sync_state = $cursors;
+            $inbox->save();
+            $account = $inbox->account()->first() ?: $account;
         }
 
         $inbox->last_synced_at = now();
         $inbox->save();
 
         return $imported;
+    }
+
+    /**
+     * Apply one Graph delta round for a folder (resume delta_next_link or delta_link).
+     *
+     * @param  array{graph: string, status: string, direction: string}  $meta
+     * @param  array<string, mixed>  $state
+     * @return array{imported: int, state: array<string, mixed>}
+     */
+    private function syncFolderDelta(
+        SharedInbox $inbox,
+        OutlookMailAccount $account,
+        string $folder,
+        array $meta,
+        array $state
+    ): array {
+        $mailboxPath = $this->mailboxPath($inbox);
+        $select = 'id,conversationId,subject,bodyPreview,from,toRecipients,ccRecipients,replyTo,receivedDateTime,sentDateTime,lastModifiedDateTime,isRead,isDraft';
+        $deltaLink = is_string($state['delta_link'] ?? null) && $state['delta_link'] !== ''
+            ? $state['delta_link']
+            : null;
+        $deltaNext = is_string($state['delta_next_link'] ?? null) && $state['delta_next_link'] !== ''
+            ? $state['delta_next_link']
+            : null;
+
+        $url = $deltaLink ?: $deltaNext;
+        if (! $url) {
+            $url = self::GRAPH_BASE."/{$mailboxPath}/mailFolders/{$meta['graph']}/messages/delta?".http_build_query([
+                '$select' => $select,
+            ]);
+        } elseif (! $this->nextLinkMatchesMailbox($url, $mailboxPath)) {
+            Log::warning('Outlook mail delta dropped stale link for wrong mailbox', [
+                'inbox_id' => $inbox->id,
+                'folder' => $folder,
+                'mailbox_path' => $mailboxPath,
+            ]);
+
+            return [
+                'imported' => 0,
+                'state' => [
+                    'delta_link' => null,
+                    'delta_next_link' => null,
+                ],
+            ];
+        }
+
+        $account = $this->refreshTokenIfNeeded($account);
+        $imported = 0;
+        $pages = 0;
+
+        while ($url && $pages < self::MAX_DELTA_PAGES_PER_RUN) {
+            $pages++;
+
+            try {
+                $response = Http::withToken($account->access_token)
+                    ->timeout(self::PAGE_FETCH_TIMEOUT)
+                    ->withHeaders(['Prefer' => 'odata.maxpagesize='.self::PAGE_SIZE])
+                    ->get($url);
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+                Log::warning('Outlook mail delta timed out', [
+                    'inbox_id' => $inbox->id,
+                    'folder' => $folder,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return [
+                    'imported' => $imported,
+                    'state' => [
+                        'delta_link' => $deltaLink,
+                        'delta_next_link' => $url,
+                    ],
+                ];
+            }
+
+            // 410 Gone = delta token expired; clear and re-seed on the next run.
+            if (in_array($response->status(), [410, 404], true)) {
+                Log::info('Outlook mail delta token expired; will re-seed', [
+                    'inbox_id' => $inbox->id,
+                    'folder' => $folder,
+                    'status' => $response->status(),
+                ]);
+
+                return [
+                    'imported' => $imported,
+                    'state' => [
+                        'delta_link' => null,
+                        'delta_next_link' => null,
+                    ],
+                ];
+            }
+
+            if (! $response->successful()) {
+                Log::warning('Outlook mail delta page failed', [
+                    'inbox_id' => $inbox->id,
+                    'folder' => $folder,
+                    'status' => $response->status(),
+                    'body' => mb_substr($response->body(), 0, 500),
+                ]);
+
+                return [
+                    'imported' => $imported,
+                    'state' => [
+                        'delta_link' => $deltaLink,
+                        'delta_next_link' => $deltaLink ? null : $url,
+                    ],
+                ];
+            }
+
+            $payload = $response->json() ?: [];
+            $batch = $payload['value'] ?? [];
+            if (! is_array($batch)) {
+                $batch = [];
+            }
+
+            foreach ($batch as $msg) {
+                if (! is_array($msg)) {
+                    continue;
+                }
+
+                if (isset($msg['@removed'])) {
+                    $this->removeSyncedMessage($inbox, isset($msg['id']) ? (string) $msg['id'] : null);
+
+                    continue;
+                }
+
+                if ($this->upsertMessage($inbox, $msg, $folder, $meta['status'], $meta['direction'])) {
+                    $imported++;
+                }
+            }
+
+            $account = $inbox->account()->first() ?: $account;
+
+            $next = $payload['@odata.nextLink'] ?? null;
+            $next = is_string($next) && $next !== '' ? $next : null;
+            $newDelta = $payload['@odata.deltaLink'] ?? null;
+            $newDelta = is_string($newDelta) && $newDelta !== '' ? $newDelta : null;
+
+            if ($newDelta) {
+                Log::info('Outlook mail delta round complete', [
+                    'inbox_id' => $inbox->id,
+                    'folder' => $folder,
+                    'imported' => $imported,
+                    'pages' => $pages,
+                ]);
+
+                return [
+                    'imported' => $imported,
+                    'state' => [
+                        'delta_link' => $newDelta,
+                        'delta_next_link' => null,
+                    ],
+                ];
+            }
+
+            if ($next) {
+                $url = $next;
+                $deltaLink = null;
+                $deltaNext = $next;
+
+                continue;
+            }
+
+            // Empty page with neither link — treat as done for this round.
+            break;
+        }
+
+        $hitPageCap = $pages >= self::MAX_DELTA_PAGES_PER_RUN && is_string($url) && $url !== '';
+
+        return [
+            'imported' => $imported,
+            'state' => [
+                'delta_link' => $hitPageCap ? null : $deltaLink,
+                'delta_next_link' => $hitPageCap ? $url : null,
+            ],
+        ];
+    }
+
+    /**
+     * Soft-delete a locally stored Graph message after a delta @removed event.
+     */
+    private function removeSyncedMessage(SharedInbox $inbox, ?string $externalMessageId): void
+    {
+        if (! $externalMessageId) {
+            return;
+        }
+
+        $message = InboxMessage::query()
+            ->where('external_message_id', $this->truncate($externalMessageId, 512))
+            ->whereHas('conversation', fn ($q) => $q->where('shared_inbox_id', $inbox->id))
+            ->first();
+
+        if (! $message) {
+            return;
+        }
+
+        $conversationId = (int) $message->inbox_conversation_id;
+        $message->delete();
+
+        $conversation = InboxConversation::query()->find($conversationId);
+        if ($conversation && (int) $conversation->message_count > 0) {
+            $conversation->decrement('message_count');
+        }
     }
 
     /**

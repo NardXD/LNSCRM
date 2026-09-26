@@ -6,9 +6,9 @@ Inbox background work uses the **database** queue driver and named queues. Horiz
 
 | Queue | Work |
 |-------|------|
-| `inbox-mail` | Scheduled sends, snooze reopens |
+| `inbox-mail` | Scheduled sends, snooze reopens, Outlook mail sync |
 | `inbox-notify` | Thread / assignee notifications |
-| `default` | Outlook mail sync jobs, inbound lead rules |
+| `default` | Inbound lead rules and other non-urgent inbox work |
 
 ## Required cron jobs (Site Tools → Cron Jobs)
 
