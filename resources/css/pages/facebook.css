@@ -329,12 +329,14 @@
 
 @media (max-width: 900px) {
     .fb-page-wrapper { padding: 8px; }
-    .fb-page-wrapper, .fb-page { height: auto; min-height: calc(100vh - 64px); overflow: visible; }
-    .fb-layout, .fb-layout.with-history { grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 80px); }
-    .fb-sidebar { min-height: calc(100vh - 64px); }
+    .fb-page-wrapper, .fb-page { height: auto; min-height: calc(100dvh - 64px); overflow: visible; }
+    .fb-layout, .fb-layout.with-history { grid-template-columns: 1fr; height: auto; min-height: calc(100dvh - 80px); }
+    .fb-sidebar { min-height: calc(100dvh - 64px); }
     .fb-sidebar.hidden-mobile { display: none; }
-    .fb-main { min-height: calc(100vh - 64px); }
+    .fb-main { min-height: calc(100dvh - 64px); }
     .fb-main.hidden-mobile { display: none; }
     .fb-back { display: inline-flex; }
-    .fb-chat { min-height: calc(100vh - 64px); }
+    .fb-chat { min-height: calc(100dvh - 64px); }
+    .fb-composer { position: sticky; bottom: 0; }
+    .fb-thread-header { gap: 0.35rem; }
 }

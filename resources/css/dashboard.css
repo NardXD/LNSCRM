@@ -1757,3 +1757,305 @@ body {
         0% { background-position: 100% 0; }
         100% { background-position: -100% 0; }
     }
+
+    /* =========================================================
+       Responsive system — shared across all dashboard pages
+       ========================================================= */
+
+    html {
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+    }
+
+    body {
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+    }
+
+    /* Prefer touch-friendly controls without breaking desktop density */
+    @media (hover: none) and (pointer: coarse) {
+        .btn,
+        .btn-primary,
+        .btn-secondary,
+        .tab-btn,
+        .leads-tab,
+        .nav-item,
+        .header-icon-btn,
+        .icon-btn,
+        .mobile-menu-btn {
+            min-height: 44px;
+        }
+
+        .nav-item,
+        .nav-subitem {
+            min-height: 44px;
+        }
+    }
+
+    /* Tables: never blow out the viewport */
+    .table-container,
+    .leads-table-wrap,
+    .data-table-wrap {
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .data-table,
+    .leads-table,
+    table.data-table {
+        max-width: none;
+    }
+
+    /* Tab strips scroll instead of wrapping into a tall stack */
+    .management-tabs,
+    .billing-tabs,
+    .leads-tabs,
+    .knowledge-tabs,
+    .inbox-nav-section,
+    .sub-tabs {
+        max-width: 100%;
+    }
+
+    @media (max-width: 768px) {
+        .dashboard-container {
+            min-height: 100dvh;
+        }
+
+        .main-content {
+            min-width: 0;
+            width: 100%;
+        }
+
+        .content {
+            padding: 0.85rem;
+            padding-bottom: calc(0.85rem + env(safe-area-inset-bottom));
+            min-width: 0;
+            overflow-x: hidden;
+        }
+
+        .page-header {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.75rem 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .page-header .page-title,
+        .page-header h1 {
+            font-size: 1.35rem;
+            line-height: 1.25;
+            margin-bottom: 0.25rem;
+        }
+
+        .page-header .ld-top-actions,
+        .page-header .leads-header-actions,
+        .page-header > div:last-child,
+        .ld-top,
+        .ld-top-actions {
+            width: 100%;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .ld-top {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .management-tabs,
+        .billing-tabs,
+        .leads-tabs,
+        .knowledge-tabs,
+        .sub-tabs {
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 0.35rem;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: thin;
+            padding-bottom: 0.15rem;
+        }
+
+        .management-tabs .tab-btn,
+        .billing-tabs .tab-btn,
+        .leads-tabs .leads-tab,
+        .leads-tabs .tab-btn,
+        .knowledge-tabs .tab-btn,
+        .sub-tabs .tab-btn,
+        .sub-tab-btn {
+            flex: 0 0 auto;
+            white-space: nowrap;
+        }
+
+        .stats-grid,
+        .stat-grid,
+        .dashboard-stats {
+            grid-template-columns: 1fr !important;
+        }
+
+        .form-row,
+        .form-row-2,
+        .form-row-3,
+        .form-grid,
+        .leads-modal-grid,
+        .identity-row,
+        .modal-grid {
+            grid-template-columns: 1fr !important;
+        }
+
+        .modal-overlay,
+        .leads-modal-overlay,
+        [class*="modal-overlay"] {
+            padding: 0.5rem !important;
+            align-items: flex-end;
+        }
+
+        .modal-container,
+        .modal,
+        .leads-modal,
+        .leads-message-modal,
+        .chat-info-modal {
+            width: 100% !important;
+            max-width: 100% !important;
+            max-height: min(92dvh, 100%) !important;
+            border-radius: 16px 16px 0 0 !important;
+        }
+
+        .modal-body,
+        .leads-message-body,
+        .modal-footer,
+        .leads-rules-actions,
+        .modal-actions {
+            flex-wrap: wrap;
+        }
+
+        .modal-footer,
+        .modal-actions,
+        .leads-rules-actions {
+            gap: 0.5rem;
+        }
+
+        .modal-footer .btn,
+        .modal-actions .btn,
+        .leads-rules-actions .btn {
+            flex: 1 1 auto;
+            min-width: 8rem;
+        }
+
+        .header {
+            padding-top: max(0.75rem, env(safe-area-inset-top));
+            padding-left: max(1rem, env(safe-area-inset-left));
+            padding-right: max(1rem, env(safe-area-inset-right));
+        }
+
+        .header-right {
+            gap: 0.35rem;
+            flex-shrink: 0;
+        }
+
+        .header-agent-queue-meta {
+            display: none;
+        }
+
+        .header-notifications-dropdown,
+        #headerNotificationsDropdown {
+            position: fixed !important;
+            left: 0.75rem !important;
+            right: 0.75rem !important;
+            width: auto !important;
+            max-width: none !important;
+            top: calc(3.75rem + env(safe-area-inset-top)) !important;
+            max-height: calc(100dvh - 5rem);
+            overflow: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .sidebar {
+            padding-bottom: env(safe-area-inset-bottom);
+            width: min(var(--sidebar-width), 86vw);
+        }
+
+        .sidebar.open {
+            box-shadow: 8px 0 32px rgba(15, 23, 42, 0.18);
+        }
+
+        .flash-alert {
+            font-size: 0.8125rem;
+        }
+
+        /* Dense toolbars collapse cleanly */
+        .leads-toolbar,
+        .billing-toolbar,
+        .page-toolbar {
+            flex-direction: column;
+            align-items: stretch !important;
+            gap: 0.65rem;
+        }
+
+        .leads-toolbar-filters,
+        .billing-toolbar-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+            width: 100%;
+        }
+
+        .leads-search,
+        .leads-toolbar input[type="search"],
+        .search-input {
+            width: 100%;
+            max-width: none;
+        }
+
+        select.leads-source-filter,
+        select.leads-assignee-filter,
+        select.leads-thread-filter,
+        .leads-toolbar select,
+        .billing-tabs + * select {
+            max-width: 100%;
+            min-width: 0;
+            flex: 1 1 10rem;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .content {
+            padding: 0.65rem;
+            padding-bottom: calc(0.65rem + env(safe-area-inset-bottom));
+        }
+
+        .page-header .page-title,
+        .page-header h1,
+        .ld-title {
+            font-size: 1.2rem;
+        }
+
+        .btn,
+        .btn-primary,
+        .btn-secondary {
+            padding: 0.55rem 0.9rem;
+            font-size: 0.8125rem;
+        }
+
+        .modal-footer .btn,
+        .modal-actions .btn {
+            min-width: 0;
+            width: 100%;
+        }
+    }
+
+    /* Landscape phones: keep sidebar off-canvas, tighten chrome */
+    @media (max-width: 900px) and (orientation: landscape) {
+        .header {
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+        }
+
+        .content {
+            padding-top: 0.65rem;
+        }
+    }

@@ -3000,11 +3000,102 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 }
 @media (max-width: 860px) {
     .inbox-page-wrapper,
-    .inbox-app { height: auto; min-height: calc(100vh - 64px); overflow: visible; }
+    .inbox-app {
+        height: auto;
+        min-height: calc(100dvh - 64px);
+        overflow: visible;
+    }
     .inbox-shell,
-    .inbox-shell.with-props { grid-template-columns: 1fr; height: auto; }
-    .inbox-nav, .inbox-list-pane { max-height: 360px; }
-    .inbox-adv-grid { grid-template-columns: 1fr; }
+    .inbox-shell.with-props {
+        grid-template-columns: 1fr;
+        height: auto;
+        min-height: calc(100dvh - 72px);
+        position: relative;
+    }
+    .inbox-nav {
+        display: none;
+    }
+    .inbox-list-pane {
+        max-height: none;
+        min-height: calc(100dvh - 72px);
+    }
+    .inbox-thread-pane {
+        min-height: calc(100dvh - 72px);
+    }
+    .inbox-adv-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* List ↔ thread panes on phones */
+    .inbox-shell:not(.inbox-mobile-thread) .inbox-thread-pane {
+        display: none !important;
+    }
+    .inbox-shell.inbox-mobile-thread .inbox-list-pane {
+        display: none !important;
+    }
+    .inbox-shell.inbox-mobile-thread .inbox-thread-pane {
+        display: flex !important;
+        flex-direction: column;
+    }
+    .inbox-shell.inbox-mobile-thread .inbox-thread {
+        min-height: calc(100dvh - 72px);
+    }
+    .inbox-shell.inbox-mobile-thread.with-props .inbox-props {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: min(320px, 92vw);
+        z-index: 30;
+        box-shadow: -12px 0 28px rgba(15, 23, 42, 0.16);
+    }
+
+    .inbox-back {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        flex-shrink: 0;
+        border: 1px solid var(--inbox-border, var(--border));
+        border-radius: 10px;
+        background: var(--inbox-panel, #fff);
+        color: var(--inbox-text, var(--text-primary));
+        cursor: pointer;
+        margin-right: 0.35rem;
+    }
+    .inbox-back svg {
+        width: 18px;
+        height: 18px;
+    }
+    .inbox-thread-header {
+        gap: 0.35rem;
+        align-items: flex-start;
+    }
+    .inbox-thread-heading {
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+    .inbox-thread-heading h2 {
+        font-size: 1rem;
+        line-height: 1.3;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .inbox-thread-actions {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+    .inbox-composer {
+        max-height: min(50dvh, 420px);
+    }
+}
+
+@media (min-width: 861px) {
+    .inbox-back {
+        display: none !important;
+    }
 }
 html.inbox-is-popout .inbox-page-wrapper,
 html.inbox-is-popout .inbox-app {

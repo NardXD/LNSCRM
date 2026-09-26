@@ -172,6 +172,9 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
 
             <div class="inbox-thread{{ $inboxPopout ? ' is-loading' : '' }}" id="threadView" style="display:{{ $inboxPopout ? 'flex' : 'none' }};" @if($inboxPopout) aria-busy="true" @endif>
                 <div class="inbox-thread-header">
+                    <button type="button" class="inbox-back" id="btnInboxBack" title="Back to list" aria-label="Back to conversation list">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+                    </button>
                     <div class="inbox-thread-heading">
                         <h2 id="threadSubject">{{ $inboxPopout ? 'Loading…' : '' }}</h2>
                         <div class="inbox-thread-participants" id="threadParticipants"></div>

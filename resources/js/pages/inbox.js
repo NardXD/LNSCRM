@@ -3236,6 +3236,7 @@
         el('threadView').style.display = 'flex';
         el('threadView')?.classList.add('is-loading');
         el('threadView')?.setAttribute('aria-busy', 'true');
+        syncInboxMobileThreadView();
         applyPropsPaneVisibility();
         el('threadSubject').textContent = preview?.subject || 'Loading…';
         el('threadMeta').textContent = '';
@@ -5296,12 +5297,33 @@
         applyPropsPaneVisibility();
     }
 
+    function syncInboxMobileThreadView() {
+        const shell = document.querySelector('.inbox-shell');
+        if (!shell || INBOX_POPOUT) return;
+        const open = !!(state.conversation || state.selectedId);
+        shell.classList.toggle('inbox-mobile-thread', open);
+    }
+
+    function closeInboxMobileThread() {
+        if (INBOX_POPOUT) return;
+        state.selectedId = null;
+        state.conversation = null;
+        el('conversationList')?.querySelectorAll('.inbox-conv').forEach((btn) => {
+            btn.classList.remove('active');
+        });
+        el('threadPlaceholder').style.display = 'flex';
+        el('threadView').style.display = 'none';
+        setPropsOpen(false);
+        syncInboxMobileThreadView();
+    }
+
     function renderThread() {
         const c = state.conversation;
         if (!c) {
             el('threadPlaceholder').style.display = 'flex';
             el('threadView').style.display = 'none';
             applyPropsPaneVisibility();
+            syncInboxMobileThreadView();
             return;
         }
         el('threadPlaceholder').style.display = 'none';
@@ -5309,6 +5331,7 @@
         el('threadView')?.classList.remove('is-loading');
         el('threadView')?.removeAttribute('aria-busy');
         applyPropsPaneVisibility();
+        syncInboxMobileThreadView();
         el('threadSubject').textContent = c.subject || '(No subject)';
         if (INBOX_POPOUT) document.title = (c.subject || 'Conversation') + ' - Inbox';
 
@@ -7967,6 +7990,9 @@
     el('btnToggleProps')?.addEventListener('click', () => {
         if (!state.conversation) return;
         setPropsOpen(!state.propsOpen);
+    });
+    el('btnInboxBack')?.addEventListener('click', () => {
+        closeInboxMobileThread();
     });
     el('btnHideProps')?.addEventListener('click', () => setPropsOpen(false));
 

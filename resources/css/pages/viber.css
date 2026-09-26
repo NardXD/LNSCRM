@@ -51,10 +51,12 @@
 .viber-icon-btn svg { width: 18px; height: 18px; }
 .viber-back { display: none; }
 @media (max-width: 900px) {
-    .viber-layout { grid-template-columns: 1fr; }
+    .viber-layout { grid-template-columns: 1fr; min-height: calc(100dvh - 80px); }
     .viber-sidebar.hidden-mobile { display: none; }
     .viber-main.hidden-mobile { display: none; }
     .viber-back { display: inline-flex; }
+    .viber-sidebar, .viber-main, .viber-chat { min-height: calc(100dvh - 64px); }
+    .viber-composer { position: sticky; bottom: 0; }
 }
 .viber-page .ch-tpl-sidebar-btn:hover { border-color: #7360f2; }
 .viber-page .ch-tpl-btn.primary { background: #7360f2; border-color: #7360f2; }

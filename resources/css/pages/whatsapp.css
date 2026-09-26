@@ -310,12 +310,13 @@
 
 @media (max-width: 900px) {
     .wa-page-wrapper { padding: 8px; }
-    .wa-page-wrapper, .wa-page { height: auto; min-height: calc(100vh - 64px); overflow: visible; }
-    .wa-layout, .wa-layout.with-history { grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 80px); }
-    .wa-sidebar { min-height: calc(100vh - 64px); }
+    .wa-page-wrapper, .wa-page { height: auto; min-height: calc(100dvh - 64px); overflow: visible; }
+    .wa-layout, .wa-layout.with-history { grid-template-columns: 1fr; height: auto; min-height: calc(100dvh - 80px); }
+    .wa-sidebar { min-height: calc(100dvh - 64px); }
     .wa-sidebar.hidden-mobile { display: none; }
-    .wa-main { min-height: calc(100vh - 64px); }
+    .wa-main { min-height: calc(100dvh - 64px); }
     .wa-main.hidden-mobile { display: none; }
     .wa-back { display: inline-flex; }
-    .wa-chat { min-height: calc(100vh - 64px); }
+    .wa-chat { min-height: calc(100dvh - 64px); }
+    .wa-composer { position: sticky; bottom: 0; }
 }

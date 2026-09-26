@@ -9,7 +9,7 @@
     ]
   },
   "resources/css/dashboard.css": {
-    "file": "assets/dashboard-Dm4VrSjc.css",
+    "file": "assets/dashboard-Cv0jUkou.css",
     "src": "resources/css/dashboard.css",
     "isEntry": true,
     "name": "dashboard",
@@ -99,7 +99,7 @@
     ]
   },
   "resources/css/pages/facebook.css": {
-    "file": "assets/facebook-18Xf56XT.css",
+    "file": "assets/facebook-B6eNJiEj.css",
     "src": "resources/css/pages/facebook.css",
     "isEntry": true,
     "name": "facebook",
@@ -117,7 +117,7 @@
     ]
   },
   "resources/css/pages/inbox.css": {
-    "file": "assets/inbox-C-Igfe4P.css",
+    "file": "assets/inbox-0eGguU3q.css",
     "src": "resources/css/pages/inbox.css",
     "isEntry": true,
     "name": "inbox",
@@ -162,7 +162,7 @@
     ]
   },
   "resources/css/pages/messaging.css": {
-    "file": "assets/messaging-ApBjqWqc.css",
+    "file": "assets/messaging-_Oxnjfml.css",
     "src": "resources/css/pages/messaging.css",
     "isEntry": true,
     "name": "messaging",
@@ -198,7 +198,7 @@
     ]
   },
   "resources/css/pages/sms.css": {
-    "file": "assets/sms-DnFe7yoS.css",
+    "file": "assets/sms-BCpcxMvk.css",
     "src": "resources/css/pages/sms.css",
     "isEntry": true,
     "name": "sms",
@@ -243,7 +243,7 @@
     ]
   },
   "resources/css/pages/viber.css": {
-    "file": "assets/viber-BN0onD0P.css",
+    "file": "assets/viber-w2bh8DW1.css",
     "src": "resources/css/pages/viber.css",
     "isEntry": true,
     "name": "viber",
@@ -252,7 +252,7 @@
     ]
   },
   "resources/css/pages/whatsapp.css": {
-    "file": "assets/whatsapp-CNBrJ_Tw.css",
+    "file": "assets/whatsapp-BnrUtGfU.css",
     "src": "resources/css/pages/whatsapp.css",
     "isEntry": true,
     "name": "whatsapp",
@@ -354,7 +354,7 @@
     "isEntry": true
   },
   "resources/js/pages/inbox.js": {
-    "file": "assets/inbox-eEAExjfp.js",
+    "file": "assets/inbox-DA5xMmil.js",
     "name": "inbox",
     "src": "resources/js/pages/inbox.js",
     "isEntry": true

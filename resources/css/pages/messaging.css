@@ -1309,23 +1309,24 @@
 
     @media (max-width: 900px) {
         .msg-page-wrapper { padding: 8px; }
-        .msg-page-wrapper, .msg-page { height: auto; min-height: calc(100vh - 64px); overflow: visible; }
-        .msg-layout { grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 80px); }
-        .msg-sidebar { min-height: calc(100vh - 64px); }
+        .msg-page-wrapper, .msg-page { height: auto; min-height: calc(100dvh - 64px); overflow: visible; }
+        .msg-layout { grid-template-columns: 1fr; height: auto; min-height: calc(100dvh - 80px); }
+        .msg-sidebar { min-height: calc(100dvh - 64px); }
         .msg-sidebar.hidden-mobile { display: none; }
-        .msg-main { min-height: calc(100vh - 64px); }
+        .msg-main { min-height: calc(100dvh - 64px); }
         .msg-main.hidden-mobile { display: none; }
         .msg-back { display: inline-flex; }
-        .msg-chat { min-height: calc(100vh - 64px); }
+        .msg-chat { min-height: calc(100dvh - 64px); }
         .msg-chat-actions .msg-icon-btn:nth-child(1),
         .msg-chat-actions .msg-icon-btn:nth-child(2) { display: none; }
+        .msg-composer { position: sticky; bottom: 0; }
 
         .modal-overlay {
             padding: 0.75rem;
             overflow-y: auto;
         }
         .modal {
-            max-height: calc(100vh - 2rem);
+            max-height: calc(100dvh - 2rem);
             overflow-y: auto;
         }
         .chat-info-modal {

@@ -290,12 +290,13 @@
 
 @media (max-width: 900px) {
     .sms-page-wrapper { padding: 8px; }
-    .sms-page-wrapper, .sms-page { height: auto; min-height: calc(100vh - 64px); overflow: visible; }
-    .sms-layout, .sms-layout.with-history { grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 80px); }
-    .sms-sidebar { min-height: calc(100vh - 64px); }
+    .sms-page-wrapper, .sms-page { height: auto; min-height: calc(100dvh - 64px); overflow: visible; }
+    .sms-layout, .sms-layout.with-history { grid-template-columns: 1fr; height: auto; min-height: calc(100dvh - 80px); }
+    .sms-sidebar { min-height: calc(100dvh - 64px); }
     .sms-sidebar.hidden-mobile { display: none; }
-    .sms-main { min-height: calc(100vh - 64px); }
+    .sms-main { min-height: calc(100dvh - 64px); }
     .sms-main.hidden-mobile { display: none; }
     .sms-back { display: inline-flex; }
-    .sms-chat { min-height: calc(100vh - 64px); }
+    .sms-chat { min-height: calc(100dvh - 64px); }
+    .sms-composer { position: sticky; bottom: 0; }
 }
