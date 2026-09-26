@@ -21,8 +21,8 @@ class SyncInboxMail extends Command
     /** Recent sync: shared / quotation / contract must be older than this. */
     private const RECENT_SHARED_SECONDS = 60;
 
-    /** Recent sync: personal must be older than this. */
-    private const RECENT_PERSONAL_SECONDS = 180;
+    /** Recent sync: personal must be older than this (same freshness as shared). */
+    private const RECENT_PERSONAL_SECONDS = 60;
 
     /** Full sync: shared-family must be older than this (unless backfill incomplete). */
     private const FULL_SHARED_SECONDS = 900;

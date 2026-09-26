@@ -81,10 +81,10 @@ class InboxQueueJobsTest extends TestCase
         Queue::assertNotPushed(SyncSharedInboxMailJob::class);
     }
 
-    public function test_sync_mail_command_queues_stale_personal_inbox_after_three_minutes(): void
+    public function test_sync_mail_command_queues_stale_personal_inbox_after_one_minute(): void
     {
         [, $inbox] = $this->agentWithInbox(withAccount: true, type: SharedInbox::TYPE_PERSONAL);
-        $inbox->forceFill(['last_synced_at' => now()->subMinutes(4)])->save();
+        $inbox->forceFill(['last_synced_at' => now()->subSeconds(61)])->save();
 
         Queue::fake();
 

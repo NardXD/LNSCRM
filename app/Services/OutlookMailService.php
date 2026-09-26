@@ -245,10 +245,13 @@ class OutlookMailService
     }
 
     /**
-     * Lightweight background sync for Inbox + Sent via Graph delta queries.
-     * Falls back to a short newest-first probe only when a folder has no delta
-     * cursor yet and is still mid-backfill (avoids a full-folder delta seed on
-     * huge mailboxes before historical import finishes).
+     * Lightweight background sync for Inbox + Sent.
+     *
+     * Uses Graph delta only when a real incremental `delta_link` already exists.
+     * Otherwise keeps the newest-first probe (new mail shows up immediately).
+     * Full-folder delta seeding belongs in syncInbox() after backfill — never in
+     * this path — because an initial delta can walk the whole mailbox and delay
+     * catching brand-new messages for many runs.
      */
     public function syncRecent(SharedInbox $inbox): int
     {
@@ -276,18 +279,20 @@ class OutlookMailService
 
             $meta = self::FOLDERS[$folder];
             $state = is_array($cursors[$folder] ?? null) ? $cursors[$folder] : [];
-            $hasDeltaCursor = ! empty($state['delta_link']) || ! empty($state['delta_next_link']);
-            $backfillDone = (bool) ($state['backfill_done'] ?? false);
+            // Only follow a finished incremental delta link here. A mid-seed
+            // delta_next_link means syncInbox is still establishing the cursor —
+            // do not continue that walk on the recent path.
+            $hasIncrementalDelta = ! empty($state['delta_link']);
 
-            if ($hasDeltaCursor || $backfillDone) {
+            if ($hasIncrementalDelta) {
                 $delta = $this->syncFolderDelta($inbox, $account, $folder, $meta, $state);
                 $imported += $delta['imported'];
                 $cursors[$folder] = array_merge($state, $delta['state']);
-                if ($backfillDone) {
+                if (! empty($state['backfill_done'])) {
                     $cursors[$folder]['backfill_done'] = true;
                 }
             } else {
-                // Pre-delta: same quiet probe as the /inbox UI (inbox 2 pages, sent 1).
+                // Newest-first probe (inbox 2 pages, sent 1) — same as before delta.
                 $maxPages = $folder === 'inbox' ? 2 : 1;
                 $nextLink = null;
                 $fetched = 0;
