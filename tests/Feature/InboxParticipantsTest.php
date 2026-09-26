@@ -186,6 +186,34 @@ class InboxParticipantsTest extends TestCase
     public function test_subscribed_view_lists_followed_conversations_across_mailboxes(): void
     {
         [$user, $other, $third, $inbox, $conversation] = $this->sharedThread();
+        $archived = InboxConversation::query()->create([
+            'company_id' => $inbox->company_id,
+            'shared_inbox_id' => $inbox->id,
+            'folder' => 'inbox',
+            'external_conversation_id' => 'conv-subscribed-archived-'.uniqid(),
+            'status' => 'archived',
+            'subject' => 'Archived follow',
+            'from_name' => 'Customer',
+            'from_email' => 'archived@example.com',
+            'is_read' => true,
+            'message_count' => 1,
+            'last_message_at' => now(),
+            'reopen_at' => null,
+        ]);
+        $snoozed = InboxConversation::query()->create([
+            'company_id' => $inbox->company_id,
+            'shared_inbox_id' => $inbox->id,
+            'folder' => 'inbox',
+            'external_conversation_id' => 'conv-subscribed-snoozed-'.uniqid(),
+            'status' => 'archived',
+            'subject' => 'Snoozed follow',
+            'from_name' => 'Customer',
+            'from_email' => 'snoozed@example.com',
+            'is_read' => true,
+            'message_count' => 1,
+            'last_message_at' => now(),
+            'reopen_at' => now()->addDay(),
+        ]);
         $unfollowed = InboxConversation::query()->create([
             'company_id' => $inbox->company_id,
             'shared_inbox_id' => $inbox->id,
@@ -200,26 +228,51 @@ class InboxParticipantsTest extends TestCase
             'last_message_at' => now(),
         ]);
 
-        InboxConversationFollower::query()->create([
-            'inbox_conversation_id' => $conversation->id,
-            'user_id' => $user->id,
-            'is_subscribed' => true,
-        ]);
+        foreach ([$conversation, $archived, $snoozed] as $followed) {
+            InboxConversationFollower::query()->create([
+                'inbox_conversation_id' => $followed->id,
+                'user_id' => $user->id,
+                'is_subscribed' => true,
+            ]);
+        }
 
-        $ids = collect($this->actingAs($user)
-            ->getJson('/api/inbox/conversations?view=subscribed')
+        $openIds = collect($this->actingAs($user)
+            ->getJson('/api/inbox/conversations?view=subscribed&bucket=open')
             ->assertOk()
             ->json('conversations'))
             ->pluck('id')
             ->all();
+        $this->assertContains($conversation->id, $openIds);
+        $this->assertNotContains($archived->id, $openIds);
+        $this->assertNotContains($snoozed->id, $openIds);
+        $this->assertNotContains($unfollowed->id, $openIds);
 
-        $this->assertContains($conversation->id, $ids);
-        $this->assertNotContains($unfollowed->id, $ids);
+        $archivedIds = collect($this->actingAs($user)
+            ->getJson('/api/inbox/conversations?view=subscribed&bucket=archived')
+            ->assertOk()
+            ->json('conversations'))
+            ->pluck('id')
+            ->all();
+        $this->assertContains($archived->id, $archivedIds);
+        $this->assertNotContains($conversation->id, $archivedIds);
+        $this->assertNotContains($snoozed->id, $archivedIds);
+
+        $snoozedIds = collect($this->actingAs($user)
+            ->getJson('/api/inbox/conversations?view=subscribed&bucket=snoozed')
+            ->assertOk()
+            ->json('conversations'))
+            ->pluck('id')
+            ->all();
+        $this->assertContains($snoozed->id, $snoozedIds);
+        $this->assertNotContains($conversation->id, $snoozedIds);
+        $this->assertNotContains($archived->id, $snoozedIds);
 
         $this->actingAs($user)
             ->getJson('/api/inbox/nav-counts')
             ->assertOk()
-            ->assertJsonPath('subscribed_count', 1);
+            ->assertJsonPath('subscribed_count', 1)
+            ->assertJsonPath('subscribed_archived_count', 1)
+            ->assertJsonPath('subscribed_snoozed_count', 1);
     }
 
     /**

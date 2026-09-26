@@ -210,6 +210,8 @@ class InboxController extends Controller
             $sidebarLabelIds = null;
         }
 
+        $subscribedCounts = $this->subscribedConversationCounts($user);
+
         return response()->json([
             'outlook_configured' => $this->oauthSettings->isConfigured('outlook', $companyId),
             'mail_connected' => (bool) $account,
@@ -223,7 +225,9 @@ class InboxController extends Controller
             'reopened_snoozed_count' => $counts['reopened_snoozed'],
             'archived_count' => $counts['archived'],
             'snoozed_count' => $counts['snoozed'],
-            'subscribed_count' => $this->subscribedConversationCount($user),
+            'subscribed_count' => $subscribedCounts['open'],
+            'subscribed_archived_count' => $subscribedCounts['archived'],
+            'subscribed_snoozed_count' => $subscribedCounts['snoozed'],
             'inboxes' => $inboxes,
             'tags' => $tags,
             'lead_labels' => $leadLabels,
@@ -256,6 +260,7 @@ class InboxController extends Controller
             : null;
 
         $labelCounts = $this->leadLabelCounts($inboxIds, $sidebarLabelIds);
+        $subscribedCounts = $this->subscribedConversationCounts($user);
 
         return response()->json([
             'assigned_to_me_count' => $counts['assigned_to_me'],
@@ -265,7 +270,9 @@ class InboxController extends Controller
             'reopened_snoozed_count' => $counts['reopened_snoozed'],
             'archived_count' => $counts['archived'],
             'snoozed_count' => $counts['snoozed'],
-            'subscribed_count' => $this->subscribedConversationCount($user),
+            'subscribed_count' => $subscribedCounts['open'],
+            'subscribed_archived_count' => $subscribedCounts['archived'],
+            'subscribed_snoozed_count' => $subscribedCounts['snoozed'],
             'by_inbox' => $counts['by_inbox'],
             'lead_label_counts' => $labelCounts,
         ]);
@@ -743,7 +750,8 @@ class InboxController extends Controller
         } elseif ($search !== '') {
             // Quick search ignores the current sidebar view/folder.
         } elseif ($view === 'subscribed') {
-            $query->whereNotIn('inbox_conversations.folder', ['trash', 'spam']);
+            $bucket = $validated['bucket'] ?? 'open';
+            $this->constrainInboxBucket($query, $bucket);
         } elseif ($view === 'open') {
             $query->where('folder', 'inbox')->where('status', 'open');
         } elseif ($view === 'archived') {
@@ -784,7 +792,7 @@ class InboxController extends Controller
             $this->constrainByLeadLabel($query, $labelId);
         }
 
-        if (! $idQuery && ! in_array($view, ['assigned_to_me', 'archived', 'snoozed'], true) && isset($validated['assigned_to'])) {
+        if (! $idQuery && ! in_array($view, ['assigned_to_me', 'subscribed', 'archived', 'snoozed'], true) && isset($validated['assigned_to'])) {
             if ((int) $validated['assigned_to'] === 0) {
                 $query->whereNull('inbox_conversations.assigned_to');
             } else {
@@ -3672,19 +3680,31 @@ class InboxController extends Controller
     }
 
     /**
-     * Conversations this teammate follows (Front Subscribed), excluding trash/spam.
+     * Conversations this teammate follows (Front Subscribed), split by open/archived/snoozed.
+     *
+     * @return array{open: int, archived: int, snoozed: int}
      */
-    private function subscribedConversationCount(User $user): int
+    private function subscribedConversationCounts(User $user): array
     {
-        return (int) InboxConversation::query()
-            ->notMerged()
-            ->where('company_id', $user->company_id)
-            ->whereNotIn('folder', ['trash', 'spam'])
-            ->whereHas('followers', function ($followers) use ($user) {
-                $followers->where('users.id', $user->id)
-                    ->where('inbox_conversation_followers.is_subscribed', true);
-            })
-            ->count();
+        $counts = [
+            'open' => 0,
+            'archived' => 0,
+            'snoozed' => 0,
+        ];
+
+        foreach (array_keys($counts) as $bucket) {
+            $query = InboxConversation::query()
+                ->notMerged()
+                ->where('company_id', $user->company_id)
+                ->whereHas('followers', function ($followers) use ($user) {
+                    $followers->where('users.id', $user->id)
+                        ->where('inbox_conversation_followers.is_subscribed', true);
+                });
+            $this->constrainInboxBucket($query, $bucket);
+            $counts[$bucket] = (int) $query->count();
+        }
+
+        return $counts;
     }
 
     /**

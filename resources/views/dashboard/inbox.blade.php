@@ -54,9 +54,6 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
                 <button type="button" class="inbox-nav-item active" data-view="open" data-scope="all">
                     <span>Open</span><span class="inbox-count" id="countOpen">0</span>
                 </button>
-                <button type="button" class="inbox-nav-item" data-view="subscribed" data-scope="all">
-                    <span>Subscribed</span><span class="inbox-count" id="countSubscribed">0</span>
-                </button>
                 <div id="viewGroups"></div>
             </div>
 
@@ -3942,6 +3939,16 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
 
     const VIEW_GROUPS = [
         {
+            id: 'subscribed',
+            label: 'Subscribed',
+            defaultBucket: 'open',
+            folders: [
+                { bucket: 'open', label: 'Open', count: 'subscribedOpen' },
+                { bucket: 'snoozed', label: 'Snoozed', count: 'subscribedSnoozed' },
+                { bucket: 'archived', label: 'Archived', count: 'subscribedArchived' },
+            ],
+        },
+        {
             id: 'assigned_to_me',
             label: 'Assigned to me',
             defaultBucket: 'open',
@@ -4000,6 +4007,8 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         archivedCount: 0,
         snoozedCount: 0,
         subscribedCount: 0,
+        subscribedArchivedCount: 0,
+        subscribedSnoozedCount: 0,
         viewGroup: null,
         expandedViewGroups: {},
         conversations: [],
@@ -6622,6 +6631,9 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
     function viewGroupCount(key) {
         const openCount = state.inboxes.reduce((n, inbox) => n + (inbox.open_count || 0), 0);
         const counts = {
+            subscribedOpen: state.subscribedCount,
+            subscribedArchived: state.subscribedArchivedCount,
+            subscribedSnoozed: state.subscribedSnoozedCount,
             assignedOpen: state.assignedToMeCount,
             assignedArchived: state.assignedArchivedCount,
             assignedSnoozed: state.assignedSnoozedCount,
@@ -6720,7 +6732,6 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
             .filter(i => i.type === 'shared')
             .reduce((n, i) => n + (i.open_count || 0), 0);
         el('countOpen').textContent = openCount;
-        if (el('countSubscribed')) el('countSubscribed').textContent = state.subscribedCount || 0;
         renderViewGroups();
 
         // Highlight global views only when not scoped to a mailbox folder
@@ -8034,7 +8045,7 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         state.conversation.is_subscribed = conversation.is_subscribed;
         renderThread();
         loadNavCounts().catch(() => {});
-        if (state.view === 'subscribed' && !state.viewGroup && !state.selectedInboxId) {
+        if (state.viewGroup === 'subscribed' && !state.selectedInboxId) {
             loadConversations({ preserveList: true }).catch(() => {});
         }
     }
@@ -9736,6 +9747,8 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         state.archivedCount = Number(data.archived_count || 0);
         state.snoozedCount = Number(data.snoozed_count || 0);
         state.subscribedCount = Number(data.subscribed_count || 0);
+        state.subscribedArchivedCount = Number(data.subscribed_archived_count || 0);
+        state.subscribedSnoozedCount = Number(data.subscribed_snoozed_count || 0);
         // Lite shell omits template/signature bodies — don't wipe tools already in memory.
         if (!lite) {
             state.templates = (data.templates || []).map(t => ({
@@ -9785,6 +9798,8 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         state.archivedCount = Number(data.archived_count || 0);
         state.snoozedCount = Number(data.snoozed_count || 0);
         state.subscribedCount = Number(data.subscribed_count || 0);
+        state.subscribedArchivedCount = Number(data.subscribed_archived_count || 0);
+        state.subscribedSnoozedCount = Number(data.subscribed_snoozed_count || 0);
 
         const byInbox = data.by_inbox || {};
         state.inboxes = (state.inboxes || []).map(inbox => {
