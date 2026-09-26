@@ -79,6 +79,7 @@
         selectedLabelId: null,
         sidebarLabelSearch: '',
         sidebarLabelPickerDraft: [],
+        advLabelPickerDraft: [],
         labelFolderCounts: { open: 0, archived: 0, snoozed: 0 },
         assignedToMeCount: 0,
         assignedArchivedCount: 0,
@@ -145,6 +146,7 @@
             is_read: '',
             date_from: '',
             date_to: '',
+            label_ids: [],
         },
     };
 
@@ -2105,6 +2107,17 @@
     }
 
     function updateListTitle() {
+        const filterLabelIds = normalizedFilterLabelIds(state.filters?.label_ids);
+        if (filterLabelIds.length) {
+            const names = filterLabelIds.map(id => {
+                const label = (state.leadLabels || []).find(l => Number(l.id) === Number(id));
+                return label?.name || String(id);
+            });
+            el('listTitle').textContent = names.length <= 2
+                ? names.join(' · ')
+                : names.slice(0, 2).join(' · ') + ` +${names.length - 2}`;
+            return;
+        }
         if (state.selectedLabelId) {
             const label = (state.leadLabels || []).find(l => Number(l.id) === Number(state.selectedLabelId));
             el('listTitle').textContent = label?.name || 'Label';
@@ -2651,6 +2664,9 @@
         state.viewGroup = null;
         state.view = 'open';
         state.labelFolderCounts = { open: 0, archived: 0, snoozed: 0 };
+        state.filters.label_ids = [];
+        renderFilterChips();
+        updateAdvancedToggleState();
         renderNav();
         await loadConversations();
     }
@@ -2822,6 +2838,7 @@
         });
         renderSidebarLabels();
         renderLabelFolders();
+        if (state.advancedOpen) renderAdvLabelPicker();
 
         const assign = el('assignSelect');
         const current = assign.value;
@@ -3429,7 +3446,44 @@
     function hasActiveFilters() {
         const f = state.filters;
         return !!(f.from || f.to || f.subject || f.body || f.folder || f.inbox_id
-            || f.assigned_to !== '' || f.is_read !== '' || f.date_from || f.date_to);
+            || f.assigned_to !== '' || f.is_read !== '' || f.date_from || f.date_to
+            || (Array.isArray(f.label_ids) && f.label_ids.length));
+    }
+
+    function normalizedFilterLabelIds(ids) {
+        return (Array.isArray(ids) ? ids : [])
+            .map(id => Number(id))
+            .filter(id => id > 0)
+            .filter((id, idx, arr) => arr.indexOf(id) === idx);
+    }
+
+    function updateAdvLabelCount() {
+        const countEl = el('advLabelCount');
+        if (!countEl) return;
+        const selected = normalizedFilterLabelIds(state.advLabelPickerDraft).length;
+        countEl.textContent = selected
+            ? `${selected} selected · match any`
+            : 'Match any selected';
+    }
+
+    function renderAdvLabelPicker() {
+        const list = el('advLabelPicker');
+        if (!list) return;
+        const selected = new Set(normalizedFilterLabelIds(state.advLabelPickerDraft));
+        const q = String(el('advLabelSearch')?.value || '').trim().toLowerCase();
+        const labels = allLeadLabelsSorted().filter(l => !q || (l.name || '').toLowerCase().includes(q));
+        updateAdvLabelCount();
+        if (!labels.length) {
+            list.innerHTML = `<div class="inbox-label-picker-empty">${q ? 'No matching labels' : 'No labels yet'}</div>`;
+            return;
+        }
+        list.innerHTML = labels.map(l => `
+            <label class="inbox-label-picker-option ${selected.has(Number(l.id)) ? 'is-checked' : ''}">
+                <input type="checkbox" data-adv-label="${l.id}" ${selected.has(Number(l.id)) ? 'checked' : ''}>
+                ${labelTagIcon(l.color)}
+                <span class="inbox-label-name">${escapeHtml(l.name)}</span>
+            </label>
+        `).join('');
     }
 
     function syncAdvancedFormFromState() {
@@ -3444,6 +3498,9 @@
         if (el('advRead')) el('advRead').value = f.is_read === 0 || f.is_read === '0' ? '0' : (f.is_read || '');
         if (el('advDateFrom')) el('advDateFrom').value = f.date_from || '';
         if (el('advDateTo')) el('advDateTo').value = f.date_to || '';
+        if (el('advLabelSearch')) el('advLabelSearch').value = '';
+        state.advLabelPickerDraft = normalizedFilterLabelIds(f.label_ids);
+        renderAdvLabelPicker();
     }
 
     function readAdvancedFormIntoState() {
@@ -3458,6 +3515,7 @@
             is_read: el('advRead')?.value ?? '',
             date_from: el('advDateFrom')?.value || '',
             date_to: el('advDateTo')?.value || '',
+            label_ids: normalizedFilterLabelIds(state.advLabelPickerDraft),
         };
     }
 
@@ -3465,6 +3523,7 @@
         state.filters = {
             from: '', to: '', subject: '', body: '', folder: '',
             inbox_id: '', assigned_to: '', is_read: '', date_from: '', date_to: '',
+            label_ids: [],
         };
         syncAdvancedFormFromState();
         updateAdvancedToggleState();
@@ -3474,6 +3533,10 @@
 
     function applyAdvancedFilters() {
         readAdvancedFormIntoState();
+        if (normalizedFilterLabelIds(state.filters.label_ids).length) {
+            state.selectedLabelId = null;
+            renderNav();
+        }
         updateAdvancedToggleState();
         renderFilterChips();
         closeModal();
@@ -3533,6 +3596,10 @@
         }
         if (f.date_from) push('date_from', 'From date', f.date_from);
         if (f.date_to) push('date_to', 'To date', f.date_to);
+        normalizedFilterLabelIds(f.label_ids).forEach(id => {
+            const label = (state.leadLabels || []).find(l => Number(l.id) === Number(id));
+            push('label:' + id, 'Label', label?.name || String(id));
+        });
 
         const q = el('inboxSearch')?.value?.trim();
         if (q) {
@@ -3572,9 +3639,16 @@
             });
             if (state.viewGroup) params.set('bucket', state.view);
 
-            if (state.selectedLabelId) params.set('label_id', String(state.selectedLabelId));
+            const filterLabelIds = normalizedFilterLabelIds(state.filters.label_ids);
+            if (filterLabelIds.length) {
+                filterLabelIds.forEach(id => params.append('label_ids[]', String(id)));
+            } else if (state.selectedLabelId) {
+                params.set('label_id', String(state.selectedLabelId));
+            }
 
-            const filterInboxId = state.selectedLabelId ? null : (state.filters.inbox_id || state.selectedInboxId);
+            const filterInboxId = (filterLabelIds.length || state.selectedLabelId)
+                ? null
+                : (state.filters.inbox_id || state.selectedInboxId);
             if (filterInboxId) params.set('inbox_id', String(filterInboxId));
 
             const q = el('inboxSearch').value.trim();
@@ -6454,12 +6528,30 @@
         const key = btn.dataset.clearFilter;
         if (key === 'search') {
             el('inboxSearch').value = '';
+        } else if (key.startsWith('label:')) {
+            const id = Number(key.slice(6));
+            state.filters.label_ids = normalizedFilterLabelIds(state.filters.label_ids)
+                .filter(item => Number(item) !== id);
+            syncAdvancedFormFromState();
         } else if (key in state.filters) {
-            state.filters[key] = '';
+            state.filters[key] = key === 'label_ids' ? [] : '';
             syncAdvancedFormFromState();
         }
         renderFilterChips();
         loadConversations({ append: false });
+    });
+
+    el('advLabelSearch')?.addEventListener('input', () => renderAdvLabelPicker());
+    el('advLabelPicker')?.addEventListener('change', (e) => {
+        const input = e.target.closest('[data-adv-label]');
+        if (!input) return;
+        const id = Number(input.dataset.advLabel);
+        if (!id) return;
+        const selected = new Set(normalizedFilterLabelIds(state.advLabelPickerDraft));
+        if (input.checked) selected.add(id);
+        else selected.delete(id);
+        state.advLabelPickerDraft = Array.from(selected);
+        renderAdvLabelPicker();
     });
 
     const SYNC_FOLDERS = [

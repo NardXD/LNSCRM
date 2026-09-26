@@ -740,7 +740,7 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
             <h3 id="advSearchTitle">Advanced search</h3>
             <button type="button" class="inbox-btn ghost" data-close-modal aria-label="Close">×</button>
         </div>
-        <p class="inbox-modal-help">Filter conversations by inbox, sender, recipient, subject, body, and more.</p>
+        <p class="inbox-modal-help">Filter conversations by inbox, sender, recipient, subject, body, labels, and more.</p>
         <div class="inbox-adv-grid" id="advancedSearch">
             <label>Inbox
                 <select id="advInbox" class="form-input">
@@ -795,6 +795,16 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
             <label>Date to
                 <input type="date" id="advDateTo" class="form-input">
             </label>
+            <div class="inbox-adv-labels" id="advLabelsField">
+                <div class="inbox-adv-labels-head">
+                    <span>Labels</span>
+                    <span class="inbox-adv-labels-hint" id="advLabelCount">Match any selected</span>
+                </div>
+                <input type="search" id="advLabelSearch" class="form-input" placeholder="Search labels…" autocomplete="off" aria-label="Search labels">
+                <div class="inbox-label-picker-shell inbox-adv-label-shell">
+                    <div class="inbox-label-picker" id="advLabelPicker"></div>
+                </div>
+            </div>
         </div>
         <div class="inbox-modal-actions">
             <button type="button" class="inbox-btn ghost" id="btnClearAdvancedSearch">Clear</button>

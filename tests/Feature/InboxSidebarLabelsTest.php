@@ -93,6 +93,44 @@ class InboxSidebarLabelsTest extends TestCase
         $this->assertNotContains($otherThread->id, $ids);
     }
 
+    public function test_multi_label_filter_matches_any_selected_label(): void
+    {
+        [$user, $other, $inbox] = $this->inboxWithTwoAgents();
+        $inquiry = LeadLabel::query()->create([
+            'company_id' => $user->company_id,
+            'name' => 'Inquiry',
+            'color' => '#4338ca',
+        ]);
+        $followUp = LeadLabel::query()->create([
+            'company_id' => $user->company_id,
+            'name' => 'Follow-up',
+            'color' => '#dc2626',
+        ]);
+        $otherLabel = LeadLabel::query()->create([
+            'company_id' => $user->company_id,
+            'name' => 'Other',
+            'color' => '#64748b',
+        ]);
+
+        $inquiryThread = $this->makeConversation($inbox, ['subject' => 'Inquiry thread']);
+        $inquiryThread->leadLabels()->attach($inquiry->id);
+        $followUpThread = $this->makeConversation($inbox, ['subject' => 'Follow-up thread']);
+        $followUpThread->leadLabels()->attach($followUp->id);
+        $otherThread = $this->makeConversation($inbox, ['subject' => 'Other thread']);
+        $otherThread->leadLabels()->attach($otherLabel->id);
+
+        $ids = collect($this->actingAs($user)
+            ->getJson('/api/inbox/conversations?view=open&label_ids[]='.$inquiry->id.'&label_ids[]='.$followUp->id)
+            ->assertOk()
+            ->json('conversations'))
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $this->assertEqualsCanonicalizing([$inquiryThread->id, $followUpThread->id], $ids);
+        $this->assertNotContains($otherThread->id, $ids);
+    }
+
     public function test_label_folders_split_open_archived_and_snoozed(): void
     {
         [$user, $other, $inbox] = $this->inboxWithTwoAgents();

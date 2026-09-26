@@ -651,6 +651,8 @@ class InboxController extends Controller
             'bucket' => ['nullable', 'string', 'in:open,snoozed,archived'],
             'tag_id' => ['nullable', 'integer'],
             'label_id' => ['nullable', 'integer'],
+            'label_ids' => ['nullable', 'array', 'max:100'],
+            'label_ids.*' => ['integer'],
             'search' => ['nullable', 'string', 'max:512'],
             'from' => ['nullable', 'string', 'max:255'],
             'to' => ['nullable', 'string', 'max:255'],
@@ -677,11 +679,18 @@ class InboxController extends Controller
             $inboxIds = collect([(int) $validated['inbox_id']]);
         }
 
+        $filterLabelIds = collect($validated['label_ids'] ?? [])
+            ->when(! empty($validated['label_id']), fn ($ids) => $ids->push($validated['label_id']))
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->values();
+
         // Views → Open is the shared-inbox work queue. Personal mail stays under each
         // user's Personal mailbox in the sidebar (when inbox_id is set).
         $globalOpen = ($validated['view'] ?? 'open') === 'open'
             && empty($validated['inbox_id'])
-            && empty($validated['label_id'])
+            && $filterLabelIds->isEmpty()
             && ! $idQuery
             && $search === ''
             && empty($folderFilter);
@@ -780,16 +789,17 @@ class InboxController extends Controller
             $query->whereHas('tags', fn ($q) => $q->where('inbox_tags.id', $validated['tag_id']));
         }
 
-        if (! $idQuery && ! empty($validated['label_id'])) {
-            $labelId = (int) $validated['label_id'];
-            $label = LeadLabel::query()
+        if (! $idQuery && $filterLabelIds->isNotEmpty()) {
+            $foundIds = LeadLabel::query()
                 ->where('company_id', $user->company_id)
-                ->whereKey($labelId)
-                ->first();
-            if (! $label) {
+                ->whereIn('id', $filterLabelIds->all())
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+            if (count($foundIds) !== $filterLabelIds->count()) {
                 return response()->json(['message' => 'Label not found.'], 404);
             }
-            $this->constrainByLeadLabel($query, $labelId);
+            $this->constrainByLeadLabels($query, $foundIds);
         }
 
         if (! $idQuery && ! in_array($view, ['assigned_to_me', 'subscribed', 'archived', 'snoozed'], true) && isset($validated['assigned_to'])) {
@@ -931,8 +941,8 @@ class InboxController extends Controller
                 'has_more' => $hasMore,
                 'last_page' => $hasMore ? $page + 1 : $page,
                 'matched_message_id' => $matchedMessageId,
-                'label_folders' => ! empty($validated['label_id'])
-                    ? $this->leadLabelFolderCounts($user, (int) $validated['label_id'])
+                'label_folders' => $filterLabelIds->count() === 1
+                    ? $this->leadLabelFolderCounts($user, (int) $filterLabelIds->first())
                     : null,
             ],
         ]);
@@ -3916,11 +3926,27 @@ class InboxController extends Controller
 
     private function constrainByLeadLabel($query, int $labelId): void
     {
-        $query->where(function ($q) use ($labelId) {
-            $q->whereHas('leadLabels', fn ($labels) => $labels->where('lead_labels.id', $labelId))
+        $this->constrainByLeadLabels($query, [$labelId]);
+    }
+
+    /**
+     * Match conversations that have any of the given labels on the thread
+     * or on the linked lead.
+     *
+     * @param  array<int, int>  $labelIds
+     */
+    private function constrainByLeadLabels($query, array $labelIds): void
+    {
+        $labelIds = array_values(array_unique(array_filter(array_map('intval', $labelIds))));
+        if ($labelIds === []) {
+            return;
+        }
+
+        $query->where(function ($q) use ($labelIds) {
+            $q->whereHas('leadLabels', fn ($labels) => $labels->whereIn('lead_labels.id', $labelIds))
                 ->orWhereHas('lead', fn ($lead) => $lead->whereHas(
                     'labels',
-                    fn ($labels) => $labels->where('lead_labels.id', $labelId)
+                    fn ($labels) => $labels->whereIn('lead_labels.id', $labelIds)
                 ));
         });
     }

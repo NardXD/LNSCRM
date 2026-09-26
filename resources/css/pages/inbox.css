@@ -829,6 +829,28 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     font-weight: 600;
     color: #374151;
 }
+.inbox-adv-labels {
+    grid-column: 1 / -1;
+    display: grid;
+    gap: 0.4rem;
+}
+.inbox-adv-labels-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #374151;
+}
+.inbox-adv-labels-hint {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--inbox-muted);
+}
+.inbox-adv-label-shell {
+    max-height: min(28vh, 220px);
+}
 .inbox-modal-wide { width: min(640px, 100%); }
 .inbox-html-editor-tall .inbox-html-visual,
 .inbox-html-editor-tall .inbox-html-source {
