@@ -54,6 +54,9 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
                 <button type="button" class="inbox-nav-item active" data-view="open" data-scope="all">
                     <span>Open</span><span class="inbox-count" id="countOpen">0</span>
                 </button>
+                <button type="button" class="inbox-nav-item" data-view="subscribed" data-scope="all">
+                    <span>Subscribed</span><span class="inbox-count" id="countSubscribed">0</span>
+                </button>
                 <div id="viewGroups"></div>
             </div>
 
@@ -3996,6 +3999,7 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         reopenedSnoozedCount: 0,
         archivedCount: 0,
         snoozedCount: 0,
+        subscribedCount: 0,
         viewGroup: null,
         expandedViewGroups: {},
         conversations: [],
@@ -6007,7 +6011,7 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
 
     function folderLabel(view) {
         return MAILBOX_FOLDERS.find(f => f.view === view)?.label
-            || ({ open: 'Open', assigned_to_me: 'Assigned to me', archived: 'Archived', snoozed: 'Snoozed' }[view] || view);
+            || ({ open: 'Open', subscribed: 'Subscribed', assigned_to_me: 'Assigned to me', archived: 'Archived', snoozed: 'Snoozed' }[view] || view);
     }
 
     function updateListTitle() {
@@ -6716,6 +6720,7 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
             .filter(i => i.type === 'shared')
             .reduce((n, i) => n + (i.open_count || 0), 0);
         el('countOpen').textContent = openCount;
+        if (el('countSubscribed')) el('countSubscribed').textContent = state.subscribedCount || 0;
         renderViewGroups();
 
         // Highlight global views only when not scoped to a mailbox folder
@@ -8028,6 +8033,10 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         state.conversation.member_reads = state.conversation.participants;
         state.conversation.is_subscribed = conversation.is_subscribed;
         renderThread();
+        loadNavCounts().catch(() => {});
+        if (state.view === 'subscribed' && !state.viewGroup && !state.selectedInboxId) {
+            loadConversations({ preserveList: true }).catch(() => {});
+        }
     }
 
     async function inviteParticipants(userIds) {
@@ -9726,6 +9735,7 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         state.reopenedSnoozedCount = Number(data.reopened_snoozed_count || 0);
         state.archivedCount = Number(data.archived_count || 0);
         state.snoozedCount = Number(data.snoozed_count || 0);
+        state.subscribedCount = Number(data.subscribed_count || 0);
         // Lite shell omits template/signature bodies — don't wipe tools already in memory.
         if (!lite) {
             state.templates = (data.templates || []).map(t => ({
@@ -9774,6 +9784,7 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         state.reopenedSnoozedCount = Number(data.reopened_snoozed_count || 0);
         state.archivedCount = Number(data.archived_count || 0);
         state.snoozedCount = Number(data.snoozed_count || 0);
+        state.subscribedCount = Number(data.subscribed_count || 0);
 
         const byInbox = data.by_inbox || {};
         state.inboxes = (state.inboxes || []).map(inbox => {

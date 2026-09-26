@@ -183,6 +183,45 @@ class InboxParticipantsTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_subscribed_view_lists_followed_conversations_across_mailboxes(): void
+    {
+        [$user, $other, $third, $inbox, $conversation] = $this->sharedThread();
+        $unfollowed = InboxConversation::query()->create([
+            'company_id' => $inbox->company_id,
+            'shared_inbox_id' => $inbox->id,
+            'folder' => 'inbox',
+            'external_conversation_id' => 'conv-unfollowed-'.uniqid(),
+            'status' => 'open',
+            'subject' => 'Not following',
+            'from_name' => 'Customer',
+            'from_email' => 'other@example.com',
+            'is_read' => true,
+            'message_count' => 1,
+            'last_message_at' => now(),
+        ]);
+
+        InboxConversationFollower::query()->create([
+            'inbox_conversation_id' => $conversation->id,
+            'user_id' => $user->id,
+            'is_subscribed' => true,
+        ]);
+
+        $ids = collect($this->actingAs($user)
+            ->getJson('/api/inbox/conversations?view=subscribed')
+            ->assertOk()
+            ->json('conversations'))
+            ->pluck('id')
+            ->all();
+
+        $this->assertContains($conversation->id, $ids);
+        $this->assertNotContains($unfollowed->id, $ids);
+
+        $this->actingAs($user)
+            ->getJson('/api/inbox/nav-counts')
+            ->assertOk()
+            ->assertJsonPath('subscribed_count', 1);
+    }
+
     /**
      * @return array{0: User, 1: User, 2: User, 3: SharedInbox, 4: InboxConversation}
      */

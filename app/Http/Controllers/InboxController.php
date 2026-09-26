@@ -223,6 +223,7 @@ class InboxController extends Controller
             'reopened_snoozed_count' => $counts['reopened_snoozed'],
             'archived_count' => $counts['archived'],
             'snoozed_count' => $counts['snoozed'],
+            'subscribed_count' => $this->subscribedConversationCount($user),
             'inboxes' => $inboxes,
             'tags' => $tags,
             'lead_labels' => $leadLabels,
@@ -264,6 +265,7 @@ class InboxController extends Controller
             'reopened_snoozed_count' => $counts['reopened_snoozed'],
             'archived_count' => $counts['archived'],
             'snoozed_count' => $counts['snoozed'],
+            'subscribed_count' => $this->subscribedConversationCount($user),
             'by_inbox' => $counts['by_inbox'],
             'lead_label_counts' => $labelCounts,
         ]);
@@ -638,7 +640,7 @@ class InboxController extends Controller
         $user = $request->user();
         $validated = $request->validate([
             'inbox_id' => ['nullable', 'integer'],
-            'view' => ['nullable', 'string', 'in:open,assigned_to_me,unassigned,archived,snoozed,drafts,sent,trash,spam,all'],
+            'view' => ['nullable', 'string', 'in:open,subscribed,assigned_to_me,unassigned,archived,snoozed,drafts,sent,trash,spam,all'],
             'bucket' => ['nullable', 'string', 'in:open,snoozed,archived'],
             'tag_id' => ['nullable', 'integer'],
             'label_id' => ['nullable', 'integer'],
@@ -692,8 +694,16 @@ class InboxController extends Controller
             'lead.assignedUser:id,name',
             'lead.labels:id,name,color',
         ])
-            ->notMerged()
-            ->where(function ($q) use ($inboxIds, $user, $validated) {
+            ->notMerged();
+
+        if ($view === 'subscribed') {
+            // Front-style Subscribed: only threads this teammate follows, across mailboxes.
+            $query->whereHas('followers', function ($followers) use ($user) {
+                $followers->where('users.id', $user->id)
+                    ->where('inbox_conversation_followers.is_subscribed', true);
+            });
+        } else {
+            $query->where(function ($q) use ($inboxIds, $user, $validated) {
                 $q->whereIn('inbox_conversations.shared_inbox_id', $inboxIds);
                 // Invited followers can open threads outside their mailboxes (e.g. via notification).
                 // Keep that out of a specific mailbox filter so sidebar inbox counts stay accurate.
@@ -704,6 +714,7 @@ class InboxController extends Controller
                     });
                 }
             });
+        }
 
         // Compute per-user read state for shared inboxes.
         // - shared inbox: use inbox_conversation_user_reads
@@ -731,6 +742,8 @@ class InboxController extends Controller
             $query->where('folder', $folderFilter);
         } elseif ($search !== '') {
             // Quick search ignores the current sidebar view/folder.
+        } elseif ($view === 'subscribed') {
+            $query->whereNotIn('inbox_conversations.folder', ['trash', 'spam']);
         } elseif ($view === 'open') {
             $query->where('folder', 'inbox')->where('status', 'open');
         } elseif ($view === 'archived') {
@@ -3656,6 +3669,22 @@ class InboxController extends Controller
                         ->whereHas('members', fn ($m) => $m->where('users.id', $user->id));
                 });
             });
+    }
+
+    /**
+     * Conversations this teammate follows (Front Subscribed), excluding trash/spam.
+     */
+    private function subscribedConversationCount(User $user): int
+    {
+        return (int) InboxConversation::query()
+            ->notMerged()
+            ->where('company_id', $user->company_id)
+            ->whereNotIn('folder', ['trash', 'spam'])
+            ->whereHas('followers', function ($followers) use ($user) {
+                $followers->where('users.id', $user->id)
+                    ->where('inbox_conversation_followers.is_subscribed', true);
+            })
+            ->count();
     }
 
     /**
