@@ -181,7 +181,7 @@
                         </div>
                         <div class="form-group">
                             <div class="identity-label">
-                                <label>Phone *</label>
+                                <label>Phone</label>
                                 <button type="button" class="link-btn" id="addPrimaryPhoneBtn">+ Add phone</button>
                             </div>
                             <div id="primaryPhonesList" class="identity-list"></div>
@@ -189,7 +189,7 @@
                         </div>
                         <div class="form-group">
                             <div class="identity-label">
-                                <label>Email *</label>
+                                <label>Email</label>
                                 <button type="button" class="link-btn" id="addPrimaryEmailBtn">+ Add email</button>
                             </div>
                             <div id="primaryEmailsList" class="identity-list"></div>
@@ -2143,8 +2143,8 @@ body:has(.ld-page-wrapper) {
         form.reset();
         document.getElementById('leadId').value = '';
         showLeadTab('primary');
-        fillContactList('primaryPhonesList', [], 'Phone number', { type: 'tel', required: true, keepOne: true });
-        fillContactList('primaryEmailsList', [], 'name@company.com', { type: 'email', required: true, keepOne: true, max: '255' });
+        fillContactList('primaryPhonesList', [], 'Phone number', { type: 'tel', keepOne: true });
+        fillContactList('primaryEmailsList', [], 'name@company.com', { type: 'email', keepOne: true, max: '255' });
         fillContactList('altPhonesList', [], 'Phone number', { type: 'tel' });
         fillContactList('altEmailsList', [], 'name@company.com', { type: 'email', max: '255' });
         fillSourceSelect('');
@@ -2357,8 +2357,8 @@ body:has(.ld-page-wrapper) {
         setVal('leadAddress', lead.address);
         setVal('leadCity', lead.city);
         setVal('leadPostal', lead.postal_code);
-        fillContactList('primaryPhonesList', lead.primary_phones || (lead.phone ? [lead.phone] : []), 'Phone number', { type: 'tel', required: true, keepOne: true });
-        fillContactList('primaryEmailsList', lead.primary_emails || (lead.email ? [lead.email] : []), 'name@company.com', { type: 'email', required: true, keepOne: true, max: '255' });
+        fillContactList('primaryPhonesList', lead.primary_phones || (lead.phone ? [lead.phone] : []), 'Phone number', { type: 'tel', keepOne: true });
+        fillContactList('primaryEmailsList', lead.primary_emails || (lead.email ? [lead.email] : []), 'name@company.com', { type: 'email', keepOne: true, max: '255' });
         setVal('leadCompany', lead.company_name);
         setVal('leadDob', lead.date_of_birth);
         setVal('leadAltTitle', lead.alt_title);

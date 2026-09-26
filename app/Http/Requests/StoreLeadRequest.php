@@ -154,16 +154,7 @@ class StoreLeadRequest extends FormRequest
             $facebook = trim((string) $this->input('facebook_name', ''));
             $instagram = trim((string) $this->input('instagram_username', ''));
 
-            if ($this->isFullProfile()) {
-                $primaryPhones = $this->normalizeContactList($this->input('primary_phones', []));
-                if ($primaryPhones === [] && trim((string) $this->input('phone', '')) === '') {
-                    $validator->errors()->add('primary_phones', 'Add at least one phone number.');
-                }
-                $primaryEmails = $this->normalizeContactList($this->input('primary_emails', []));
-                if ($primaryEmails === [] && trim((string) $this->input('email', '')) === '') {
-                    $validator->errors()->add('primary_emails', 'Add at least one email address.');
-                }
-            } elseif ($phones === [] && $emails === [] && $facebook === '' && $instagram === '') {
+            if (! $this->isFullProfile() && $phones === [] && $emails === [] && $facebook === '' && $instagram === '') {
                 $validator->errors()->add('phones', 'Add at least one phone number, email, or social name so channels can match this lead.');
             }
 
