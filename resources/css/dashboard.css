@@ -1417,7 +1417,70 @@ body {
         }
 
         .sidebar.collapsed {
-            width: var(--sidebar-width);
+            width: min(var(--sidebar-width), 86vw);
+        }
+
+        /* Mobile drawer always shows module names (ignore desktop collapsed icon-rail) */
+        .sidebar.collapsed .logo-text,
+        .sidebar.collapsed .nav-text,
+        .sidebar.collapsed .nav-label,
+        .sidebar.collapsed .nav-arrow {
+            opacity: 1 !important;
+            width: auto !important;
+            height: auto !important;
+            overflow: visible !important;
+            display: inline !important;
+        }
+
+        .sidebar.collapsed .nav-label {
+            display: block !important;
+            padding: 0.5rem 1.25rem !important;
+            font-size: 0.6875rem;
+        }
+
+        .sidebar.collapsed .nav-arrow {
+            display: block !important;
+            margin-left: auto;
+        }
+
+        .sidebar.collapsed .nav-item,
+        .sidebar.collapsed .nav-subitem {
+            justify-content: flex-start !important;
+            padding: 0.75rem 1.25rem !important;
+            gap: 0.75rem;
+        }
+
+        .sidebar.collapsed .nav-subitem {
+            display: flex !important;
+            padding-left: 2.75rem !important;
+        }
+
+        .sidebar.collapsed .nav-submenu {
+            display: none;
+        }
+
+        .sidebar.collapsed .nav-item-parent.active > .nav-submenu,
+        .sidebar.collapsed .nav-submenu[style*="display: block"] {
+            display: block !important;
+            max-height: none !important;
+            opacity: 1 !important;
+        }
+
+        .sidebar.collapsed .nav-unread-badge {
+            position: static !important;
+            top: auto !important;
+            right: auto !important;
+            margin-left: auto !important;
+            border: 0 !important;
+        }
+
+        .sidebar.collapsed .sidebar-header {
+            justify-content: space-between;
+            padding: 1rem 1.25rem;
+        }
+
+        .sidebar.collapsed .sidebar-toggle {
+            display: none !important;
         }
 
         .sidebar-overlay {

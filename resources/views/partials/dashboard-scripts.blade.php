@@ -67,6 +67,11 @@
         
         sidebar.classList.toggle('open');
         overlay.classList.toggle('active');
+
+        // Mobile drawer always shows module names (not icon-only rail)
+        if (window.innerWidth <= 768) {
+            sidebar.classList.remove('collapsed');
+        }
         
         // Prevent body scroll when sidebar is open
         if (sidebar.classList.contains('open')) {
@@ -74,6 +79,8 @@
         } else {
             document.body.style.overflow = '';
         }
+
+        refreshSidebarNavTitles();
     }
 
     function closeMobileSidebar() {
@@ -135,7 +142,8 @@
             document.body.style.overflow = '';
             applySidebarCollapsed(isSidebarCollapsedPreferred());
         } else {
-            // Mobile: ensure sidebar is closed by default
+            // Mobile: full labels in the drawer; keep closed by default
+            sidebar.classList.remove('collapsed');
             if (!sidebar.classList.contains('open')) {
                 sidebar.classList.remove('open');
                 overlay.classList.remove('active');
@@ -152,6 +160,7 @@
 
         if (window.innerWidth <= 768) {
             sidebar.classList.remove('open');
+            sidebar.classList.remove('collapsed');
             document.body.classList.remove('sidebar-is-collapsed');
         } else {
             applySidebarCollapsed(isSidebarCollapsedPreferred());
