@@ -183,7 +183,21 @@
         }
     }
 
-    // Header messaging unread badge: fetch and update, poll periodically
+    // Visibility-aware polling: skip when tab is hidden; slower cadence to cut server load.
+    const BADGE_POLL_MS = 120000;
+    window.__crmPoll = function (fn, intervalMs) {
+        if (typeof fn !== 'function') return;
+        fn();
+        setInterval(function () {
+            if (document.hidden) return;
+            fn();
+        }, intervalMs || BADGE_POLL_MS);
+        document.addEventListener('visibilitychange', function () {
+            if (!document.hidden) fn();
+        });
+    };
+
+    // Header messaging unread badge
     window.updateHeaderMessagingBadge = function() {
         const badge = document.getElementById('headerMessagingBadge');
         if (!badge) return;
@@ -203,8 +217,7 @@
             .catch(() => { if (badge) badge.style.display = 'none'; });
     };
     if (document.getElementById('headerMessagingBadge')) {
-        window.updateHeaderMessagingBadge();
-        setInterval(window.updateHeaderMessagingBadge, 30000);
+        window.__crmPoll(window.updateHeaderMessagingBadge, BADGE_POLL_MS);
     }
 
     // Sidebar channel unread badges (messaging, viber, whatsapp, sms)
@@ -237,8 +250,7 @@
             .catch(() => {});
     };
     if (document.querySelector('.nav-unread-badge[data-channel]')) {
-        window.updateSidebarUnreadBadges();
-        setInterval(window.updateSidebarUnreadBadges, 30000);
+        window.__crmPoll(window.updateSidebarUnreadBadges, BADGE_POLL_MS);
     }
 
     // App notifications (inbox mentions, etc.)
@@ -394,8 +406,7 @@
             if (url) window.location = url;
         });
 
-        window.updateHeaderNotificationsBadge();
-        setInterval(window.updateHeaderNotificationsBadge, 30000);
+        window.__crmPoll(window.updateHeaderNotificationsBadge, BADGE_POLL_MS);
     })();
 </script>
 

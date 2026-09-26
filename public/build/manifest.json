@@ -1,6 +1,6 @@
 {
   "resources/css/app.css": {
-    "file": "assets/app-DVNWR9nN.css",
+    "file": "assets/app-BwvU8isa.css",
     "src": "resources/css/app.css",
     "isEntry": true,
     "name": "app",
@@ -8,10 +8,478 @@
       "app.css"
     ]
   },
+  "resources/css/dashboard.css": {
+    "file": "assets/dashboard-Dm4VrSjc.css",
+    "src": "resources/css/dashboard.css",
+    "isEntry": true,
+    "name": "dashboard",
+    "names": [
+      "dashboard.css"
+    ]
+  },
+  "resources/css/pages/admin-control.css": {
+    "file": "assets/admin-control-B-sbi663.css",
+    "src": "resources/css/pages/admin-control.css",
+    "isEntry": true,
+    "name": "admin-control",
+    "names": [
+      "admin-control.css"
+    ]
+  },
+  "resources/css/pages/billing.css": {
+    "file": "assets/billing-SlHefHEb.css",
+    "src": "resources/css/pages/billing.css",
+    "isEntry": true,
+    "name": "billing",
+    "names": [
+      "billing.css"
+    ]
+  },
+  "resources/css/pages/broadcast-messaging.css": {
+    "file": "assets/broadcast-messaging-BjLVYRWt.css",
+    "src": "resources/css/pages/broadcast-messaging.css",
+    "isEntry": true,
+    "name": "broadcast-messaging",
+    "names": [
+      "broadcast-messaging.css"
+    ]
+  },
+  "resources/css/pages/calendar.css": {
+    "file": "assets/calendar-bWVtfV2x.css",
+    "src": "resources/css/pages/calendar.css",
+    "isEntry": true,
+    "name": "calendar",
+    "names": [
+      "calendar.css"
+    ]
+  },
+  "resources/css/pages/client-management.css": {
+    "file": "assets/client-management-rQwihPgW.css",
+    "src": "resources/css/pages/client-management.css",
+    "isEntry": true,
+    "name": "client-management",
+    "names": [
+      "client-management.css"
+    ]
+  },
+  "resources/css/pages/contracts.css": {
+    "file": "assets/contracts-C_2wQBym.css",
+    "src": "resources/css/pages/contracts.css",
+    "isEntry": true,
+    "name": "contracts",
+    "names": [
+      "contracts.css"
+    ]
+  },
+  "resources/css/pages/discussions.css": {
+    "file": "assets/discussions-Cmd6_K7G.css",
+    "src": "resources/css/pages/discussions.css",
+    "isEntry": true,
+    "name": "discussions",
+    "names": [
+      "discussions.css"
+    ]
+  },
+  "resources/css/pages/email-tracking.css": {
+    "file": "assets/email-tracking-SreJ80oI.css",
+    "src": "resources/css/pages/email-tracking.css",
+    "isEntry": true,
+    "name": "email-tracking",
+    "names": [
+      "email-tracking.css"
+    ]
+  },
+  "resources/css/pages/employee-monitoring.css": {
+    "file": "assets/employee-monitoring-Cve-SONB.css",
+    "src": "resources/css/pages/employee-monitoring.css",
+    "isEntry": true,
+    "name": "employee-monitoring",
+    "names": [
+      "employee-monitoring.css"
+    ]
+  },
+  "resources/css/pages/facebook.css": {
+    "file": "assets/facebook-18Xf56XT.css",
+    "src": "resources/css/pages/facebook.css",
+    "isEntry": true,
+    "name": "facebook",
+    "names": [
+      "facebook.css"
+    ]
+  },
+  "resources/css/pages/hiring-queue.css": {
+    "file": "assets/hiring-queue-BqAUuSSm.css",
+    "src": "resources/css/pages/hiring-queue.css",
+    "isEntry": true,
+    "name": "hiring-queue",
+    "names": [
+      "hiring-queue.css"
+    ]
+  },
+  "resources/css/pages/inbox.css": {
+    "file": "assets/inbox-C-Igfe4P.css",
+    "src": "resources/css/pages/inbox.css",
+    "isEntry": true,
+    "name": "inbox",
+    "names": [
+      "inbox.css"
+    ]
+  },
+  "resources/css/pages/integrations.css": {
+    "file": "assets/integrations-DPAsenm9.css",
+    "src": "resources/css/pages/integrations.css",
+    "isEntry": true,
+    "name": "integrations",
+    "names": [
+      "integrations.css"
+    ]
+  },
+  "resources/css/pages/knowledge-base.css": {
+    "file": "assets/knowledge-base-aUq0mTNS.css",
+    "src": "resources/css/pages/knowledge-base.css",
+    "isEntry": true,
+    "name": "knowledge-base",
+    "names": [
+      "knowledge-base.css"
+    ]
+  },
+  "resources/css/pages/leads.css": {
+    "file": "assets/leads-BkTEU8iY.css",
+    "src": "resources/css/pages/leads.css",
+    "isEntry": true,
+    "name": "leads",
+    "names": [
+      "leads.css"
+    ]
+  },
+  "resources/css/pages/leave-management.css": {
+    "file": "assets/leave-management-ChxiNtLs.css",
+    "src": "resources/css/pages/leave-management.css",
+    "isEntry": true,
+    "name": "leave-management",
+    "names": [
+      "leave-management.css"
+    ]
+  },
+  "resources/css/pages/messaging.css": {
+    "file": "assets/messaging-ApBjqWqc.css",
+    "src": "resources/css/pages/messaging.css",
+    "isEntry": true,
+    "name": "messaging",
+    "names": [
+      "messaging.css"
+    ]
+  },
+  "resources/css/pages/openai.css": {
+    "file": "assets/openai-D0xKmgai.css",
+    "src": "resources/css/pages/openai.css",
+    "isEntry": true,
+    "name": "openai",
+    "names": [
+      "openai.css"
+    ]
+  },
+  "resources/css/pages/payroll.css": {
+    "file": "assets/payroll-CNVpz9kb.css",
+    "src": "resources/css/pages/payroll.css",
+    "isEntry": true,
+    "name": "payroll",
+    "names": [
+      "payroll.css"
+    ]
+  },
+  "resources/css/pages/project-management.css": {
+    "file": "assets/project-management-BMjTS1nz.css",
+    "src": "resources/css/pages/project-management.css",
+    "isEntry": true,
+    "name": "project-management",
+    "names": [
+      "project-management.css"
+    ]
+  },
+  "resources/css/pages/sms.css": {
+    "file": "assets/sms-DnFe7yoS.css",
+    "src": "resources/css/pages/sms.css",
+    "isEntry": true,
+    "name": "sms",
+    "names": [
+      "sms.css"
+    ]
+  },
+  "resources/css/pages/team-management.css": {
+    "file": "assets/team-management-C9rKSVIl.css",
+    "src": "resources/css/pages/team-management.css",
+    "isEntry": true,
+    "name": "team-management",
+    "names": [
+      "team-management.css"
+    ]
+  },
+  "resources/css/pages/tickets.css": {
+    "file": "assets/tickets-C5SYsEaS.css",
+    "src": "resources/css/pages/tickets.css",
+    "isEntry": true,
+    "name": "tickets",
+    "names": [
+      "tickets.css"
+    ]
+  },
+  "resources/css/pages/time-tracking.css": {
+    "file": "assets/time-tracking-BOWvYB5x.css",
+    "src": "resources/css/pages/time-tracking.css",
+    "isEntry": true,
+    "name": "time-tracking",
+    "names": [
+      "time-tracking.css"
+    ]
+  },
+  "resources/css/pages/user-management.css": {
+    "file": "assets/user-management-DwBsxm6-.css",
+    "src": "resources/css/pages/user-management.css",
+    "isEntry": true,
+    "name": "user-management",
+    "names": [
+      "user-management.css"
+    ]
+  },
+  "resources/css/pages/viber.css": {
+    "file": "assets/viber-BN0onD0P.css",
+    "src": "resources/css/pages/viber.css",
+    "isEntry": true,
+    "name": "viber",
+    "names": [
+      "viber.css"
+    ]
+  },
+  "resources/css/pages/whatsapp.css": {
+    "file": "assets/whatsapp-CNBrJ_Tw.css",
+    "src": "resources/css/pages/whatsapp.css",
+    "isEntry": true,
+    "name": "whatsapp",
+    "names": [
+      "whatsapp.css"
+    ]
+  },
+  "resources/css/pages/wise-recipients.css": {
+    "file": "assets/wise-recipients-CD2g3sRM.css",
+    "src": "resources/css/pages/wise-recipients.css",
+    "isEntry": true,
+    "name": "wise-recipients",
+    "names": [
+      "wise-recipients.css"
+    ]
+  },
   "resources/js/app.js": {
-    "file": "assets/app-BZIb3nNr.js",
+    "file": "assets/app-rAw9IM8v.js",
     "name": "app",
     "src": "resources/js/app.js",
+    "isEntry": true,
+    "dynamicImports": [
+      "resources/js/twilio-sdk.js",
+      "resources/js/twilio-call.js",
+      "resources/js/twilio-global.js",
+      "resources/js/contact-history-panel.js"
+    ]
+  },
+  "resources/js/contact-history-panel.js": {
+    "file": "assets/contact-history-panel-BbqTwips.js",
+    "name": "contact-history-panel",
+    "src": "resources/js/contact-history-panel.js",
+    "isDynamicEntry": true
+  },
+  "resources/js/pages/admin-control.js": {
+    "file": "assets/admin-control-BXav7RJs.js",
+    "name": "admin-control",
+    "src": "resources/js/pages/admin-control.js",
     "isEntry": true
+  },
+  "resources/js/pages/billing.js": {
+    "file": "assets/billing-Dtmi_fQ1.js",
+    "name": "billing",
+    "src": "resources/js/pages/billing.js",
+    "isEntry": true
+  },
+  "resources/js/pages/broadcast-messaging.js": {
+    "file": "assets/broadcast-messaging-ClZ3_EFq.js",
+    "name": "broadcast-messaging",
+    "src": "resources/js/pages/broadcast-messaging.js",
+    "isEntry": true
+  },
+  "resources/js/pages/calendar.js": {
+    "file": "assets/calendar-D3bN-1I5.js",
+    "name": "calendar",
+    "src": "resources/js/pages/calendar.js",
+    "isEntry": true
+  },
+  "resources/js/pages/client-management.js": {
+    "file": "assets/client-management-BvUtfg9w.js",
+    "name": "client-management",
+    "src": "resources/js/pages/client-management.js",
+    "isEntry": true
+  },
+  "resources/js/pages/contracts.js": {
+    "file": "assets/contracts-j3GthjxN.js",
+    "name": "contracts",
+    "src": "resources/js/pages/contracts.js",
+    "isEntry": true
+  },
+  "resources/js/pages/discussions.js": {
+    "file": "assets/discussions-BY3l5G5O.js",
+    "name": "discussions",
+    "src": "resources/js/pages/discussions.js",
+    "isEntry": true
+  },
+  "resources/js/pages/email-tracking.js": {
+    "file": "assets/email-tracking-CphiwkkT.js",
+    "name": "email-tracking",
+    "src": "resources/js/pages/email-tracking.js",
+    "isEntry": true
+  },
+  "resources/js/pages/employee-monitoring.js": {
+    "file": "assets/employee-monitoring-EadrX-Gf.js",
+    "name": "employee-monitoring",
+    "src": "resources/js/pages/employee-monitoring.js",
+    "isEntry": true
+  },
+  "resources/js/pages/facebook.js": {
+    "file": "assets/facebook-D1zGlD4s.js",
+    "name": "facebook",
+    "src": "resources/js/pages/facebook.js",
+    "isEntry": true
+  },
+  "resources/js/pages/hiring-queue.js": {
+    "file": "assets/hiring-queue-DYElAMmB.js",
+    "name": "hiring-queue",
+    "src": "resources/js/pages/hiring-queue.js",
+    "isEntry": true
+  },
+  "resources/js/pages/inbox.js": {
+    "file": "assets/inbox-eEAExjfp.js",
+    "name": "inbox",
+    "src": "resources/js/pages/inbox.js",
+    "isEntry": true
+  },
+  "resources/js/pages/integrations.js": {
+    "file": "assets/integrations-DYfLX2tc.js",
+    "name": "integrations",
+    "src": "resources/js/pages/integrations.js",
+    "isEntry": true
+  },
+  "resources/js/pages/knowledge-base.js": {
+    "file": "assets/knowledge-base-vZ8vGqQr.js",
+    "name": "knowledge-base",
+    "src": "resources/js/pages/knowledge-base.js",
+    "isEntry": true
+  },
+  "resources/js/pages/leads.js": {
+    "file": "assets/leads-DmBEUp6y.js",
+    "name": "leads",
+    "src": "resources/js/pages/leads.js",
+    "isEntry": true
+  },
+  "resources/js/pages/leave-management.js": {
+    "file": "assets/leave-management-CFJwl_Zw.js",
+    "name": "leave-management",
+    "src": "resources/js/pages/leave-management.js",
+    "isEntry": true
+  },
+  "resources/js/pages/messaging.js": {
+    "file": "assets/messaging-B7nUJEQH.js",
+    "name": "messaging",
+    "src": "resources/js/pages/messaging.js",
+    "isEntry": true
+  },
+  "resources/js/pages/openai.js": {
+    "file": "assets/openai-Bfr8pw8O.js",
+    "name": "openai",
+    "src": "resources/js/pages/openai.js",
+    "isEntry": true
+  },
+  "resources/js/pages/payroll.js": {
+    "file": "assets/payroll-SnkOeQwR.js",
+    "name": "payroll",
+    "src": "resources/js/pages/payroll.js",
+    "isEntry": true
+  },
+  "resources/js/pages/project-management.js": {
+    "file": "assets/project-management-8rME8M2O.js",
+    "name": "project-management",
+    "src": "resources/js/pages/project-management.js",
+    "isEntry": true
+  },
+  "resources/js/pages/sms.js": {
+    "file": "assets/sms-EwcNr6jr.js",
+    "name": "sms",
+    "src": "resources/js/pages/sms.js",
+    "isEntry": true
+  },
+  "resources/js/pages/team-management.js": {
+    "file": "assets/team-management-DUO1J_3I.js",
+    "name": "team-management",
+    "src": "resources/js/pages/team-management.js",
+    "isEntry": true
+  },
+  "resources/js/pages/tickets.js": {
+    "file": "assets/tickets-3V1Dj9De.js",
+    "name": "tickets",
+    "src": "resources/js/pages/tickets.js",
+    "isEntry": true
+  },
+  "resources/js/pages/time-tracking.js": {
+    "file": "assets/time-tracking-svl41Z47.js",
+    "name": "time-tracking",
+    "src": "resources/js/pages/time-tracking.js",
+    "isEntry": true
+  },
+  "resources/js/pages/user-management.js": {
+    "file": "assets/user-management-C5dhp95x.js",
+    "name": "user-management",
+    "src": "resources/js/pages/user-management.js",
+    "isEntry": true
+  },
+  "resources/js/pages/viber.js": {
+    "file": "assets/viber-Czt0vSd8.js",
+    "name": "viber",
+    "src": "resources/js/pages/viber.js",
+    "isEntry": true
+  },
+  "resources/js/pages/whatsapp.js": {
+    "file": "assets/whatsapp-C5MXB-r0.js",
+    "name": "whatsapp",
+    "src": "resources/js/pages/whatsapp.js",
+    "isEntry": true
+  },
+  "resources/js/pages/wise-recipients.js": {
+    "file": "assets/wise-recipients-VOo5JYdt.js",
+    "name": "wise-recipients",
+    "src": "resources/js/pages/wise-recipients.js",
+    "isEntry": true
+  },
+  "resources/js/realtime.js": {
+    "file": "assets/realtime-CstQzRRh.js",
+    "name": "realtime",
+    "src": "resources/js/realtime.js",
+    "isEntry": true
+  },
+  "resources/js/twilio-call.js": {
+    "file": "assets/twilio-call-CaSNJDjX.js",
+    "name": "twilio-call",
+    "src": "resources/js/twilio-call.js",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/twilio-sdk.js"
+    ]
+  },
+  "resources/js/twilio-global.js": {
+    "file": "assets/twilio-global-CjdNwmjn.js",
+    "name": "twilio-global",
+    "src": "resources/js/twilio-global.js",
+    "isDynamicEntry": true
+  },
+  "resources/js/twilio-sdk.js": {
+    "file": "assets/twilio-sdk-CYl-5bJg.js",
+    "name": "twilio-sdk",
+    "src": "resources/js/twilio-sdk.js",
+    "isDynamicEntry": true
   }
 }

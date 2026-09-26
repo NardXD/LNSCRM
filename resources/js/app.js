@@ -1,18 +1,34 @@
-console.log('📦📦📦 app.js STARTING 📦📦📦');
-console.log('📍 Page:', typeof window !== 'undefined' ? window.location.pathname : 'N/A');
-
 import './bootstrap';
-console.log('✅ bootstrap imported');
 
-import './twilio-sdk';
-import './twilio-call';
+const flags = window.__crmFlags || {};
 
-// Load twilio-global so incoming calls work on every page
-console.log('📦 app.js: About to import twilio-global...');
-import './twilio-global';
-console.log('📦 app.js: twilio-global import statement completed');
+async function bootPhone() {
+    if (!flags.phone) {
+        return;
+    }
 
-import './contact-history-panel';
-console.log('📦 app.js: contact-history-panel imported');
+    await import('./twilio-sdk');
+    await import('./twilio-call');
+    await import('./twilio-global');
+}
 
-console.log('📦📦📦 app.js COMPLETED 📦📦📦');
+async function bootContactHistory() {
+    if (window.LnsContactHistory?.load) {
+        if (!window.loadChannelContactHistory) {
+            window.loadChannelContactHistory = (selector, opts) =>
+                window.LnsContactHistory.load(selector, opts);
+        }
+        return;
+    }
+
+    // Inbox and dedicated history pages need the shared module.
+    if (!document.querySelector('.chp-panel, #inboxContactHistory, #contactHistoryApp')) {
+        return;
+    }
+
+    await import('./contact-history-panel');
+}
+
+Promise.all([bootPhone(), bootContactHistory()]).catch((err) => {
+    console.error('CRM boot failed', err);
+});

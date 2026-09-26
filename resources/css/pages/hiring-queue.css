@@ -1,0 +1,102 @@
+/* hiring-queue page styles (cached via Vite) */
+
+        .hiring-queue-page { display: flex; flex-direction: column; gap: 1rem; }
+        .hiring-queue-section { background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border); padding: 1.25rem; }
+        .hiring-queue-section-header { margin-bottom: 1rem; }
+        .hiring-queue-section-header h2 { font-size: 1rem; font-weight: 600; color: var(--text-primary); }
+        .hiring-queue-count { font-weight: 500; color: var(--text-secondary); font-size: 0.875rem; }
+        .hiring-queue-page .table-container { border: 1px solid var(--border); border-radius: 10px; overflow-x: auto; background: var(--bg-card); -webkit-overflow-scrolling: touch; }
+        .hiring-queue-page .data-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 0.8125rem; min-width: 900px; }
+        .hiring-queue-page .data-table thead { background: var(--bg-primary); }
+        .hiring-queue-page .data-table th { padding: 0.55rem 0.65rem; text-align: left; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); border-bottom: 1px solid var(--border); white-space: nowrap; }
+        .hiring-queue-page .data-table td { padding: 0.55rem 0.65rem; text-align: left; border-bottom: 1px solid var(--border); color: var(--text-primary); vertical-align: middle; }
+        .hiring-queue-page .data-table tbody tr:hover { background: var(--bg-primary); }
+        .hiring-queue-table th:nth-child(1), .hiring-queue-table td:nth-child(1) { width: 22%; }
+        .hiring-queue-table th:nth-child(2), .hiring-queue-table td:nth-child(2) { width: 14%; }
+        .hiring-queue-table th:nth-child(3), .hiring-queue-table td:nth-child(3) { width: 10%; }
+        .hiring-queue-table th:nth-child(4), .hiring-queue-table td:nth-child(4) { width: 12%; }
+        .hiring-queue-table th:nth-child(5), .hiring-queue-table td:nth-child(5) { width: 10%; }
+        .hiring-queue-table th:nth-child(6), .hiring-queue-table td:nth-child(6) { width: 11%; }
+        .hiring-queue-table th:nth-child(7), .hiring-queue-table td:nth-child(7) { width: 21%; }
+        .hiring-queue-page .data-table .job-title-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+        .comments-cell { text-align: center; }
+        .comments-open-btn { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.55rem; font-size: 0.6875rem; font-weight: 500; border: 1px solid var(--border); background: #fff; color: var(--text-secondary); border-radius: 6px; cursor: pointer; white-space: nowrap; }
+        .comments-open-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .comments-count-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.15rem; height: 1.15rem; padding: 0 0.25rem; border-radius: 999px; background: var(--bg-primary); font-size: 0.625rem; font-weight: 600; color: var(--text-secondary); }
+        .comments-thread-modal { max-width: 520px; width: 95%; }
+        .comments-modal-job { margin: 0.25rem 0 0; font-size: 0.8125rem; color: var(--text-secondary); font-weight: 500; }
+        .comments-list { display: flex; flex-direction: column; gap: 0.75rem; max-height: 320px; overflow-y: auto; margin-bottom: 1rem; padding-right: 0.25rem; }
+        .comments-empty { text-align: center; color: var(--text-muted); font-size: 0.8125rem; padding: 1.5rem 0; margin: 0; }
+        .comment-item { display: flex; gap: 0.65rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 8px; }
+        .comment-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 0.75rem; flex-shrink: 0; }
+        .comment-content { flex: 1; min-width: 0; }
+        .comment-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; flex-wrap: wrap; }
+        .comment-header-main { display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 0; }
+        .comment-delete-btn { margin-left: auto; padding: 0.15rem 0.45rem; font-size: 0.6875rem; font-weight: 500; border: 1px solid transparent; background: transparent; color: var(--text-muted); border-radius: 6px; cursor: pointer; }
+        .comment-delete-btn:hover { color: #dc2626; border-color: #fecaca; background: #fef2f2; }
+        .comment-author { font-weight: 600; color: var(--text-primary); font-size: 0.8125rem; }
+        .comment-time { font-size: 0.6875rem; color: var(--text-muted); }
+        .comment-text { font-size: 0.8125rem; color: var(--text-primary); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+        .comment-input { display: flex; flex-direction: column; gap: 0.65rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+        .comment-textarea { width: 100%; padding: 0.65rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.8125rem; font-family: inherit; resize: vertical; min-height: 72px; background: #fff; color: var(--text-primary); }
+        .comment-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15); }
+        .comment-input-actions { display: flex; justify-content: flex-end; }
+        .comment-input-actions .btn { padding: 0.45rem 0.85rem; font-size: 0.8125rem; font-weight: 500; border-radius: 8px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+        .comment-input-actions .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .hiring-queue-page .data-table .actions-cell { white-space: nowrap; }
+        .candidate-header-actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+        .selected-queue-label { color: var(--text-secondary); font-size: 0.8125rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .btn-add-candidate-list { padding: 0.4rem 0.85rem; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent); color: #fff; font-size: 0.8125rem; cursor: pointer; }
+        .btn-add-candidate-list[disabled] { opacity: 0.6; cursor: not-allowed; }
+        .source-badge { padding: 0.15rem 0.45rem; border-radius: 6px; font-size: 0.6875rem; font-weight: 500; white-space: nowrap; }
+        .source-badge.client { background: #e5e7eb; color: #374151; }
+        .source-badge.sales_rep { background: #dbeafe; color: #1d4ed8; }
+        .source-badge.generic { background: #eef2ff; color: #3730a3; }
+        .status-select { width: 100%; max-width: 96px; border: 1px solid var(--border); background: #fff; border-radius: 6px; padding: 0.25rem 0.4rem; font-size: 0.75rem; }
+        .candidate-status-select { max-width: 110px; border: 1px solid var(--border); background: #fff; border-radius: 6px; padding: 0.25rem 0.4rem; font-size: 0.75rem; }
+        .candidate-edit-btn { display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid var(--border); border-radius: 6px; padding: 0.25rem 0.5rem; font-size: 0.6875rem; background: #fff; color: var(--text-secondary); cursor: pointer; }
+        .candidate-edit-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .action-btns { display: flex; gap: 0.15rem; flex-wrap: nowrap; }
+        .action-btns button, .action-btns .action-btn-pdf { padding: 0.25rem; background: transparent; border: none; cursor: pointer; color: var(--text-secondary); display: inline-flex; align-items: center; justify-content: center; text-decoration: none; border-radius: 4px; }
+        .action-btns button:hover, .action-btns .action-btn-pdf:hover { color: var(--accent); background: var(--bg-primary); }
+        .action-btns svg { width: 15px; height: 15px; }
+        .empty-state { text-align: center; color: var(--text-muted); padding: 1.5rem !important; font-size: 0.8125rem; }
+        .hiring-queue-page .table-pagination { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0 0; margin-top: 0.75rem; border-top: 1px solid var(--border); flex-wrap: wrap; gap: 0.75rem; }
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+        .modal-overlay.open { display: flex; }
+        .hiring-modal { background: white; border-radius: 12px; max-width: 480px; width: 90%; max-height: 90vh; overflow-y: auto; }
+        .view-modal { max-width: 640px; }
+        .candidates-modal { max-width: 960px; width: 95%; }
+        .candidates-modal .table-container { border: 1px solid var(--border); border-radius: 10px; overflow-x: auto; }
+        .candidates-modal .data-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; min-width: 720px; }
+        .candidates-modal .data-table th { padding: 0.55rem 0.65rem; text-align: left; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; color: var(--text-secondary); border-bottom: 1px solid var(--border); background: var(--bg-primary); white-space: nowrap; }
+        .candidates-modal .data-table td { padding: 0.55rem 0.65rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        .candidates-modal .data-table td:nth-child(6) { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem; color: var(--text-secondary); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+        .modal-header h3 { font-size: 1.125rem; }
+        .modal-header-actions { display: flex; align-items: center; gap: 0.5rem; }
+        .btn-download-pdf { display: inline-flex; align-items: center; gap: 0.375rem; padding: 0.5rem 0.75rem; background: var(--accent); color: white; border-radius: 8px; font-size: 0.8125rem; font-weight: 500; text-decoration: none; transition: background 0.15s; }
+        .btn-download-pdf:hover { background: #1d4ed8; color: white; }
+        .btn-download-pdf svg { flex-shrink: 0; }
+        .modal-close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted); }
+        .modal-body { padding: 1.25rem; }
+        .modal-job-title { font-weight: 600; margin-bottom: 1rem; color: var(--accent); }
+        .form-group { margin-bottom: 1rem; }
+        .form-group label { display: block; font-size: 0.8125rem; font-weight: 500; margin-bottom: 0.375rem; }
+        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; }
+        .modal-actions { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.5rem; flex-wrap: wrap; }
+        .modal-actions .btn { padding: 0.5rem 1rem; font-size: 0.875rem; font-weight: 500; border-radius: 8px; cursor: pointer; transition: all 0.15s; border: 1px solid transparent; font-family: inherit; }
+        .modal-actions .btn-primary { background: var(--accent); color: white; border-color: var(--accent); }
+        .modal-actions .btn-primary:hover { background: var(--accent-hover, #4f51d6); }
+        .modal-actions .btn-secondary { background: var(--bg-primary); color: var(--text-secondary); border-color: var(--border); }
+        .modal-actions .btn-secondary:hover { background: var(--border); color: var(--text-primary); }
+        .job-description-pre { white-space: pre-wrap; font-family: inherit; font-size: 0.875rem; line-height: 1.6; }
+        .pagination-info { color: var(--text-secondary); font-size: 0.8125rem; }
+        .pagination-controls { display: flex; align-items: center; gap: 0.35rem; }
+        .pagination-btn { border: 1px solid var(--border); background: #fff; color: var(--text-primary); border-radius: 8px; padding: 0.45rem 0.75rem; font-size: 0.8125rem; cursor: pointer; }
+        .pagination-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .pagination-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+        .pagination-numbers { display: flex; align-items: center; gap: 0.25rem; }
+        .pagination-number { border: 1px solid var(--border); background: #fff; color: var(--text-primary); border-radius: 7px; min-width: 34px; height: 34px; padding: 0 0.45rem; font-size: 0.8125rem; cursor: pointer; }
+        .pagination-number.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .pagination-number.ellipsis { border: none; background: transparent; cursor: default; min-width: auto; }

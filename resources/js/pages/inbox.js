@@ -1,0 +1,8719 @@
+/* Inbox page logic (Vite entry) */
+(function () {
+    const root = document.getElementById('inboxApp');
+    if (!root) return;
+    const API = root.dataset.api;
+    const CSRF = root.dataset.csrf;
+    const CONNECT = root.dataset.connect;
+    const USER_ID = Number(root.dataset.userId || 0);
+    const INBOX_POPOUT = new URLSearchParams(window.location.search).get('popout') === '1';
+
+    const MAILBOX_FOLDERS = [
+        { view: 'open', label: 'Inbox', countKey: 'open_count' },
+        { view: 'archived', label: 'Archived', countKey: 'archived_count' },
+        { view: 'snoozed', label: 'Snoozed', countKey: 'snoozed_count' },
+        { view: 'drafts', label: 'Drafts', countKey: 'drafts_count' },
+        { view: 'sent', label: 'Sent', countKey: 'sent_count' },
+        { view: 'trash', label: 'Trash', countKey: 'trash_count' },
+        { view: 'spam', label: 'Spam', countKey: 'spam_count' },
+    ];
+
+    const VIEW_GROUPS = [
+        {
+            id: 'subscribed',
+            label: 'Subscribed',
+            defaultBucket: 'open',
+            folders: [
+                { bucket: 'open', label: 'Open', count: 'subscribedOpen' },
+                { bucket: 'snoozed', label: 'Snoozed', count: 'subscribedSnoozed' },
+                { bucket: 'archived', label: 'Archived', count: 'subscribedArchived' },
+            ],
+        },
+        {
+            id: 'assigned_to_me',
+            label: 'Assigned to me',
+            defaultBucket: 'open',
+            folders: [
+                { bucket: 'open', label: 'Open', count: 'assignedOpen' },
+                { bucket: 'snoozed', label: 'Snoozed', count: 'assignedSnoozed' },
+                { bucket: 'archived', label: 'Archived', count: 'assignedArchived' },
+            ],
+        },
+        {
+            id: 'archived',
+            label: 'Archived',
+            defaultBucket: 'archived',
+            folders: [
+                { bucket: 'open', label: 'Open', count: 'reopenedArchived' },
+                { bucket: 'archived', label: 'Archived', count: 'archived' },
+            ],
+        },
+        {
+            id: 'snoozed',
+            label: 'Snoozed',
+            defaultBucket: 'snoozed',
+            folders: [
+                { bucket: 'open', label: 'Open', count: 'reopenedSnoozed' },
+                { bucket: 'snoozed', label: 'Snoozed', count: 'snoozed' },
+            ],
+        },
+    ];
+
+    const state = {
+        inboxes: [],
+        rules: [],
+        templates: [],
+        pendingLocalTemplates: [],
+        signatures: [],
+        defaultSignatureId: null,
+        pendingLocalSignatures: [],
+        pendingDefaultSignatureId: null,
+        permissions: {
+            create_templates: false,
+            create_rules: false,
+        },
+        members: [],
+        leadLabels: [],
+        labelAttachBusy: false,
+        sidebarLabelIds: null,
+        selectedLabelId: null,
+        sidebarLabelSearch: '',
+        sidebarLabelPickerDraft: [],
+        labelFolderCounts: { open: 0, archived: 0, snoozed: 0 },
+        assignedToMeCount: 0,
+        assignedArchivedCount: 0,
+        assignedSnoozedCount: 0,
+        reopenedArchivedCount: 0,
+        reopenedSnoozedCount: 0,
+        archivedCount: 0,
+        snoozedCount: 0,
+        subscribedCount: 0,
+        subscribedArchivedCount: 0,
+        subscribedSnoozedCount: 0,
+        viewGroup: null,
+        expandedViewGroups: {},
+        conversations: [],
+        checkedIds: [],
+        selectedInboxId: null,
+        view: 'open',
+        selectedId: null,
+        conversation: null,
+        editingMembersInboxId: null,
+        searchTimer: null,
+        expandedInboxIds: {},
+        expandedToolGroups: { templates: true, signatures: false, rules: false },
+        inboxToolsOpen: true,
+        listPage: 1,
+        listLastPage: 1,
+        listLoading: false,
+        listHasMore: true,
+        hydrateInFlightId: null,
+        syncingInboxId: null,
+        advancedOpen: false,
+        replyAttachments: [],
+        composeAttachments: [],
+        commentAttachments: [],
+        templateAttachments: [],
+        composerMode: 'comment',
+        composerCanReply: true,
+        composerExpanded: false,
+        inlineComposerModal: null,
+        propsOpen: false,
+        expandedMessageIds: {},
+        focusMessageId: null,
+        replyAll: false,
+        replyCcEmails: [],
+        replyDraftId: null,
+        composeDraftConversationId: null,
+        shareDraftSelected: { compose: {}, reply: {} },
+        editingTemplateId: null,
+        templateSearch: '',
+        templateListPage: 1,
+        returnToTemplateList: false,
+        signatureSearch: '',
+        signatureListPage: 1,
+        returnToSignatureList: false,
+        editingSignatureId: null,
+        filters: {
+            from: '',
+            to: '',
+            subject: '',
+            body: '',
+            folder: '',
+            inbox_id: '',
+            assigned_to: '',
+            is_read: '',
+            date_from: '',
+            date_to: '',
+        },
+    };
+
+    const TOOLS_STORAGE_KEY = 'lnscrm_inbox_tools_v1';
+
+    function loadLocalTools() {
+        try {
+            const raw = localStorage.getItem(TOOLS_STORAGE_KEY);
+            if (!raw) return;
+            const data = JSON.parse(raw);
+            // Templates are company-shared in the database; only keep personal prefs locally.
+            state.pendingLocalTemplates = (Array.isArray(data.templates) ? data.templates : []).map(t => ({
+                ...t,
+                body_html: t.body_html || (t.body && /<[a-z][\s\S]*>/i.test(t.body) ? t.body : null),
+                format: 'html',
+            }));
+            // Signatures now live per user in the database. Keep any browser-local
+            // copies only long enough to import them into this account once.
+            state.pendingLocalSignatures = (Array.isArray(data.signatures) ? data.signatures : []).map(s => ({
+                ...s,
+                body_html: s.body_html || (s.body && /<[a-z][\s\S]*>/i.test(s.body) ? s.body : null),
+                format: 'html',
+            }));
+            state.pendingDefaultSignatureId = data.defaultSignatureId || null;
+        } catch (_) {
+            state.pendingLocalTemplates = [];
+            state.pendingLocalSignatures = [];
+            state.pendingDefaultSignatureId = null;
+        }
+    }
+
+    function saveLocalTools() {
+        localStorage.setItem(TOOLS_STORAGE_KEY, JSON.stringify({
+            // Keep empty arrays so older clients don't crash; source of truth is the API.
+            templates: [],
+            signatures: Array.isArray(state.pendingLocalSignatures) ? state.pendingLocalSignatures : [],
+            defaultSignatureId: state.pendingDefaultSignatureId || null,
+        }));
+    }
+
+    function applySignaturesPayload(data) {
+        const list = Array.isArray(data?.signatures) ? data.signatures : [];
+        state.signatures = list.map(s => ({
+            ...s,
+            body: s.body || s.body_text || '',
+            body_html: s.body_html || null,
+            format: 'html',
+            is_default: !!s.is_default,
+        }));
+        const defaultSig = state.signatures.find(s => s.is_default);
+        state.defaultSignatureId = data?.default_signature_id || defaultSig?.id || state.signatures[0]?.id || null;
+        updateSignatureCount();
+        if (el('modalSignatureList')?.style.display === 'grid') {
+            renderSignatureList();
+        }
+    }
+
+    function sanitizeHtml(html) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = String(html || '');
+        wrap.querySelectorAll('script,iframe,object,embed,link,meta').forEach(n => n.remove());
+        wrap.querySelectorAll('*').forEach(node => {
+            [...node.attributes].forEach(attr => {
+                const name = attr.name.toLowerCase();
+                const value = String(attr.value || '');
+                if (name.startsWith('on') || (name === 'href' && /^\s*javascript:/i.test(value))) {
+                    node.removeAttribute(attr.name);
+                }
+            });
+        });
+        return wrap.innerHTML;
+    }
+
+    function decodeEscapedHtml(html) {
+        const value = String(html || '');
+        if (!value) return '';
+        if (!/<[a-z][\s\S]*>/i.test(value) && /&lt;[a-z]/i.test(value)) {
+            const tmp = document.createElement('textarea');
+            tmp.innerHTML = value;
+            return tmp.value;
+        }
+        return value;
+    }
+
+    function plainToHtml(text) {
+        const t = String(text || '').trim();
+        if (!t) return '';
+        if (/<[a-z][\s\S]*>/i.test(t)) return sanitizeHtml(t);
+        return sanitizeHtml(t.replace(/\r\n|\n|\r/g, '<br>'));
+    }
+
+    function extractEmailDocumentParts(html) {
+        const source = decodeEscapedHtml(String(html || '').trim());
+        if (!source) return { styles: '', body: '' };
+
+        const looksLikeDocument = /<!DOCTYPE/i.test(source)
+            || /<html[\s>]/i.test(source)
+            || /<body[\s>]/i.test(source)
+            || /<head[\s>]/i.test(source);
+
+        if (!looksLikeDocument) {
+            return { styles: '', body: sanitizeHtml(source) };
+        }
+
+        try {
+            const doc = new DOMParser().parseFromString(source, 'text/html');
+            doc.querySelectorAll('script,iframe,object,embed,link,meta').forEach(n => n.remove());
+            doc.querySelectorAll('*').forEach(node => {
+                [...node.attributes].forEach(attr => {
+                    const name = attr.name.toLowerCase();
+                    const value = String(attr.value || '');
+                    if (name.startsWith('on') || (name === 'href' && /^\s*javascript:/i.test(value))) {
+                        node.removeAttribute(attr.name);
+                    }
+                });
+            });
+
+            const styles = [...doc.querySelectorAll('style')]
+                .map(node => String(node.textContent || ''))
+                .filter(Boolean)
+                .join('\n')
+                // Email CSS often targets body/html — remap to the shadow root wrapper.
+                .replace(/(^|[,{\s])(?:html|body)\b/gi, '$1.email-root');
+            doc.querySelectorAll('style').forEach(node => node.remove());
+
+            return {
+                styles,
+                body: doc.body ? doc.body.innerHTML : sanitizeHtml(source),
+            };
+        } catch (err) {
+            return { styles: '', body: sanitizeHtml(source) };
+        }
+    }
+
+    const EMAIL_QUOTE_SELECTORS = [
+        '.gmail_quote',
+        '.gmail_quote_container',
+        '.gmail_extra',
+        '.gmail_attr',
+        '#divRplyFwdMsg',
+        '#x_divRplyFwdMsg',
+        '[id$="divRplyFwdMsg"]',
+        '#appendonsend',
+        '[id$="appendonsend"]',
+        '#OLK_SRC_BODY_SECTION',
+        '.OutlookMessageHeader',
+        'blockquote.gmail_quote',
+        'blockquote[type="cite"]',
+        '.moz-cite-prefix',
+        '#yahoo_quoted',
+        '.yahoo_quoted',
+        '.protonmail_quote',
+    ].join(',');
+
+    function emailNodeMeaningfulText(node) {
+        if (!node) return '';
+        if (node.nodeType === Node.TEXT_NODE) return String(node.textContent || '').replace(/\s+/g, ' ').trim();
+        if (node.nodeType !== Node.ELEMENT_NODE) return '';
+        const clone = node.cloneNode(true);
+        clone.querySelectorAll('style,script').forEach(n => n.remove());
+        return String(clone.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function looksLikeQuotedReplyHeader(text) {
+        const t = String(text || '').replace(/\s+/g, ' ').trim();
+        if (!t) return false;
+        if (/^-----Original Message-----/i.test(t)) return true;
+        if (/^-----Forwarded message-----/i.test(t)) return true;
+        if (/^_{8,}/.test(t)) return true;
+        if (/^On .{8,160} wrote:\s*$/i.test(t)) return true;
+        if (/^(From|Van|De|Von|Da)\s*:/i.test(t) && /(Sent|Date|Verzonden|To|À|An|Subject|Onderwerp)\s*:/i.test(t)) return true;
+        return false;
+    }
+
+    function isEmailQuoteStartNode(node) {
+        if (!node) return false;
+        if (node.nodeType === Node.TEXT_NODE) {
+            return looksLikeQuotedReplyHeader(node.textContent);
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) return false;
+        if (node.matches?.(EMAIL_QUOTE_SELECTORS)) return true;
+        const tag = node.tagName.toLowerCase();
+        if (tag === 'hr') {
+            let next = node.nextSibling;
+            while (next && ((next.nodeType === Node.TEXT_NODE && !String(next.textContent || '').trim()) || next.nodeType === Node.COMMENT_NODE)) {
+                next = next.nextSibling;
+            }
+            if (next && looksLikeQuotedReplyHeader(emailNodeMeaningfulText(next).slice(0, 500))) return true;
+        }
+        const own = emailNodeMeaningfulText(node);
+        if (own && own.length < 800 && looksLikeQuotedReplyHeader(own)) return true;
+        return false;
+    }
+
+    function isEmptyQuoteBoundary(node) {
+        if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+        if (!node.matches?.('#appendonsend, [id$="appendonsend"]')) return false;
+        return !emailNodeMeaningfulText(node) && !node.querySelector?.('img');
+    }
+
+    function findEmailQuoteStart(root) {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+        let sawReplyText = false;
+        let node = walker.nextNode();
+        while (node) {
+            if (isEmptyQuoteBoundary(node)) {
+                if (sawReplyText) return node;
+                node = walker.nextNode();
+                continue;
+            }
+            if (isEmailQuoteStartNode(node)) {
+                return sawReplyText ? node : null;
+            }
+            const text = node.nodeType === Node.TEXT_NODE
+                ? String(node.textContent || '').replace(/\s+/g, ' ').trim()
+                : '';
+            if (text) sawReplyText = true;
+            node = walker.nextNode();
+        }
+        return null;
+    }
+
+    function removeNodeAndFollowingSiblings(node) {
+        let current = node;
+        while (current) {
+            const next = current.nextSibling;
+            current.remove();
+            current = next;
+        }
+    }
+
+    function trimTrailingEmailChrome(root) {
+        while (root.lastChild) {
+            const last = root.lastChild;
+            if (last.nodeType === Node.COMMENT_NODE) {
+                last.remove();
+                continue;
+            }
+            if (last.nodeType === Node.TEXT_NODE && !String(last.textContent || '').trim()) {
+                last.remove();
+                continue;
+            }
+            if (last.nodeType === Node.ELEMENT_NODE) {
+                const tag = last.tagName.toLowerCase();
+                if (tag === 'br' || tag === 'hr') {
+                    last.remove();
+                    continue;
+                }
+                const empty = !emailNodeMeaningfulText(last) && !last.querySelector?.('img');
+                if (empty) {
+                    last.remove();
+                    continue;
+                }
+            }
+            break;
+        }
+    }
+
+    function stripQuotedEmailHistoryHtml(html) {
+        const source = String(html || '').trim();
+        if (!source) return '';
+        const wrap = document.createElement('div');
+        wrap.innerHTML = source;
+        const quoteStart = findEmailQuoteStart(wrap);
+        if (quoteStart) {
+            let parent = quoteStart.parentNode;
+            removeNodeAndFollowingSiblings(quoteStart);
+            while (parent && parent !== wrap && !emailNodeMeaningfulText(parent) && !parent.querySelector?.('img')) {
+                const nextParent = parent.parentNode;
+                parent.remove();
+                parent = nextParent;
+            }
+        }
+        trimTrailingEmailChrome(wrap);
+        const result = wrap.innerHTML.trim();
+        return emailNodeMeaningfulText(wrap) || wrap.querySelector('img') ? result : source;
+    }
+
+    function stripQuotedEmailHistoryPlain(text) {
+        const source = String(text || '');
+        if (!source.trim()) return source;
+        const cut = source.search(new RegExp(
+            '(?:\\r?\\n)(?:\\s*)(?:'
+            + '-----Original Message-----'
+            + '|-----Forwarded message-----'
+            + '|From:\\s.+\\r?\\nSent:\\s'
+            + '|On .{8,160} wrote:\\s*$'
+            + '|________________________________'
+            + ')',
+            'im'
+        ));
+        if (cut <= 0) return source;
+        const kept = source.slice(0, cut).trim();
+        return kept || source;
+    }
+
+    function mountEmailBody(host, message) {
+        if (!host) return;
+
+        try {
+            const rawHtml = String(message?.body_html || '').trim();
+            const plain = stripQuotedEmailHistoryPlain(String(message?.body_text || '').trim());
+
+            host.classList.remove('is-framed');
+            host.innerHTML = '';
+
+            if (!rawHtml) {
+                host.innerHTML = plainToHtml(plain) || '<span style="color:var(--inbox-muted)">No content</span>';
+                return;
+            }
+
+            const parts = extractEmailDocumentParts(rawHtml);
+            const bodyHtml = stripQuotedEmailHistoryHtml(parts.body || sanitizeHtml(decodeEscapedHtml(rawHtml)));
+            if (!bodyHtml) {
+                host.innerHTML = plainToHtml(plain) || '<span style="color:var(--inbox-muted)">No content</span>';
+                return;
+            }
+
+            // Shadow DOM keeps Outlook <style> rules without leaking into the CRM chrome
+            // and avoids blank iframe/srcdoc issues.
+            if (typeof host.attachShadow === 'function') {
+                const shadow = host.attachShadow({ mode: 'open' });
+                const baseStyle = document.createElement('style');
+                baseStyle.textContent = `
+                    :host { display: block; }
+                    .email-root {
+                        color: #1f2937;
+                        font: 14px/1.5 "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                        word-wrap: break-word;
+                        overflow-wrap: anywhere;
+                    }
+                    .email-root img {
+                        max-width: 100% !important;
+                        height: auto !important;
+                        display: inline-block;
+                        cursor: zoom-in;
+                    }
+                    .email-root table { max-width: 100%; border-collapse: collapse; }
+                    .email-root a { color: #2563eb; }
+                `;
+                shadow.appendChild(baseStyle);
+                if (parts.styles) {
+                    const emailStyle = document.createElement('style');
+                    emailStyle.textContent = parts.styles;
+                    shadow.appendChild(emailStyle);
+                }
+                const root = document.createElement('div');
+                root.className = 'email-root';
+                root.innerHTML = bodyHtml;
+                shadow.appendChild(root);
+                lazyLoadEmailImages(root);
+                return;
+            }
+
+            // Fallback for older browsers
+            host.innerHTML = bodyHtml;
+            lazyLoadEmailImages(host);
+        } catch (err) {
+            host.classList.remove('is-framed');
+            host.textContent = String(message?.body_text || message?.body_html || 'Unable to render message').slice(0, 4000);
+        }
+    }
+
+    function emailBodyImageFromEvent(e) {
+        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+        const img = path.find((node) => node instanceof HTMLImageElement);
+        if (!img) return null;
+        const inBody = path.some((node) => node instanceof Element && (
+            node.classList?.contains('email-root') || (node.classList?.contains('inbox-msg-body') && !node.shadowRoot)
+        ));
+        if (!inBody) return null;
+        const url = img.currentSrc || img.src || '';
+        if (!url || url.startsWith('cid:')) return null;
+        return img;
+    }
+
+    function lazyLoadEmailImages(root) {
+        if (!root?.querySelectorAll) return;
+        root.querySelectorAll('img').forEach((img) => {
+            img.loading = 'lazy';
+            img.decoding = 'async';
+        });
+    }
+
+    function formatMessageBodyHtml(message) {
+        const rawHtml = String(message?.body_html || '').trim();
+        if (rawHtml) {
+            const parts = extractEmailDocumentParts(rawHtml);
+            return parts.body || sanitizeHtml(decodeEscapedHtml(rawHtml));
+        }
+        return plainToHtml(message?.body_text || '');
+    }
+
+    function htmlToPlain(html) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = String(html || '');
+        return (wrap.textContent || '').trim();
+    }
+
+    function getHtmlEditor(kind) {
+        return {
+            root: document.querySelector(`[data-html-editor="${kind}"]`),
+            visual: el(kind === 'template' ? 'newTemplateVisual' : 'newSignatureVisual'),
+            source: el(kind === 'template' ? 'newTemplateBody' : 'newSignatureBody'),
+        };
+    }
+
+    const HTML_VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+    const HTML_INLINE_TAGS = new Set(['a', 'abbr', 'b', 'br', 'em', 'i', 'img', 'small', 'span', 'strong', 'sub', 'sup', 'u', 'code']);
+    const HTML_RAW_TAGS = new Set(['pre', 'textarea', 'script', 'style']);
+
+    function formatHtmlAttributes(el, indent) {
+        const attrs = [...el.attributes];
+        if (!attrs.length) return '';
+        const parts = attrs.map((attr) => `${attr.name}="${escapeHtml(attr.value)}"`);
+        const long = parts.some((part) => part.length > 56) || el.tagName.toLowerCase() === 'img';
+        if (!long && parts.join(' ').length <= 72) {
+            return ' ' + parts.join(' ');
+        }
+        return '\n' + parts.map((part) => `${indent}  ${part}`).join('\n') + '\n' + indent;
+    }
+
+    function escapeHtmlText(str) {
+        return String(str ?? '').replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]));
+    }
+
+    function serializeHtmlInline(el) {
+        const tag = el.tagName.toLowerCase();
+        const attrStr = [...el.attributes].map((attr) => ` ${attr.name}="${escapeHtml(attr.value)}"`).join('');
+        if (HTML_VOID_TAGS.has(tag)) return `<${tag}${attrStr}>`;
+        let inner = '';
+        el.childNodes.forEach((child) => {
+            if (child.nodeType === Node.TEXT_NODE) inner += escapeHtmlText(child.textContent);
+            else if (child.nodeType === Node.ELEMENT_NODE) inner += serializeHtmlInline(child);
+        });
+        return `<${tag}${attrStr}>${inner}</${tag}>`;
+    }
+
+    function htmlNodeIsInlineOnly(el) {
+        if (!el.childNodes.length) return true;
+        for (const child of el.childNodes) {
+            if (child.nodeType === Node.COMMENT_NODE) continue;
+            if (child.nodeType === Node.TEXT_NODE) continue;
+            if (child.nodeType !== Node.ELEMENT_NODE) return false;
+            const tag = child.tagName.toLowerCase();
+            if (!HTML_INLINE_TAGS.has(tag) || !htmlNodeIsInlineOnly(child)) return false;
+        }
+        return true;
+    }
+
+    function serializeHtmlPretty(nodes, depth) {
+        const indent = '  '.repeat(depth);
+        let out = '';
+        nodes.forEach((child) => {
+            if (child.nodeType === Node.COMMENT_NODE) {
+                const text = String(child.textContent || '').trim();
+                if (text) out += `${indent}<!-- ${text} -->\n`;
+                return;
+            }
+            if (child.nodeType === Node.TEXT_NODE) {
+                const text = String(child.textContent || '').replace(/\s+/g, ' ').trim();
+                if (text) out += `${indent}${escapeHtmlText(text)}\n`;
+                return;
+            }
+            if (child.nodeType !== Node.ELEMENT_NODE) return;
+            const tag = child.tagName.toLowerCase();
+            const attrs = formatHtmlAttributes(child, indent);
+            if (HTML_VOID_TAGS.has(tag)) {
+                out += `${indent}<${tag}${attrs}>\n`;
+                return;
+            }
+            if (HTML_RAW_TAGS.has(tag)) {
+                out += `${indent}<${tag}${attrs}>${child.innerHTML}</${tag}>\n`;
+                return;
+            }
+            if (htmlNodeIsInlineOnly(child)) {
+                const compact = serializeHtmlInline(child);
+                if (compact.length <= 96) {
+                    out += `${indent}${compact}\n`;
+                    return;
+                }
+            }
+            const inner = serializeHtmlPretty(child.childNodes, depth + 1);
+            if (!inner.trim()) {
+                out += `${indent}<${tag}${attrs}></${tag}>\n`;
+                return;
+            }
+            out += `${indent}<${tag}${attrs}>\n${inner}${indent}</${tag}>\n`;
+        });
+        return out;
+    }
+
+    function beautifyHtml(html) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = String(html || '').trim();
+        return serializeHtmlPretty(wrap.childNodes, 0).replace(/[ \t]+\n/g, '\n').trim();
+    }
+
+    function setHtmlEditorContent(kind, html) {
+        const ed = getHtmlEditor(kind);
+        const clean = sanitizeHtml(html || '');
+        if (ed.visual) {
+            ed.visual.innerHTML = clean;
+            decorateHtmlLinks(ed.visual);
+        }
+        if (ed.source) ed.source.value = beautifyHtml(clean);
+    }
+
+    function getHtmlEditorContent(kind) {
+        const ed = getHtmlEditor(kind);
+        if (!ed.source) return '';
+        if (ed.source.hidden === false) {
+            return sanitizeHtml(ed.source.value.trim());
+        }
+        return sanitizeHtml((ed.visual?.innerHTML || '').trim());
+    }
+
+    function setHtmlEditorMode(kind, mode) {
+        const ed = getHtmlEditor(kind);
+        if (!ed.root) return;
+        const visualMode = mode !== 'source';
+        if (visualMode) {
+            if (ed.visual && ed.source) {
+                ed.visual.innerHTML = sanitizeHtml(ed.source.value);
+                decorateHtmlLinks(ed.visual);
+            }
+            if (ed.visual) ed.visual.hidden = false;
+            if (ed.source) ed.source.hidden = true;
+        } else {
+            if (ed.source && ed.visual) ed.source.value = beautifyHtml(sanitizeHtml(ed.visual.innerHTML));
+            if (ed.visual) ed.visual.hidden = true;
+            if (ed.source) {
+                ed.source.hidden = false;
+                ed.source.focus();
+            }
+        }
+        ed.root.querySelectorAll('[data-html-mode]').forEach(btn => {
+            btn.classList.toggle('is-active', btn.dataset.htmlMode === (visualMode ? 'visual' : 'source'));
+        });
+    }
+
+    function appendHtmlToComposer(html) {
+        const clean = sanitizeHtml(html);
+        if (!clean) return false;
+
+        const composeOpen = el('modalCompose')?.style.display === 'grid';
+        const kind = composeOpen ? 'compose' : 'reply';
+        const target = getComposerEl(kind);
+        if (!target) return false;
+
+        if (isComposerEmpty(kind)) {
+            setComposerHtml(kind, clean);
+        } else {
+            target.innerHTML = sanitizeHtml((target.innerHTML || '') + '<br><br>' + clean);
+        }
+        placeCaretAtEnd(target);
+        target.focus();
+        decorateHtmlLinks(target);
+        return true;
+    }
+
+    function getComposerEl(kind) {
+        if (kind === 'compose') return el('composeBody');
+        if (kind === 'comment') return el('commentBody');
+        return el('replyBody');
+    }
+
+    function attachmentBucket(kind) {
+        if (kind === 'compose') return 'composeAttachments';
+        if (kind === 'comment') return 'commentAttachments';
+        if (kind === 'template') return 'templateAttachments';
+        return 'replyAttachments';
+    }
+
+    function fileAttachmentsOnly(files) {
+        return (files || []).filter((f) => !f.isInline);
+    }
+
+    function prepareEmailSendPayload(body, files) {
+        const attachments = fileAttachmentsOnly(files).map((file) => ({
+            name: file.name,
+            contentType: file.contentType,
+            contentBytes: file.contentBytes,
+        }));
+        let inlineCount = 0;
+        const preparedBody = String(body || '').replace(
+            /<img\b[^>]*\ssrc=(["'])data:image\/([^;]+);base64,([^"']+)\1[^>]*>/gi,
+            (match, quote, ext, bytes) => {
+                inlineCount += 1;
+                const contentId = `inbox-img-${inlineCount}-${Math.random().toString(36).slice(2, 8)}`;
+                attachments.push({
+                    name: `image-${inlineCount}.${ext}`,
+                    contentType: `image/${ext}`,
+                    contentBytes: bytes,
+                    isInline: true,
+                    contentId,
+                });
+                return match.replace(/src=(["'])data:image\/[^"']+\1/i, `src=${quote}cid:${contentId}${quote}`);
+            }
+        );
+        return { body: preparedBody, attachments };
+    }
+
+    function syncComposerModeButtons(mode) {
+        state.composerMode = mode || 'comment';
+        document.querySelectorAll('[data-composer-mode]').forEach(btn => {
+            btn.classList.toggle('is-active', btn.dataset.composerMode === state.composerMode);
+        });
+    }
+
+    function setComposerMode() {
+        if (state.inlineComposerModal) {
+            undockInlineComposer();
+        }
+        syncComposerModeButtons('comment');
+        hideMentionPopup('comment');
+    }
+
+    function shouldDockComposerModal(id) {
+        return INBOX_POPOUT && (id === 'modalReply' || id === 'modalCompose');
+    }
+
+    function undockInlineComposer() {
+        const backdrop = el('modalBackdrop');
+        const commentPanel = el('commentComposerPanel');
+        if (!backdrop) {
+            state.inlineComposerModal = null;
+            return;
+        }
+        ['modalReply', 'modalCompose'].forEach(id => {
+            const modal = el(id);
+            if (!modal) return;
+            if (modal.parentElement !== backdrop) {
+                backdrop.appendChild(modal);
+            }
+            modal.classList.remove('inbox-inline-composer');
+            if (state.inlineComposerModal === id || modal.style.display === 'grid') {
+                modal.style.display = 'none';
+            }
+        });
+        if (commentPanel) commentPanel.hidden = false;
+        el('composerArea')?.classList.remove('has-inline-mail');
+        state.inlineComposerModal = null;
+    }
+
+    function dockInlineComposer(id) {
+        const card = el('composerArea')?.querySelector('.inbox-composer-card');
+        const commentPanel = el('commentComposerPanel');
+        const backdrop = el('modalBackdrop');
+        const modal = el(id);
+        if (!card || !modal || !backdrop) return false;
+
+        ['modalReply', 'modalCompose'].forEach(otherId => {
+            if (otherId === id) return;
+            const other = el(otherId);
+            if (!other) return;
+            if (other.parentElement !== backdrop) backdrop.appendChild(other);
+            other.classList.remove('inbox-inline-composer');
+            other.style.display = 'none';
+        });
+
+        if (commentPanel) commentPanel.hidden = true;
+        card.appendChild(modal);
+        modal.classList.add('inbox-inline-composer');
+        modal.style.display = 'grid';
+        state.inlineComposerModal = id;
+        state.composerExpanded = true;
+        el('composerArea')?.classList.add('is-expanded', 'has-inline-mail');
+        backdrop.style.display = 'none';
+
+        ['modalCompose','modalReply','modalInbox','modalTemplateList','modalTemplate','modalSignatureList','modalSignature','modalRule','modalMembers','modalMerge','modalAdvancedSearch','modalSidebarLabels'].forEach(m => {
+            if (m === id) return;
+            const node = el(m);
+            if (node && node.parentElement === backdrop) node.style.display = 'none';
+        });
+
+        requestAnimationFrame(() => {
+            el('threadMessages')?.scrollTo?.({ top: el('threadMessages').scrollHeight });
+            el('composerArea')?.scrollIntoView?.({ block: 'nearest' });
+        });
+        return true;
+    }
+
+    function setReplyModalCopy(title, help) {
+        const titleEl = el('replyModalTitle');
+        const helpEl = el('replyModalHelp');
+        if (titleEl) titleEl.textContent = title;
+        if (helpEl) helpEl.textContent = help;
+    }
+
+    function openReplyModal(message = null, opts = {}) {
+        if (!state.composerCanReply) return;
+        const replyAll = !!opts.replyAll;
+        const force = !!opts.force;
+        state.replyAll = replyAll;
+        if (force) state.replyDraftId = null;
+        state.shareDraftSelected.reply = {};
+        setReplyModalCopy(replyAll ? 'Reply all' : 'Reply', 'Email reply via Outlook.');
+        hideMentionPopup('reply');
+        syncComposerModeButtons('reply');
+        openModal('modalReply');
+        populateReplyHeaders(message, { replyAll, force });
+        applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
+        el('composerHint').textContent = 'Reply via Outlook';
+        el('replyBody')?.focus();
+    }
+
+    function openDraftReplyModal(message) {
+        if (!message || !state.composerCanReply) return;
+        state.replyAll = false;
+        state.shareDraftSelected.reply = {};
+        state.replyDraftId = (message.external_message_id && !String(message.external_message_id).startsWith('local-'))
+            ? message.external_message_id
+            : null;
+        setReplyModalCopy('Edit draft', 'Send draft via Outlook.');
+        hideMentionPopup('reply');
+        syncComposerModeButtons('reply');
+        openModal('modalReply');
+        fillReplyFromSelect();
+        if (el('replyTo')) el('replyTo').value = parseEmailList(message.to || message.to_emails).join(', ');
+        if (el('replyCc')) el('replyCc').value = parseEmailList(message.cc || message.cc_emails).join(', ');
+        setComposerHtml('reply', message.body_html || '');
+        el('composerHint').textContent = 'Send draft via Outlook';
+        el('replyBody')?.focus();
+    }
+
+    function isComposeOnlyDraft(conversation) {
+        const c = conversation || state.conversation;
+        if (!c) return false;
+        const folder = c.folder || c.status;
+        if (folder !== 'drafts') return false;
+        return !(c.messages || []).some(m => m.direction === 'inbound');
+    }
+
+    function fillComposeFromSelect(preferredId) {
+        const preferred = preferredId ? Number(preferredId) : Number(state.selectedInboxId || 0);
+        const connected = (state.inboxes || []).filter(i => i.connected);
+        const current = (state.inboxes || []).find(i => Number(i.id) === preferred);
+        const list = connected.slice();
+        if (current && !list.some(i => Number(i.id) === Number(current.id))) list.unshift(current);
+        if (!list.length) list.push(...(state.inboxes || []));
+        if (!el('composeFrom')) return;
+        el('composeFrom').innerHTML = list.map(i =>
+            `<option value="${i.id}" ${Number(i.id) === preferred ? 'selected' : ''}>${escapeHtml(i.name)} (${escapeHtml(i.email || 'Outlook')})</option>`
+        ).join('');
+    }
+
+    function openComposeDraftModal(message) {
+        if (!message) return;
+        const inboxId = state.conversation?.inbox_id || state.conversation?.inbox?.id;
+        fillComposeFromSelect(inboxId);
+        if (el('composeTo')) el('composeTo').value = parseEmailList(message.to || message.to_emails).join(', ');
+        if (el('composeCc')) el('composeCc').value = parseEmailList(message.cc || message.cc_emails).join(', ');
+        if (el('composeSubject')) el('composeSubject').value = message.subject || state.conversation?.subject || '';
+        setComposerHtml('compose', message.body_html || '');
+        state.composeDraftConversationId = state.conversation?.id || null;
+        state.composeAttachments = [];
+        state.shareDraftSelected.compose = {};
+        renderAttachChips('compose');
+        hideMentionPopup('compose');
+        refreshTemplateSelects();
+        setComposeModalCopy('Edit draft', 'Send this draft through a connected Outlook inbox.');
+        openModal('modalCompose');
+        setTimeout(() => el('composeTo')?.focus(), 50);
+    }
+
+    function getComposerHtml(kind) {
+        return sanitizeHtml(getComposerEl(kind)?.innerHTML || '');
+    }
+
+    function setComposerHtml(kind, html) {
+        const node = getComposerEl(kind);
+        if (!node) return;
+        const clean = sanitizeHtml(html || '');
+        node.innerHTML = clean;
+        decorateHtmlLinks(node);
+        // Keep :empty placeholder working when cleared.
+        if (!htmlToPlain(clean)) node.innerHTML = '';
+    }
+
+    function getDefaultSignature() {
+        if (!state.signatures.length) return null;
+        const preferred = state.defaultSignatureId
+            ? state.signatures.find(s => String(s.id) === String(state.defaultSignatureId))
+            : null;
+        return preferred || state.signatures[0];
+    }
+
+    function signatureBlockHtml(sig) {
+        if (!sig) return '';
+        const html = sanitizeHtml(sig.body_html || plainToHtml(sig.body || ''));
+        if (!html) return '';
+        return `<div class="inbox-email-signature" data-email-signature="${escapeHtml(String(sig.id))}"><br>${html}</div>`;
+    }
+
+    function stripSignatureHtml(html) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = sanitizeHtml(html || '');
+        wrap.querySelectorAll('[data-email-signature]').forEach(n => n.remove());
+        return sanitizeHtml(wrap.innerHTML);
+    }
+
+    function buildComposerWithSignature(bodyHtml = '') {
+        const message = sanitizeHtml(bodyHtml || '');
+        const sigBlock = signatureBlockHtml(getDefaultSignature());
+        if (!sigBlock) return message;
+        return (message || '<div><br></div>') + sigBlock;
+    }
+
+    function applyComposerSignature(kind, bodyHtml = '') {
+        setComposerHtml(kind, buildComposerWithSignature(bodyHtml));
+        const editor = getComposerEl(kind);
+        if (!editor) return;
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.setStart(editor, 0);
+        range.collapse(true);
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+    }
+
+    function insertHtmlBeforeSignature(kind, html) {
+        const editor = getComposerEl(kind);
+        const clean = sanitizeHtml(html);
+        if (!editor || !clean) return;
+        const sig = editor.querySelector('[data-email-signature]');
+        if (!sig) {
+            if (isComposerEmpty(kind)) setComposerHtml(kind, clean);
+            else editor.innerHTML = sanitizeHtml((editor.innerHTML || '') + '<br><br>' + clean);
+            decorateHtmlLinks(editor);
+            return;
+        }
+        const spacer = document.createElement('div');
+        spacer.innerHTML = clean + '<br>';
+        while (spacer.firstChild) {
+            sig.parentNode.insertBefore(spacer.firstChild, sig);
+        }
+        decorateHtmlLinks(editor);
+    }
+
+    async function setDefaultSignature(signatureId) {
+        const item = state.signatures.find(s => String(s.id) === String(signatureId));
+        if (!item) return;
+        try {
+            const data = await api('/signatures/' + item.id + '/default', { method: 'POST' });
+            applySignaturesPayload(data);
+            // Refresh open composers so the active default is used.
+            if (el('modalCompose')?.style.display === 'grid') {
+                applyComposerSignature('compose', stripSignatureHtml(getComposerHtml('compose')));
+            }
+            if (state.selectedId) {
+                applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
+            }
+        } catch (err) {
+            alert(err.message || 'Failed to set default signature');
+        }
+    }
+
+    function isComposerEmpty(kind) {
+        return !htmlToPlain(stripSignatureHtml(getComposerHtml(kind)));
+    }
+
+    function placeCaretAtEnd(node) {
+        if (!node) return;
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.selectNodeContents(node);
+        range.collapse(false);
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+    }
+
+    let savedHtmlEditorSelection = null;
+
+    function saveHtmlEditorSelection(editorKind) {
+        const ed = getHtmlEditor(editorKind);
+        if (!ed.visual) return;
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount || !ed.visual.contains(sel.anchorNode)) {
+            savedHtmlEditorSelection = { kind: editorKind, atEnd: true };
+            return;
+        }
+        savedHtmlEditorSelection = {
+            kind: editorKind,
+            atEnd: false,
+            range: sel.getRangeAt(0).cloneRange(),
+        };
+    }
+
+    function restoreHtmlEditorSelection(editorKind) {
+        const saved = savedHtmlEditorSelection;
+        savedHtmlEditorSelection = null;
+        if (!saved || saved.kind !== editorKind) return false;
+        const ed = getHtmlEditor(editorKind);
+        if (!ed.visual) return false;
+        ed.visual.focus();
+        if (saved.atEnd || !saved.range) {
+            placeCaretAtEnd(ed.visual);
+            return true;
+        }
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(saved.range);
+        return true;
+    }
+
+    let htmlLinkState = null;
+
+    function normalizeLinkUrl(raw) {
+        const url = String(raw || '').trim();
+        if (!url) return '';
+        if (/^(javascript|data|vbscript):/i.test(url)) return '';
+        if (/^(https?:\/\/|mailto:|tel:|#|\/)/i.test(url)) return url;
+        return 'https://' + url;
+    }
+
+    function captureHtmlEditorRange(kind) {
+        const ed = getHtmlEditor(kind);
+        if (!ed.visual) return null;
+        const sel = window.getSelection();
+        if (sel?.rangeCount && ed.visual.contains(sel.anchorNode)) {
+            return sel.getRangeAt(0).cloneRange();
+        }
+        if (savedHtmlEditorSelection?.kind === kind && savedHtmlEditorSelection.range) {
+            return savedHtmlEditorSelection.range.cloneRange();
+        }
+        const range = document.createRange();
+        range.selectNodeContents(ed.visual);
+        range.collapse(false);
+        return range;
+    }
+
+    function imageFromRange(range, editor) {
+        if (!range || !editor) return null;
+        const root = range.commonAncestorContainer;
+        const el = root.nodeType === 1 ? root : root.parentElement;
+        if (!el || !editor.contains(el)) return null;
+        if (el.tagName === 'IMG') return el;
+        const imgs = [...editor.querySelectorAll('img')].filter((img) => {
+            try { return range.intersectsNode(img); } catch (_) { return false; }
+        });
+        return imgs.length === 1 ? imgs[0] : null;
+    }
+
+    function anchorFromRange(range, editor, preferred) {
+        if (preferred && editor.contains(preferred)) return preferred;
+        if (!range || !editor) return null;
+        let node = range.commonAncestorContainer;
+        if (node.nodeType === 3) node = node.parentElement;
+        const fromAncestor = node?.closest?.('a');
+        if (fromAncestor && editor.contains(fromAncestor)) return fromAncestor;
+        const img = imageFromRange(range, editor);
+        const fromImg = img?.closest('a');
+        return fromImg && editor.contains(fromImg) ? fromImg : null;
+    }
+
+    function configureLinkAnchor(anchor, url) {
+        anchor.setAttribute('href', url);
+        anchor.setAttribute('target', '_blank');
+        anchor.setAttribute('rel', 'noopener noreferrer');
+        anchor.setAttribute('title', url);
+    }
+
+    function decorateHtmlLinks(root) {
+        if (!root) return;
+        root.querySelectorAll('a[href]').forEach((anchor) => {
+            const href = anchor.getAttribute('href') || '';
+            if (href && !anchor.getAttribute('title')) {
+                anchor.setAttribute('title', href);
+            }
+        });
+    }
+
+    function hideHtmlLinkTip() {
+        const tip = el('inboxHtmlLinkTip');
+        if (tip) tip.hidden = true;
+    }
+
+    function showHtmlLinkTip(anchor) {
+        const tip = el('inboxHtmlLinkTip');
+        const href = String(anchor?.getAttribute('href') || '').trim();
+        if (!tip || !href || href === '#') return;
+        tip.textContent = href;
+        tip.hidden = false;
+        const rect = anchor.getBoundingClientRect();
+        const margin = 8;
+        const tipWidth = Math.min(380, window.innerWidth - 16);
+        tip.style.maxWidth = `${tipWidth}px`;
+        let left = rect.left;
+        let top = rect.bottom + 6;
+        const size = tip.getBoundingClientRect();
+        if (left + size.width > window.innerWidth - margin) {
+            left = Math.max(margin, window.innerWidth - size.width - margin);
+        }
+        if (left < margin) left = margin;
+        if (top + size.height > window.innerHeight - margin) {
+            top = Math.max(margin, rect.top - size.height - 6);
+        }
+        tip.style.left = `${left}px`;
+        tip.style.top = `${top}px`;
+    }
+
+    function bindHtmlLinkHover(root) {
+        if (!root || root.dataset.linkHoverBound === '1') return;
+        root.dataset.linkHoverBound = '1';
+        root.addEventListener('mouseover', (e) => {
+            const anchor = e.target.closest('a[href]');
+            if (!anchor || !root.contains(anchor)) return;
+            showHtmlLinkTip(anchor);
+        });
+        root.addEventListener('mouseout', (e) => {
+            const anchor = e.target.closest('a[href]');
+            if (!anchor || !root.contains(anchor)) return;
+            if (e.relatedTarget && anchor.contains(e.relatedTarget)) return;
+            hideHtmlLinkTip();
+        });
+        root.addEventListener('scroll', hideHtmlLinkTip, true);
+    }
+
+    function closeHtmlLinkDialog() {
+        hideHtmlLinkTip();
+        const dialog = el('htmlLinkDialog');
+        if (dialog) dialog.hidden = true;
+        htmlLinkState = null;
+    }
+
+    function openHtmlLinkDialog(kind, preferredAnchor = null) {
+        const ed = getHtmlEditor(kind);
+        if (!ed.visual) return;
+        if (ed.source && !ed.source.hidden) {
+            alert('Switch to Visual mode to insert links, or paste an <a href="..."> tag in HTML mode.');
+            return;
+        }
+        const range = captureHtmlEditorRange(kind);
+        const img = imageFromRange(range, ed.visual);
+        const existing = anchorFromRange(range, ed.visual, preferredAnchor);
+        const selectedText = String(range?.toString() || '').trim();
+        htmlLinkState = { kind, range, img, existing };
+        el('htmlLinkDialogTitle').textContent = existing ? 'Edit link' : 'Insert link';
+        el('htmlLinkHint').textContent = img && !selectedText
+            ? 'This image will become a clickable link in the email.'
+            : 'Recipients can click the selected text or image in the email.';
+        el('htmlLinkUrl').value = existing?.getAttribute('href') || 'https://';
+        const textWrap = el('htmlLinkTextWrap');
+        const showText = !existing && !img && !selectedText;
+        if (textWrap) textWrap.hidden = !showText;
+        el('htmlLinkText').value = selectedText;
+        const removeBtn = el('btnHtmlLinkRemove');
+        if (removeBtn) removeBtn.hidden = !existing;
+        const dialog = el('htmlLinkDialog');
+        if (dialog) dialog.hidden = false;
+        setTimeout(() => {
+            el('htmlLinkUrl')?.focus();
+            el('htmlLinkUrl')?.select();
+        }, 0);
+    }
+
+    function unwrapAnchor(anchor) {
+        const parent = anchor.parentNode;
+        if (!parent) return;
+        while (anchor.firstChild) parent.insertBefore(anchor.firstChild, anchor);
+        parent.removeChild(anchor);
+    }
+
+    function applyHtmlLink() {
+        if (!htmlLinkState) return;
+        const { kind, range, img, existing } = htmlLinkState;
+        const ed = getHtmlEditor(kind);
+        if (!ed.visual || !range) return;
+        const url = normalizeLinkUrl(el('htmlLinkUrl')?.value);
+        if (!url) {
+            alert('Enter a valid URL, such as https://example.com');
+            return;
+        }
+        const linkText = String(el('htmlLinkText')?.value || '').trim() || url.replace(/^https?:\/\//i, '');
+        ed.visual.focus();
+        try {
+            const sel = window.getSelection();
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+        } catch (_) {}
+
+        if (existing && ed.visual.contains(existing)) {
+            configureLinkAnchor(existing, url);
+        } else if (img && ed.visual.contains(img)) {
+            const parentLink = img.closest('a');
+            if (parentLink && ed.visual.contains(parentLink)) {
+                configureLinkAnchor(parentLink, url);
+            } else {
+                const a = document.createElement('a');
+                configureLinkAnchor(a, url);
+                img.parentNode.insertBefore(a, img);
+                a.appendChild(img);
+            }
+        } else if (range.collapsed) {
+            const a = document.createElement('a');
+            configureLinkAnchor(a, url);
+            a.textContent = linkText;
+            range.insertNode(a);
+        } else {
+            const a = document.createElement('a');
+            configureLinkAnchor(a, url);
+            try {
+                a.appendChild(range.extractContents());
+                range.insertNode(a);
+            } catch (_) {
+                document.execCommand('createLink', false, url);
+                ed.visual.querySelectorAll('a[href]').forEach((node) => {
+                    if (!node.getAttribute('target')) configureLinkAnchor(node, node.getAttribute('href') || url);
+                });
+            }
+        }
+        if (ed.source) ed.source.value = sanitizeHtml(ed.visual.innerHTML || '');
+        decorateHtmlLinks(ed.visual);
+        closeHtmlLinkDialog();
+    }
+
+    function removeHtmlLink() {
+        if (!htmlLinkState?.existing) {
+            closeHtmlLinkDialog();
+            return;
+        }
+        const ed = getHtmlEditor(htmlLinkState.kind);
+        if (ed.visual?.contains(htmlLinkState.existing)) {
+            unwrapAnchor(htmlLinkState.existing);
+            if (ed.source) ed.source.value = sanitizeHtml(ed.visual.innerHTML || '');
+        }
+        closeHtmlLinkDialog();
+    }
+
+    function templateHasBody(html) {
+        return Boolean(htmlToPlain(html) || /<img\b/i.test(String(html || '')));
+    }
+
+    function insertHtmlAtCaret(editor, html) {
+        if (!editor) return false;
+        editor.focus();
+        const clean = sanitizeHtml(html);
+        const before = editor.innerHTML;
+        if (document.queryCommandSupported?.('insertHTML') || true) {
+            try {
+                document.execCommand('insertHTML', false, clean);
+                if (editor.innerHTML !== before || editor.querySelector('img')) {
+                    return true;
+                }
+            } catch (_) {}
+        }
+        editor.innerHTML = sanitizeHtml((before || '') + clean);
+        placeCaretAtEnd(editor);
+        return true;
+    }
+
+    function getTextBeforeCaret(editor) {
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount || !editor.contains(sel.anchorNode)) return '';
+        const range = sel.getRangeAt(0).cloneRange();
+        range.selectNodeContents(editor);
+        range.setEnd(sel.getRangeAt(0).endContainer, sel.getRangeAt(0).endOffset);
+        return range.toString();
+    }
+
+    const MAX_ATTACH_BYTES = 10 * 1024 * 1024;
+    const MAX_ATTACH_COUNT = 5;
+    const MAX_ATTACH_LABEL = '10 MB';
+    const TEMPLATE_PAGE_SIZE = 5;
+    const SIGNATURE_PAGE_SIZE = 5;
+
+    function refreshTemplateSelects() {
+        document.querySelectorAll('[data-template-picker]').forEach(picker => {
+            renderTemplatePickerList(picker);
+        });
+    }
+
+    function templatesMatchingQuery(query) {
+        const q = (query || '').trim().toLowerCase();
+        if (!q) return state.templates;
+        return state.templates.filter(t => {
+            const haystack = [
+                t.name || '',
+                t.subject || '',
+                t.body || '',
+                htmlToPlain(t.body_html || ''),
+            ].join(' ').toLowerCase();
+            return haystack.includes(q);
+        });
+    }
+
+    function templatePickerItemMeta(t) {
+        const subject = String(t.subject || '').trim();
+        if (subject) return subject;
+        const preview = htmlToPlain(t.body_html || t.body || '').replace(/\s+/g, ' ').trim();
+        return preview;
+    }
+
+    function renderTemplatePickerList(picker) {
+        if (!picker) return;
+        const list = picker.querySelector('[data-template-picker-list]');
+        const search = picker.querySelector('[data-template-picker-search]');
+        if (!list) return;
+        const items = templatesMatchingQuery(search?.value || '');
+        if (!state.templates.length) {
+            list.innerHTML = '<div class="inbox-template-picker-empty">No templates yet</div>';
+            positionTemplatePickerMenu(picker);
+            return;
+        }
+        if (!items.length) {
+            list.innerHTML = '<div class="inbox-template-picker-empty">No matches</div>';
+            positionTemplatePickerMenu(picker);
+            return;
+        }
+        list.innerHTML = items.map(t => {
+            const meta = templatePickerItemMeta(t);
+            return `
+            <button type="button" class="inbox-template-picker-item" data-insert-template-id="${escapeHtml(t.id)}" title="${escapeHtml(t.subject || t.name)}">
+                <span class="inbox-template-picker-item-name">${escapeHtml(t.name || 'Untitled')}</span>
+                ${meta ? `<span class="inbox-template-picker-item-meta">${escapeHtml(meta)}</span>` : ''}
+            </button>
+        `;
+        }).join('');
+        positionTemplatePickerMenu(picker);
+    }
+
+    function resetTemplatePickerMenuPosition(menu) {
+        if (!menu) return;
+        menu.style.top = '';
+        menu.style.bottom = '';
+        menu.style.left = '';
+        menu.style.right = '';
+        menu.style.width = '';
+        menu.style.maxHeight = '';
+    }
+
+    function positionTemplatePickerMenu(picker) {
+        if (!picker?.classList.contains('is-open')) return;
+        const menu = picker.querySelector('.inbox-template-picker-menu');
+        const toggle = picker.querySelector('[data-template-picker-toggle]');
+        if (!menu || menu.hidden || !toggle) return;
+        const rect = toggle.getBoundingClientRect();
+        const margin = 8;
+        const width = Math.min(320, Math.max(240, window.innerWidth - (margin * 2)));
+        let left = rect.left;
+        if (left + width > window.innerWidth - margin) {
+            left = Math.max(margin, window.innerWidth - width - margin);
+        }
+        if (left < margin) left = margin;
+        const top = rect.bottom + 6;
+        const spaceBelow = Math.max(0, window.innerHeight - top - margin);
+        menu.style.width = `${width}px`;
+        menu.style.left = `${left}px`;
+        menu.style.right = 'auto';
+        menu.style.bottom = 'auto';
+        menu.style.top = `${top}px`;
+        menu.style.maxHeight = `${Math.min(360, spaceBelow)}px`;
+    }
+
+    function syncOpenTemplatePickerPosition() {
+        document.querySelectorAll('[data-template-picker].is-open').forEach(positionTemplatePickerMenu);
+    }
+
+    function closeTemplatePickers(except = null) {
+        document.querySelectorAll('[data-template-picker]').forEach(picker => {
+            if (except && picker === except) return;
+            picker.classList.remove('is-open');
+            const menu = picker.querySelector('.inbox-template-picker-menu');
+            if (menu) {
+                menu.hidden = true;
+                resetTemplatePickerMenuPosition(menu);
+            }
+        });
+    }
+
+    function openTemplatePicker(picker) {
+        if (!picker) return;
+        closeTemplatePickers(picker);
+        picker.classList.add('is-open');
+        const menu = picker.querySelector('.inbox-template-picker-menu');
+        if (menu) menu.hidden = false;
+        const search = picker.querySelector('[data-template-picker-search]');
+        if (search) search.value = '';
+        renderTemplatePickerList(picker);
+        requestAnimationFrame(() => {
+            positionTemplatePickerMenu(picker);
+            search?.focus();
+        });
+    }
+
+    function filteredTemplates() {
+        return templatesMatchingQuery(state.templateSearch || '');
+    }
+
+    function paginatedTemplateListItems() {
+        const items = filteredTemplates();
+        const total = items.length;
+        const totalPages = Math.max(1, Math.ceil(total / TEMPLATE_PAGE_SIZE));
+        const page = Math.min(Math.max(1, state.templateListPage), totalPages);
+        state.templateListPage = page;
+        const start = (page - 1) * TEMPLATE_PAGE_SIZE;
+        const end = Math.min(start + TEMPLATE_PAGE_SIZE, total);
+        return {
+            items: items.slice(start, end),
+            total,
+            totalPages,
+            page,
+            from: total ? start + 1 : 0,
+            to: end,
+        };
+    }
+
+    function renderTemplateListPagination(meta) {
+        const bar = el('templateListPagination');
+        if (!bar) return;
+        if (!meta.total || meta.total <= TEMPLATE_PAGE_SIZE) {
+            bar.hidden = true;
+            return;
+        }
+        bar.hidden = false;
+        const info = el('templateListPaginationInfo');
+        const status = el('templateListPageStatus');
+        const prev = el('templateListPrevPage');
+        const next = el('templateListNextPage');
+        if (info) info.textContent = `Showing ${meta.from}–${meta.to} of ${meta.total}`;
+        if (status) status.textContent = `Page ${meta.page} of ${meta.totalPages}`;
+        if (prev) prev.disabled = meta.page <= 1;
+        if (next) next.disabled = meta.page >= meta.totalPages;
+    }
+
+    function updateTemplateCount() {
+        const countEl = el('templateCount');
+        if (!countEl) return;
+        countEl.textContent = state.templates.length ? String(state.templates.length) : '';
+    }
+
+    function renderTemplateList() {
+        const list = el('templateList');
+        const search = el('templateListSearch');
+        if (search && document.activeElement !== search) {
+            search.value = state.templateSearch || '';
+        }
+        if (!list) return;
+        const meta = paginatedTemplateListItems();
+        renderTemplateListPagination(meta);
+
+        if (!state.templates.length) {
+            list.innerHTML = `<div class="inbox-tpl-empty">No templates yet.${state.permissions.create_templates ? ' Click <strong>New template</strong> to add one.' : ''}</div>`;
+            return;
+        }
+        if (!meta.total) {
+            list.innerHTML = '<div class="inbox-tpl-empty">No matches</div>';
+            return;
+        }
+        list.innerHTML = meta.items.map(t => {
+            const preview = htmlToPlain(t.body_html || t.body || '');
+            const subject = t.subject
+                ? `<div class="inbox-tpl-row-subject">${escapeHtml(t.subject)}</div>`
+                : '';
+            return `
+            <div class="inbox-tpl-row" data-template-id="${t.id}">
+                <div class="inbox-tpl-row-main">
+                    <div class="inbox-tpl-row-name">${escapeHtml(t.name)}</div>
+                    ${subject}
+                    <div class="inbox-tpl-row-preview">${escapeHtml(preview)}</div>
+                </div>
+                <div class="inbox-tpl-row-actions">
+                    <button type="button" class="inbox-tpl-link-btn" data-use-template="${t.id}">Use</button>
+                    ${state.permissions.create_templates ? `
+                        <button type="button" class="inbox-tpl-link-btn muted" data-edit-template="${t.id}">Edit</button>
+                        <button type="button" class="inbox-tpl-link-btn muted" data-delete-template="${t.id}">Delete</button>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+        }).join('');
+    }
+
+    function openTemplateListModal() {
+        state.templateListPage = 1;
+        state.templateSearch = '';
+        if (el('templateListSearch')) el('templateListSearch').value = '';
+        if (el('btnNewTemplate')) el('btnNewTemplate').style.display = state.permissions.create_templates ? '' : 'none';
+        renderTemplateList();
+        openModal('modalTemplateList');
+        setTimeout(() => el('templateListSearch')?.focus(), 30);
+    }
+
+    function useTemplateFromList(templateId) {
+        if (el('modalCompose')?.style.display === 'grid') {
+            insertTemplateInto('compose', templateId);
+            closeModal();
+            return;
+        }
+        if (state.selectedId && state.composerCanReply && el('replyBody')) {
+            insertTemplateInto('reply', templateId);
+            closeModal();
+            return;
+        }
+        openComposeModal();
+        insertTemplateInto('compose', templateId);
+    }
+
+    function signaturesMatchingQuery(query) {
+        const q = String(query || '').trim().toLowerCase();
+        if (!q) return state.signatures;
+        return state.signatures.filter(s => {
+            const haystack = [s.name || '', s.body || '', htmlToPlain(s.body_html || '')].join(' ').toLowerCase();
+            return haystack.includes(q);
+        });
+    }
+
+    function filteredSignatures() {
+        return signaturesMatchingQuery(state.signatureSearch || '');
+    }
+
+    function paginatedSignatureListItems() {
+        const items = filteredSignatures();
+        const total = items.length;
+        const totalPages = Math.max(1, Math.ceil(total / SIGNATURE_PAGE_SIZE));
+        const page = Math.min(Math.max(1, state.signatureListPage), totalPages);
+        state.signatureListPage = page;
+        const start = (page - 1) * SIGNATURE_PAGE_SIZE;
+        const end = Math.min(start + SIGNATURE_PAGE_SIZE, total);
+        return {
+            items: items.slice(start, end),
+            total,
+            totalPages,
+            page,
+            from: total ? start + 1 : 0,
+            to: end,
+        };
+    }
+
+    function renderSignatureListPagination(meta) {
+        const bar = el('signatureListPagination');
+        if (!bar) return;
+        if (!meta.total || meta.total <= SIGNATURE_PAGE_SIZE) {
+            bar.hidden = true;
+            return;
+        }
+        bar.hidden = false;
+        const info = el('signatureListPaginationInfo');
+        const status = el('signatureListPageStatus');
+        const prev = el('signatureListPrevPage');
+        const next = el('signatureListNextPage');
+        if (info) info.textContent = `Showing ${meta.from}–${meta.to} of ${meta.total}`;
+        if (status) status.textContent = `Page ${meta.page} of ${meta.totalPages}`;
+        if (prev) prev.disabled = meta.page <= 1;
+        if (next) next.disabled = meta.page >= meta.totalPages;
+    }
+
+    function updateSignatureCount() {
+        const countEl = el('signatureCount');
+        if (!countEl) return;
+        countEl.textContent = state.signatures.length ? String(state.signatures.length) : '';
+    }
+
+    function renderSignatureList() {
+        const list = el('signatureList');
+        const search = el('signatureListSearch');
+        if (search && document.activeElement !== search) {
+            search.value = state.signatureSearch || '';
+        }
+        if (!list) return;
+        const meta = paginatedSignatureListItems();
+        renderSignatureListPagination(meta);
+
+        if (!state.signatures.length) {
+            list.innerHTML = '<div class="inbox-tpl-empty">No signatures yet. Click <strong>New signature</strong> to add one.</div>';
+            return;
+        }
+        if (!meta.total) {
+            list.innerHTML = '<div class="inbox-tpl-empty">No matches</div>';
+            return;
+        }
+        list.innerHTML = meta.items.map(s => {
+            const isDefault = String(state.defaultSignatureId || state.signatures[0]?.id) === String(s.id);
+            const preview = htmlToPlain(s.body_html || s.body || '');
+            return `
+            <div class="inbox-tpl-row ${isDefault ? 'is-default-signature' : ''}" data-signature-id="${s.id}">
+                <div class="inbox-tpl-row-main">
+                    <div class="inbox-tpl-row-name">
+                        ${escapeHtml(s.name)}
+                        ${isDefault ? '<span class="inbox-tpl-default-badge">Default</span>' : ''}
+                    </div>
+                    <div class="inbox-tpl-row-preview">${escapeHtml(preview)}</div>
+                </div>
+                <div class="inbox-tpl-row-actions">
+                    ${!isDefault ? `<button type="button" class="inbox-tpl-link-btn" data-default-signature="${s.id}">Set default</button>` : ''}
+                    <button type="button" class="inbox-tpl-link-btn muted" data-edit-signature="${s.id}">Edit</button>
+                    <button type="button" class="inbox-tpl-link-btn muted" data-delete-signature="${s.id}">Delete</button>
+                </div>
+            </div>
+        `;
+        }).join('');
+    }
+
+    function openSignatureListModal() {
+        state.signatureListPage = 1;
+        state.signatureSearch = '';
+        if (el('signatureListSearch')) el('signatureListSearch').value = '';
+        renderSignatureList();
+        openModal('modalSignatureList');
+        setTimeout(() => el('signatureListSearch')?.focus(), 30);
+    }
+
+    function openSignatureModal(signatureId = null) {
+        state.returnToSignatureList = el('modalSignatureList')?.style.display === 'grid';
+        const item = signatureId
+            ? state.signatures.find(s => String(s.id) === String(signatureId))
+            : null;
+        state.editingSignatureId = item ? item.id : null;
+        el('signatureModalTitle').textContent = item ? 'Edit signature' : 'New signature';
+        el('btnSaveSignature').textContent = item ? 'Save' : 'Create';
+        el('newSignatureName').value = item?.name || '';
+        setHtmlEditorContent('signature', item?.body_html || plainToHtml(item?.body || '') || '');
+        setHtmlEditorMode('signature', 'visual');
+        openModal('modalSignature');
+        setTimeout(() => el('newSignatureName')?.focus(), 50);
+    }
+
+    function deleteSignatureById(signatureId) {
+        const item = state.signatures.find(s => String(s.id) === String(signatureId));
+        if (!item) return Promise.resolve(false);
+        if (!confirm(`Delete signature "${item.name}"?`)) return Promise.resolve(false);
+        return api('/signatures/' + item.id, { method: 'DELETE' })
+            .then((data) => {
+                applySignaturesPayload(data);
+                if (el('modalCompose')?.style.display === 'grid') {
+                    applyComposerSignature('compose', stripSignatureHtml(getComposerHtml('compose')));
+                }
+                if (state.selectedId) {
+                    applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
+                }
+                return true;
+            })
+            .catch((err) => {
+                alert(err.message || 'Failed to delete signature');
+                return false;
+            });
+    }
+
+    function renderAttachChips(kind) {
+        const chips = el(
+            kind === 'compose' ? 'composeAttachChips'
+                : (kind === 'comment' ? 'commentAttachChips'
+                    : (kind === 'template' ? 'templateAttachChips' : 'replyAttachChips'))
+        );
+        const files = fileAttachmentsOnly(state[attachmentBucket(kind)] || []);
+        if (!chips) return;
+        chips.innerHTML = files.map((f, idx) => `
+            <span class="inbox-attach-chip">
+                <span title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
+                <button type="button" data-remove-attach="${kind}:${idx}" aria-label="Remove">×</button>
+            </span>
+        `).join('');
+    }
+
+    function readFileAsAttachment(file) {
+        return new Promise((resolve, reject) => {
+            if (file.size > MAX_ATTACH_BYTES) {
+                reject(new Error(`${file.name} is larger than ${MAX_ATTACH_LABEL}.`));
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => {
+                const result = String(reader.result || '');
+                const base64 = result.includes(',') ? result.split(',')[1] : result;
+                resolve({
+                    name: file.name,
+                    contentType: file.type || 'application/octet-stream',
+                    contentBytes: base64,
+                    size: file.size,
+                });
+            };
+            reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function filesFromClipboard(e) {
+        const dt = e.clipboardData;
+        if (!dt) return [];
+        if (dt.files && dt.files.length) return [...dt.files];
+        return [...(dt.items || [])]
+            .filter(item => item.kind === 'file')
+            .map(item => item.getAsFile())
+            .filter(Boolean);
+    }
+
+    async function addAttachments(kind, fileList) {
+        const bucket = attachmentBucket(kind);
+        const incoming = [...(fileList || [])];
+        if (!incoming.length) return;
+        const currentFiles = fileAttachmentsOnly(state[bucket] || []);
+        if (currentFiles.length + incoming.length > MAX_ATTACH_COUNT) {
+            alert(`You can attach up to ${MAX_ATTACH_COUNT} files.`);
+            return;
+        }
+        try {
+            const files = await Promise.all(incoming.map(readFileAsAttachment));
+            state[bucket] = [...currentFiles, ...files];
+            renderAttachChips(kind);
+        } catch (err) {
+            alert(err.message || 'Could not attach file.');
+        }
+    }
+
+    function namedPastedImageFile(file) {
+        if (!file) return null;
+        if (file.name && file.name !== 'blob' && file.name !== 'image.png') return file;
+        const rawExt = ((file.type || 'image/png').split('/')[1] || 'png').split('+')[0];
+        const ext = rawExt === 'jpeg' ? 'jpg' : rawExt;
+        return new File([file], `pasted-image.${ext}`, { type: file.type || 'image/png' });
+    }
+
+    async function insertInlineImageAtCaret(editor, file) {
+        if (!editor || !file) return;
+        const imageFile = namedPastedImageFile(file);
+        if (imageFile.size > MAX_ATTACH_BYTES) {
+            alert(`${imageFile.name} is larger than ${MAX_ATTACH_LABEL}.`);
+            return;
+        }
+        try {
+            const attachment = await readFileAsAttachment(imageFile);
+            const imgHtml = `<img src="data:${attachment.contentType};base64,${attachment.contentBytes}" alt="${escapeHtml(imageFile.name)}" style="max-width:100%;height:auto;">`;
+            const beforeHtml = editor.innerHTML;
+            insertHtmlAtCaret(editor, imgHtml);
+            if (beforeHtml === editor.innerHTML && !editor.querySelector(`img[src^="data:${attachment.contentType}"]`)) {
+                editor.innerHTML = sanitizeHtml((beforeHtml || '') + imgHtml);
+                placeCaretAtEnd(editor);
+            }
+            decorateHtmlLinks(editor);
+        } catch (err) {
+            alert(err.message || 'Could not insert image.');
+        }
+    }
+
+    async function insertHtmlEditorImage(editorKind, file) {
+        if (!file) return;
+        if (file.size > MAX_ATTACH_BYTES) {
+            alert(`${file.name} is larger than ${MAX_ATTACH_LABEL}.`);
+            return;
+        }
+        const ed = getHtmlEditor(editorKind);
+        if (!ed.visual) return;
+        if (ed.source && !ed.source.hidden) {
+            alert('Switch to Visual mode to insert images at the cursor, or paste an <img> tag in HTML mode.');
+            return;
+        }
+        try {
+            restoreHtmlEditorSelection(editorKind) || placeCaretAtEnd(ed.visual);
+            await insertInlineImageAtCaret(ed.visual, file);
+            if (ed.source) ed.source.value = sanitizeHtml(ed.visual?.innerHTML || '');
+        } catch (err) {
+            alert(err.message || 'Could not insert image.');
+        }
+    }
+
+    function insertAtCursor(editor, text) {
+        insertHtmlAtCaret(editor, escapeHtml(text));
+    }
+
+    function mentionQueryAtCursor(editor) {
+        const before = getTextBeforeCaret(editor);
+        const match = before.match(/(^|[\s\u00a0])@([a-zA-Z0-9._\- ]*)$/);
+        if (!match) return null;
+        return { query: match[2] || '' };
+    }
+
+    function filteredMembers(query) {
+        const q = String(query || '').trim().toLowerCase();
+        return (state.members || []).filter(m => {
+            if (!q) return true;
+            return (m.name || '').toLowerCase().includes(q) || (m.email || '').toLowerCase().includes(q);
+        }).slice(0, 8);
+    }
+
+    function mentionPopupId(kind) {
+        if (kind === 'compose') return 'composeMentionPopup';
+        if (kind === 'comment') return 'commentMentionPopup';
+        return 'replyMentionPopup';
+    }
+
+    function renderMentionPopup(kind, query) {
+        const popup = el(mentionPopupId(kind));
+        if (!popup) return;
+        const members = filteredMembers(query);
+        if (!members.length) {
+            popup.hidden = true;
+            popup.innerHTML = '';
+            return;
+        }
+        popup.innerHTML = members.map((m, idx) => `
+            <button type="button" class="inbox-mention-item ${idx === 0 ? 'is-active' : ''}" data-mention-kind="${kind}" data-mention-id="${m.id}">
+                <span class="inbox-mention-name">${escapeHtml(m.name)}</span>
+                <span class="inbox-mention-email">${escapeHtml(m.email || '')}</span>
+            </button>
+        `).join('');
+        popup.hidden = false;
+    }
+
+    function hideMentionPopup(kind) {
+        const popup = el(mentionPopupId(kind));
+        if (!popup) return;
+        popup.hidden = true;
+        popup.innerHTML = '';
+    }
+
+    function deleteMentionTrigger(editor) {
+        // Remove trailing @query before caret by replacing it with empty selection text.
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount || !editor.contains(sel.anchorNode)) return;
+        const before = getTextBeforeCaret(editor);
+        const match = before.match(/(^|[\s\u00a0])(@[a-zA-Z0-9._\- ]*)$/);
+        if (!match) return;
+        const removeLen = match[2].length;
+        for (let i = 0; i < removeLen; i++) {
+            document.execCommand('delete', false, null);
+        }
+    }
+
+    function applyMention(kind, member) {
+        const editor = getComposerEl(kind);
+        if (!editor || !member) return;
+        deleteMentionTrigger(editor);
+        insertHtmlAtCaret(editor, `<span class="inbox-mention" contenteditable="false" data-mention-user-id="${member.id}">@${escapeHtml(member.name)}</span>&nbsp;`);
+
+        if (member.email && kind === 'compose') {
+            const cc = el('composeCc');
+            const parts = (cc.value || '').split(',').map(s => s.trim()).filter(Boolean);
+            if (!parts.some(p => p.toLowerCase() === member.email.toLowerCase())) {
+                parts.push(member.email);
+                cc.value = parts.join(', ');
+            }
+        } else if (member.email && kind === 'reply') {
+            addEmailToField('replyCc', member.email);
+        }
+        hideMentionPopup(kind);
+    }
+
+    function insertTemplateInto(kind, templateId) {
+        const item = state.templates.find(t => String(t.id) === String(templateId));
+        if (!item) return;
+        const html = sanitizeHtml(item.body_html || plainToHtml(item.body || ''));
+        if (kind === 'compose' && item.subject && !el('composeSubject').value.trim()) {
+            el('composeSubject').value = item.subject;
+        }
+        insertHtmlBeforeSignature(kind, html);
+        const bucket = attachmentBucket(kind);
+        const existing = fileAttachmentsOnly(state[bucket] || []);
+        const fromTemplate = fileAttachmentsOnly(item.attachments || []).map((a) => ({
+            name: a.name,
+            contentType: a.contentType || 'application/octet-stream',
+            contentBytes: a.contentBytes,
+            size: a.size || Math.round(String(a.contentBytes || '').length * 0.75),
+        }));
+        const room = Math.max(0, MAX_ATTACH_COUNT - existing.length);
+        if (fromTemplate.length && room < fromTemplate.length) {
+            alert(`Template has ${fromTemplate.length} attachment(s), but only ${room} more can be added (max ${MAX_ATTACH_COUNT}).`);
+        }
+        if (room > 0 && fromTemplate.length) {
+            state[bucket] = [...existing, ...fromTemplate.slice(0, room)];
+            renderAttachChips(kind);
+        }
+        const editor = getComposerEl(kind);
+        if (!editor) return;
+        editor.focus();
+        const sig = editor.querySelector('[data-email-signature]');
+        if (sig) {
+            const range = document.createRange();
+            const sel = window.getSelection();
+            range.setStartBefore(sig);
+            range.collapse(true);
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+        } else {
+            placeCaretAtEnd(editor);
+        }
+    }
+
+    function bindComposerExtras(kind) {
+        const attachBtn = el(kind === 'compose' ? 'btnComposeAttach' : (kind === 'comment' ? 'btnCommentAttach' : 'btnReplyAttach'));
+        const attachInput = el(kind === 'compose' ? 'composeAttachInput' : (kind === 'comment' ? 'commentAttachInput' : 'replyAttachInput'));
+        const mentionBtn = el(kind === 'compose' ? 'btnComposeMention' : (kind === 'comment' ? 'btnCommentMention' : 'btnReplyMention'));
+        const templatePicker = document.querySelector(`[data-template-picker="${kind}"]`);
+        const editor = getComposerEl(kind);
+        const chips = el(kind === 'compose' ? 'composeAttachChips' : (kind === 'comment' ? 'commentAttachChips' : 'replyAttachChips'));
+        const popup = el(mentionPopupId(kind));
+
+        attachBtn?.addEventListener('click', () => attachInput?.click());
+        attachInput?.addEventListener('change', async () => {
+            await addAttachments(kind, attachInput.files);
+            attachInput.value = '';
+        });
+
+        chips?.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-remove-attach]');
+            if (!btn) return;
+            const [bucketKind, idx] = btn.dataset.removeAttach.split(':');
+            const bucket = attachmentBucket(bucketKind);
+            const files = fileAttachmentsOnly(state[bucket] || []);
+            files.splice(Number(idx), 1);
+            state[bucket] = files;
+            renderAttachChips(bucketKind);
+        });
+
+        mentionBtn?.addEventListener('click', () => {
+            if (!editor) return;
+            insertHtmlAtCaret(editor, '@');
+            renderMentionPopup(kind, '');
+            editor.focus();
+        });
+
+        popup?.addEventListener('click', (e) => {
+            const item = e.target.closest('[data-mention-id]');
+            if (!item) return;
+            const member = state.members.find(m => String(m.id) === String(item.dataset.mentionId));
+            applyMention(kind, member);
+        });
+
+        editor?.addEventListener('paste', async (e) => {
+            const files = filesFromClipboard(e);
+            if (!files.length) return;
+
+            const images = files.filter((f) => (f.type || '').startsWith('image/'));
+            const others = files.filter((f) => !(f.type || '').startsWith('image/'));
+
+            // Compose/reply: paste images inline at the caret (screenshots, copied images).
+            if ((kind === 'compose' || kind === 'reply') && images.length) {
+                e.preventDefault();
+                for (const file of images) {
+                    await insertInlineImageAtCaret(editor, file);
+                }
+                if (others.length) await addAttachments(kind, others);
+                return;
+            }
+
+            e.preventDefault();
+            await addAttachments(kind, files);
+        });
+
+        editor?.addEventListener('dragenter', (e) => {
+            if (!e.dataTransfer?.types?.includes('Files')) return;
+            e.preventDefault();
+        });
+        editor?.addEventListener('dragover', (e) => {
+            if (!e.dataTransfer?.types?.includes('Files')) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+            editor.classList.add('is-drag-over');
+        });
+        editor?.addEventListener('dragleave', () => editor.classList.remove('is-drag-over'));
+        editor?.addEventListener('drop', async (e) => {
+            editor.classList.remove('is-drag-over');
+            const files = [...(e.dataTransfer?.files || [])];
+            if (!files.length) return;
+            e.preventDefault();
+
+            const images = files.filter((f) => (f.type || '').startsWith('image/'));
+            const others = files.filter((f) => !(f.type || '').startsWith('image/'));
+            if ((kind === 'compose' || kind === 'reply') && images.length) {
+                for (const file of images) {
+                    await insertInlineImageAtCaret(editor, file);
+                }
+                if (others.length) await addAttachments(kind, others);
+                return;
+            }
+
+            await addAttachments(kind, files);
+        });
+
+        const toggle = templatePicker?.querySelector('[data-template-picker-toggle]');
+        const search = templatePicker?.querySelector('[data-template-picker-search]');
+        const list = templatePicker?.querySelector('[data-template-picker-list]');
+        toggle?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (templatePicker.classList.contains('is-open')) {
+                closeTemplatePickers();
+            } else {
+                openTemplatePicker(templatePicker);
+            }
+        });
+        search?.addEventListener('input', () => renderTemplatePickerList(templatePicker));
+        search?.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closeTemplatePickers();
+                return;
+            }
+            const items = [...(list?.querySelectorAll('[data-insert-template-id]') || [])];
+            if (!items.length) return;
+            const active = list.querySelector('.is-active') || items[0];
+            let idx = Math.max(0, items.indexOf(active));
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                items[idx]?.classList.remove('is-active');
+                idx = (idx + 1) % items.length;
+                items[idx]?.classList.add('is-active');
+                items[idx]?.scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                items[idx]?.classList.remove('is-active');
+                idx = (idx - 1 + items.length) % items.length;
+                items[idx]?.classList.add('is-active');
+                items[idx]?.scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                const chosen = list.querySelector('.is-active') || items[0];
+                if (chosen) {
+                    insertTemplateInto(kind, chosen.dataset.insertTemplateId);
+                    closeTemplatePickers();
+                }
+            }
+        });
+        list?.addEventListener('click', (e) => {
+            const item = e.target.closest('[data-insert-template-id]');
+            if (!item) return;
+            insertTemplateInto(kind, item.dataset.insertTemplateId);
+            closeTemplatePickers();
+        });
+
+        editor?.addEventListener('input', () => {
+            const info = mentionQueryAtCursor(editor);
+            if (info) renderMentionPopup(kind, info.query);
+            else hideMentionPopup(kind);
+        });
+
+        editor?.addEventListener('keydown', (e) => {
+            const popupEl = el(mentionPopupId(kind));
+            if (!popupEl || popupEl.hidden) return;
+            const items = [...popupEl.querySelectorAll('[data-mention-id]')];
+            if (!items.length) return;
+            const active = popupEl.querySelector('.is-active');
+            let idx = Math.max(0, items.indexOf(active));
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                items[idx]?.classList.remove('is-active');
+                idx = (idx + 1) % items.length;
+                items[idx]?.classList.add('is-active');
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                items[idx]?.classList.remove('is-active');
+                idx = (idx - 1 + items.length) % items.length;
+                items[idx]?.classList.add('is-active');
+            } else if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                const member = state.members.find(m => String(m.id) === String(items[idx].dataset.mentionId));
+                applyMention(kind, member);
+            } else if (e.key === 'Escape') {
+                hideMentionPopup(kind);
+            }
+        });
+    }
+
+    const el = (id) => document.getElementById(id);
+
+    function folderLabel(view) {
+        return MAILBOX_FOLDERS.find(f => f.view === view)?.label
+            || ({ open: 'Open', subscribed: 'Subscribed', assigned_to_me: 'Assigned to me', archived: 'Archived', snoozed: 'Snoozed' }[view] || view);
+    }
+
+    function updateListTitle() {
+        if (state.selectedLabelId) {
+            const label = (state.leadLabels || []).find(l => Number(l.id) === Number(state.selectedLabelId));
+            el('listTitle').textContent = label?.name || 'Label';
+            return;
+        }
+        if (state.viewGroup && !state.selectedInboxId) {
+            const group = VIEW_GROUPS.find(item => item.id === state.viewGroup);
+            if (group) {
+                el('listTitle').textContent = group.label;
+                return;
+            }
+        }
+        if (state.selectedInboxId) {
+            const inbox = state.inboxes.find(i => i.id === state.selectedInboxId);
+            el('listTitle').textContent = (inbox?.name || 'Inbox') + ' · ' + folderLabel(state.view);
+            return;
+        }
+        el('listTitle').textContent = folderLabel(state.view);
+    }
+
+    async function api(path, options = {}) {
+        const res = await fetch(API + path, {
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': CSRF,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            credentials: 'same-origin',
+            ...options,
+            body: options.body ? JSON.stringify(options.body) : undefined,
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error((data && data.message) || `Request failed (${res.status})`);
+        return data || {};
+    }
+
+    // A bare "Request failed (5xx)" (no parseable JSON body) means something in
+    // front of the app — a proxy/gateway, not our own code — cut the request short
+    // (502/503/504, or Cloudflare's 524/522/etc). Same for a fetch()-level network
+    // failure. Both are transient and safe to retry for an idempotent GET/POST like
+    // a sync page; a real backend error always comes back with a JSON `message` and
+    // is never retried here.
+    function isTransientApiError(err) {
+        return /^Request failed \(5\d\d\)$/.test(err?.message || '') || /fetch/i.test(err?.message || '');
+    }
+
+    async function apiRetryTransient(path, options = {}, attempts = 3) {
+        for (let attempt = 1; ; attempt++) {
+            try {
+                return await api(path, options);
+            } catch (err) {
+                if (attempt >= attempts || !isTransientApiError(err)) throw err;
+                await new Promise(r => setTimeout(r, 1000 * attempt));
+            }
+        }
+    }
+
+    function initials(name) {
+        return (name || '?').split(/\s+/).slice(0, 2).map(s => s[0]?.toUpperCase() || '').join('');
+    }
+
+    function formatRelativeTime(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return '';
+
+        let secs = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+        const days = Math.floor(secs / 86400);
+        secs %= 86400;
+        const hours = Math.floor(secs / 3600);
+        secs %= 3600;
+        const mins = Math.floor(secs / 60);
+
+        if (days > 0) return `${days}d ${hours}h ${mins}m`;
+        if (hours > 0) return `${hours}h ${mins}m`;
+        if (mins > 0) return `${mins}m`;
+        return 'just now';
+    }
+
+    function formatAbsoluteTime(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return '';
+        return d.toLocaleString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+        });
+    }
+
+    function pad2(n) {
+        return String(n).padStart(2, '0');
+    }
+
+    /** datetime-local value from a Date in the browser's local wall clock */
+    function toDatetimeLocalValue(date) {
+        const d = date instanceof Date ? date : new Date(date);
+        return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    }
+
+    /**
+     * Convert datetime-local input to an API send_at string (app timezone wall clock).
+     * Avoids UTC shifts from Date#toISOString().
+     */
+    function datetimeLocalToApi(raw) {
+        const value = String(raw || '').trim();
+        if (!value) return null;
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) {
+            return value.replace('T', ' ') + ':00';
+        }
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) {
+            return value.replace('T', ' ').slice(0, 19);
+        }
+        return value;
+    }
+
+    function isDatetimeLocalInFuture(raw) {
+        const api = datetimeLocalToApi(raw);
+        if (!api) return false;
+        const when = new Date(api.replace(' ', 'T'));
+        return !Number.isNaN(when.getTime()) && when.getTime() > Date.now();
+    }
+
+    function timeAgo(iso) {
+        return formatRelativeTime(iso);
+    }
+
+    function applyTimestampDisplay(node, iso, relativeFn) {
+        if (!iso) {
+            node.textContent = '';
+            return;
+        }
+        if (node.classList.contains('is-absolute')) {
+            node.textContent = formatAbsoluteTime(iso);
+            node.title = 'Click to show relative time';
+        } else {
+            node.textContent = relativeFn(iso);
+            node.title = 'Click to show date & time';
+        }
+    }
+
+    function refreshConversationTimes() {
+        document.querySelectorAll('[data-conv-time]').forEach(node => {
+            applyTimestampDisplay(node, node.dataset.convTime, formatRelativeTime);
+        });
+        document.querySelectorAll('[data-msg-time]').forEach(node => {
+            applyTimestampDisplay(node, node.dataset.msgTime, formatThreadTime);
+        });
+    }
+
+    function openModal(id) {
+        if (shouldDockComposerModal(id) && dockInlineComposer(id)) {
+            state.advancedOpen = false;
+            updateAdvancedToggleState();
+            return;
+        }
+        if (state.inlineComposerModal) undockInlineComposer();
+        el('modalBackdrop').style.display = 'flex';
+        ['modalCompose','modalReply','modalInbox','modalTemplateList','modalTemplate','modalSignatureList','modalSignature','modalRule','modalMembers','modalMerge','modalAdvancedSearch','modalSidebarLabels'].forEach(m => {
+            const node = el(m);
+            if (node) node.style.display = m === id ? 'grid' : 'none';
+        });
+        state.advancedOpen = id === 'modalAdvancedSearch';
+        updateAdvancedToggleState();
+    }
+    function closeModal() {
+        const returningFromTemplateEdit = el('modalTemplate')?.style.display === 'grid' && state.returnToTemplateList;
+        if (returningFromTemplateEdit) {
+            state.returnToTemplateList = false;
+            state.editingTemplateId = null;
+            state.templateAttachments = [];
+            renderAttachChips('template');
+            openTemplateListModal();
+            return;
+        }
+        const returningFromSignatureEdit = el('modalSignature')?.style.display === 'grid' && state.returnToSignatureList;
+        if (returningFromSignatureEdit) {
+            state.returnToSignatureList = false;
+            state.editingSignatureId = null;
+            openSignatureListModal();
+            return;
+        }
+        const wasInline = !!state.inlineComposerModal;
+        undockInlineComposer();
+        el('modalBackdrop').style.display = 'none';
+        closeHtmlLinkDialog();
+        state.advancedOpen = false;
+        updateAdvancedToggleState();
+        state.editingTemplateId = null;
+        state.editingSignatureId = null;
+        state.returnToTemplateList = false;
+        state.returnToSignatureList = false;
+        state.templateAttachments = [];
+        renderAttachChips('template');
+        closeTemplatePickers();
+        if (wasInline || INBOX_POPOUT) {
+            syncComposerModeButtons('comment');
+            hideMentionPopup('comment');
+        }
+    }
+
+    let mergeSearchTimer = null;
+
+    function mergeFolderLabel(folder) {
+        return { inbox: 'Inbox', drafts: 'Drafts', sent: 'Sent', trash: 'Trash', spam: 'Spam' }[folder] || folder || 'Inbox';
+    }
+
+    function renderMergeCandidates(conversations) {
+        const list = el('mergeCandidateList');
+        if (!list) return;
+        if (!conversations.length) {
+            list.innerHTML = '<div class="inbox-tool-empty">No other threads in this inbox match.</div>';
+            return;
+        }
+        list.innerHTML = conversations.map(c => `
+            <button type="button" class="inbox-merge-row" data-merge-id="${c.id}">
+                <span class="inbox-merge-row-from">${escapeHtml(c.from_name || c.from_email || 'Unknown')}</span>
+                <span class="inbox-merge-row-subject">${escapeHtml(c.subject || '(No subject)')}</span>
+                <span class="inbox-merge-row-meta">${escapeHtml(mergeFolderLabel(c.folder))} · ${escapeHtml(formatThreadTime(c.last_message_at) || '')}</span>
+            </button>
+        `).join('');
+    }
+
+    function renderMergedThreads() {
+        const section = el('mergeMergedSection');
+        const list = el('mergeMergedList');
+        const threads = state.conversation?.merged_threads || [];
+        if (!section || !list) return;
+        section.hidden = threads.length < 1;
+        if (!threads.length) {
+            list.innerHTML = '';
+            return;
+        }
+        list.innerHTML = threads.map(c => `
+            <div class="inbox-merge-unmerge">
+                <div class="inbox-merge-row">
+                    <span class="inbox-merge-row-from">${escapeHtml(c.from_name || c.from_email || 'Unknown')}</span>
+                    <span class="inbox-merge-row-subject">${escapeHtml(c.subject || '(No subject)')}</span>
+                    <span class="inbox-merge-row-meta">${escapeHtml(mergeFolderLabel(c.folder))} · ${escapeHtml(formatThreadTime(c.last_message_at) || '')}</span>
+                </div>
+                <button type="button" class="inbox-btn ghost" data-unmerge-id="${c.id}">Unmerge</button>
+            </div>
+        `).join('');
+    }
+
+    async function loadMergeCandidates(q = '') {
+        if (!state.selectedId) return;
+        const params = new URLSearchParams();
+        if (q) params.set('q', q);
+        const data = await api('/conversations/' + state.selectedId + '/merge-candidates?' + params.toString());
+        renderMergeCandidates(data.conversations || []);
+    }
+
+    async function openMergeModal() {
+        if (!state.conversation) return;
+        const inbox = state.conversation.inbox || state.inboxes.find(i => Number(i.id) === Number(state.conversation.inbox_id));
+        const kind = inbox?.type === 'personal' ? 'personal inbox' : 'shared inbox';
+        el('mergeModalHelp').textContent = inbox?.name
+            ? `Merge and unmerge threads in this ${kind} (${inbox.name}). Threads from other inboxes cannot be combined here.`
+            : 'Merge and unmerge works in personal and shared inboxes. Threads must belong to the same inbox.';
+        if (el('mergeSearch')) el('mergeSearch').value = '';
+        renderMergedThreads();
+        renderMergeCandidates([]);
+        openModal('modalMerge');
+        try {
+            await loadMergeCandidates();
+        } catch (err) {
+            el('mergeCandidateList').innerHTML = `<div class="inbox-tool-empty">${escapeHtml(err.message || 'Could not load threads.')}</div>`;
+        }
+        setTimeout(() => el('mergeSearch')?.focus(), 50);
+    }
+
+    async function mergeSelectedConversation(sourceId) {
+        if (!state.selectedId || !sourceId) return;
+        const row = el('mergeCandidateList')?.querySelector(`[data-merge-id="${sourceId}"]`);
+        const label = row?.querySelector('.inbox-merge-row-subject')?.textContent || 'this conversation';
+        if (!confirm(`Merge “${label}” into the open thread?\n\nBoth must belong to this same personal or shared inbox. You can unmerge them later.`)) {
+            return;
+        }
+        await api('/conversations/' + state.selectedId + '/merge', {
+            method: 'POST',
+            body: { conversation_id: Number(sourceId) },
+        });
+        closeModal();
+        await loadBootstrap();
+        await loadConversations();
+        await openConversation(state.selectedId);
+    }
+
+    async function unmergeSelectedConversation(sourceId = null) {
+        if (!state.selectedId) return;
+        const all = sourceId == null;
+        const ok = all
+            ? confirm('Unmerge every conversation that was merged into this thread?')
+            : confirm('Split this conversation back out into its own thread?');
+        if (!ok) return;
+        await api('/conversations/' + state.selectedId + '/unmerge', {
+            method: 'POST',
+            body: all ? {} : { conversation_id: Number(sourceId) },
+        });
+        await loadBootstrap();
+        await loadConversations();
+        await openConversation(state.selectedId);
+        renderMergedThreads();
+        try {
+            await loadMergeCandidates(el('mergeSearch')?.value || '');
+        } catch (err) {
+            console.warn(err);
+        }
+        if (!(state.conversation?.merged_threads || []).length) {
+            closeModal();
+        }
+    }
+
+    function openTemplateModal(templateId = null) {
+        if (!state.permissions.create_templates) {
+            alert('You do not have permission to manage templates.');
+            return;
+        }
+        state.returnToTemplateList = el('modalTemplateList')?.style.display === 'grid';
+        const item = templateId
+            ? state.templates.find(t => String(t.id) === String(templateId))
+            : null;
+        state.editingTemplateId = item ? item.id : null;
+        el('templateModalTitle').textContent = item ? 'Edit template' : 'New template';
+        el('btnSaveTemplate').textContent = item ? 'Save' : 'Create';
+        const deleteBtn = el('btnDeleteTemplate');
+        if (deleteBtn) deleteBtn.style.display = item ? '' : 'none';
+        el('newTemplateName').value = item?.name || '';
+        el('newTemplateSubject').value = item?.subject || '';
+        setHtmlEditorContent('template', item?.body_html || plainToHtml(item?.body || '') || '');
+        setHtmlEditorMode('template', 'visual');
+        state.templateAttachments = fileAttachmentsOnly(item?.attachments || []).map((a) => ({
+            name: a.name,
+            contentType: a.contentType || 'application/octet-stream',
+            contentBytes: a.contentBytes,
+            size: a.size || Math.round(String(a.contentBytes || '').length * 0.75),
+        }));
+        renderAttachChips('template');
+        openModal('modalTemplate');
+        setTimeout(() => el('newTemplateName')?.focus(), 50);
+    }
+
+    function deleteTemplateById(templateId) {
+        if (!state.permissions.create_templates) {
+            alert('You do not have permission to manage templates.');
+            return Promise.resolve(false);
+        }
+        if (!templateId) return Promise.resolve(false);
+        const item = state.templates.find(t => String(t.id) === String(templateId));
+        if (!item) return Promise.resolve(false);
+        if (!confirm(`Delete template "${item.name}"?\n\nThis removes it for everyone in your company.`)) {
+            return Promise.resolve(false);
+        }
+        return api('/templates/' + templateId, { method: 'DELETE' })
+            .then(() => {
+                state.templates = state.templates.filter(t => String(t.id) !== String(templateId));
+                updateTemplateCount();
+                refreshTemplateSelects();
+                if (el('modalTemplateList')?.style.display === 'grid') {
+                    renderTemplateList();
+                }
+                return true;
+            })
+            .catch(err => {
+                alert(err.message || 'Failed to delete template');
+                return false;
+            });
+    }
+
+    function setComposeModalCopy(title, help) {
+        const titleEl = el('composeModalTitle');
+        const helpEl = el('composeModalHelp');
+        if (titleEl) titleEl.textContent = title;
+        if (helpEl) helpEl.textContent = help;
+    }
+
+    function openComposeModal(opts = {}) {
+        const connected = state.inboxes.filter(i => i.connected);
+        if (!connected.length) {
+            alert('Connect an Outlook inbox first.');
+            return;
+        }
+        const preferred = opts.inboxId ? Number(opts.inboxId) : Number(state.selectedInboxId || state.conversation?.inbox_id || 0);
+        el('composeFrom').innerHTML = connected.map(i =>
+            `<option value="${i.id}" ${Number(i.id) === preferred ? 'selected' : ''}>${escapeHtml(i.name)} (${escapeHtml(i.email || 'Outlook')})</option>`
+        ).join('');
+        if (!el('composeFrom').value && connected[0]) {
+            el('composeFrom').value = String(connected[0].id);
+        }
+        el('composeTo').value = opts.to || '';
+        el('composeCc').value = opts.cc || '';
+        el('composeSubject').value = opts.subject || '';
+        if (opts.bodyHtml != null) {
+            if (opts.withSignature) applyComposerSignature('compose', opts.bodyHtml);
+            else setComposerHtml('compose', opts.bodyHtml);
+        } else {
+            applyComposerSignature('compose');
+        }
+        state.composeAttachments = opts.attachments || [];
+        state.composeDraftConversationId = opts.draftConversationId || null;
+        state.shareDraftSelected.compose = {};
+        renderAttachChips('compose');
+        hideMentionPopup('compose');
+        refreshTemplateSelects();
+        setComposeModalCopy(
+            opts.title || 'New message',
+            opts.help || 'Send email through a connected Outlook inbox.'
+        );
+        if (INBOX_POPOUT) {
+            const title = String(opts.title || '').toLowerCase();
+            syncComposerModeButtons(title.includes('forward') ? 'forward' : 'comment');
+        }
+        openModal('modalCompose');
+        setTimeout(() => el(opts.focus || 'composeTo')?.focus(), 50);
+    }
+
+    function allLeadLabelsSorted() {
+        return (state.leadLabels || []).slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+    }
+
+    function currentSidebarLabelIds() {
+        if (Array.isArray(state.sidebarLabelIds)) {
+            return state.sidebarLabelIds.map(id => Number(id)).filter(id => id > 0);
+        }
+        return allLeadLabelsSorted().map(l => Number(l.id));
+    }
+
+    function visibleSidebarLabels() {
+        const byId = Object.fromEntries((state.leadLabels || []).map(l => [Number(l.id), l]));
+        let list = currentSidebarLabelIds().map(id => byId[id]).filter(Boolean);
+        const q = String(state.sidebarLabelSearch || '').trim().toLowerCase();
+        if (q) {
+            list = list.filter(l => (l.name || '').toLowerCase().includes(q));
+        }
+        return list;
+    }
+
+    function labelTagIcon(color) {
+        const fill = escapeHtml(color || '#64748b');
+        return `<svg class="inbox-label-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="${fill}" d="M2.2 3.4A1.4 1.4 0 0 1 3.6 2h4.95c.37 0 .73.15 1 .41l4.04 4.04a1.4 1.4 0 0 1 0 1.98L9.43 12.6a1.4 1.4 0 0 1-1.98 0L3.41 8.55A1.4 1.4 0 0 1 3 7.56V3.4z"/><circle cx="5.6" cy="5.4" r="1.05" fill="#fff"/></svg>`;
+    }
+
+    function labelLockIcon() {
+        return `<svg class="inbox-label-lock" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5.25 6.5V5.2a2.75 2.75 0 0 1 5.5 0v1.3h.5A1.25 1.25 0 0 1 12.5 7.75v4A1.25 1.25 0 0 1 11.25 13h-6.5A1.25 1.25 0 0 1 3.5 11.75v-4A1.25 1.25 0 0 1 4.75 6.5h.5zm1.25-1.3a1.5 1.5 0 0 1 3 0v1.3h-3V5.2z"/></svg>`;
+    }
+
+    function renderSidebarLabels() {
+        const list = el('sidebarLabelList');
+        if (!list) return;
+        const labels = visibleSidebarLabels();
+        const searching = String(state.sidebarLabelSearch || '').trim() !== '';
+        if (!labels.length) {
+            const empty = (state.leadLabels || []).length
+                ? (searching ? 'No matching labels' : 'No pinned labels. Click + to add some.')
+                : 'No labels yet. Create them on a lead or import Front tags.';
+            list.innerHTML = `<div class="inbox-label-empty">${empty}</div>`;
+            return;
+        }
+        list.innerHTML = labels.map(label => {
+            const active = Number(state.selectedLabelId) === Number(label.id);
+            const count = Number(label.count || 0);
+            return `
+                <div class="inbox-label-item ${active ? 'is-active' : ''}" data-label-item="${label.id}" ${searching ? '' : 'draggable="true"'}>
+                    <button type="button" class="inbox-label-row" data-sidebar-label="${label.id}" title="${escapeHtml(label.name)}">
+                        ${labelTagIcon(label.color)}
+                        <span class="inbox-label-name">${escapeHtml(label.name)}</span>
+                        ${label.shared === false ? '' : labelLockIcon()}
+                        ${count ? `<span class="inbox-count">${count}</span>` : '<span></span>'}
+                    </button>
+                    <button type="button" class="inbox-label-unpin" data-unpin-label="${label.id}" title="Remove from sidebar">×</button>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function persistSidebarLabels(ids) {
+        const next = ids.map(id => Number(id)).filter(id => id > 0);
+        state.sidebarLabelIds = next;
+        renderSidebarLabels();
+        try {
+            const data = await api('/sidebar-labels', { method: 'PUT', body: { label_ids: next } });
+            if (Array.isArray(data.sidebar_label_ids)) {
+                state.sidebarLabelIds = data.sidebar_label_ids.map(id => Number(id));
+                renderSidebarLabels();
+            }
+        } catch (err) {
+            alert(err.message || 'Could not save sidebar labels.');
+        }
+    }
+
+    const LABEL_FOLDERS = [
+        { bucket: 'open', label: 'Open' },
+        { bucket: 'archived', label: 'Archived' },
+        { bucket: 'snoozed', label: 'Snoozed' },
+    ];
+
+    function renderLabelFolders() {
+        const host = el('labelFolders');
+        if (!host) return;
+
+        let folders = null;
+        if (state.selectedLabelId) {
+            const counts = state.labelFolderCounts || {};
+            folders = LABEL_FOLDERS.map(folder => ({
+                bucket: folder.bucket,
+                label: folder.label,
+                count: Number(counts[folder.bucket] || 0),
+                active: state.view === folder.bucket,
+            }));
+        } else if (state.viewGroup && !state.selectedInboxId) {
+            const group = VIEW_GROUPS.find(item => item.id === state.viewGroup);
+            if (group) {
+                folders = group.folders.map(folder => ({
+                    bucket: folder.bucket,
+                    label: folder.label,
+                    count: viewGroupCount(folder.count),
+                    active: state.view === folder.bucket,
+                }));
+            }
+        }
+
+        if (!folders) {
+            host.hidden = true;
+            host.innerHTML = '';
+            return;
+        }
+
+        host.hidden = false;
+        host.innerHTML = folders.map(folder => `
+            <button type="button" class="inbox-label-folder ${folder.active ? 'active' : ''}" data-header-bucket="${folder.bucket}">
+                <span>${folder.label}</span>
+                ${folder.count ? `<span class="inbox-count">${folder.count}</span>` : ''}
+            </button>
+        `).join('');
+    }
+
+    async function openSidebarLabel(id) {
+        state.selectedLabelId = Number(id);
+        state.selectedInboxId = null;
+        state.viewGroup = null;
+        state.view = 'open';
+        state.labelFolderCounts = { open: 0, archived: 0, snoozed: 0 };
+        renderNav();
+        await loadConversations();
+    }
+
+    async function unpinSidebarLabel(id) {
+        const next = currentSidebarLabelIds().filter(item => Number(item) !== Number(id));
+        if (Number(state.selectedLabelId) === Number(id)) {
+            state.selectedLabelId = null;
+        }
+        await persistSidebarLabels(next);
+        renderNav();
+        if (!state.selectedLabelId) await loadConversations();
+    }
+
+    function openSidebarLabelPicker() {
+        state.sidebarLabelPickerDraft = currentSidebarLabelIds();
+        const search = el('sidebarLabelPickerSearch');
+        if (search) search.value = '';
+        renderSidebarLabelPicker();
+        openModal('modalSidebarLabels');
+        setTimeout(() => search?.focus(), 50);
+    }
+
+    function updateSidebarLabelPickerCount() {
+        const countEl = el('sidebarLabelPickerCount');
+        if (!countEl) return;
+        const selected = (state.sidebarLabelPickerDraft || []).length;
+        const total = (state.leadLabels || []).length;
+        countEl.textContent = selected + ' of ' + total + ' selected';
+    }
+
+    function renderSidebarLabelPicker() {
+        const list = el('sidebarLabelPickerList');
+        if (!list) return;
+        const selected = new Set((state.sidebarLabelPickerDraft || []).map(id => Number(id)));
+        const q = String(el('sidebarLabelPickerSearch')?.value || '').trim().toLowerCase();
+        const labels = allLeadLabelsSorted().filter(l => !q || (l.name || '').toLowerCase().includes(q));
+        updateSidebarLabelPickerCount();
+        if (!labels.length) {
+            list.innerHTML = `<div class="inbox-label-picker-empty">${q ? 'No matching labels' : 'No labels yet'}</div>`;
+            return;
+        }
+        list.innerHTML = labels.map(l => `
+            <label class="inbox-label-picker-option ${selected.has(Number(l.id)) ? 'is-checked' : ''}">
+                <input type="checkbox" data-pick-label="${l.id}" ${selected.has(Number(l.id)) ? 'checked' : ''}>
+                ${labelTagIcon(l.color)}
+                <span class="inbox-label-name">${escapeHtml(l.name)}</span>
+                ${labelLockIcon()}
+            </label>
+        `).join('');
+    }
+
+    async function saveSidebarLabelPicker() {
+        await persistSidebarLabels(state.sidebarLabelPickerDraft || []);
+        closeModal();
+        renderNav();
+    }
+
+    function viewGroupCount(key) {
+        const openCount = state.inboxes.reduce((n, inbox) => n + (inbox.open_count || 0), 0);
+        const counts = {
+            subscribedOpen: state.subscribedCount,
+            subscribedArchived: state.subscribedArchivedCount,
+            subscribedSnoozed: state.subscribedSnoozedCount,
+            assignedOpen: state.assignedToMeCount,
+            assignedArchived: state.assignedArchivedCount,
+            assignedSnoozed: state.assignedSnoozedCount,
+            reopenedArchived: state.reopenedArchivedCount,
+            reopenedSnoozed: state.reopenedSnoozedCount,
+            open: openCount,
+            archived: state.archivedCount,
+            snoozed: state.snoozedCount,
+        };
+        return Number(counts[key] || 0);
+    }
+
+    function renderViewGroups() {
+        const host = el('viewGroups');
+        if (!host) return;
+        host.innerHTML = VIEW_GROUPS.map(group => {
+            const selected = state.viewGroup === group.id && !state.selectedInboxId && !state.selectedLabelId;
+            const parentCount = viewGroupCount(group.folders.find(folder => folder.bucket === group.defaultBucket)?.count);
+            return `
+                <div class="inbox-view-group">
+                    <button type="button" class="inbox-view-head ${selected ? 'is-selected' : ''}" data-view-group="${group.id}">
+                        <span>${group.label}</span>
+                        ${parentCount ? `<span class="inbox-count">${parentCount}</span>` : ''}
+                    </button>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function selectViewFolder(groupId, bucket) {
+        state.viewGroup = groupId;
+        state.view = bucket;
+        state.selectedInboxId = null;
+        state.selectedLabelId = null;
+        renderNav();
+        await loadConversations();
+    }
+
+    function renderNav() {
+        const inboxList = el('inboxList');
+        inboxList.innerHTML = state.inboxes.map(inbox => {
+            const expanded = !!state.expandedInboxIds[inbox.id] || state.selectedInboxId === inbox.id;
+            if (state.selectedInboxId === inbox.id) state.expandedInboxIds[inbox.id] = true;
+            const folders = MAILBOX_FOLDERS.map(folder => {
+                const active = !state.selectedLabelId && state.selectedInboxId === inbox.id && state.view === folder.view;
+                const count = inbox[folder.countKey] || 0;
+                return `
+                    <button type="button" class="inbox-folder-row ${active ? 'active' : ''}"
+                        data-inbox-id="${inbox.id}" data-folder-view="${folder.view}">
+                        <span>${folder.label}</span>
+                        ${count ? `<span class="inbox-count">${count}</span>` : '<span></span>'}
+                    </button>
+                `;
+            }).join('');
+
+            return `
+            <div class="inbox-mailbox ${expanded ? 'is-expanded' : ''}" data-mailbox-id="${inbox.id}">
+                <div class="inbox-mailbox-head ${!state.selectedLabelId && state.selectedInboxId === inbox.id ? 'is-selected' : ''}" data-inbox-toggle="${inbox.id}">
+                    <svg class="inbox-mailbox-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                    <span class="inbox-dot" style="background:${inbox.color || '#2f6fed'}"></span>
+                    <span class="inbox-mailbox-meta">
+                        <span class="inbox-mailbox-name-row">
+                            <span class="inbox-mailbox-name" title="${escapeHtml(inbox.name)}">${escapeHtml(inbox.name)}</span>
+                            <span class="inbox-mailbox-actions">
+                                ${inbox.connected ? `<button type="button" class="inbox-mini-btn inbox-sync-inbox-btn" data-sync-inbox="${inbox.id}" title="Sync ${escapeHtml(inbox.name)}">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                                </button>` : ''}
+                                ${inbox.type === 'shared' ? `<button type="button" class="inbox-mini-btn" data-manage-members="${inbox.id}" title="Members">M</button>` : ''}
+                                ${inbox.type === 'shared' ? `<button type="button" class="inbox-connect-ms365" data-connect-inbox="${inbox.id}" title="${inbox.connected ? 'Reconnect Microsoft 365' : 'Sign in with Microsoft 365'}">${inbox.connected ? 'MS365' : 'Sign in'}</button>` : ''}
+                                ${inbox.unread_count ? `<span class="inbox-count">${inbox.unread_count}</span>` : ''}
+                            </span>
+                        </span>
+                        <span class="inbox-mailbox-sub" title="${escapeHtml(inbox.email || '')}">${escapeHtml(inbox.email || 'no email set')} · ${inbox.type}${inbox.connected ? '' : ' · not connected'}</span>
+                    </span>
+                </div>
+                <div class="inbox-mailbox-folders">${folders}</div>
+            </div>
+            `;
+        }).join('') || '<div style="padding:0.4rem 0.55rem;font-size:0.8rem;color:var(--inbox-muted);">No inboxes yet</div>';
+
+        updateTemplateCount();
+        updateSignatureCount();
+
+        // Keep tool-group expand state in sync with render
+        document.querySelectorAll('[data-tool-group]').forEach(group => {
+            const key = group.dataset.toolGroup;
+            group.classList.toggle('is-expanded', !!state.expandedToolGroups[key]);
+        });
+        const toolsToggle = el('btnToggleInboxTools');
+        if (toolsToggle) {
+            toolsToggle.classList.toggle('is-expanded', !!state.inboxToolsOpen);
+            toolsToggle.setAttribute('aria-expanded', state.inboxToolsOpen ? 'true' : 'false');
+        }
+
+        const openCount = state.inboxes
+            .filter(i => i.type === 'shared')
+            .reduce((n, i) => n + (i.open_count || 0), 0);
+        el('countOpen').textContent = openCount;
+        renderViewGroups();
+
+        // Highlight global views only when not scoped to a mailbox folder
+        document.querySelectorAll('[data-view][data-scope="all"]').forEach(btn => {
+            const active = !state.viewGroup && !state.selectedInboxId && !state.selectedLabelId && state.view === btn.dataset.view;
+            btn.classList.toggle('active', active);
+        });
+        renderSidebarLabels();
+        renderLabelFolders();
+
+        const assign = el('assignSelect');
+        const current = assign.value;
+        assign.innerHTML = '<option value="">Unassigned</option>' + state.members.map(m =>
+            `<option value="${m.id}" data-search="${escapeHtml(`${m.name || ''} ${m.email || ''}`)}">${escapeHtml(m.name)}</option>`
+        ).join('');
+        assign.value = current;
+        refreshSearchSelect('assignSelect');
+        if (state.conversation) renderAssignMenu();
+
+        el('newInboxMembers').innerHTML = state.members.map(m =>
+            `<option value="${m.id}">${escapeHtml(m.name)} (${escapeHtml(m.email || '')})</option>`
+        ).join('');
+
+        // Rule builder uses a custom inbox picker; refresh it with current inboxes.
+        renderRuleInboxPicker();
+
+        const advInbox = el('advInbox');
+        if (advInbox) {
+            const prev = advInbox.value || state.filters.inbox_id || '';
+            advInbox.innerHTML = '<option value="">All inboxes</option>' + state.inboxes.map(i =>
+                `<option value="${i.id}">${escapeHtml(i.name)}</option>`
+            ).join('');
+            advInbox.value = prev;
+        }
+
+        const advAssigned = el('advAssigned');
+        if (advAssigned) {
+            const prevA = advAssigned.value !== ''
+                ? advAssigned.value
+                : (state.filters.assigned_to !== '' && state.filters.assigned_to != null
+                    ? String(state.filters.assigned_to)
+                    : '');
+            advAssigned.innerHTML = '<option value="">Anyone</option><option value="0">Unassigned</option>' +
+                state.members.map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join('');
+            advAssigned.value = prevA;
+        }
+
+        refreshRuleActionValueSelects();
+        updateListTitle();
+        renderFilterChips();
+        refreshTemplateSelects();
+    }
+
+    function selectedRuleInboxIds() {
+        return [...document.querySelectorAll('#ruleInboxMenu input[type="checkbox"]:checked')]
+            .map(cb => Number(cb.value))
+            .filter(id => Number.isFinite(id));
+    }
+
+    function updateRuleInboxToggleLabel() {
+        const ids = selectedRuleInboxIds();
+        const label = el('ruleInboxToggleLabel');
+        if (!label) return;
+        if (!ids.length) {
+            label.textContent = 'Select inboxes';
+            return;
+        }
+        const names = state.inboxes
+            .filter(i => ids.includes(Number(i.id)))
+            .map(i => i.name);
+        label.textContent = names.length <= 2
+            ? names.join(', ')
+            : `${names.length} inboxes selected`;
+    }
+
+    function renderRuleInboxPicker() {
+        const menu = el('ruleInboxMenu');
+        if (!menu) return;
+        const prev = new Set(selectedRuleInboxIds().map(String));
+        menu.innerHTML = state.inboxes.map(i => `
+            <label class="inbox-rule-inbox-option">
+                <input type="checkbox" value="${i.id}" ${prev.has(String(i.id)) ? 'checked' : ''}>
+                <span>${escapeHtml(i.name)}</span>
+            </label>
+        `).join('') || '<div class="inbox-tool-empty" style="padding:0.5rem;">No inboxes</div>';
+        updateRuleInboxToggleLabel();
+    }
+
+    function conditionFieldOptions(selected = 'from_email') {
+        const fields = [
+            ['from_email', 'From email'],
+            ['from_name', 'From name'],
+            ['subject', 'Subject'],
+            ['snippet', 'Body preview'],
+        ];
+        return fields.map(([value, label]) =>
+            `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`
+        ).join('');
+    }
+
+    function conditionOperatorOptions(selected = 'contains') {
+        const ops = [
+            ['contains', 'contains'],
+            ['equals', 'equals'],
+            ['starts_with', 'starts with'],
+        ];
+        return ops.map(([value, label]) =>
+            `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`
+        ).join('');
+    }
+
+    function actionTypeOptions(selected = 'assign') {
+        const types = [
+            ['assign', 'Assign to'],
+            ['notify_assignee', 'Notify assignee'],
+            ['archive', 'Archive'],
+            ['reopen', 'Reopen now'],
+            ['reopen_after_days', 'Reopen after days'],
+            ['mark_read', 'Mark read'],
+            ['mark_unread', 'Mark unread'],
+        ];
+        return types.map(([value, label]) =>
+            `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`
+        ).join('');
+    }
+
+    function actionValueOptions(type, selected = '') {
+        if (type === 'assign') {
+            return state.members.map(m =>
+                `<option value="${m.id}" ${String(selected) === String(m.id) ? 'selected' : ''}>${escapeHtml(m.name)}</option>`
+            ).join('') || '<option value="">No teammates</option>';
+        }
+        if (type === 'reopen_after_days') {
+            const days = [1, 2, 3, 5, 7, 14, 30, 60, 90];
+            const selectedDay = String(selected || '3');
+            const opts = days.map(d =>
+                `<option value="${d}" ${selectedDay === String(d) ? 'selected' : ''}>${d} day${d === 1 ? '' : 's'}</option>`
+            ).join('');
+            return opts + (days.includes(Number(selectedDay)) ? '' : `<option value="${escapeHtml(selectedDay)}" selected>${escapeHtml(selectedDay)} days</option>`);
+        }
+        return '<option value="">—</option>';
+    }
+
+    function addRuleConditionRow(preset = {}) {
+        const wrap = el('ruleExtraConditions');
+        if (!wrap) return;
+        const row = document.createElement('div');
+        row.className = 'inbox-rule-extra-card';
+        row.innerHTML = `
+            <select class="form-input" data-rule-cond-field>${conditionFieldOptions(preset.field || 'from_email')}</select>
+            <select class="form-input" data-rule-cond-operator>${conditionOperatorOptions(preset.operator || 'contains')}</select>
+            <input type="text" class="form-input" data-rule-cond-value placeholder="Value" value="${escapeHtml(preset.value || '')}">
+            <button type="button" class="inbox-rule-remove" data-remove-rule-row title="Remove">×</button>
+        `;
+        wrap.appendChild(row);
+    }
+
+    function addRuleActionRow(preset = {}) {
+        const wrap = el('ruleActions');
+        if (!wrap) return;
+        const type = preset.type || 'assign';
+        const needsValue = !['archive', 'reopen', 'notify_assignee', 'mark_read', 'mark_unread'].includes(type);
+        const row = document.createElement('div');
+        row.className = 'inbox-rule-extra-card is-action';
+        row.innerHTML = `
+            <select class="form-input" data-rule-action-type>${actionTypeOptions(type)}</select>
+            <select class="form-input" data-rule-action-value ${needsValue ? '' : 'disabled'}>
+                ${actionValueOptions(type, preset.value || (type === 'reopen_after_days' ? '3' : ''))}
+            </select>
+            <button type="button" class="inbox-rule-remove" data-remove-rule-row title="Remove">×</button>
+        `;
+        wrap.appendChild(row);
+    }
+
+    function refreshRuleActionValueSelects() {
+        document.querySelectorAll('#ruleActions [data-rule-action-type]').forEach(typeSel => {
+            const row = typeSel.closest('.inbox-rule-extra-card');
+            const valueSel = row?.querySelector('[data-rule-action-value]');
+            if (!valueSel) return;
+            const type = typeSel.value;
+            const prev = valueSel.value;
+            const needsValue = !['archive', 'reopen', 'notify_assignee', 'mark_read', 'mark_unread'].includes(type);
+            valueSel.innerHTML = actionValueOptions(type, type === 'reopen_after_days' ? (prev || '3') : prev);
+            valueSel.disabled = !needsValue;
+        });
+    }
+
+    const RULE_TRIGGERS = [
+        { value: 'inbound_message', label: 'Inbound message is received', help: 'Any inbound email, including replies in existing threads.' },
+        { value: 'inbound_message_new', label: 'Inbound message is received (new conversation)', help: 'Only when a brand-new conversation is created.' },
+        { value: 'outbound_message_new', label: 'Outbound message is sent (new conversation)', help: 'When you compose and send a new email.' },
+        { value: 'outbound_reply', label: 'Outbound reply is sent', help: 'When a reply is sent on an existing conversation.' },
+        { value: 'conversation_assigned', label: 'Conversation is assigned', help: 'When a teammate is assigned to the conversation.' },
+        { value: 'conversation_archived', label: 'Conversation is archived', help: 'When a conversation is archived.' },
+        { value: 'conversation_moved', label: 'Conversation is moved', help: 'When moved to spam, trash, inbox, or similar.' },
+        { value: 'comment_added', label: 'Internal comment is added', help: 'When a teammate posts an internal comment.' },
+    ];
+
+    function triggerOptions(selected = 'inbound_message') {
+        return RULE_TRIGGERS.map(t =>
+            `<option value="${t.value}" ${t.value === selected ? 'selected' : ''}>${escapeHtml(t.label)}</option>`
+        ).join('');
+    }
+
+    function triggerHelp(value) {
+        return RULE_TRIGGERS.find(t => t.value === value)?.help || '';
+    }
+
+    function addRuleTriggerRow(preset = {}) {
+        const wrap = el('ruleTriggers');
+        if (!wrap) return;
+        const value = preset.value || 'inbound_message';
+        const row = document.createElement('div');
+        row.className = 'inbox-rule-extra-card is-trigger';
+        row.innerHTML = `
+            <div>
+                <select class="form-input" data-rule-trigger>${triggerOptions(value)}</select>
+                <p class="inbox-rule-trigger-help" data-rule-trigger-help>${escapeHtml(triggerHelp(value))}</p>
+            </div>
+            <button type="button" class="inbox-rule-remove" data-remove-rule-row title="Remove">×</button>
+        `;
+        wrap.appendChild(row);
+        refreshRuleTriggerAddState();
+    }
+
+    function refreshRuleTriggerAddState() {
+        const btn = el('btnAddRuleTrigger');
+        if (!btn) return;
+        const count = document.querySelectorAll('#ruleTriggers [data-rule-trigger]').length;
+        btn.disabled = count >= RULE_TRIGGERS.length;
+        btn.title = btn.disabled ? 'All triggers added' : 'Add another trigger';
+    }
+
+    function resetRuleBuilder() {
+        if (el('ruleName')) el('ruleName').value = '';
+        if (el('ruleStopProcessing')) el('ruleStopProcessing').checked = false;
+        if (el('ruleTriggers')) el('ruleTriggers').innerHTML = '';
+        if (el('ruleExtraConditions')) el('ruleExtraConditions').innerHTML = '';
+        if (el('ruleActions')) el('ruleActions').innerHTML = '';
+        document.querySelectorAll('#ruleInboxMenu input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+        updateRuleInboxToggleLabel();
+        const menu = el('ruleInboxMenu');
+        if (menu) menu.hidden = true;
+        addRuleTriggerRow({ value: 'inbound_message' });
+        addRuleActionRow();
+    }
+
+    function openRuleModal() {
+        renderRuleInboxPicker();
+        resetRuleBuilder();
+        openModal('modalRule');
+        setTimeout(() => el('ruleName')?.focus(), 50);
+    }
+
+    function collectRulePayload() {
+        const name = el('ruleName')?.value.trim() || '';
+        const inboxIds = selectedRuleInboxIds();
+        const triggers = [];
+        document.querySelectorAll('#ruleTriggers [data-rule-trigger]').forEach(sel => {
+            if (sel.value && !triggers.includes(sel.value)) triggers.push(sel.value);
+        });
+        const conditions = [
+            { field: 'inbox', operator: 'in', value: inboxIds },
+        ];
+        document.querySelectorAll('#ruleExtraConditions .inbox-rule-extra-card').forEach(row => {
+            const field = row.querySelector('[data-rule-cond-field]')?.value;
+            const operator = row.querySelector('[data-rule-cond-operator]')?.value;
+            const value = row.querySelector('[data-rule-cond-value]')?.value.trim() || '';
+            if (field && operator) {
+                conditions.push({ field, operator, value });
+            }
+        });
+        const actions = [];
+        document.querySelectorAll('#ruleActions .inbox-rule-extra-card').forEach(row => {
+            const type = row.querySelector('[data-rule-action-type]')?.value;
+            const valueSel = row.querySelector('[data-rule-action-value]');
+            if (!type) return;
+            actions.push({
+                type,
+                value: valueSel && !valueSel.disabled ? (valueSel.value || null) : null,
+            });
+        });
+        return {
+            name,
+            shared_inbox_id: null,
+            stop_processing: !!el('ruleStopProcessing')?.checked,
+            triggers,
+            conditions,
+            actions,
+        };
+    }
+    function leadLabelChipsHtml(labels) {
+        if (window.LnsAssignedLead?.chips) return window.LnsAssignedLead.chips(labels, escapeHtml);
+        const names = (labels || []).map(l => l?.name).filter(Boolean);
+        return names.length ? `<div class="channel-assigned">${names.map(escapeHtml).join(', ')}</div>` : '';
+    }
+
+    function conversationLead(c) {
+        return (c || state.conversation)?.lead || null;
+    }
+
+    function conversationAssigneeId(c) {
+        const conv = c || state.conversation;
+        if (conv?.assigned_to) return conv.assigned_to;
+        const lead = conversationLead(conv);
+        return lead?.assigned_to || '';
+    }
+
+    function conversationAssignee(c) {
+        const conv = c || state.conversation;
+        if (conv?.assignee) return conv.assignee;
+        const lead = conversationLead(conv);
+        return lead?.assigned_user || null;
+    }
+
+    function conversationTagItems(c) {
+        const conv = c || state.conversation;
+        const leadLabels = conversationLead(conv)?.labels || [];
+        const conversationLabels = conv?.lead_labels || [];
+        const inboxTags = conv?.tags || [];
+        const merged = new Map();
+
+        leadLabels.forEach(label => {
+            const key = String(label?.name || '').trim().toLowerCase();
+            if (key) {
+                merged.set(key, { ...label, source: 'lead' });
+            }
+        });
+
+        conversationLabels.forEach(label => {
+            const key = String(label?.name || '').trim().toLowerCase();
+            if (key && !merged.has(key)) {
+                merged.set(key, { ...label, source: 'conversation-label' });
+            }
+        });
+
+        inboxTags.forEach(tag => {
+            const key = String(tag?.name || '').trim().toLowerCase();
+            if (key && !merged.has(key)) {
+                merged.set(key, { ...tag, source: 'inbox' });
+            }
+        });
+
+        return Array.from(merged.values());
+    }
+
+    function conversationLabelPillHtml(label, { removable = true } = {}) {
+        let removeBtn = '';
+        if (removable) {
+            const nameAttr = `data-label-name="${escapeHtml(label.name || '')}"`;
+            if (label.source === 'lead') {
+                removeBtn = `<button type="button" data-remove-lead-label="${label.id}" ${nameAttr} style="border:none;background:transparent;cursor:pointer;color:inherit;" title="Remove label" aria-label="Remove ${escapeHtml(label.name || 'label')}">×</button>`;
+            } else if (label.source === 'conversation-label') {
+                removeBtn = `<button type="button" data-remove-conversation-label="${label.id}" ${nameAttr} style="border:none;background:transparent;cursor:pointer;color:inherit;" title="Remove label" aria-label="Remove ${escapeHtml(label.name || 'label')}">×</button>`;
+            } else {
+                removeBtn = `<button type="button" data-remove-inbox-tag="${label.id}" ${nameAttr} style="border:none;background:transparent;cursor:pointer;color:inherit;" title="Remove label" aria-label="Remove ${escapeHtml(label.name || 'label')}">×</button>`;
+            }
+        }
+
+        return `<span class="inbox-pill" style="background:${label.color}22;color:${label.color}">${escapeHtml(label.name)} ${removeBtn}</span>`;
+    }
+
+    function leadAssignedBlock(lead, withLink = true) {
+        if (!lead?.crm_url || !withLink) return '';
+        return `<a class="chp-link" href="${escapeHtml(lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>`;
+    }
+
+    function conversationSnippetText(c) {
+        const selected = state.conversation;
+        const messages = (selected && Number(selected.id) === Number(c?.id) && Array.isArray(selected.messages))
+            ? selected.messages
+            : (c?.messages || []);
+        if (messages.length) {
+            const last = [...messages].sort((a, b) => String(a.sent_at || '').localeCompare(String(b.sent_at || ''))).at(-1);
+            const preview = messagePreviewText(last);
+            if (preview) return preview;
+        }
+        return stripQuotedEmailHistoryPlain(String(c?.snippet || '')).replace(/\s+/g, ' ').trim();
+    }
+
+    function conversationSkeletonMarkup(count = 8) {
+        return `<div class="inbox-skel-list" aria-hidden="true">${Array.from({ length: count }, () => `
+            <div class="inbox-skel-conv">
+                <span class="inbox-skel-line w-35"></span>
+                <span class="inbox-skel-line w-55"></span>
+                <span class="inbox-skel-line w-80"></span>
+                <span class="inbox-skel-line w-70"></span>
+            </div>`).join('')}</div>`;
+    }
+
+    function threadSkeletonMarkup() {
+        return `<div class="inbox-skel-thread" aria-hidden="true">
+            <div class="inbox-skel-msg">
+                <div class="inbox-skel-avatar"></div>
+                <div class="inbox-skel-msg-body">
+                    <span class="inbox-skel-line w-40"></span>
+                    <span class="inbox-skel-line w-90"></span>
+                    <span class="inbox-skel-line w-70"></span>
+                </div>
+            </div>
+            <div class="inbox-skel-msg">
+                <div class="inbox-skel-avatar"></div>
+                <div class="inbox-skel-msg-body">
+                    <span class="inbox-skel-line w-35"></span>
+                    <span class="inbox-skel-line w-80"></span>
+                    <span class="inbox-skel-line w-55"></span>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    function showConversationSkeleton() {
+        const list = el('conversationList');
+        if (!list) return;
+        list.setAttribute('aria-busy', 'true');
+        list.innerHTML = conversationSkeletonMarkup();
+    }
+
+    function showThreadLoading(preview) {
+        el('threadPlaceholder').style.display = 'none';
+        el('threadView').style.display = 'flex';
+        el('threadView')?.classList.add('is-loading');
+        el('threadView')?.setAttribute('aria-busy', 'true');
+        applyPropsPaneVisibility();
+        el('threadSubject').textContent = preview?.subject || 'Loading…';
+        el('threadMeta').textContent = '';
+        if (el('threadParticipants')) el('threadParticipants').innerHTML = '';
+        el('threadMessages').innerHTML = threadSkeletonMarkup();
+    }
+
+    function conversationRowHtml(c) {
+        const at = c.last_message_at || '';
+        return `
+            <button type="button" class="inbox-conv ${c.id === state.selectedId ? 'active' : ''} ${isConversationChecked(c.id) ? 'is-checked' : ''} ${c.is_read ? '' : 'unread'}" data-conv-id="${c.id}" title="Double-click to open in a new window">
+                <div class="inbox-conv-top">
+                    <span>${escapeHtml(c.inbox?.name || '')}</span>
+                    <span class="inbox-conv-time" data-conv-time="${escapeHtml(at)}" title="Click to show date & time">${formatRelativeTime(at)}</span>
+                </div>
+                <div class="inbox-conv-from">${escapeHtml(c.from_name || c.from_email || 'Unknown')}</div>
+                <div class="inbox-conv-subject">${escapeHtml(c.subject || '(No subject)')}</div>
+                <div class="inbox-conv-snippet">${escapeHtml(conversationSnippetText(c))}</div>
+                <div class="inbox-conv-tags">
+                    ${conversationTagItems(c).map(t => `<span class="inbox-pill" style="background:${t.color}22;color:${t.color}">${escapeHtml(t.name)}</span>`).join('')}
+                    ${conversationAssignee(c)?.name ? `<span class="inbox-pill">${escapeHtml(conversationAssignee(c).name)}</span>` : ''}
+                    ${c.reopen_at ? `<span class="inbox-pill">Snoozed ${escapeHtml(formatThreadTime(c.reopen_at) ? 'until ' + formatAbsoluteTime(c.reopen_at) : '')}</span>` : ''}
+                    ${c.merged_count ? `<span class="inbox-pill">Merged</span>` : ''}
+                </div>
+            </button>
+        `;
+    }
+
+    function isConversationChecked(id) {
+        return state.checkedIds.some(checkedId => Number(checkedId) === Number(id));
+    }
+
+    function conversationInboxId(c) {
+        return Number(c?.inbox_id || c?.inbox?.id || 0);
+    }
+
+    function checkedConversations() {
+        return state.checkedIds
+            .map(id => state.conversations.find(c => Number(c.id) === Number(id)))
+            .filter(Boolean);
+    }
+
+    function syncCheckedRows() {
+        el('conversationList')?.querySelectorAll('.inbox-conv').forEach(btn => {
+            btn.classList.toggle('is-checked', isConversationChecked(btn.dataset.convId));
+        });
+        updateMergeBar();
+    }
+
+    function updateMergeBar() {
+        const bar = el('listMergeBar');
+        const btn = el('btnMergeSelected');
+        const countEl = el('listMergeCount');
+        if (!bar || !btn || !countEl) return;
+
+        const selected = checkedConversations();
+        const count = selected.length;
+        if (count < 1) {
+            bar.hidden = true;
+            return;
+        }
+
+        const inboxIds = [...new Set(selected.map(conversationInboxId).filter(Boolean))];
+        const sameInbox = inboxIds.length === 1;
+        bar.hidden = false;
+        countEl.textContent = count === 1 ? '1 selected' : count + ' selected';
+        btn.hidden = count < 2;
+        btn.disabled = !sameInbox;
+        btn.textContent = sameInbox ? 'Merge conversations' : 'Same inbox required';
+        btn.title = sameInbox
+            ? 'Merge the selected threads into one conversation'
+            : 'Select threads from one personal or shared inbox';
+        const archiveBtn = el('btnArchiveSelected');
+        if (archiveBtn) {
+            archiveBtn.disabled = false;
+            archiveBtn.textContent = count === 1 ? 'Archive' : 'Archive ' + count;
+        }
+    }
+
+    function clearCheckedConversations() {
+        state.checkedIds = [];
+        syncCheckedRows();
+    }
+
+    function toggleCheckedConversation(id) {
+        const next = new Set(state.checkedIds.map(Number));
+        if (next.size === 0 && state.selectedId && Number(state.selectedId) !== Number(id)) {
+            next.add(Number(state.selectedId));
+        }
+        if (next.has(Number(id))) next.delete(Number(id));
+        else next.add(Number(id));
+        state.checkedIds = [...next];
+        syncCheckedRows();
+    }
+
+    async function mergeCheckedConversations() {
+        const selected = checkedConversations();
+        if (selected.length < 2) return;
+        const inboxIds = [...new Set(selected.map(conversationInboxId).filter(Boolean))];
+        if (inboxIds.length !== 1) {
+            alert('Select threads from the same personal or shared inbox.');
+            return;
+        }
+
+        const target = selected.find(c => Number(c.id) === Number(state.selectedId)) || selected[0];
+        const sourceIds = selected
+            .map(c => Number(c.id))
+            .filter(id => id !== Number(target.id));
+        if (!confirm(`Merge ${selected.length} conversations into “${target.subject || '(No subject)'}”?\n\nThey must belong to the same inbox. You can unmerge them later.`)) {
+            return;
+        }
+
+        await api('/conversations/' + target.id + '/merge', {
+            method: 'POST',
+            body: { conversation_ids: sourceIds },
+        });
+        clearCheckedConversations();
+        await loadBootstrap();
+        await loadConversations();
+        await openConversation(target.id);
+    }
+
+    async function archiveCheckedConversations() {
+        const ids = checkedConversations().map(c => Number(c.id));
+        if (!ids.length) return;
+
+        const archiveBtn = el('btnArchiveSelected');
+        if (archiveBtn) {
+            archiveBtn.disabled = true;
+            archiveBtn.textContent = 'Archiving…';
+        }
+
+        const failures = [];
+        await Promise.all(ids.map(async (id) => {
+            try {
+                await api('/conversations/' + id + '/status', { method: 'PATCH', body: { status: 'archived' } });
+            } catch (err) {
+                failures.push(err.message || 'Could not archive');
+            }
+        }));
+
+        if (state.selectedId && ids.includes(Number(state.selectedId))) {
+            state.conversation = null;
+            state.selectedId = null;
+            renderThread();
+        }
+        clearCheckedConversations();
+        await loadBootstrap();
+        await loadConversations();
+        if (failures.length) {
+            alert(failures.length === ids.length
+                ? 'Could not archive the selected conversations.'
+                : 'Some conversations could not be archived.');
+        }
+    }
+
+    function listFooterHtml() {
+        if (state.listLoading) {
+            return `<div id="listLoadingMore">${conversationSkeletonMarkup(3)}</div>`;
+        }
+        if (state.listHasMore) {
+            return '<div class="inbox-list-loading" id="listLoadingMore" hidden></div>';
+        }
+        return '<div class="inbox-list-end">All emails loaded</div>';
+    }
+
+    function renderConversations() {
+        const list = el('conversationList');
+        list.removeAttribute('aria-busy');
+        if (!state.conversations.length) {
+            list.innerHTML = '<div class="inbox-empty" id="listEmpty">No conversations in this view.</div>';
+            return;
+        }
+        list.innerHTML = state.conversations.map(conversationRowHtml).join('') + listFooterHtml();
+        syncCheckedRows();
+    }
+
+    function updateListFooter() {
+        const list = el('conversationList');
+        if (!list) return;
+        if (!state.conversations.length) {
+            list.querySelector('#listLoadingMore, .inbox-list-end')?.remove();
+            return;
+        }
+        const old = list.querySelector('#listLoadingMore, .inbox-list-end');
+        if (old) old.outerHTML = listFooterHtml();
+        else list.insertAdjacentHTML('beforeend', listFooterHtml());
+    }
+
+    function hasActiveFilters() {
+        const f = state.filters;
+        return !!(f.from || f.to || f.subject || f.body || f.folder || f.inbox_id
+            || f.assigned_to !== '' || f.is_read !== '' || f.date_from || f.date_to);
+    }
+
+    function syncAdvancedFormFromState() {
+        const f = state.filters;
+        if (el('advFrom')) el('advFrom').value = f.from || '';
+        if (el('advTo')) el('advTo').value = f.to || '';
+        if (el('advSubject')) el('advSubject').value = f.subject || '';
+        if (el('advBody')) el('advBody').value = f.body || '';
+        if (el('advFolder')) el('advFolder').value = f.folder || '';
+        if (el('advInbox')) el('advInbox').value = f.inbox_id || '';
+        if (el('advAssigned')) el('advAssigned').value = f.assigned_to === 0 || f.assigned_to === '0' ? '0' : (f.assigned_to || '');
+        if (el('advRead')) el('advRead').value = f.is_read === 0 || f.is_read === '0' ? '0' : (f.is_read || '');
+        if (el('advDateFrom')) el('advDateFrom').value = f.date_from || '';
+        if (el('advDateTo')) el('advDateTo').value = f.date_to || '';
+    }
+
+    function readAdvancedFormIntoState() {
+        state.filters = {
+            from: (el('advFrom')?.value || '').trim(),
+            to: (el('advTo')?.value || '').trim(),
+            subject: (el('advSubject')?.value || '').trim(),
+            body: (el('advBody')?.value || '').trim(),
+            folder: el('advFolder')?.value || '',
+            inbox_id: el('advInbox')?.value || '',
+            assigned_to: el('advAssigned')?.value ?? '',
+            is_read: el('advRead')?.value ?? '',
+            date_from: el('advDateFrom')?.value || '',
+            date_to: el('advDateTo')?.value || '',
+        };
+    }
+
+    function clearAdvancedFilters({ reload = true } = {}) {
+        state.filters = {
+            from: '', to: '', subject: '', body: '', folder: '',
+            inbox_id: '', assigned_to: '', is_read: '', date_from: '', date_to: '',
+        };
+        syncAdvancedFormFromState();
+        updateAdvancedToggleState();
+        renderFilterChips();
+        if (reload) loadConversations({ append: false });
+    }
+
+    function applyAdvancedFilters() {
+        readAdvancedFormIntoState();
+        updateAdvancedToggleState();
+        renderFilterChips();
+        closeModal();
+        loadConversations({ append: false });
+    }
+
+    function updateAdvancedToggleState() {
+        const btn = el('btnToggleAdvancedSearch');
+        if (!btn) return;
+        btn.classList.toggle('is-active', hasActiveFilters() || state.advancedOpen);
+        btn.textContent = hasActiveFilters() ? 'Filters ●' : 'Filters';
+    }
+
+    function setAdvancedOpen(open) {
+        if (open) {
+            syncAdvancedFormFromState();
+            openModal('modalAdvancedSearch');
+            setTimeout(() => el('advFrom')?.focus(), 50);
+        } else {
+            closeModal();
+        }
+    }
+
+    function renderFilterChips() {
+        const wrap = el('advFilterChips');
+        if (!wrap) return;
+
+        const chips = [];
+        const f = state.filters;
+        const push = (key, label, value) => {
+            chips.push(`<button type="button" class="inbox-adv-chip" data-clear-filter="${key}" title="Remove filter">
+                <span>${escapeHtml(label)}: ${escapeHtml(value)}</span><span aria-hidden="true">×</span>
+            </button>`);
+        };
+
+        if (f.inbox_id) {
+            const inbox = state.inboxes.find(i => String(i.id) === String(f.inbox_id));
+            push('inbox_id', 'Inbox', inbox?.name || f.inbox_id);
+        }
+        if (f.folder) {
+            const folderLabels = { any: 'Any folder', inbox: 'Inbox', drafts: 'Drafts', sent: 'Sent', trash: 'Trash', spam: 'Spam' };
+            push('folder', 'Folder', folderLabels[f.folder] || f.folder);
+        }
+        if (f.from) push('from', 'From', f.from);
+        if (f.to) push('to', 'To', f.to);
+        if (f.subject) push('subject', 'Subject', f.subject);
+        if (f.body) push('body', 'Body', f.body);
+        if (f.assigned_to !== '' && f.assigned_to != null) {
+            if (String(f.assigned_to) === '0') push('assigned_to', 'Assigned', 'Unassigned');
+            else {
+                const m = state.members.find(x => String(x.id) === String(f.assigned_to));
+                push('assigned_to', 'Assigned', m?.name || f.assigned_to);
+            }
+        }
+        if (f.is_read !== '' && f.is_read != null) {
+            push('is_read', 'Read', String(f.is_read) === '1' || f.is_read === true ? 'Read' : 'Unread');
+        }
+        if (f.date_from) push('date_from', 'From date', f.date_from);
+        if (f.date_to) push('date_to', 'To date', f.date_to);
+
+        const q = el('inboxSearch')?.value?.trim();
+        if (q) {
+            chips.push(`<button type="button" class="inbox-adv-chip" data-clear-filter="search" title="Clear quick search">
+                <span>Search: ${escapeHtml(q)}</span><span aria-hidden="true">×</span>
+            </button>`);
+        }
+
+        wrap.innerHTML = chips.join('');
+        updateAdvancedToggleState();
+    }
+
+    function isInboxIdQuery(q) {
+        const s = String(q || '').trim();
+        if (!s) return false;
+        if (/(?:^|[?&])(?:conversation|message)=\d+/.test(s)) return true;
+        if (/^\d{1,18}$/.test(s)) return true;
+        return !s.includes('@') && !s.includes(' ') && /^[A-Za-z0-9\-._\/=+]{8,}$/.test(s);
+    }
+
+    async function loadConversations({ append = false, preserveList = false } = {}) {
+        if (state.listLoading) return;
+        if (append && !state.listHasMore) return;
+
+        const page = append ? state.listPage + 1 : 1;
+        state.listLoading = true;
+        if (append) {
+            updateListFooter();
+        } else if (!preserveList) {
+            showConversationSkeleton();
+        }
+
+        try {
+            const params = new URLSearchParams({
+                view: state.viewGroup || state.view,
+                page: String(page),
+            });
+            if (state.viewGroup) params.set('bucket', state.view);
+
+            if (state.selectedLabelId) params.set('label_id', String(state.selectedLabelId));
+
+            const filterInboxId = state.selectedLabelId ? null : (state.filters.inbox_id || state.selectedInboxId);
+            if (filterInboxId) params.set('inbox_id', String(filterInboxId));
+
+            const q = el('inboxSearch').value.trim();
+            if (q) params.set('search', q);
+
+            const f = state.filters;
+            if (f.from) params.set('from', f.from);
+            if (f.to) params.set('to', f.to);
+            if (f.subject) params.set('subject', f.subject);
+            if (f.body) params.set('body', f.body);
+            if (f.folder) params.set('folder', f.folder);
+            if (state.viewGroup !== 'assigned_to_me' && !['assigned_to_me', 'archived', 'snoozed'].includes(state.view) && f.assigned_to !== '' && f.assigned_to != null) {
+                params.set('assigned_to', String(f.assigned_to));
+            }
+            if (f.is_read !== '' && f.is_read != null) params.set('is_read', String(f.is_read));
+            if (f.date_from) params.set('date_from', f.date_from);
+            if (f.date_to) params.set('date_to', f.date_to);
+
+            const data = await api('/conversations?' + params.toString());
+            const batch = data.conversations || [];
+            const meta = data.meta || {};
+            if (meta.label_folders) {
+                state.labelFolderCounts = {
+                    open: Number(meta.label_folders.open || 0),
+                    archived: Number(meta.label_folders.archived || 0),
+                    snoozed: Number(meta.label_folders.snoozed || 0),
+                };
+                renderLabelFolders();
+            }
+
+            state.listPage = meta.current_page || page;
+            state.listLastPage = meta.last_page || state.listPage;
+            state.listHasMore = meta.has_more === true || state.listPage < state.listLastPage;
+
+            if (append) {
+                const seen = new Set(state.conversations.map(c => c.id));
+                const fresh = batch.filter(c => !seen.has(c.id));
+                state.conversations = state.conversations.concat(fresh);
+                const list = el('conversationList');
+                const footer = list.querySelector('#listLoadingMore, .inbox-list-end');
+                const html = fresh.map(conversationRowHtml).join('');
+                if (footer) footer.insertAdjacentHTML('beforebegin', html);
+                else list.insertAdjacentHTML('beforeend', html);
+            } else {
+                state.conversations = batch;
+                state.checkedIds = state.checkedIds.filter(id =>
+                    state.conversations.some(c => Number(c.id) === Number(id))
+                );
+                const list = el('conversationList');
+                const prevScroll = preserveList && list ? list.scrollTop : 0;
+                renderConversations();
+                if (list) list.scrollTop = preserveList ? prevScroll : 0;
+                const matchedMessageId = data.meta?.matched_message_id || null;
+                if (batch.length === 1 && isInboxIdQuery(q)) {
+                    const convId = batch[0].id;
+                    const opts = matchedMessageId ? { messageId: matchedMessageId } : {};
+                    if (Number(state.selectedId) === Number(convId) && state.conversation) {
+                        if (matchedMessageId) focusThreadMessage(matchedMessageId);
+                    } else {
+                        await openConversation(convId, opts);
+                    }
+                }
+            }
+        } catch (err) {
+            if (!append) {
+                el('conversationList').innerHTML = `<div class="inbox-empty">${escapeHtml(err.message)}</div>`;
+            }
+        } finally {
+            state.listLoading = false;
+            updateListFooter();
+            renderFilterChips();
+        }
+    }
+
+    async function openConversation(id, options = {}) {
+        const preserveDraft = !!options.preserveDraft;
+        if (el('modalReply')?.style.display === 'grid') closeModal();
+        state.selectedId = id;
+        if (!preserveDraft) {
+            state.replyAttachments = [];
+            state.commentAttachments = [];
+            state.replyCcEmails = [];
+            state.replyAll = false;
+            state.replyDraftId = null;
+            if (el('replyTo')) el('replyTo').value = '';
+            if (el('replyCc')) el('replyCc').value = '';
+            state.expandedMessageIds = {};
+            state.focusMessageId = options.messageId ? String(options.messageId) : null;
+            if (state.focusMessageId) {
+                state.expandedMessageIds[state.focusMessageId] = true;
+            }
+            state.composerExpanded = false;
+            renderAttachChips('reply');
+            renderAttachChips('comment');
+            hideMentionPopup('reply');
+            hideMentionPopup('comment');
+            setComposerHtml('comment', '');
+            setComposerHtml('reply', '');
+            applyComposerSignature('reply');
+            el('composerHint').textContent = 'Reply via Outlook';
+        }
+        refreshTemplateSelects();
+        // Update active highlight without rebuilding the whole list.
+        el('conversationList')?.querySelectorAll('.inbox-conv').forEach(btn => {
+            btn.classList.toggle('active', Number(btn.dataset.convId) === id);
+        });
+        const prev = state.conversations.find(c => Number(c.id) === Number(id));
+        const wasUnread = !!(prev && !prev.is_read);
+        if (!preserveDraft) {
+            showThreadLoading(prev);
+        }
+        let data;
+        try {
+            data = await api('/conversations/' + id);
+        } catch (err) {
+            if (Number(state.selectedId) !== Number(id)) return;
+            el('threadPlaceholder').style.display = 'none';
+            el('threadView').style.display = 'flex';
+            el('threadView')?.classList.remove('is-loading');
+            el('threadView')?.removeAttribute('aria-busy');
+            el('threadSubject').textContent = 'Could not open conversation';
+            if (INBOX_POPOUT) document.title = 'Could not open conversation - Inbox';
+            el('threadMessages').innerHTML = `<div class="inbox-empty">${escapeHtml(err.message)}</div>`;
+            return;
+        }
+        if (Number(state.selectedId) !== Number(id) && Number(state.selectedId) !== Number(data.conversation?.id)) {
+            return;
+        }
+        state.conversation = data.conversation;
+        if (data.conversation?.id && Number(data.conversation.id) !== Number(id)) {
+            state.selectedId = data.conversation.id;
+            id = data.conversation.id;
+            el('conversationList')?.querySelectorAll('.inbox-conv').forEach(btn => {
+                btn.classList.toggle('active', Number(btn.dataset.convId) === Number(id));
+            });
+        }
+        if (wasUnread && prev) {
+            prev.is_read = true;
+            el('conversationList')?.querySelector(`[data-conv-id="${id}"]`)?.classList.remove('unread');
+            const isOpenInbox = (prev.folder || 'inbox') === 'inbox' && (prev.status || 'open') === 'open';
+            if (isOpenInbox) {
+                const inboxId = prev.inbox_id || data.conversation.inbox_id || data.conversation.inbox?.id;
+                const inbox = state.inboxes.find(i => Number(i.id) === Number(inboxId));
+                if (inbox && Number(inbox.unread_count) > 0) {
+                    inbox.unread_count = Number(inbox.unread_count) - 1;
+                }
+                renderNav();
+            }
+        }
+        renderThread();
+        if (options.messageId) {
+            focusThreadMessage(options.messageId);
+        }
+        if (!preserveDraft) {
+            const draftMsg = [...(data.conversation?.messages || [])].reverse().find(m => m.is_draft);
+            if (draftMsg) {
+                if (isComposeOnlyDraft(data.conversation)) {
+                    openComposeDraftModal(draftMsg);
+                } else if (state.composerCanReply) {
+                    openDraftReplyModal(draftMsg);
+                }
+            }
+        }
+        window.updateHeaderNotificationsBadge?.();
+        hydrateOpenConversation(id);
+    }
+
+    async function hydrateOpenConversation(id) {
+        id = Number(id);
+        if (!id) return;
+        state.hydrateInFlightId = id;
+        try {
+            const data = await api('/conversations/' + id + '?hydrate=1');
+            if (Number(state.selectedId) !== id || Number(state.hydrateInFlightId) !== id) return;
+            if (!data.conversation) return;
+            state.conversation = data.conversation;
+            renderThread();
+            if (state.focusMessageId) {
+                focusThreadMessage(state.focusMessageId);
+            }
+        } catch (err) {
+            console.warn('Inbox hydrate failed', err);
+        }
+    }
+
+    function focusThreadMessage(messageId) {
+        const id = String(messageId || '');
+        if (!id) return;
+        const card = el('threadMessages')?.querySelector('.inbox-msg[data-msg-id="' + id.replace(/"/g, '') + '"]');
+        if (!card) return;
+        card.classList.add('is-expanded', 'is-target');
+        state.expandedMessageIds[id] = true;
+        state.focusMessageId = id;
+        const host = card.querySelector('[data-email-body="' + id.replace(/"/g, '') + '"]');
+        if (host && state.conversation) {
+            const msg = (state.conversation.messages || []).find(m => String(m.id) === id);
+            if (msg) mountEmailBody(host, msg);
+        }
+        card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+
+    function messageLinkFor(messageId) {
+        const url = new URL(window.location.origin + window.location.pathname);
+        const conversationId = state.selectedId || state.conversation?.id;
+        if (conversationId) url.searchParams.set('conversation', String(conversationId));
+        if (messageId) url.searchParams.set('message', String(messageId));
+        return url.toString();
+    }
+
+    async function copyText(value) {
+        const text = String(value || '');
+        if (!text) return false;
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(text);
+                return true;
+            }
+        } catch (_) {}
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (_) {}
+        ta.remove();
+        return ok;
+    }
+
+    function showInboxToast(message) {
+        document.querySelectorAll('.inbox-toast.js-toast').forEach(n => n.remove());
+        const node = document.createElement('div');
+        node.className = 'inbox-toast js-toast success';
+        node.textContent = message;
+        el('inboxApp')?.appendChild(node);
+        setTimeout(() => node.remove(), 1800);
+    }
+
+    const UNDO_SEND_MS = 15000;
+    let pendingUndoSend = null;
+
+    function removeUndoSendToast() {
+        document.querySelectorAll('.inbox-undo-toast').forEach(node => node.remove());
+    }
+
+    function renderUndoSendToast(entry) {
+        const seconds = Math.max(1, Math.ceil((entry.endsAt - Date.now()) / 1000));
+        let node = document.querySelector('.inbox-undo-toast');
+        if (!node || node.dataset.undoId !== String(entry.endsAt)) {
+            removeUndoSendToast();
+            node = document.createElement('div');
+            node.className = 'inbox-undo-toast';
+            node.dataset.undoId = String(entry.endsAt);
+            node.setAttribute('role', 'status');
+            node.innerHTML = '<span class="inbox-undo-toast-text"></span><button type="button" class="inbox-undo-toast-btn">Undo</button>';
+            node.querySelector('button')?.addEventListener('click', () => undoPendingSend(entry));
+            (el('inboxApp') || document.body).appendChild(node);
+        }
+        const text = node.querySelector('.inbox-undo-toast-text');
+        if (text) text.textContent = `${entry.label} in ${seconds}s`;
+    }
+
+    function postInboxKeepalive(path, body) {
+        try {
+            fetch(API + path, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': CSRF,
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                credentials: 'same-origin',
+                keepalive: true,
+                body: JSON.stringify(body),
+            });
+        } catch (_) {}
+    }
+
+    function claimUndoSend(entry) {
+        if (!entry || entry.cancelled || entry.flushing) return false;
+        entry.flushing = true;
+        clearTimeout(entry.timer);
+        clearInterval(entry.tick);
+        if (pendingUndoSend === entry) pendingUndoSend = null;
+        removeUndoSendToast();
+        return true;
+    }
+
+    function queueUndoSend({ label, restore, commit, keepalive }) {
+        const previous = pendingUndoSend;
+        if (previous) void flushUndoSend(previous);
+        const entry = {
+            label,
+            restore,
+            commit,
+            keepalive,
+            cancelled: false,
+            flushing: false,
+            endsAt: Date.now() + UNDO_SEND_MS,
+            timer: null,
+            tick: null,
+        };
+        pendingUndoSend = entry;
+        renderUndoSendToast(entry);
+        entry.tick = setInterval(() => {
+            if (pendingUndoSend !== entry) return;
+            renderUndoSendToast(entry);
+        }, 250);
+        entry.timer = setTimeout(() => {
+            void flushUndoSend(entry);
+        }, UNDO_SEND_MS);
+    }
+
+    function undoPendingSend(entry) {
+        if (!entry || entry.cancelled || entry.flushing || pendingUndoSend !== entry) return;
+        entry.cancelled = true;
+        clearTimeout(entry.timer);
+        clearInterval(entry.tick);
+        pendingUndoSend = null;
+        removeUndoSendToast();
+        Promise.resolve(entry.restore()).catch(() => {});
+    }
+
+    async function flushUndoSend(entry) {
+        if (!claimUndoSend(entry)) return;
+        try {
+            await entry.commit();
+        } catch (err) {
+            alert(err.message || 'Could not send.');
+            try {
+                await entry.restore();
+            } catch (_) {}
+        }
+    }
+
+    window.addEventListener('pagehide', () => {
+        const entry = pendingUndoSend;
+        if (!claimUndoSend(entry)) return;
+        entry.keepalive?.();
+    });
+
+    async function copyMessageId(messageId, button) {
+        const ok = await copyText(String(messageId || ''));
+        if (!ok) return alert('Could not copy message ID.');
+        button?.classList.add('is-copied');
+        setTimeout(() => button?.classList.remove('is-copied'), 1200);
+        showInboxToast('Message ID copied');
+    }
+
+    async function copyMessageLink(messageId, button) {
+        const ok = await copyText(messageLinkFor(messageId));
+        if (!ok) return alert('Could not copy message link.');
+        button?.classList.add('is-copied');
+        setTimeout(() => button?.classList.remove('is-copied'), 1200);
+        showInboxToast('Message link copied');
+    }
+
+    function formatThreadTime(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return '';
+        const secs = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+        const days = Math.floor(secs / 86400);
+        const hours = Math.floor(secs / 3600);
+        const mins = Math.floor(secs / 60);
+        if (days >= 1) return days === 1 ? '1 day' : `${days} days`;
+        if (hours >= 1) return hours === 1 ? '1 hour' : `${hours} hours`;
+        if (mins >= 1) return mins === 1 ? '1 min' : `${mins} min`;
+        return 'just now';
+    }
+
+    function avatarHue(seed) {
+        const colors = ['#4f46e5', '#0ea5e9', '#059669', '#d97706', '#dc2626', '#7c3aed', '#db2777', '#2563eb'];
+        let h = 0;
+        for (const ch of String(seed || '?')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+        return colors[h % colors.length];
+    }
+
+    function parseEmailList(value) {
+        const parts = Array.isArray(value)
+            ? value.map(v => String(v || '').trim()).filter(Boolean)
+            : String(value || '').split(/[,;]+/).map(v => v.trim()).filter(Boolean);
+        return parts.map(extractEmailAddress).filter(email => email.includes('@'));
+    }
+
+    function messagePreviewText(m) {
+        const html = String(m?.body_html || '').trim();
+        const source = html
+            ? htmlToPlain(stripQuotedEmailHistoryHtml(html))
+            : stripQuotedEmailHistoryPlain(String(m?.body_text || ''));
+        return source.replace(/\s+/g, ' ').trim();
+    }
+
+    function collectParticipants(c) {
+        const map = new Map();
+        const add = (email, name) => {
+            const key = String(email || '').trim().toLowerCase();
+            if (!key || !key.includes('@')) return;
+            if (!map.has(key)) map.set(key, { email: key, name: name || key.split('@')[0] });
+            else if (name && map.get(key).name === map.get(key).email.split('@')[0]) map.get(key).name = name;
+        };
+        add(c.from_email, c.from_name);
+        (c.messages || []).forEach(m => {
+            add(m.from_email, m.from_name);
+            parseEmailList(m.to || m.to_emails).forEach(email => add(email, ''));
+            parseEmailList(m.cc || m.cc_emails).forEach(email => add(email, ''));
+        });
+        return [...map.values()];
+    }
+
+    function conversationParticipants(c) {
+        if (Array.isArray(c?.participants)) return c.participants;
+        if (Array.isArray(c?.member_reads)) return c.member_reads;
+        return [];
+    }
+
+    function formatReadReceipt(member) {
+        if (member?.is_subscribed === false) return 'Not subscribed';
+        if (!member?.is_read || !member?.last_read_at) return 'Unread';
+        const d = new Date(member.last_read_at);
+        if (Number.isNaN(d.getTime())) return 'Read';
+        const secs = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+        const days = Math.floor(secs / 86400);
+        const hours = Math.floor(secs / 3600);
+        const mins = Math.floor(secs / 60);
+        if (days >= 1) return days === 1 ? 'Read 1 day ago' : `Read ${days} days ago`;
+        if (hours >= 1) return hours === 1 ? 'Read 1 hour ago' : `Read ${hours} hours ago`;
+        if (mins >= 1) return mins === 1 ? 'Read 1 min ago' : `Read ${mins} mins ago`;
+        return 'Read just now';
+    }
+
+    function inviteableTeammates(c, query = '') {
+        const participantIds = new Set(conversationParticipants(c).map((p) => Number(p.id)));
+        const q = String(query || '').trim().toLowerCase();
+        return (state.members || []).filter((m) => {
+            if (participantIds.has(Number(m.id))) return false;
+            if (!q) return true;
+            return String(m.name || '').toLowerCase().includes(q)
+                || String(m.email || '').toLowerCase().includes(q);
+        });
+    }
+
+    function participantsInviteListHtml(c, query = '') {
+        const addable = inviteableTeammates(c, query);
+        if (!addable.length) {
+            const q = String(query || '').trim();
+            return `<div class="inbox-participants-empty">${q ? 'No matching teammates.' : 'Everyone is already a participant.'}</div>`;
+        }
+        return addable.map((t) => `
+            <button type="button" data-invite-user="${t.id}">
+                <span class="inbox-assign-name">${escapeHtml(t.name)}</span>
+                <span class="inbox-assign-email">${escapeHtml(t.email || '')}</span>
+            </button>
+        `).join('');
+    }
+
+    function renderParticipantsInviteList(query) {
+        const list = el('participantsInviteList');
+        if (!list || !state.conversation) return;
+        list.innerHTML = participantsInviteListHtml(state.conversation, query);
+    }
+
+    function participantRowHtml(m) {
+        const status = formatReadReceipt(m);
+        const statusClass = m.is_subscribed === false
+            ? 'is-unsubscribed'
+            : (m.is_read ? 'is-read' : 'is-unread');
+        const actions = [];
+        if (m.is_me) {
+            if (m.is_subscribed === false) {
+                actions.push('<button type="button" class="inbox-participant-action" data-participant-subscribe>Subscribe</button>');
+            } else {
+                actions.push('<button type="button" class="inbox-participant-action" data-participant-unsubscribe>Unsubscribe</button>');
+            }
+        } else if (m.can_remove) {
+            actions.push(`<button type="button" class="inbox-participant-action is-danger" data-remove-participant="${m.id}" title="Remove">×</button>`);
+        }
+        return `
+            <div class="inbox-participant-row" title="${escapeHtml(m.email || '')}">
+                <span class="inbox-participant-avatar" style="background:${avatarHue(m.email || m.name)}">${escapeHtml(initials(m.name))}</span>
+                <span class="inbox-participant-name">${escapeHtml(m.name || m.email || 'Member')}${m.is_me ? ' (you)' : ''}</span>
+                <span class="inbox-participant-status ${statusClass}">${escapeHtml(status)}</span>
+                ${actions.length ? `<span class="inbox-participant-actions">${actions.join('')}</span>` : ''}
+            </div>`;
+    }
+
+    function participantsMenuHtml(c) {
+        const members = conversationParticipants(c);
+        const inbox = c.inbox || state.inboxes.find(i => Number(i.id) === Number(c.inbox_id));
+        const inboxName = inbox?.name || 'this inbox';
+        const isShared = inbox?.type === 'shared';
+        const subscribed = members.filter((m) => m.is_subscribed !== false);
+        const unsubscribed = members.filter((m) => m.is_subscribed === false);
+        const readCount = subscribed.filter(m => m.is_read).length;
+        const previewSource = subscribed.length ? subscribed : members;
+        const preview = previewSource.slice(0, 3).map(m => `
+            <span class="inbox-chip-avatar" style="background:${avatarHue(m.email || m.name)}">${escapeHtml(initials(m.name))}</span>
+        `).join('') || `<span class="inbox-chip-avatar" style="background:#94a3b8">+</span>`;
+        const chipLabel = members.length
+            ? (subscribed.length ? `${readCount}/${subscribed.length} read` : `${members.length} participant${members.length === 1 ? '' : 's'}`)
+            : 'Participants';
+        const subscribedRows = subscribed.length
+            ? subscribed.map(participantRowHtml).join('')
+            : `<div class="inbox-participants-empty">No participants yet — invite a teammate.</div>`;
+        const unsubscribedBlock = unsubscribed.length
+            ? `<div class="inbox-participants-section-label">Not subscribed</div>${unsubscribed.map(participantRowHtml).join('')}`
+            : '';
+        const footIcon = isShared
+            ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`
+            : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+        const footText = isShared
+            ? `Members of <strong>${escapeHtml(inboxName)}</strong> can view`
+            : `Only people invited to this conversation`;
+        return `
+            <div class="inbox-pop inbox-participants-pop" id="participantsPop">
+                <button type="button" class="inbox-chip inbox-participants-chip" id="btnParticipants" title="Participants" aria-haspopup="menu" aria-expanded="false">
+                    ${preview}
+                    <span>${chipLabel}</span>
+                </button>
+                <div class="inbox-pop-menu inbox-participants-menu" id="participantsMenu" hidden>
+                    <div class="inbox-participants-head">Participants</div>
+                    <div class="inbox-participants-list" id="participantsList">
+                        ${subscribedRows}
+                        ${unsubscribedBlock}
+                    </div>
+                    <div class="inbox-participants-add">
+                        <div class="inbox-participants-section-label" style="padding-left:0.35rem;padding-right:0.35rem;">Invite teammates</div>
+                        <div class="inbox-assign-search">
+                            <input type="search" id="participantsInviteSearch" placeholder="Search teammates…" autocomplete="off" aria-label="Search teammates to invite">
+                        </div>
+                        <div class="inbox-participants-add-list" id="participantsInviteList">${participantsInviteListHtml(c)}</div>
+                    </div>
+                    <div class="inbox-participants-foot">
+                        ${footIcon}
+                        <span>${footText}</span>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    function applyParticipantsPayload(conversation) {
+        if (!conversation || !state.conversation || Number(conversation.id) !== Number(state.conversation.id)) {
+            return;
+        }
+        state.conversation.participants = conversation.participants || conversation.member_reads || [];
+        state.conversation.member_reads = state.conversation.participants;
+        state.conversation.is_subscribed = conversation.is_subscribed;
+        renderThread();
+        loadNavCounts().catch(() => {});
+        if (state.viewGroup === 'subscribed' && !state.selectedInboxId) {
+            loadConversations({ preserveList: true }).catch(() => {});
+        }
+    }
+
+    async function inviteParticipants(userIds) {
+        if (!state.selectedId || !userIds?.length) return;
+        const data = await api('/conversations/' + state.selectedId + '/participants', {
+            method: 'POST',
+            body: { user_ids: userIds },
+        });
+        applyParticipantsPayload(data.conversation || data);
+    }
+
+    async function removeParticipant(userId) {
+        if (!state.selectedId || !userId) return;
+        const data = await api('/conversations/' + state.selectedId + '/participants/' + userId, {
+            method: 'DELETE',
+        });
+        applyParticipantsPayload(data.conversation || data);
+    }
+
+    async function setParticipantSubscription(subscribe) {
+        if (!state.selectedId) return;
+        const data = await api('/conversations/' + state.selectedId + '/' + (subscribe ? 'subscribe' : 'unsubscribe'), {
+            method: 'POST',
+            body: {},
+        });
+        applyParticipantsPayload(data.conversation || data);
+    }
+
+    function tagSwatchColor(label) {
+        const color = String(label?.color || '#64748b').trim();
+        return /^#[0-9a-fA-F]{3,8}$/.test(color) ? color : '#64748b';
+    }
+
+    function tagRemoveDataset(label) {
+        if (label?.source === 'lead') return `data-remove-lead-label="${label.id}"`;
+        if (label?.source === 'conversation-label') return `data-remove-conversation-label="${label.id}"`;
+        return `data-remove-inbox-tag="${label.id}"`;
+    }
+
+    function availableLabelsForConversation(c) {
+        const used = new Set(conversationTagItems(c).map(t => Number(t.id)).filter(id => id > 0));
+        return (state.leadLabels || [])
+            .filter(t => !used.has(Number(t.id)))
+            .slice()
+            .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+    }
+
+    function tagsMenuAddOptionsHtml(c, query = '') {
+        const q = String(query || '').trim();
+        const qLower = q.toLowerCase();
+        const available = availableLabelsForConversation(c).filter(t => {
+            if (!qLower) return true;
+            return String(t.name || '').toLowerCase().includes(qLower);
+        });
+        const exactMatch = available.some(t => String(t.name || '').toLowerCase() === qLower)
+            || conversationTagItems(c).some(t => String(t.name || '').toLowerCase() === qLower);
+        const rows = available.length
+            ? available.map(t => `
+            <button type="button" class="inbox-tag-add-option" data-add-tag-label="${t.id}" title="${escapeHtml(t.name || '')}">
+                <span class="inbox-participant-avatar" style="background:${tagSwatchColor(t)}">${escapeHtml(initials(t.name))}</span>
+                <span class="inbox-participant-name">${escapeHtml(t.name || 'Label')}</span>
+            </button>
+        `).join('')
+            : `<div class="inbox-assign-empty">${q ? 'No matching labels' : 'No more labels to add'}</div>`;
+        const createRow = q && !exactMatch
+            ? `<button type="button" class="inbox-tag-add-option" data-create-tag-label="${escapeHtml(q)}" title="Create label ${escapeHtml(q)}">
+                <span class="inbox-participant-avatar" style="background:#4338ca">+</span>
+                <span class="inbox-participant-name">Create “${escapeHtml(q)}”</span>
+            </button>`
+            : '';
+        return createRow + rows;
+    }
+
+    function renderTagsMenuAddList(query) {
+        const list = el('tagsMenuAddList');
+        if (!list) return;
+        list.innerHTML = tagsMenuAddOptionsHtml(state.conversation, query);
+    }
+
+    function tagsMenuHtml(c) {
+        const tags = conversationTagItems(c);
+        const preview = tags.length
+            ? tags.slice(0, 3).map(t => `
+                <span class="inbox-chip-avatar" style="background:${tagSwatchColor(t)}">${escapeHtml(initials(t.name))}</span>
+            `).join('')
+            : `<span class="inbox-chip-avatar" style="background:#94a3b8">+</span>`;
+        const rows = tags.length
+            ? tags.map(t => `
+                <div class="inbox-participant-row" title="${escapeHtml(t.name || '')}">
+                    <span class="inbox-participant-avatar" style="background:${tagSwatchColor(t)}">${escapeHtml(initials(t.name))}</span>
+                    <span class="inbox-participant-name">${escapeHtml(t.name || 'Label')}</span>
+                    <button type="button" class="inbox-tag-remove" ${tagRemoveDataset(t)} data-label-name="${escapeHtml(t.name || '')}" title="Remove label" aria-label="Remove ${escapeHtml(t.name || 'label')}">×</button>
+                </div>
+            `).join('')
+            : `<div class="inbox-assign-empty">No labels on this conversation</div>`;
+        const label = tags.length === 0 ? 'Labels' : (tags.length === 1 ? '1 label' : `${tags.length} labels`);
+        return `
+            <div class="inbox-pop inbox-participants-pop" id="tagsPop">
+                <button type="button" class="inbox-chip inbox-participants-chip" id="btnTags" title="Conversation labels" aria-haspopup="menu" aria-expanded="false">
+                    ${preview}
+                    <span>${label}</span>
+                </button>
+                <div class="inbox-pop-menu inbox-participants-menu" id="tagsMenu" hidden>
+                    <div class="inbox-participants-head">Labels</div>
+                    <div class="inbox-participants-list" id="tagsMenuApplied">${rows}</div>
+                    <div class="inbox-tags-add">
+                        <div class="inbox-tags-busy" id="tagsMenuBusy" aria-live="polite">
+                            <span class="inbox-tags-spinner" aria-hidden="true"></span>
+                            <span id="tagsMenuBusyText">Adding label…</span>
+                        </div>
+                        <div class="inbox-assign-search">
+                            <input type="search" id="tagsMenuSearch" placeholder="Search labels to add…" autocomplete="off" aria-label="Search labels to add">
+                        </div>
+                        <div class="inbox-assign-list" id="tagsMenuAddList">${tagsMenuAddOptionsHtml(c)}</div>
+                        <div class="inbox-lead-label-add">
+                            <input type="text" id="tagsMenuNewInput" class="inbox-select" maxlength="50" placeholder="New label" aria-label="Create new label">
+                            <button type="button" class="inbox-btn ghost" id="btnTagsMenuAddNew">Add</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    const searchSelects = {
+        assignSelect: {
+            toggle: 'assignSearchToggle',
+            label: 'assignSearchLabel',
+            menu: 'assignSearchMenu',
+            input: 'assignSearchInput',
+            list: 'assignSearchList',
+            empty: 'No matching teammates',
+        },
+        addTagSelect: {
+            toggle: 'addTagSearchToggle',
+            label: 'addTagSearchLabel',
+            menu: 'addTagSearchMenu',
+            input: 'addTagSearchInput',
+            list: 'addTagSearchList',
+            empty: 'No matching labels',
+        },
+    };
+
+    function searchSelectOptionRows(select) {
+        return [...select.options].map(opt => ({
+            value: opt.value,
+            label: opt.textContent || '',
+            search: `${opt.textContent || ''} ${opt.dataset.search || ''}`,
+        }));
+    }
+
+    function renderSearchSelectList(selectId, { highlightFirst = false } = {}) {
+        const cfg = searchSelects[selectId];
+        const select = el(selectId);
+        const list = el(cfg?.list);
+        if (!cfg || !select || !list) return;
+        const q = String(el(cfg.input)?.value || '').trim().toLowerCase();
+        const options = searchSelectOptionRows(select).filter(opt => !q || opt.search.toLowerCase().includes(q));
+        if (!options.length) {
+            list.innerHTML = `<div class="inbox-assign-empty">${cfg.empty}</div>`;
+            return;
+        }
+        const current = select.value;
+        list.innerHTML = options.map(opt => {
+            const member = selectId === 'assignSelect'
+                ? (state.members || []).find(m => String(m.id) === String(opt.value))
+                : null;
+            return `
+            <button type="button" role="option" data-search-select="${selectId}" data-value="${escapeHtml(opt.value)}" class="${opt.value === current ? 'is-active' : ''}" aria-selected="${opt.value === current ? 'true' : 'false'}">
+                <span class="inbox-assign-name">${escapeHtml(opt.label)}</span>
+                ${member?.email ? `<span class="inbox-assign-email">${escapeHtml(member.email)}</span>` : ''}
+            </button>`;
+        }).join('');
+        const buttons = [...list.querySelectorAll('button[data-value]')];
+        const currentBtn = buttons.find(btn => btn.classList.contains('is-active'));
+        const target = highlightFirst ? buttons[0] : (currentBtn || buttons[0]);
+        target?.classList.add('is-highlight');
+    }
+
+    function syncSearchSelectLabel(selectId) {
+        const cfg = searchSelects[selectId];
+        const select = el(selectId);
+        const label = el(cfg?.label);
+        if (!select || !label) return;
+        label.textContent = select.selectedOptions[0]?.textContent || '';
+    }
+
+    function refreshSearchSelect(selectId) {
+        syncSearchSelectLabel(selectId);
+        if (!el(searchSelects[selectId]?.menu)?.hidden) {
+            renderSearchSelectList(selectId);
+        }
+    }
+
+    function closeSearchSelects() {
+        Object.values(searchSelects).forEach(cfg => {
+            const menu = el(cfg.menu);
+            const toggle = el(cfg.toggle);
+            if (menu) menu.hidden = true;
+            toggle?.classList.remove('is-open');
+            toggle?.setAttribute('aria-expanded', 'false');
+        });
+    }
+
+    function toggleSearchSelect(selectId) {
+        const cfg = searchSelects[selectId];
+        const menu = el(cfg?.menu);
+        if (!cfg || !menu) return;
+        const willOpen = menu.hidden;
+        closeThreadPops();
+        if (!willOpen) return;
+        menu.hidden = false;
+        const toggle = el(cfg.toggle);
+        toggle?.classList.add('is-open');
+        toggle?.setAttribute('aria-expanded', 'true');
+        const input = el(cfg.input);
+        if (input) input.value = '';
+        renderSearchSelectList(selectId);
+        input?.focus();
+    }
+
+    function chooseSearchSelect(selectId, value) {
+        const select = el(selectId);
+        if (!select) return;
+        const previous = select.value;
+        select.value = value;
+        syncSearchSelectLabel(selectId);
+        closeSearchSelects();
+        if (select.value !== previous) {
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    }
+
+    function highlightedSearchOption(selectId) {
+        return el(searchSelects[selectId]?.list)?.querySelector('button.is-highlight') || null;
+    }
+
+    function moveSearchSelectHighlight(selectId, delta) {
+        const buttons = [...(el(searchSelects[selectId]?.list)?.querySelectorAll('button[data-value]') || [])];
+        if (!buttons.length) return;
+        const current = buttons.findIndex(btn => btn.classList.contains('is-highlight'));
+        const next = current < 0
+            ? (delta > 0 ? 0 : buttons.length - 1)
+            : (current + delta + buttons.length) % buttons.length;
+        buttons.forEach((btn, index) => btn.classList.toggle('is-highlight', index === next));
+        buttons[next].scrollIntoView({ block: 'nearest' });
+    }
+
+    function closeThreadPops() {
+        closeSearchSelects();
+        ['threadMoreMenu', 'snoozeMenu', 'assignMenu', 'commentEmojiMenu', 'sendReplyMenu', 'composeSendMenu', 'participantsMenu', 'tagsMenu'].forEach(id => {
+            const node = el(id);
+            if (node) node.hidden = true;
+        });
+        document.querySelectorAll('.inbox-icon-action.is-open, .inbox-assign-btn.is-open, .inbox-send-caret.is-open, .inbox-participants-chip.is-open').forEach(btn => {
+            btn.classList.remove('is-open');
+            if (btn.id === 'btnParticipants' || btn.id === 'btnTags') btn.setAttribute('aria-expanded', 'false');
+        });
+        const laterFields = el('sendLaterFields');
+        if (laterFields) laterFields.hidden = true;
+        const composeLater = el('composeSendLaterFields');
+        if (composeLater) composeLater.hidden = true;
+        const replyShare = el('replyShareDraftFields');
+        if (replyShare) replyShare.hidden = true;
+        const composeShare = el('composeShareDraftFields');
+        if (composeShare) composeShare.hidden = true;
+    }
+
+    function togglePop(menuId, btn) {
+        const menu = el(menuId);
+        if (!menu) return;
+        const willOpen = menu.hidden;
+        closeThreadPops();
+        menu.hidden = !willOpen;
+        btn?.classList.toggle('is-open', willOpen);
+        if (btn?.id === 'btnParticipants' || btn?.id === 'btnTags') {
+            btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+        }
+    }
+
+    function matchingAssignMembers(query) {
+        const q = String(query || '').trim().toLowerCase();
+        return (state.members || []).filter(m => {
+            if (!q) return true;
+            return (m.name || '').toLowerCase().includes(q) || (m.email || '').toLowerCase().includes(q);
+        });
+    }
+
+    function renderAssignMemberList(query) {
+        const list = el('assignMemberList');
+        if (!list) return;
+        const q = String(query || '').trim().toLowerCase();
+        const current = conversationAssigneeId() || '';
+        const members = matchingAssignMembers(q);
+        const showUnassigned = !q || 'unassigned'.includes(q);
+        const parts = [];
+        if (showUnassigned) {
+            parts.push('<button type="button" data-assign="">Unassigned</button>');
+        }
+        members.forEach(m => {
+            parts.push(
+                `<button type="button" data-assign="${m.id}" class="${Number(m.id) === Number(current) ? 'is-active' : ''}">` +
+                `<span class="inbox-assign-name">${escapeHtml(m.name)}</span>` +
+                (m.email ? `<span class="inbox-assign-email">${escapeHtml(m.email)}</span>` : '') +
+                `</button>`
+            );
+        });
+        if (!parts.length) {
+            parts.push('<div class="inbox-assign-empty">No matching teammates</div>');
+        }
+        list.innerHTML = parts.join('');
+    }
+
+    function renderAssignMenu() {
+        const menu = el('assignMenu');
+        if (!menu) return;
+        const previous = String(el('assignMemberSearch')?.value || '');
+        menu.innerHTML = `
+            <div class="inbox-assign-search">
+                <input type="search" id="assignMemberSearch" placeholder="Search team members…" value="${escapeHtml(previous)}" autocomplete="off" aria-label="Search team members">
+            </div>
+            <div class="inbox-assign-list" id="assignMemberList"></div>
+        `;
+        renderAssignMemberList(previous);
+    }
+
+    function shareDraftKindIds(kind) {
+        return kind === 'compose'
+            ? { fields: 'composeShareDraftFields', search: 'composeShareDraftSearch', list: 'composeShareDraftList' }
+            : { fields: 'replyShareDraftFields', search: 'replyShareDraftSearch', list: 'replyShareDraftList' };
+    }
+
+    function shareDraftMembers(kind) {
+        const inboxId = Number(el(kind === 'compose' ? 'composeFrom' : 'replyFrom')?.value || 0);
+        const inbox = (state.inboxes || []).find(i => Number(i.id) === inboxId);
+        const pool = (inbox?.members && inbox.members.length)
+            ? inbox.members
+            : [];
+        return pool.filter(m => Number(m.id) !== USER_ID);
+    }
+
+    function selectedShareDraftIds(kind) {
+        const selected = state.shareDraftSelected[kind] || {};
+        return Object.keys(selected).filter(id => selected[id]).map(id => Number(id)).filter(id => id > 0);
+    }
+
+    function toggleShareDraftUser(kind, userId) {
+        const id = Number(userId);
+        if (!id) return;
+        state.shareDraftSelected[kind] = state.shareDraftSelected[kind] || {};
+        state.shareDraftSelected[kind][id] = !state.shareDraftSelected[kind][id];
+        renderShareDraftList(kind, el(shareDraftKindIds(kind).search)?.value);
+    }
+
+    function renderShareDraftList(kind, query) {
+        const list = el(shareDraftKindIds(kind).list);
+        if (!list) return;
+        const q = String(query || '').trim().toLowerCase();
+        const selected = state.shareDraftSelected[kind] || {};
+        const members = shareDraftMembers(kind).filter(m => {
+            if (!q) return true;
+            return (m.name || '').toLowerCase().includes(q) || (m.email || '').toLowerCase().includes(q);
+        });
+        if (!members.length) {
+            list.innerHTML = `<div class="inbox-share-draft-empty">${q ? 'No matching teammates' : 'No teammates to share with'}</div>`;
+            return;
+        }
+        list.innerHTML = members.map(m => `
+            <button type="button" data-share-kind="${kind}" data-share-user="${m.id}" class="${selected[m.id] ? 'is-active' : ''}">
+                <span class="inbox-assign-name">${escapeHtml(m.name)}</span>
+                ${m.email ? `<span class="inbox-assign-email">${escapeHtml(m.email)}</span>` : ''}
+            </button>
+        `).join('');
+    }
+
+    function openShareDraftPicker(kind) {
+        const ids = shareDraftKindIds(kind);
+        const later = el(kind === 'compose' ? 'composeSendLaterFields' : 'sendLaterFields');
+        if (later) later.hidden = true;
+        const fields = el(ids.fields);
+        if (!fields) return;
+        fields.hidden = false;
+        state.shareDraftSelected[kind] = state.shareDraftSelected[kind] || {};
+        const search = el(ids.search);
+        if (search) search.value = '';
+        renderShareDraftList(kind, '');
+        search?.focus();
+    }
+
+    async function submitSharedDraft(kind) {
+        const ids = selectedShareDraftIds(kind);
+        if (!ids.length) return alert('Select at least one teammate.');
+        const isCompose = kind === 'compose';
+        const html = getComposerHtml(kind);
+        if (isComposerEmpty(kind)) return alert('Write a message first.');
+        const to = (el(isCompose ? 'composeTo' : 'replyTo')?.value || '').trim();
+        const cc = (el(isCompose ? 'composeCc' : 'replyCc')?.value || '').trim();
+        const inboxId = Number(el(isCompose ? 'composeFrom' : 'replyFrom')?.value || 0);
+        const subject = isCompose ? (el('composeSubject')?.value || '').trim() : '';
+        if (!to) return alert('Add at least one To recipient.');
+        if (isCompose && !inboxId) return alert('Select a From inbox.');
+        if (isCompose && !subject) return alert('Subject is required.');
+        if (!isCompose && !state.selectedId) return;
+
+        const sendBtn = el(isCompose ? 'btnSendCompose' : 'btnSendReply');
+        const menuBtn = el(isCompose ? 'btnSendComposeMenu' : 'btnSendReplyMenu');
+        const confirmBtn = el(isCompose ? 'btnConfirmComposeShareDraft' : 'btnConfirmReplyShareDraft');
+        if (sendBtn) sendBtn.disabled = true;
+        if (menuBtn) menuBtn.disabled = true;
+        if (confirmBtn) confirmBtn.disabled = true;
+        try {
+            const files = isCompose ? state.composeAttachments : state.replyAttachments;
+            const prepared = prepareEmailSendPayload(html, files);
+            const payload = {
+                body: prepared.body,
+                to,
+                cc: cc || null,
+                share_with_user_ids: ids,
+                attachments: prepared.attachments,
+            };
+            if (inboxId) payload.inbox_id = inboxId;
+            if (isCompose) {
+                payload.subject = subject;
+                if (state.composeDraftConversationId) payload.draft_conversation_id = state.composeDraftConversationId;
+            }
+            const path = isCompose
+                ? '/compose/share-draft'
+                : '/conversations/' + state.selectedId + '/share-draft';
+            const data = await api(path, { method: 'POST', body: payload });
+            closeThreadPops();
+            if (isCompose) {
+                state.composeAttachments = [];
+                state.composeDraftConversationId = data.conversation?.id || null;
+                renderAttachChips('compose');
+                hideMentionPopup('compose');
+                closeModal();
+                if (inboxId) {
+                    state.view = 'drafts';
+                    state.viewGroup = null;
+                    state.selectedInboxId = inboxId;
+                    state.expandedInboxIds[inboxId] = true;
+                }
+                await loadBootstrap();
+                await loadConversations();
+                if (data.conversation?.id) await openConversation(data.conversation.id);
+            } else {
+                if (el('modalReply')?.style.display === 'grid') closeModal();
+                await openConversation(data.conversation?.id || state.selectedId);
+                await loadConversations();
+            }
+        } catch (err) {
+            alert(err.message || 'Could not share draft.');
+        } finally {
+            if (sendBtn) sendBtn.disabled = false;
+            if (menuBtn) menuBtn.disabled = false;
+            if (confirmBtn) confirmBtn.disabled = false;
+        }
+    }
+
+    function openAssignMenu(btn) {
+        renderAssignMenu();
+        togglePop('assignMenu', btn);
+        if (!el('assignMenu')?.hidden) {
+            const input = el('assignMemberSearch');
+            if (input) {
+                input.value = '';
+                renderAssignMemberList('');
+                input.focus();
+            }
+        }
+    }
+
+    function snoozeUntilDate(preset) {
+        const now = new Date();
+        if (preset === 'later_today') {
+            const d = new Date(now);
+            d.setHours(18, 0, 0, 0);
+            if (d <= now) d.setHours(now.getHours() + 3, 0, 0, 0);
+            return d;
+        }
+        if (preset === 'tomorrow') {
+            const d = new Date(now);
+            d.setDate(d.getDate() + 1);
+            d.setHours(9, 0, 0, 0);
+            return d;
+        }
+        if (preset === 'monday') {
+            const d = new Date(now);
+            const add = d.getDay() === 0 ? 1 : (8 - d.getDay());
+            d.setDate(d.getDate() + add);
+            d.setHours(9, 0, 0, 0);
+            return d;
+        }
+        if (preset === '3d') {
+            const d = new Date(now);
+            d.setDate(d.getDate() + 3);
+            d.setHours(9, 0, 0, 0);
+            return d;
+        }
+        return null;
+    }
+
+    async function assignConversation(userId) {
+        if (!state.selectedId) return;
+        await api('/conversations/' + state.selectedId + '/assign', {
+            method: 'POST',
+            body: { assigned_to: userId ? Number(userId) : null },
+        });
+        await openConversation(state.selectedId);
+        await loadBootstrap();
+        await loadConversations();
+    }
+
+    async function snoozeConversation(until) {
+        if (!state.selectedId || !until) return;
+        const untilValue = until instanceof Date
+            ? datetimeLocalToApi(toDatetimeLocalValue(until))
+            : (typeof until === 'string' ? (datetimeLocalToApi(until) || until) : null);
+        if (!untilValue) return;
+        await api('/conversations/' + state.selectedId + '/snooze', {
+            method: 'POST',
+            body: { until: untilValue },
+        });
+        state.conversation = null;
+        state.selectedId = null;
+        renderThread();
+        await loadBootstrap();
+        await loadConversations();
+    }
+
+    function conversationInbox() {
+        const c = state.conversation;
+        if (!c) return null;
+        return c.inbox || state.inboxes.find(i => Number(i.id) === Number(c.inbox_id)) || null;
+    }
+
+    function mailboxEmail(inbox) {
+        return String(inbox?.email || inbox?.account_email || '').trim().toLowerCase();
+    }
+
+    function extractEmailAddress(value) {
+        const raw = String(value || '').trim();
+        const angle = raw.match(/<([^>]+)>/);
+        return (angle ? angle[1] : raw).trim().toLowerCase();
+    }
+
+    function addEmailToField(fieldId, email) {
+        const input = el(fieldId);
+        if (!input || !email) return;
+        const next = extractEmailAddress(email);
+        if (!next.includes('@')) return;
+        const parts = parseEmailList(input.value);
+        if (parts.some(existing => existing === next)) return;
+        parts.push(next);
+        input.value = parts.join(', ');
+    }
+
+    function fillReplyFromSelect() {
+        const select = el('replyFrom');
+        if (!select) return;
+        const previous = select.value;
+        const connected = state.inboxes.filter(i => i.connected);
+        const currentId = Number(state.conversation?.inbox_id || state.conversation?.inbox?.id || 0);
+        const options = connected.slice();
+        if (currentId && !options.some(i => Number(i.id) === currentId)) {
+            const current = conversationInbox();
+            if (current) options.unshift(current);
+        }
+        select.innerHTML = options.map(i => {
+            const address = i.email || i.account_email || '';
+            const label = address ? `${i.name || address} (${address})` : (i.name || 'Inbox');
+            return `<option value="${escapeHtml(String(i.id))}">${escapeHtml(label)}</option>`;
+        }).join('');
+        if (previous && [...select.options].some(o => o.value === previous)) {
+            select.value = previous;
+        } else if (currentId && [...select.options].some(o => o.value === String(currentId))) {
+            select.value = String(currentId);
+        } else if (options[0]) {
+            select.value = String(options[0].id);
+        }
+    }
+
+    function replySourceMessage(preferred) {
+        if (preferred) return preferred;
+        const messages = state.conversation?.messages || [];
+        const inbound = [...messages].slice().reverse().find(m => m.direction === 'inbound');
+        return inbound || messages[messages.length - 1] || null;
+    }
+
+    function defaultReplyRecipients(message, replyAll) {
+        const mine = mailboxEmail(conversationInbox());
+        const source = replySourceMessage(message);
+        const fromList = parseEmailList(source?.from_email || state.conversation?.from_email);
+        const replyToList = parseEmailList(source?.reply_to || source?.reply_to_emails);
+        const toList = parseEmailList(source?.to || source?.to_emails);
+        const ccList = parseEmailList(source?.cc || source?.cc_emails);
+        const notMe = email => email && email !== mine;
+        const isFromMe = fromList.some(email => email === mine);
+        const replyTarget = (replyToList.filter(notMe).length ? replyToList : fromList).filter(notMe);
+
+        if (replyAll) {
+            const unique = [...new Set([...replyTarget, ...toList, ...ccList].filter(notMe))];
+            return { to: unique.slice(0, 1), cc: unique.slice(1) };
+        }
+
+        let to = isFromMe
+            ? toList.filter(notMe)
+            : replyTarget;
+        if (!to.length) {
+            to = parseEmailList(state.conversation?.from_email).filter(notMe);
+        }
+        to = [...new Set(to)];
+        const toSet = new Set(to);
+        const cc = [...new Set(ccList.filter(notMe).filter(email => !toSet.has(email)))];
+        return { to, cc };
+    }
+
+    function populateReplyHeaders(message = null, { replyAll = false, force = false } = {}) {
+        fillReplyFromSelect();
+        const toEl = el('replyTo');
+        const ccEl = el('replyCc');
+        if (!force && toEl?.value.trim()) return;
+        const { to, cc } = defaultReplyRecipients(message, replyAll);
+        if (toEl) toEl.value = to.join(', ');
+        if (ccEl) ccEl.value = cc.join(', ');
+    }
+
+    function startReplyFromMessage(message, replyAll) {
+        openReplyModal(message, { replyAll: !!replyAll, force: true });
+    }
+
+    function latestThreadMessage() {
+        const messages = (state.conversation?.messages || []).filter(m => !m.is_draft);
+        return messages.length ? messages[messages.length - 1] : null;
+    }
+
+    function latestOutboundMessage() {
+        const messages = (state.conversation?.messages || []).filter(m => !m.is_draft && m.direction === 'outbound');
+        return messages.length ? messages[messages.length - 1] : null;
+    }
+
+    function forwardSubject(subject) {
+        const value = String(subject || state.conversation?.subject || '').trim() || '(no subject)';
+        return /^fwd:\s*/i.test(value) ? value : 'Fwd: ' + value;
+    }
+
+    function quotedForwardHtml(message) {
+        const name = message.from_name || message.from_email || 'Unknown';
+        const email = message.from_email || '';
+        const from = email
+            ? `${escapeHtml(name)} &lt;${escapeHtml(email)}&gt;`
+            : escapeHtml(name);
+        const date = escapeHtml(formatAbsoluteTime(message.sent_at));
+        const subject = escapeHtml(message.subject || state.conversation?.subject || '');
+        const to = escapeHtml(parseEmailList(message.to || message.to_emails).join(', '));
+        const cc = parseEmailList(message.cc || message.cc_emails);
+        const body = sanitizeHtml(message.body_html || plainToHtml(message.body_text || ''));
+        return `
+            <div><br></div>
+            <div>---------- Forwarded message ---------</div>
+            <div>From: ${from}</div>
+            ${date ? `<div>Date: ${date}</div>` : ''}
+            ${subject ? `<div>Subject: ${subject}</div>` : ''}
+            ${to ? `<div>To: ${to}</div>` : ''}
+            ${cc.length ? `<div>Cc: ${escapeHtml(cc.join(', '))}</div>` : ''}
+            <div><br></div>
+            ${body}
+        `;
+    }
+
+    async function loadMessageAttachmentsForCompose(message) {
+        const files = (message?.attachments || []).filter(a => a.download_url);
+        const out = [];
+        for (const a of files) {
+            if (out.length >= MAX_ATTACH_COUNT) break;
+            try {
+                const res = await fetch(a.download_url, { credentials: 'same-origin' });
+                if (!res.ok) continue;
+                const blob = await res.blob();
+                if (blob.size > MAX_ATTACH_BYTES) continue;
+                const file = new File(
+                    [blob],
+                    a.name || 'attachment',
+                    { type: a.content_type || blob.type || 'application/octet-stream' }
+                );
+                out.push(await readFileAsAttachment(file));
+            } catch (_) {}
+        }
+        return out;
+    }
+
+    async function openForwardModal(message) {
+        const source = message || latestThreadMessage();
+        if (!source) {
+            alert('No message to forward.');
+            return;
+        }
+        const inboxId = state.conversation?.inbox_id || state.conversation?.inbox?.id || state.selectedInboxId;
+        openComposeModal({
+            title: 'Forward',
+            help: 'Forward this email as a new message.',
+            to: '',
+            cc: '',
+            subject: forwardSubject(source.subject || state.conversation?.subject),
+            bodyHtml: quotedForwardHtml(source),
+            withSignature: true,
+            inboxId,
+            focus: 'composeTo',
+        });
+        try {
+            const attachments = await loadMessageAttachmentsForCompose(source);
+            if ((el('modalCompose')?.style.display === 'grid' || state.inlineComposerModal === 'modalCompose') && attachments.length) {
+                state.composeAttachments = attachments;
+                renderAttachChips('compose');
+            }
+        } catch (_) {}
+    }
+
+    async function openResendModal(message) {
+        const source = message || latestOutboundMessage();
+        if (!source) {
+            alert('No sent message to resend.');
+            return;
+        }
+        if (!state.composerCanReply) return;
+        const connected = state.inboxes.filter(i => i.connected);
+        if (!connected.length) {
+            alert('Connect an Outlook inbox first.');
+            return;
+        }
+        state.replyAll = false;
+        state.replyDraftId = null;
+        state.shareDraftSelected.reply = {};
+        setReplyModalCopy('Resend', 'Send this message again. You can edit it first.');
+        hideMentionPopup('reply');
+        syncComposerModeButtons('resend');
+        openModal('modalReply');
+        fillReplyFromSelect();
+        if (el('replyTo')) el('replyTo').value = parseEmailList(source.to || source.to_emails).join(', ');
+        if (el('replyCc')) el('replyCc').value = parseEmailList(source.cc || source.cc_emails).join(', ');
+        setComposerHtml('reply', source.body_html || plainToHtml(source.body_text || ''));
+        state.replyAttachments = [];
+        renderAttachChips('reply');
+        el('composerHint').textContent = 'Resend via Outlook';
+        el('replyBody')?.focus();
+        try {
+            const attachments = await loadMessageAttachmentsForCompose(source);
+            if ((el('modalReply')?.style.display === 'grid' || state.inlineComposerModal === 'modalReply') && attachments.length) {
+                state.replyAttachments = attachments;
+                renderAttachChips('reply');
+            }
+        } catch (_) {}
+    }
+
+    function clipIconHtml() {
+        return '<span class="inbox-msg-clip" title="Has attachments"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></span>';
+    }
+
+    function editIconHtml() {
+        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+    }
+
+    function deleteIconHtml() {
+        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+    }
+
+    function copyIconHtml() {
+        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    }
+
+    function linkIconHtml() {
+        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
+    }
+
+    const MEDIA_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
+    const MEDIA_VIDEO_EXTS = ['mp4', 'webm', 'mov', 'm4v', 'ogv'];
+
+    function attachmentMediaKind(a) {
+        const type = String(a?.content_type || a?.contentType || '').toLowerCase();
+        const ext = String(a?.name || '').split('.').pop().toLowerCase();
+        if (type.startsWith('image/') || MEDIA_IMAGE_EXTS.includes(ext)) return 'image';
+        if (type.startsWith('video/') || MEDIA_VIDEO_EXTS.includes(ext)) return 'video';
+        return null;
+    }
+
+    function commentAttachmentHtml(a) {
+        const url = escapeHtml(a.download_url);
+        const name = escapeHtml(a.name || 'Attachment');
+        const kind = attachmentMediaKind(a);
+        if (kind === 'image') {
+            return `
+                <button type="button" class="inbox-msg-media" data-media-open data-media-type="image" data-media-url="${url}" data-media-name="${name}" title="${name}">
+                    <img src="${url}" alt="${name}" loading="lazy">
+                </button>
+            `;
+        }
+        if (kind === 'video') {
+            return `
+                <button type="button" class="inbox-msg-media inbox-msg-media-video" data-media-open data-media-type="video" data-media-url="${url}" data-media-name="${name}" title="${name}">
+                    <video src="${url}#t=0.1" preload="metadata" muted playsinline></video>
+                    <span class="inbox-msg-media-play" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M8 5v14l11-7z"/></svg>
+                    </span>
+                </button>
+            `;
+        }
+        return `
+            <a class="inbox-msg-attach" href="${url}" target="_blank" rel="noopener">
+                ${name}
+            </a>
+        `;
+    }
+
+    function openMediaLightbox({ url, type, name }) {
+        const body = el('mediaLightboxBody');
+        if (!body || !url) return;
+        body.innerHTML = type === 'video'
+            ? `<video src="${escapeHtml(url)}" controls autoplay></video>`
+            : `<img src="${escapeHtml(url)}" alt="${escapeHtml(name || '')}">`;
+        el('mediaLightboxName').textContent = name || '';
+        const dl = el('mediaLightboxDownload');
+        if (dl) {
+            dl.href = url;
+            dl.download = name || '';
+        }
+        el('mediaLightbox').hidden = false;
+    }
+
+    function closeMediaLightbox() {
+        const backdrop = el('mediaLightbox');
+        if (!backdrop || backdrop.hidden) return;
+        backdrop.hidden = true;
+        const body = el('mediaLightboxBody');
+        if (body) body.innerHTML = '';
+    }
+
+    function attachmentFileMeta(a) {
+        const type = String(a?.content_type || a?.contentType || '').toLowerCase();
+        const ext = String(a?.name || '').split('.').pop().toLowerCase();
+        if (type.startsWith('image/') || MEDIA_IMAGE_EXTS.includes(ext)) {
+            return { kind: 'image', label: (ext || 'img').slice(0, 4).toUpperCase(), tone: 'image' };
+        }
+        if (type.startsWith('video/') || MEDIA_VIDEO_EXTS.includes(ext)) {
+            return { kind: 'video', label: 'VIDEO', tone: 'video' };
+        }
+        if (type === 'application/pdf' || ext === 'pdf') return { kind: 'pdf', label: 'PDF', tone: 'pdf' };
+        if (['doc', 'docx'].includes(ext) || type.includes('word')) return { kind: 'file', label: 'DOC', tone: 'doc' };
+        if (['xls', 'xlsx', 'csv'].includes(ext) || type.includes('sheet') || type.includes('excel')) return { kind: 'file', label: 'XLS', tone: 'xls' };
+        if (['ppt', 'pptx'].includes(ext) || type.includes('presentation')) return { kind: 'file', label: 'PPT', tone: 'ppt' };
+        if (['zip', 'rar', '7z', 'gz'].includes(ext)) return { kind: 'file', label: 'ZIP', tone: 'zip' };
+        const label = (ext && ext !== String(a?.name || '').toLowerCase() ? ext : 'file').slice(0, 4).toUpperCase();
+        return { kind: 'file', label, tone: 'file' };
+    }
+
+    function attachmentBadgeHtml(tone, label) {
+        const colors = {
+            pdf: '#e11d2e',
+            doc: '#2b579a',
+            xls: '#217346',
+            ppt: '#d24726',
+            zip: '#ca8a04',
+            video: '#7c3aed',
+            image: '#0284c7',
+            file: '#6b7280',
+        };
+        return `<span class="inbox-attach-badge" style="background:${colors[tone] || colors.file}">${escapeHtml(label)}</span>`;
+    }
+
+    function attachmentPreviewUrl(url) {
+        const value = String(url || '');
+        if (!value) return '';
+        return value + (value.includes('?') ? '&' : '?') + 'inline=1';
+    }
+
+    function emailAttachmentsHtml(attachments) {
+        const files = (attachments || []).filter(a => a && a.download_url);
+        if (!files.length) return '';
+        const sep = '\u001e';
+        const cards = files.map((a) => {
+            const url = escapeHtml(a.download_url);
+            const previewUrl = escapeHtml(attachmentPreviewUrl(a.download_url));
+            const name = escapeHtml(a.name || 'Attachment');
+            const meta = attachmentFileMeta(a);
+            const badge = attachmentBadgeHtml(meta.tone, meta.label);
+            let preview = `<span class="inbox-attach-page">${badge}</span>`;
+            if (meta.kind === 'image') {
+                preview = `<img src="${previewUrl}" alt="" loading="lazy">`;
+            } else if (meta.kind === 'video') {
+                preview = `<video src="${previewUrl}#t=0.1" muted preload="metadata" playsinline></video><span class="inbox-attach-play" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M8 5v14l11-7z"/></svg></span>`;
+            } else if (meta.kind === 'pdf') {
+                preview = `<span class="inbox-attach-page">${badge}</span>`;
+            }
+            const open = (meta.kind === 'image' || meta.kind === 'video')
+                ? `<button type="button" class="inbox-attach-hit" data-media-open data-media-type="${meta.kind}" data-media-url="${url}" data-media-name="${name}" aria-label="${name}"></button>`
+                : `<a class="inbox-attach-hit" href="${url}" target="_blank" rel="noopener" aria-label="${name}"></a>`;
+            return `
+                <div class="inbox-attach-card">
+                    <div class="inbox-attach-preview${meta.kind === 'pdf' ? ' is-pdf' : ''}"${meta.kind === 'pdf' ? ` data-pdf-preview="${previewUrl}"` : ''}>${preview}</div>
+                    <div class="inbox-attach-foot">${badge}<span class="inbox-attach-name" title="${name}">${name}</span></div>
+                    ${open}
+                </div>
+            `;
+        }).join('');
+        const countLabel = files.length === 1 ? '1 Attachment' : `${files.length} Attachments`;
+        return `
+            <div class="inbox-attach-block">
+                <div class="inbox-attach-head">
+                    <span>${countLabel}</span>
+                    <button type="button" class="inbox-attach-download-all" data-download-all="${escapeHtml(files.map(a => a.download_url).join(sep))}" data-download-names="${escapeHtml(files.map(a => a.name || 'attachment').join(sep))}">Download all</button>
+                </div>
+                <div class="inbox-attach-grid">${cards}</div>
+            </div>
+        `;
+    }
+
+    function filenameFromContentDisposition(header) {
+        const value = String(header || '');
+        const star = value.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
+        if (star) {
+            try { return decodeURIComponent(star[1].trim().replace(/^"|"$/g, '')); } catch (_) {}
+        }
+        const quoted = value.match(/filename="([^"]+)"/i);
+        if (quoted) return quoted[1];
+        const plain = value.match(/filename=([^;]+)/i);
+        return plain ? plain[1].trim().replace(/^"|"$/g, '') : '';
+    }
+
+    let pdfjsLoader = null;
+
+    function loadPdfJs() {
+        if (!pdfjsLoader) {
+            const lib = new URL('/vendor/pdfjs/pdf.min.mjs', window.location.origin).href;
+            const worker = new URL('/vendor/pdfjs/pdf.worker.min.mjs', window.location.origin).href;
+            pdfjsLoader = import(lib).then((pdfjs) => {
+                pdfjs.GlobalWorkerOptions.workerSrc = worker;
+                return pdfjs;
+            }).catch((err) => {
+                pdfjsLoader = null;
+                throw err;
+            });
+        }
+        return pdfjsLoader;
+    }
+
+    async function hydratePdfAttachmentPreviews(root) {
+        const nodes = [...(root || document).querySelectorAll('.inbox-msg.is-expanded [data-pdf-preview]')];
+        if (!nodes.length) return;
+        let pdfjs;
+        try {
+            pdfjs = await loadPdfJs();
+        } catch (_) {
+            return;
+        }
+        await Promise.all(nodes.map(async (node) => {
+            if (node.dataset.pdfReady === '1') return;
+            node.dataset.pdfReady = '1';
+            try {
+                const res = await fetch(node.dataset.pdfPreview, { credentials: 'same-origin' });
+                if (!res.ok || !node.isConnected) return;
+                const data = new Uint8Array(await res.arrayBuffer());
+                const doc = await pdfjs.getDocument({ data, disableRange: true, disableStream: true }).promise;
+                const page = await doc.getPage(1);
+                const base = page.getViewport({ scale: 1 });
+                const viewport = page.getViewport({ scale: 240 / base.width });
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.ceil(viewport.width);
+                canvas.height = Math.ceil(viewport.height);
+                await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+                if (node.isConnected) node.replaceChildren(canvas);
+                doc.destroy?.();
+            } catch (_) {
+                node.dataset.pdfReady = '';
+            }
+        }));
+    }
+
+    async function downloadAttachmentFiles(urls, names) {
+        for (let i = 0; i < urls.length; i++) {
+            const url = urls[i];
+            const fallback = names[i] || 'attachment';
+            try {
+                const res = await fetch(url, { credentials: 'same-origin' });
+                if (!res.ok) continue;
+                const blob = await res.blob();
+                const name = filenameFromContentDisposition(res.headers.get('Content-Disposition')) || fallback;
+                const objectUrl = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = objectUrl;
+                link.download = name;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+            } catch (_) {}
+        }
+    }
+
+    function emailCardHtml(m, expanded) {
+        const name = m.from_name || m.from_email || 'Unknown';
+        const email = m.from_email || '';
+        const preview = messagePreviewText(m);
+        const isDraft = !!m.is_draft;
+        const isTarget = String(state.focusMessageId || '') === String(m.id);
+        const toList = parseEmailList(m.to || m.to_emails);
+        const ccList = parseEmailList(m.cc || m.cc_emails);
+        const replyToList = parseEmailList(m.reply_to || m.reply_to_emails);
+        const attachmentBlock = emailAttachmentsHtml(m.attachments || []);
+        const recipients = [
+            toList.length ? `<div><strong>To</strong> ${escapeHtml(toList.join(', '))}</div>` : '',
+            ccList.length ? `<div><strong>Cc</strong> ${escapeHtml(ccList.join(', '))}</div>` : '',
+            replyToList.length ? `<div><strong>Reply-To</strong> ${escapeHtml(replyToList.join(', '))}</div>` : '',
+            `<div><strong>ID</strong> ${escapeHtml(String(m.id))}</div>`,
+        ].join('');
+        const copyActions = `
+            <button type="button" data-copy-msg-id="${escapeHtml(String(m.id))}" title="Copy message ID">
+                ${copyIconHtml()}
+            </button>
+            <button type="button" data-copy-msg-link="${escapeHtml(String(m.id))}" title="Copy message link">
+                ${linkIconHtml()}
+            </button>
+        `;
+        return `
+            <div class="inbox-msg ${m.direction} ${expanded ? 'is-expanded' : ''} ${isDraft ? 'scheduled' : ''} ${isTarget ? 'is-target' : ''}" data-msg-id="${escapeHtml(String(m.id))}">
+                <div class="inbox-msg-row">
+                    <span class="inbox-avatar" style="background:${avatarHue(email || name)}">${escapeHtml(initials(name))}</span>
+                    <div class="inbox-msg-summary">
+                        <span class="inbox-msg-from">${escapeHtml(name)}</span>
+                        ${isDraft ? '<span class="inbox-msg-email">Draft</span>' : (email ? `<span class="inbox-msg-email">${escapeHtml(email)}</span>` : '')}
+                        <span class="inbox-msg-preview">${escapeHtml(preview)}</span>
+                    </div>
+                    <div class="inbox-msg-meta">
+        ${m.direction === 'inbound' && m.is_read ? '<span class="inbox-seen">Seen</span>' : ''}
+                        ${(m.attachments || []).length ? clipIconHtml() : ''}
+                        <span class="inbox-msg-time"${m.sent_at ? ` data-msg-time="${escapeHtml(m.sent_at)}" title="Click to show date & time"` : ''}>${escapeHtml(formatThreadTime(m.sent_at))}</span>
+                        <div class="inbox-msg-head-actions">
+                            ${isDraft ? `
+                                <button type="button" data-edit-draft="${escapeHtml(String(m.id))}" title="Continue editing draft">
+                                    ${editIconHtml()}
+                                </button>
+                            ` : `
+                                <button type="button" data-reply-msg="${escapeHtml(String(m.id))}" title="Reply all">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+                                </button>
+                                <button type="button" data-forward-msg="${escapeHtml(String(m.id))}" title="Forward">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 0 1 4-4h12"/></svg>
+                                </button>
+                                ${m.direction === 'outbound' ? `
+                                <button type="button" data-resend-msg="${escapeHtml(String(m.id))}" title="Resend">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                                </button>` : ''}
+                            `}
+                            ${copyActions}
+                        </div>
+                    </div>
+                </div>
+                <div class="inbox-msg-expanded">
+                    ${recipients ? `<div class="inbox-msg-recipients">${recipients}</div>` : ''}
+                    ${attachmentBlock}
+                    <div class="inbox-msg-body" data-email-body="${escapeHtml(String(m.id))}"></div>
+                    ${isDraft ? `
+                        <div class="inbox-scheduled-actions">
+                            <span class="inbox-composer-hint">This draft hasn't been sent yet.</span>
+                            <button type="button" class="inbox-btn primary" data-edit-draft="${escapeHtml(String(m.id))}">Continue editing</button>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>`;
+    }
+
+    function commentCardHtml(comment, expanded) {
+        const name = comment.user?.name || 'Teammate';
+        const preview = String(comment.body_text || htmlToPlain(comment.body_html || '') || '').replace(/\s+/g, ' ').trim();
+        const attachments = (comment.attachments || []).map(commentAttachmentHtml).join('');
+        const canEdit = !!comment.can_edit;
+        const commentId = escapeHtml(String(comment.id));
+        return `
+            <div class="inbox-msg internal ${expanded ? 'is-expanded' : ''}" data-comment-id="${commentId}">
+                <div class="inbox-msg-row">
+                    <span class="inbox-avatar" style="background:#d97706">${escapeHtml(initials(name))}</span>
+                    <div class="inbox-msg-summary">
+                        <span class="inbox-msg-from">${escapeHtml(name)}</span>
+                        <span class="inbox-msg-email">internal comment</span>
+                        <span class="inbox-msg-preview">${escapeHtml(preview)}</span>
+                    </div>
+                    <div class="inbox-msg-meta">
+                        ${(comment.attachments || []).length ? clipIconHtml() : ''}
+                        <span class="inbox-msg-time"${comment.created_at ? ` data-msg-time="${escapeHtml(comment.created_at)}" title="Click to show date & time"` : ''}>${escapeHtml(formatThreadTime(comment.created_at))}</span>
+                        ${canEdit ? `
+                        <div class="inbox-msg-head-actions">
+                            <button type="button" data-edit-comment="${commentId}" title="Edit comment">
+                                ${editIconHtml()}
+                            </button>
+                            <button type="button" class="is-danger" data-delete-comment="${commentId}" title="Delete comment">
+                                ${deleteIconHtml()}
+                            </button>
+                        </div>` : ''}
+                    </div>
+                </div>
+                <div class="inbox-msg-expanded">
+                    <div class="inbox-msg-body">${formatMessageBodyHtml(comment)}</div>
+                    ${attachments ? `<div class="inbox-msg-attachments">${attachments}</div>` : ''}
+                    ${canEdit ? `
+                    <div class="inbox-comment-editor">
+                        <div class="inbox-composer-editor" contenteditable="true" data-comment-edit-body data-placeholder="Edit comment…" role="textbox" aria-multiline="true"></div>
+                        <div class="inbox-scheduled-actions">
+                            <button type="button" class="inbox-btn primary" data-save-comment="${commentId}">Save</button>
+                            <button type="button" class="inbox-btn ghost" data-cancel-edit-comment="${commentId}">Cancel</button>
+                        </div>
+                    </div>` : ''}
+                </div>
+            </div>`;
+    }
+
+    function scheduledReplyCardHtml(item) {
+        const name = item.user?.name || 'You';
+        const preview = String(item.body_text || htmlToPlain(item.body_html || '') || '').replace(/\s+/g, ' ').trim();
+        const when = item.send_at ? formatAbsoluteTime(item.send_at) : 'later';
+        const isCompose = item.type === 'compose';
+        const kindLabel = isCompose ? 'scheduled message' : 'scheduled reply';
+        const attachNote = Number(item.attachment_count || 0) > 0
+            ? ` · ${item.attachment_count} attachment${Number(item.attachment_count) === 1 ? '' : 's'}`
+            : '';
+        const archiveNote = item.archive_after ? ' · then archive' : '';
+        return `
+            <div class="inbox-msg scheduled is-expanded" data-scheduled-reply-id="${escapeHtml(String(item.id))}">
+                <div class="inbox-msg-row" style="cursor:default;">
+                    <span class="inbox-avatar" style="background:#64748b">${escapeHtml(initials(name))}</span>
+                    <div class="inbox-msg-summary">
+                        <span class="inbox-msg-from">${escapeHtml(name)}</span>
+                        <span class="inbox-msg-email">${escapeHtml(kindLabel)}</span>
+                        <span class="inbox-msg-preview">${escapeHtml(preview)}</span>
+                    </div>
+                    <div class="inbox-msg-meta">
+                        <span class="inbox-msg-time" title="${escapeHtml(when)}">${escapeHtml(when)}</span>
+                    </div>
+                </div>
+                <div class="inbox-msg-expanded">
+                    <div class="inbox-msg-body">${formatMessageBodyHtml({ body_html: item.body_html, body_text: item.body_text })}</div>
+                    <div class="inbox-scheduled-actions">
+                        <span class="inbox-composer-hint">Scheduled for ${escapeHtml(when)}${escapeHtml(attachNote)}${escapeHtml(archiveNote)}</span>
+                        <button type="button" class="inbox-btn ghost" data-cancel-scheduled="${escapeHtml(String(item.id))}">Cancel</button>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    function applyPropsPaneVisibility() {
+        const pane = el('propsPane');
+        const shell = document.querySelector('.inbox-shell');
+        const toggle = el('btnToggleProps');
+        const open = !!(state.conversation && state.propsOpen);
+        if (pane) {
+            pane.style.display = open ? 'block' : 'none';
+            pane.hidden = !open;
+        }
+        shell?.classList.toggle('with-props', open);
+        if (toggle) {
+            toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+            toggle.classList.toggle('is-active', open);
+            toggle.title = open ? 'Hide details' : 'Show details';
+        }
+    }
+
+    function setPropsOpen(open) {
+        state.propsOpen = !!open;
+        applyPropsPaneVisibility();
+    }
+
+    function renderThread() {
+        const c = state.conversation;
+        if (!c) {
+            el('threadPlaceholder').style.display = 'flex';
+            el('threadView').style.display = 'none';
+            applyPropsPaneVisibility();
+            return;
+        }
+        el('threadPlaceholder').style.display = 'none';
+        el('threadView').style.display = 'flex';
+        el('threadView')?.classList.remove('is-loading');
+        el('threadView')?.removeAttribute('aria-busy');
+        applyPropsPaneVisibility();
+        el('threadSubject').textContent = c.subject || '(No subject)';
+        if (INBOX_POPOUT) document.title = (c.subject || 'Conversation') + ' - Inbox';
+
+        const snoozedUntil = c.reopen_at && new Date(c.reopen_at) > new Date() ? c.reopen_at : null;
+        const mergedCount = Number(c.merged_count || (c.merged_threads || []).length || 0);
+        const metaBits = [];
+        if (snoozedUntil) metaBits.push('Snoozed until ' + formatAbsoluteTime(snoozedUntil));
+        if (mergedCount) metaBits.push(mergedCount === 1 ? '1 conversation merged in' : mergedCount + ' conversations merged in');
+        el('threadMeta').textContent = metaBits.join(' · ');
+
+        const people = collectParticipants(c);
+        const inbox = c.inbox || state.inboxes.find(i => Number(i.id) === Number(c.inbox_id));
+        el('threadParticipants').innerHTML = people.slice(0, 6).map(p => `
+            <span class="inbox-chip" title="${escapeHtml(p.email)}">
+                <span class="inbox-chip-avatar" style="background:${avatarHue(p.email)}">${escapeHtml(initials(p.name))}</span>
+                <span>${escapeHtml(p.name || p.email)}</span>
+            </span>
+        `).join('') + (people.length > 6 ? `<span class="inbox-chip">+${people.length - 6}</span>` : '') +
+            participantsMenuHtml(c) +
+            tagsMenuHtml(c);
+
+        const folder = c.folder || 'inbox';
+        const isInboxOpen = folder === 'inbox' && c.status === 'open';
+        const isSent = folder === 'sent';
+        const isArchived = folder === 'inbox' && c.status === 'archived';
+        const isTrashOrSpam = folder === 'trash' || folder === 'spam' || c.status === 'trashed' || c.status === 'spam';
+
+        el('btnArchive').style.display = isInboxOpen ? '' : 'none';
+        el('btnSnooze').style.display = (isInboxOpen || isSent) ? '' : 'none';
+        el('btnSpam').style.display = (folder === 'inbox' || folder === 'trash') ? '' : 'none';
+        el('btnTrash').style.display = (!isTrashOrSpam && folder !== 'trash') ? '' : 'none';
+        el('btnRestore').style.display = isTrashOrSpam ? '' : 'none';
+        el('btnReopen').style.display = isArchived ? '' : 'none';
+        const unmergeBtn = el('btnUnmergeMenu');
+        if (unmergeBtn) unmergeBtn.hidden = mergedCount < 1;
+        el('assignBtnLabel').textContent = c.assignee?.name || 'Assign';
+        el('archiveBtnLabel').textContent = inbox?.type === 'personal' ? 'Archive in my inbox' : 'Archive';
+        renderAssignMenu();
+
+        const canReply = folder === 'inbox' || folder === 'sent' || folder === 'drafts';
+        state.composerCanReply = canReply;
+        el('composerArea').style.display = '';
+        el('composerArea').classList.toggle('is-expanded', !!state.composerExpanded);
+        const replyModeBtn = el('btnModeReply');
+        if (replyModeBtn) {
+            replyModeBtn.disabled = !canReply;
+            replyModeBtn.title = canReply ? 'Email reply via Outlook' : 'Reply unavailable in this folder';
+        }
+        const forwardModeBtn = el('btnModeForward');
+        if (forwardModeBtn) {
+            forwardModeBtn.disabled = !canReply;
+            forwardModeBtn.title = canReply ? 'Forward this email' : 'Forward unavailable in this folder';
+        }
+        const resendModeBtn = el('btnModeResend');
+        if (resendModeBtn) {
+            const canResend = canReply && (c.messages || []).some(m => !m.is_draft && m.direction === 'outbound');
+            resendModeBtn.disabled = !canResend;
+            resendModeBtn.title = canResend ? 'Resend the last sent message' : (canReply ? 'No sent message to resend' : 'Resend unavailable in this folder');
+        }
+        const mailComposerOpen = !!state.inlineComposerModal
+            || el('modalReply')?.style.display === 'grid'
+            || el('modalCompose')?.style.display === 'grid';
+        if (mailComposerOpen) {
+            syncComposerModeButtons(state.composerMode);
+        } else {
+            setComposerMode();
+        }
+        if (!state.replyAll) {
+            el('composerHint').textContent = folder === 'drafts' ? 'Send draft via Outlook' : 'Reply via Outlook';
+        }
+        el('replyBody').dataset.placeholder = folder === 'drafts' ? 'Edit and send…' : 'Write a reply… Type @ to mention teammates.';
+        const me = state.members.find(m => Number(m.id) === USER_ID);
+        const assignee = conversationAssignee(c);
+        el('commentBody').dataset.placeholder = assignee?.name
+            ? `Add internal comment visible to ${me?.name ? 'you' : 'your team'} and ${assignee.name}.`
+            : 'Add internal comment visible to your team.';
+
+        el('assignSelect').value = conversationAssigneeId(c) || '';
+        refreshSearchSelect('assignSelect');
+        el('propInboxName').textContent = c.inbox?.name || '—';
+        el('propContact').textContent = `${c.from_name || ''} · ${c.from_email || ''}`;
+        const propLead = el('propContactLead');
+        if (propLead) {
+            propLead.innerHTML = leadAssignedBlock(c.lead);
+        }
+
+        const tagItems = conversationTagItems(c);
+        el('conversationTags').innerHTML = tagItems.length
+            ? tagItems.map(t => conversationLabelPillHtml(t, { removable: true })).join('')
+            : `<span style="color:var(--inbox-muted);font-size:0.8rem;">No labels</span>`;
+
+        const used = new Set(tagItems.map(t => Number(t.id)));
+        const addSelect = el('addTagSelect');
+        if (addSelect) {
+            addSelect.style.display = '';
+            addSelect.innerHTML = '<option value="">Add existing label…</option>' +
+                (state.leadLabels || []).filter(t => !used.has(Number(t.id)))
+                    .map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+            refreshSearchSelect('addTagSelect');
+        }
+        const leadLabelRow = el('addLeadLabelRow');
+        if (leadLabelRow) leadLabelRow.hidden = false;
+        const leadLabelInput = el('addLeadLabelInput');
+        if (leadLabelInput) {
+            leadLabelInput.value = '';
+            leadLabelInput.disabled = false;
+        }
+        const propsAddBtn = el('btnAddLeadLabel');
+        if (propsAddBtn) {
+            propsAddBtn.disabled = false;
+            propsAddBtn.classList.remove('is-busy');
+            propsAddBtn.innerHTML = propsAddBtn.dataset.idleHtml || 'Add';
+            delete propsAddBtn.dataset.idleHtml;
+        }
+
+        const emails = [...(c.messages || [])].sort((a, b) => String(a.sent_at || '').localeCompare(String(b.sent_at || '')));
+        const lastEmailId = emails.length ? String(emails[emails.length - 1].id) : null;
+        const isEmailExpanded = (id) => {
+            const key = String(id);
+            if (Object.prototype.hasOwnProperty.call(state.expandedMessageIds, key)) return !!state.expandedMessageIds[key];
+            return key === String(lastEmailId);
+        };
+
+        const timeline = [
+            ...(c.messages || []).map(m => ({
+                type: 'email',
+                message: m,
+                sort: m.sent_at || '',
+                html: emailCardHtml(m, isEmailExpanded(m.id)),
+            })),
+            ...(c.comments || []).map(comment => ({
+                type: 'comment',
+                sort: comment.created_at || '',
+                html: commentCardHtml(comment, true),
+            })),
+            ...(c.scheduled_replies || []).map(item => ({
+                type: 'scheduled',
+                sort: item.send_at || item.created_at || '',
+                html: scheduledReplyCardHtml(item),
+            })),
+            ...(c.activities || []).map(activity => ({
+                type: 'activity',
+                sort: activity.created_at || '',
+                html: `
+            <div class="inbox-msg activity" data-activity-action="${escapeHtml(activity.action || '')}">
+                <div class="inbox-activity-line">
+                    <span>${escapeHtml(activity.summary || 'Updated conversation')}</span>
+                    <span class="inbox-activity-time">${escapeHtml(formatThreadTime(activity.created_at))}</span>
+                </div>
+            </div>`,
+            })),
+        ].sort((a, b) => String(a.sort).localeCompare(String(b.sort)));
+
+        el('threadMessages').innerHTML = timeline.map(item => item.html).join('')
+            || '<div class="inbox-empty">No messages</div>';
+
+        timeline.forEach(item => {
+            if (item.type !== 'email' || !item.message) return;
+            const id = String(item.message.id);
+            const host = el('threadMessages').querySelector('[data-email-body="' + id.replace(/"/g, '') + '"]');
+            mountEmailBody(host, item.message);
+        });
+        hydratePdfAttachmentPreviews(el('threadMessages'));
+
+        el('threadMessages').scrollTop = el('threadMessages').scrollHeight;
+
+        const history = [...(c.activities || [])].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+        el('conversationHistory').innerHTML = history.length
+            ? history.map(activity => `
+                <div class="inbox-history-item">
+                    <div>${escapeHtml(activity.summary || 'Updated conversation')}</div>
+                    <time>${activity.created_at ? new Date(activity.created_at).toLocaleString() : ''}</time>
+                </div>
+            `).join('')
+            : '<div style="color:var(--inbox-muted);font-size:0.8rem;">No history yet</div>';
+
+        const snippet = conversationSnippetText(c);
+        c.snippet = snippet;
+        const listRow = state.conversations.find(row => Number(row.id) === Number(c.id));
+        if (listRow) listRow.snippet = snippet;
+        const snippetEl = el('conversationList')?.querySelector(`[data-conv-id="${c.id}"] .inbox-conv-snippet`);
+        if (snippetEl) snippetEl.textContent = snippet;
+
+        loadInboxContactHistory(c);
+    }
+
+    function extractContactEmail(value) {
+        const raw = String(value || '').trim();
+        const angle = raw.match(/<([^>]+@[^>]+)>/);
+        if (angle) return angle[1].trim().toLowerCase();
+        return raw.includes('@') ? raw.toLowerCase() : '';
+    }
+
+    function renderInboxContactHistoryFallback(root, data, opts = {}) {
+        const excludeChannel = opts.excludeChannel || null;
+        const excludeId = opts.excludeId != null ? Number(opts.excludeId) : null;
+        const contact = data.contact || {};
+        const threads = (data.threads || []).filter((t) => {
+            if (excludeChannel && t.channel === excludeChannel && Number(t.conversation_id) === excludeId) {
+                return false;
+            }
+            return true;
+        });
+        const events = (data.events || []).slice(0, 25);
+        const contactHtml = `
+            <div class="chp-name">${escapeHtml(contact.display_name || 'Contact')}</div>
+            ${(contact.matched_phones || []).slice(0, 2).map((p) => `<div class="chp-meta">${escapeHtml(p)}</div>`).join('')}
+            ${(contact.matched_emails || []).slice(0, 2).map((em) => `<div class="chp-meta">${escapeHtml(em)}</div>`).join('')}
+            ${contact.lead?.assigned_user?.name ? `<div class="chp-assigned">Assigned to ${escapeHtml(contact.lead.assigned_user.name)}${contact.lead.status ? ' · ' + escapeHtml(contact.lead.status) : ''}</div>` : (contact.lead ? `<div class="chp-meta">Lead${contact.lead.status ? ' · ' + escapeHtml(contact.lead.status) : ''} · Unassigned</div>` : '')}
+            ${leadLabelChipsHtml(contact.lead?.labels)}
+            ${contact.lead?.crm_url ? `<a class="chp-link" href="${escapeHtml(contact.lead.crm_url)}" target="_blank" rel="noopener">Open lead →</a>` : ''}
+            ${contact.client?.crm_url ? `<a class="chp-link" href="${escapeHtml(contact.client.crm_url)}" target="_blank" rel="noopener">Open client →</a>` : ''}
+            ${!contact.lead && opts.canSaveLead !== false ? `<button type="button" class="chp-save-lead" data-chp-save-lead>Save as lead</button>` : ''}
+        `;
+        const threadsHtml = threads.length
+            ? threads.map((t) => `
+                <a class="chp-item" href="${escapeHtml(t.deep_link || '#')}">
+                    <span class="chp-badge ${escapeHtml(t.channel || '')}">${escapeHtml(t.label || t.channel)}</span>
+                    <div class="chp-item-title">${escapeHtml(t.title || '')}</div>
+                    <div class="chp-item-preview">${escapeHtml(t.preview || '')}</div>
+                </a>`).join('')
+            : '<p class="chp-empty">No other channel threads found.</p>';
+        const eventsHtml = events.length
+            ? events.map((ev) => `
+                <div class="chp-event">
+                    <span class="chp-badge ${escapeHtml(ev.channel || '')}">${escapeHtml(ev.label || ev.channel)}</span>
+                    <span class="chp-dir">${escapeHtml(ev.direction || '')} · ${escapeHtml(ev.at ? new Date(ev.at).toLocaleString() : '')}</span>
+                    <div class="chp-item-preview">${escapeHtml(ev.preview || '')}</div>
+                </div>`).join('')
+            : '<p class="chp-empty">No timeline events.</p>';
+        root.innerHTML = `
+            <div class="chp-section">${contactHtml}</div>
+            <div class="chp-section">
+                <div class="chp-label">Other channels</div>
+                ${threadsHtml}
+            </div>
+            <div class="chp-section">
+                <div class="chp-label">Timeline</div>
+                ${eventsHtml}
+            </div>
+        `;
+        const saveBtn = root.querySelector('[data-chp-save-lead]');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => saveInboxAsLead(root, opts, contact));
+        }
+    }
+
+    function updateContactLeadAction(data, opts = {}) {
+        const wrap = el('propContactLead');
+        if (!wrap) return;
+        const canSave = el('inboxContactHistory')?.dataset.canSaveLead !== '0';
+        const contact = data?.contact || {};
+        const conversation = state.conversation;
+        const attached = !!(conversation?.lead_id);
+        const isSharedMailbox = (conversation?.inbox?.type || '') === 'shared';
+        const lead = conversationLead() || contact.lead;
+        const emails = [...(contact.matched_emails || []), opts.email].filter(Boolean);
+        const phones = [...(contact.matched_phones || []), opts.phone].filter(Boolean);
+        const parts = [];
+
+        if (lead?.crm_url) {
+            parts.push(leadAssignedBlock(lead));
+            if (attached) {
+                parts.push('<button type="button" class="inbox-btn ghost" id="btnDetachLead">Detach email</button>');
+            }
+        } else if (canSave && (emails.length || phones.length)) {
+            parts.push('<button type="button" class="inbox-btn ghost" id="btnSaveAsLead">Save as lead</button>');
+        }
+
+        if (canSave && isSharedMailbox) {
+            parts.push(`
+                <div class="inbox-attach-lead">
+                    <input type="search" id="inboxAttachLeadSearch" class="form-input" placeholder="Attach to existing lead" autocomplete="off">
+                    <div id="inboxAttachLeadResults" class="inbox-merge-results" hidden></div>
+                </div>
+            `);
+        }
+
+        wrap.innerHTML = parts.join('');
+        el('btnSaveAsLead')?.addEventListener('click', () => {
+            const body = el('inboxContactHistoryBody') || el('inboxContactHistory');
+            saveInboxAsLead(body, opts, contact, el('btnSaveAsLead'));
+        });
+        el('btnDetachLead')?.addEventListener('click', () => detachInboxLead());
+        bindInboxAttachLeadSearch();
+    }
+
+    let inboxAttachLeadTimer = null;
+    function bindInboxAttachLeadSearch() {
+        const input = el('inboxAttachLeadSearch');
+        const results = el('inboxAttachLeadResults');
+        if (!input || !results) return;
+        input.addEventListener('input', () => {
+            const q = input.value.trim();
+            clearTimeout(inboxAttachLeadTimer);
+            if (q.length < 2) {
+                results.hidden = true;
+                results.innerHTML = '';
+                return;
+            }
+            inboxAttachLeadTimer = setTimeout(() => searchLeadsToAttach(q, results), 250);
+        });
+    }
+
+    async function searchLeadsToAttach(q, results) {
+        results.hidden = false;
+        results.innerHTML = '<div class="inbox-merge-row-meta">Searching…</div>';
+        try {
+            const res = await fetch('/api/leads?' + new URLSearchParams({ search: q, per_page: '8' }).toString(), {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.message || 'Could not search leads.');
+            const leads = data.data || [];
+            if (!leads.length) {
+                results.innerHTML = '<div class="inbox-merge-row-meta">No matching leads.</div>';
+                return;
+            }
+            results.innerHTML = leads.map((lead) => `
+                <button type="button" class="inbox-merge-row" data-attach-lead="${lead.id}">
+                    <span class="inbox-merge-row-from">${escapeHtml(lead.name || 'Lead')}</span>
+                    <span class="inbox-merge-row-meta">${escapeHtml([lead.email, lead.status].filter(Boolean).join(' · '))}</span>
+                </button>
+            `).join('');
+            results.querySelectorAll('[data-attach-lead]').forEach((btn) => {
+                btn.addEventListener('click', () => attachInboxLead(Number(btn.dataset.attachLead)));
+            });
+        } catch (err) {
+            results.innerHTML = `<div class="inbox-merge-row-meta">${escapeHtml(err.message || 'Could not search leads.')}</div>`;
+        }
+    }
+
+    async function attachInboxLead(leadId) {
+        if (!state.selectedId || !leadId) return;
+        try {
+            const data = await api('/conversations/' + state.selectedId + '/lead', {
+                method: 'POST',
+                body: { lead_id: leadId },
+            });
+            if (data.conversation) {
+                state.conversation = data.conversation;
+                const idx = state.conversations.findIndex((c) => Number(c.id) === Number(data.conversation.id));
+                if (idx >= 0) state.conversations[idx] = { ...state.conversations[idx], ...data.conversation };
+            }
+            await openConversation(state.selectedId);
+        } catch (err) {
+            alert(err.message || 'Could not attach this email.');
+        }
+    }
+
+    async function detachInboxLead() {
+        if (!state.selectedId) return;
+        try {
+            const data = await api('/conversations/' + state.selectedId + '/lead', { method: 'DELETE' });
+            if (data.conversation) {
+                state.conversation = data.conversation;
+            }
+            await openConversation(state.selectedId);
+        } catch (err) {
+            alert(err.message || 'Could not detach this email.');
+        }
+    }
+
+    async function saveInboxAsLead(bodyEl, opts, contact, button) {
+        const extraBtn = button || el('btnSaveAsLead');
+        if (extraBtn) {
+            extraBtn.disabled = true;
+            extraBtn.textContent = 'Saving…';
+        }
+        if (window.LnsContactHistory?.saveAsLead) {
+            await window.LnsContactHistory.saveAsLead(bodyEl, opts, contact);
+            if (extraBtn?.isConnected) {
+                extraBtn.disabled = false;
+                extraBtn.textContent = 'Save as lead';
+            }
+            return;
+        }
+        const name = String(contact.display_name || opts.name || opts.email || 'New lead').trim();
+        const phones = (contact.matched_phones || []).filter(Boolean);
+        if (opts.phone && !phones.length) phones.push(opts.phone);
+        const emails = (contact.matched_emails || []).filter(Boolean);
+        if (opts.email && !emails.length) emails.push(opts.email);
+        const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        const btn = button || bodyEl?.querySelector('[data-chp-save-lead]');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Saving…';
+        }
+        try {
+            const res = await fetch('/api/leads', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    ...(token ? { 'X-CSRF-TOKEN': token } : {}),
+                },
+                body: JSON.stringify({
+                    name,
+                    phones,
+                    emails,
+                    source: 'inbox',
+                    inbox_conversation_ids: state.selectedId ? [state.selectedId] : [],
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok && !data.existing_lead_id) {
+                throw new Error(data.message || 'Could not save lead.');
+            }
+            if (typeof opts.onSaved === 'function') {
+                opts.onSaved(data, { existing: !res.ok });
+                return;
+            }
+        } catch (err) {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Save as lead';
+            }
+            alert(err.message || 'Could not save lead.');
+        }
+    }
+
+    async function loadInboxContactHistory(c) {
+        const root = el('inboxContactHistory');
+        const body = el('inboxContactHistoryBody') || root;
+        if (!body || !c) return;
+
+        const extractedName = String(c.extracted_name || (c.extracted_names || [])[0] || '').trim();
+        const extractedPhones = c.extracted_phones || [];
+        const extractedEmails = c.extracted_emails || [];
+        const email = extractedEmails[0] || extractContactEmail(c.from_email);
+        const name = extractedName || String(c.from_name || '').trim();
+        const phone = extractedPhones[0] || String(c.phone || c.from_phone || '').trim();
+        const canSaveLead = root?.dataset.canSaveLead !== '0';
+        const opts = {
+            email,
+            name,
+            phone,
+            excludeChannel: 'inbox',
+            excludeId: c.id,
+            limit: 60,
+            source: 'inbox',
+            canSaveLead,
+            extracted_name: extractedName,
+            extracted_names: c.extracted_names || [],
+            extracted_phones: extractedPhones,
+            extracted_emails: extractedEmails,
+            onSaved: async () => {
+                if (state.selectedId) {
+                    await openConversation(state.selectedId);
+                    await loadConversations();
+                    await loadBootstrap();
+                }
+            },
+        };
+
+        if (!email && !name && !phone) {
+            body.innerHTML = '<p class="chp-empty">No email or name on this conversation to look up history.</p>';
+            updateContactLeadAction(null, opts);
+            return;
+        }
+
+        body.innerHTML = '<p class="chp-empty">Loading contact history…</p>';
+
+        if (window.LnsContactHistory?.load) {
+            try {
+                const data = await window.LnsContactHistory.load(root, opts);
+                updateContactLeadAction(data, opts);
+                return;
+            } catch (e) {
+                console.warn('LnsContactHistory.load failed, using inbox fallback', e);
+            }
+        }
+
+        const q = new URLSearchParams();
+        if (email) q.set('email', email);
+        if (name) q.set('name', name);
+        if (phone) q.set('phone', phone);
+        q.set('limit', '60');
+
+        try {
+            const res = await fetch('/api/crm/contact-history?' + q.toString(), {
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || data.message || 'Failed to load history');
+            if (window.LnsContactHistory?.renderPanel) {
+                window.LnsContactHistory.renderPanel(body, data, opts);
+            } else {
+                renderInboxContactHistoryFallback(body, data, opts);
+            }
+            updateContactLeadAction(data, opts);
+        } catch (err) {
+            body.innerHTML = `<p class="chp-empty">${escapeHtml(err.message || 'Could not load contact history.')}</p>`;
+            updateContactLeadAction(null, opts);
+        }
+    }
+
+    function escapeHtml(str) {
+        return String(str ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+    }
+
+    async function loadBootstrap({ conversations = true, lite = true, counts = true, composerTools = false, awaitComposerTools = false } = {}) {
+        const data = await api('/bootstrap' + (lite ? '?lite=1' : ''));
+        state.inboxes = data.inboxes || [];
+        state.assignedToMeCount = Number(data.assigned_to_me_count || 0);
+        state.assignedArchivedCount = Number(data.assigned_archived_count || 0);
+        state.assignedSnoozedCount = Number(data.assigned_snoozed_count || 0);
+        state.reopenedArchivedCount = Number(data.reopened_archived_count || 0);
+        state.reopenedSnoozedCount = Number(data.reopened_snoozed_count || 0);
+        state.archivedCount = Number(data.archived_count || 0);
+        state.snoozedCount = Number(data.snoozed_count || 0);
+        state.subscribedCount = Number(data.subscribed_count || 0);
+        state.subscribedArchivedCount = Number(data.subscribed_archived_count || 0);
+        state.subscribedSnoozedCount = Number(data.subscribed_snoozed_count || 0);
+        // Lite shell omits template/signature bodies — don't wipe tools already in memory.
+        if (!lite) {
+            state.templates = (data.templates || []).map(t => ({
+                ...t,
+                body: t.body || t.body_text || '',
+                body_html: t.body_html || null,
+                format: 'html',
+            }));
+            applySignaturesPayload(data);
+        }
+        state.rules = data.rules || [];
+        state.members = data.members || [];
+        state.leadLabels = data.lead_labels || [];
+        state.sidebarLabelIds = Array.isArray(data.sidebar_label_ids) ? data.sidebar_label_ids.map(id => Number(id)) : null;
+        state.permissions = {
+            create_templates: !!(data.permissions && data.permissions.create_templates),
+            create_rules: !!(data.permissions && data.permissions.create_rules),
+        };
+        if (el('btnNewTemplate')) el('btnNewTemplate').style.display = state.permissions.create_templates ? '' : 'none';
+        if (el('btnNewRule')) el('btnNewRule').style.display = state.permissions.create_rules ? '' : 'none';
+        el('mailStatusLabel').textContent = data.mail_connected ? (data.mail_email || 'Connected') : (data.outlook_configured ? 'Not connected' : 'Configure OAuth in Integrations');
+        el('btnConnectOutlook').style.display = data.mail_connected ? 'none' : '';
+        el('btnDisconnectOutlook').style.display = data.mail_connected ? '' : 'none';
+        el('btnConnectOutlook').disabled = !data.outlook_configured && !data.mail_connected;
+        renderNav();
+
+        const followUps = [];
+        if (counts) followUps.push(loadNavCounts());
+        if (composerTools) {
+            const toolsPromise = loadComposerTools().catch(err => {
+                console.warn('Composer tools failed', err);
+            });
+            // Popout needs signatures before applying the reply composer; main inbox can paint without them.
+            if (awaitComposerTools) followUps.push(toolsPromise);
+        }
+        if (conversations) followUps.push(loadConversations({ preserveList: state.conversations.length > 0 }));
+        if (followUps.length) await Promise.all(followUps);
+    }
+
+    function applyNavCounts(data) {
+        if (!data || typeof data !== 'object') return;
+        state.assignedToMeCount = Number(data.assigned_to_me_count || 0);
+        state.assignedArchivedCount = Number(data.assigned_archived_count || 0);
+        state.assignedSnoozedCount = Number(data.assigned_snoozed_count || 0);
+        state.reopenedArchivedCount = Number(data.reopened_archived_count || 0);
+        state.reopenedSnoozedCount = Number(data.reopened_snoozed_count || 0);
+        state.archivedCount = Number(data.archived_count || 0);
+        state.snoozedCount = Number(data.snoozed_count || 0);
+        state.subscribedCount = Number(data.subscribed_count || 0);
+        state.subscribedArchivedCount = Number(data.subscribed_archived_count || 0);
+        state.subscribedSnoozedCount = Number(data.subscribed_snoozed_count || 0);
+
+        const byInbox = data.by_inbox || {};
+        state.inboxes = (state.inboxes || []).map(inbox => {
+            const bucket = byInbox[String(inbox.id)] || byInbox[inbox.id] || null;
+            return bucket ? { ...inbox, ...bucket } : inbox;
+        });
+
+        const labelCounts = data.lead_label_counts || {};
+        state.leadLabels = (state.leadLabels || []).map(label => ({
+            ...label,
+            count: Number(labelCounts[String(label.id)] ?? labelCounts[label.id] ?? label.count ?? 0),
+        }));
+    }
+
+    async function loadNavCounts() {
+        const data = await api('/nav-counts');
+        applyNavCounts(data);
+        renderNav();
+    }
+
+    async function loadComposerTools() {
+        const data = await api('/composer-tools');
+        state.templates = (data.templates || []).map(t => ({
+            ...t,
+            body: t.body || t.body_text || '',
+            body_html: t.body_html || null,
+            format: 'html',
+        }));
+        applySignaturesPayload(data);
+        if (data.permissions && typeof data.permissions.create_templates === 'boolean') {
+            state.permissions.create_templates = data.permissions.create_templates;
+            if (el('btnNewTemplate')) el('btnNewTemplate').style.display = state.permissions.create_templates ? '' : 'none';
+        }
+        await migrateLocalTemplatesIfNeeded();
+        await migrateLocalSignaturesIfNeeded();
+        refreshTemplateSelects();
+        updateTemplateCount();
+        updateSignatureCount();
+    }
+
+    async function migrateLocalTemplatesIfNeeded() {
+        const local = Array.isArray(state.pendingLocalTemplates) ? state.pendingLocalTemplates : [];
+        if (!local.length) return;
+        if (!state.permissions.create_templates) return;
+        try {
+            const payload = local
+                .map(t => ({
+                    name: String(t.name || '').trim(),
+                    subject: t.subject || null,
+                    body_html: t.body_html || null,
+                    body: t.body || t.body_text || null,
+                    body_text: t.body_text || t.body || null,
+                }))
+                .filter(t => t.name && (t.body_html || t.body || t.body_text));
+            if (!payload.length) {
+                state.pendingLocalTemplates = [];
+                saveLocalTools();
+                return;
+            }
+            const result = await api('/templates/import', {
+                method: 'POST',
+                body: { templates: payload },
+            });
+            state.templates = (result.templates || []).map(t => ({
+                ...t,
+                body: t.body || t.body_text || '',
+                body_html: t.body_html || null,
+                format: 'html',
+            }));
+            state.pendingLocalTemplates = [];
+            saveLocalTools();
+            if (result.imported > 0) {
+                el('mailStatusLabel').textContent = `Imported ${result.imported} template${result.imported === 1 ? '' : 's'} for your company`;
+            }
+        } catch (err) {
+            console.warn('Failed to migrate local templates', err);
+        }
+    }
+
+    async function migrateLocalSignaturesIfNeeded() {
+        const local = Array.isArray(state.pendingLocalSignatures) ? state.pendingLocalSignatures : [];
+        if (!local.length) return;
+        if (state.signatures.length) {
+            state.pendingLocalSignatures = [];
+            state.pendingDefaultSignatureId = null;
+            saveLocalTools();
+            return;
+        }
+        try {
+            const payload = local
+                .map(s => ({
+                    id: s.id || null,
+                    name: String(s.name || '').trim(),
+                    body_html: s.body_html || null,
+                    body: s.body || s.body_text || null,
+                    body_text: s.body_text || s.body || null,
+                }))
+                .filter(s => s.name && (s.body_html || s.body || s.body_text));
+            if (!payload.length) {
+                state.pendingLocalSignatures = [];
+                state.pendingDefaultSignatureId = null;
+                saveLocalTools();
+                return;
+            }
+            const result = await api('/signatures/import', {
+                method: 'POST',
+                body: {
+                    signatures: payload,
+                    default_signature_id: state.pendingDefaultSignatureId || null,
+                },
+            });
+            applySignaturesPayload(result);
+            state.pendingLocalSignatures = [];
+            state.pendingDefaultSignatureId = null;
+            saveLocalTools();
+        } catch (err) {
+            console.warn('Failed to migrate local signatures', err);
+        }
+    }
+
+    // Events
+    document.querySelectorAll('[data-view][data-scope="all"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            state.view = btn.dataset.view;
+            state.viewGroup = null;
+            state.selectedInboxId = null;
+            state.selectedLabelId = null;
+            renderNav();
+            await loadConversations();
+        });
+    });
+    el('viewGroups')?.addEventListener('click', async (e) => {
+        const head = e.target.closest('.inbox-view-head');
+        if (!head) return;
+        const group = VIEW_GROUPS.find(item => item.id === head.dataset.viewGroup);
+        if (!group) return;
+        await selectViewFolder(group.id, group.defaultBucket);
+    });
+
+    el('sidebarLabelSearch')?.addEventListener('input', () => {
+        state.sidebarLabelSearch = el('sidebarLabelSearch').value || '';
+        renderSidebarLabels();
+    });
+    el('labelFolders')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-header-bucket]');
+        if (!btn) return;
+        const bucket = btn.dataset.headerBucket;
+        if (!bucket || state.view === bucket) return;
+        if (state.selectedLabelId) {
+            state.viewGroup = null;
+            state.view = bucket;
+            renderLabelFolders();
+            await loadConversations();
+            return;
+        }
+        if (state.viewGroup) {
+            await selectViewFolder(state.viewGroup, bucket);
+        }
+    });
+    el('btnCustomizeLabels')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openSidebarLabelPicker();
+    });
+    el('sidebarLabelPickerSearch')?.addEventListener('input', () => renderSidebarLabelPicker());
+    el('sidebarLabelPickerList')?.addEventListener('change', (e) => {
+        const input = e.target.closest('[data-pick-label]');
+        if (!input) return;
+        const id = Number(input.dataset.pickLabel);
+        const selected = new Set((state.sidebarLabelPickerDraft || []).map(n => Number(n)));
+        if (input.checked) selected.add(id);
+        else selected.delete(id);
+        const ordered = (state.sidebarLabelPickerDraft || []).filter(item => selected.has(Number(item)));
+        allLeadLabelsSorted().forEach(label => {
+            if (selected.has(Number(label.id)) && !ordered.some(item => Number(item) === Number(label.id))) {
+                ordered.push(Number(label.id));
+            }
+        });
+        state.sidebarLabelPickerDraft = ordered;
+        renderSidebarLabelPicker();
+    });
+    el('btnSidebarLabelsSelectAll')?.addEventListener('click', () => {
+        const q = String(el('sidebarLabelPickerSearch')?.value || '').trim().toLowerCase();
+        const visible = allLeadLabelsSorted().filter(l => !q || (l.name || '').toLowerCase().includes(q));
+        const selected = new Set((state.sidebarLabelPickerDraft || []).map(id => Number(id)));
+        visible.forEach(label => selected.add(Number(label.id)));
+        const ordered = (state.sidebarLabelPickerDraft || []).filter(id => selected.has(Number(id)));
+        visible.forEach(label => {
+            if (!ordered.some(id => Number(id) === Number(label.id))) ordered.push(Number(label.id));
+        });
+        state.sidebarLabelPickerDraft = ordered;
+        renderSidebarLabelPicker();
+    });
+    el('btnSidebarLabelsClear')?.addEventListener('click', () => {
+        const q = String(el('sidebarLabelPickerSearch')?.value || '').trim().toLowerCase();
+        if (!q) {
+            state.sidebarLabelPickerDraft = [];
+        } else {
+            const hide = new Set(allLeadLabelsSorted()
+                .filter(l => (l.name || '').toLowerCase().includes(q))
+                .map(l => Number(l.id)));
+            state.sidebarLabelPickerDraft = (state.sidebarLabelPickerDraft || []).filter(id => !hide.has(Number(id)));
+        }
+        renderSidebarLabelPicker();
+    });
+    el('btnSaveSidebarLabels')?.addEventListener('click', async () => {
+        await saveSidebarLabelPicker();
+    });
+
+    let sidebarLabelDragId = null;
+    el('sidebarLabelList')?.addEventListener('click', async (e) => {
+        const unpin = e.target.closest('[data-unpin-label]');
+        if (unpin) {
+            e.preventDefault();
+            e.stopPropagation();
+            await unpinSidebarLabel(unpin.dataset.unpinLabel);
+            return;
+        }
+        const btn = e.target.closest('[data-sidebar-label]');
+        if (btn) await openSidebarLabel(btn.dataset.sidebarLabel);
+    });
+    el('sidebarLabelList')?.addEventListener('dragstart', (e) => {
+        const item = e.target.closest('[data-label-item]');
+        if (!item || item.getAttribute('draggable') !== 'true') return;
+        sidebarLabelDragId = item.dataset.labelItem;
+        item.classList.add('is-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(sidebarLabelDragId));
+    });
+    el('sidebarLabelList')?.addEventListener('dragend', (e) => {
+        e.target.closest('[data-label-item]')?.classList.remove('is-dragging');
+        sidebarLabelDragId = null;
+    });
+    el('sidebarLabelList')?.addEventListener('dragover', (e) => {
+        if (!sidebarLabelDragId) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    });
+    el('sidebarLabelList')?.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        const target = e.target.closest('[data-label-item]');
+        const fromId = Number(sidebarLabelDragId);
+        const toId = Number(target?.dataset.labelItem);
+        sidebarLabelDragId = null;
+        document.querySelectorAll('.inbox-label-item.is-dragging').forEach(n => n.classList.remove('is-dragging'));
+        if (!fromId || !toId || fromId === toId) return;
+        const ids = currentSidebarLabelIds();
+        const fromIndex = ids.indexOf(fromId);
+        const toIndex = ids.indexOf(toId);
+        if (fromIndex < 0 || toIndex < 0) return;
+        ids.splice(fromIndex, 1);
+        ids.splice(toIndex, 0, fromId);
+        await persistSidebarLabels(ids);
+    });
+
+    el('inboxList').addEventListener('click', async (e) => {
+        const manage = e.target.closest('[data-manage-members]');
+        if (manage) {
+            e.stopPropagation();
+            openMembersModal(Number(manage.dataset.manageMembers));
+            return;
+        }
+        const connectBtn = e.target.closest('[data-connect-inbox]');
+        if (connectBtn) {
+            e.stopPropagation();
+            const inbox = state.inboxes.find(i => i.id === Number(connectBtn.dataset.connectInbox));
+            const url = inbox?.connect_url || (CONNECT + '?intent=shared&shared_inbox_id=' + connectBtn.dataset.connectInbox);
+            window.location = url;
+            return;
+        }
+
+        const syncBtn = e.target.closest('[data-sync-inbox]');
+        if (syncBtn) {
+            e.stopPropagation();
+            runInboxSync(Number(syncBtn.dataset.syncInbox));
+            return;
+        }
+
+        const folderBtn = e.target.closest('[data-folder-view]');
+        if (folderBtn) {
+            const id = Number(folderBtn.dataset.inboxId);
+            state.selectedInboxId = id;
+            state.selectedLabelId = null;
+            state.viewGroup = null;
+            state.view = folderBtn.dataset.folderView;
+            state.expandedInboxIds[id] = true;
+            renderNav();
+            await loadConversations();
+            return;
+        }
+
+        const toggle = e.target.closest('[data-inbox-toggle]');
+        if (toggle) {
+            const id = Number(toggle.dataset.inboxToggle);
+            if (e.target.closest('.inbox-mailbox-chevron')) {
+                state.expandedInboxIds[id] = !state.expandedInboxIds[id];
+                renderNav();
+                return;
+            }
+            state.expandedInboxIds[id] = true;
+            state.selectedInboxId = id;
+            state.selectedLabelId = null;
+            state.viewGroup = null;
+            state.view = 'open';
+            renderNav();
+            await loadConversations();
+        }
+    });
+
+        el('ruleList')?.addEventListener('click', async (e) => {
+        const del = e.target.closest('[data-delete-rule]');
+        if (del) {
+            if (!state.permissions.create_rules) return;
+            await api('/rules/' + del.dataset.deleteRule, { method: 'DELETE' });
+            await loadBootstrap();
+            return;
+        }
+        const toggle = e.target.closest('[data-toggle-rule]');
+        if (toggle) {
+            if (!state.permissions.create_rules) return;
+            const rule = state.rules.find(r => r.id === Number(toggle.dataset.toggleRule));
+            if (!rule) return;
+            await api('/rules/' + rule.id, { method: 'PATCH', body: { is_active: !rule.is_active } });
+            await loadBootstrap();
+        }
+    });
+
+    el('conversationList').addEventListener('click', (e) => {
+        const time = e.target.closest('[data-conv-time]');
+        if (time) {
+            e.preventDefault();
+            e.stopPropagation();
+            time.classList.toggle('is-absolute');
+            applyTimestampDisplay(time, time.dataset.convTime, formatRelativeTime);
+            return;
+        }
+        const row = e.target.closest('[data-conv-id]');
+        if (!row) return;
+        const id = Number(row.dataset.convId);
+        if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            toggleCheckedConversation(id);
+            return;
+        }
+        clearCheckedConversations();
+        openConversation(id);
+    });
+    function conversationPopoutUrl(id) {
+        const url = new URL(window.location.href);
+        url.search = '';
+        url.searchParams.set('popout', '1');
+        url.searchParams.set('conversation', String(id));
+        return url.toString();
+    }
+    function openConversationPopout(id) {
+        if (!id) return;
+        const win = window.open(
+            conversationPopoutUrl(id),
+            'inbox-conv-' + id,
+            'popup=yes,width=1100,height=800,resizable=yes,scrollbars=yes'
+        );
+        if (!win) {
+            alert('Allow pop-ups to open this conversation in a new window.');
+            return;
+        }
+        win.focus();
+    }
+    el('conversationList').addEventListener('dblclick', (e) => {
+        if (INBOX_POPOUT || e.target.closest('[data-conv-time]')) return;
+        const row = e.target.closest('.inbox-conv[data-conv-id]');
+        if (!row) return;
+        e.preventDefault();
+        openConversationPopout(Number(row.dataset.convId));
+    });
+    el('conversationList').addEventListener('contextmenu', (e) => {
+        if (e.ctrlKey) e.preventDefault();
+    });
+    el('btnMergeSelected')?.addEventListener('click', async () => {
+        try {
+            await mergeCheckedConversations();
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+    el('btnArchiveSelected')?.addEventListener('click', async () => {
+        try {
+            await archiveCheckedConversations();
+        } catch (err) {
+            alert(err.message || 'Could not archive the selected conversations.');
+            syncCheckedRows();
+        }
+    });
+    el('btnClearChecked')?.addEventListener('click', () => {
+        clearCheckedConversations();
+    });
+
+    el('conversationList').addEventListener('scroll', () => {
+        const list = el('conversationList');
+        if (!list || state.listLoading || !state.listHasMore) return;
+        const remaining = list.scrollHeight - list.scrollTop - list.clientHeight;
+        if (remaining < 160) {
+            loadConversations({ append: true });
+        }
+    });
+
+    el('inboxSearch').addEventListener('input', () => {
+        clearTimeout(state.searchTimer);
+        state.searchTimer = setTimeout(() => {
+            renderFilterChips();
+            loadConversations({ append: false });
+        }, 300);
+    });
+
+    el('btnToggleAdvancedSearch').addEventListener('click', () => {
+        setAdvancedOpen(!state.advancedOpen);
+    });
+
+    el('btnApplyAdvancedSearch').addEventListener('click', () => applyAdvancedFilters());
+    el('btnClearAdvancedSearch').addEventListener('click', () => clearAdvancedFilters({ reload: true }));
+
+    function bindEmailSuggest(inputId, listId, field) {
+        const input = el(inputId);
+        const list = el(listId);
+        if (!input || !list) return;
+
+        let timer = null;
+        let items = [];
+        let activeIndex = -1;
+        let reqToken = 0;
+
+        const hide = () => {
+            list.hidden = true;
+            list.innerHTML = '';
+            items = [];
+            activeIndex = -1;
+            input.setAttribute('aria-expanded', 'false');
+        };
+
+        const render = () => {
+            if (!items.length) {
+                hide();
+                return;
+            }
+            list.innerHTML = items.map((item, idx) => `
+                <li role="option" id="${listId}-opt-${idx}">
+                    <button type="button" class="inbox-suggest-item ${idx === activeIndex ? 'is-active' : ''}" data-suggest-idx="${idx}">
+                        <span class="inbox-suggest-email">${escapeHtml(item.email)}</span>
+                        ${item.name ? `<span class="inbox-suggest-name">${escapeHtml(item.name)}</span>` : ''}
+                    </button>
+                </li>
+            `).join('');
+            list.hidden = false;
+            input.setAttribute('aria-expanded', 'true');
+        };
+
+        const selectIndex = (idx) => {
+            const item = items[idx];
+            if (!item) return false;
+            input.value = item.email;
+            hide();
+            input.focus();
+            return true;
+        };
+
+        const fetchSuggestions = async (q) => {
+            const token = ++reqToken;
+            try {
+                const params = new URLSearchParams({ q, field });
+                const data = await api('/email-suggestions?' + params.toString());
+                if (token !== reqToken) return;
+                items = data.suggestions || [];
+                activeIndex = items.length ? 0 : -1;
+                render();
+            } catch (_) {
+                if (token === reqToken) hide();
+            }
+        };
+
+        input.addEventListener('input', () => {
+            const q = input.value.trim();
+            clearTimeout(timer);
+            if (q.length < 1) {
+                hide();
+                return;
+            }
+            timer = setTimeout(() => fetchSuggestions(q), 200);
+        });
+
+        input.addEventListener('keydown', (e) => {
+            if (list.hidden || !items.length) return;
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                e.stopPropagation();
+                activeIndex = (activeIndex + 1) % items.length;
+                render();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                e.stopPropagation();
+                activeIndex = (activeIndex - 1 + items.length) % items.length;
+                render();
+            } else if (e.key === 'Enter' && activeIndex >= 0) {
+                e.preventDefault();
+                e.stopPropagation();
+                selectIndex(activeIndex);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                hide();
+            } else if (e.key === 'Tab') {
+                hide();
+            }
+        });
+
+        list.addEventListener('mousedown', (e) => {
+            const btn = e.target.closest('[data-suggest-idx]');
+            if (!btn) return;
+            e.preventDefault();
+            selectIndex(Number(btn.dataset.suggestIdx));
+        });
+
+        input.addEventListener('blur', () => {
+            setTimeout(hide, 120);
+        });
+
+        input._hasOpenSuggest = () => !list.hidden && items.length > 0;
+    }
+
+    bindEmailSuggest('advFrom', 'advFromSuggest', 'any');
+    bindEmailSuggest('advTo', 'advToSuggest', 'any');
+
+    el('modalAdvancedSearch').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+            if (e.target.id === 'advFrom' || e.target.id === 'advTo') {
+                if (e.target._hasOpenSuggest && e.target._hasOpenSuggest()) return;
+            }
+            e.preventDefault();
+            applyAdvancedFilters();
+        }
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeModal();
+        }
+    });
+
+    el('advFilterChips').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-clear-filter]');
+        if (!btn) return;
+        const key = btn.dataset.clearFilter;
+        if (key === 'search') {
+            el('inboxSearch').value = '';
+        } else if (key in state.filters) {
+            state.filters[key] = '';
+            syncAdvancedFormFromState();
+        }
+        renderFilterChips();
+        loadConversations({ append: false });
+    });
+
+    const SYNC_FOLDERS = [
+        { key: 'inbox', label: 'Inbox' },
+        { key: 'drafts', label: 'Drafts' },
+        { key: 'sent', label: 'Sent' },
+        { key: 'trash', label: 'Trash' },
+        { key: 'spam', label: 'Spam' },
+    ];
+
+    function setSyncProgress(done, total, status, newCount, barRatio = null) {
+        const safeTotal = Math.max(0, Number(total) || 0);
+        const safeDone = Math.max(0, Number(done) || 0);
+        const cappedDone = safeTotal > 0 ? Math.min(safeDone, safeTotal) : safeDone;
+        const pct = barRatio != null
+            ? Math.min(100, Math.max(0, Math.round(Number(barRatio) * 100)))
+            : (safeTotal > 0
+                ? Math.min(100, Math.round((cappedDone / safeTotal) * 100))
+                : (safeDone > 0 ? 100 : 0));
+        el('syncBarFill').style.width = pct + '%';
+        el('syncPercent').textContent = pct + '%';
+        el('syncDetail').textContent = cappedDone.toLocaleString() + ' / ' + safeTotal.toLocaleString() + ' to sync';
+        el('syncEmailCount').textContent = cappedDone.toLocaleString() + ' / ' + safeTotal.toLocaleString();
+        el('syncStatusText').textContent = status;
+        el('syncNewCount').textContent = (newCount || 0).toLocaleString() + ' new message' + (newCount === 1 ? '' : 's');
+    }
+
+    function showSyncOverlay(show) {
+        const overlay = el('syncOverlay');
+        if (!overlay) return;
+        overlay.hidden = !show;
+        document.querySelectorAll('[data-sync-inbox]').forEach(btn => {
+            btn.classList.toggle('is-syncing', show && Number(btn.dataset.syncInbox) === Number(state.syncingInboxId));
+            btn.disabled = show;
+        });
+    }
+
+    async function runInboxSync(inboxId, options = {}) {
+        const quiet = !!options.quiet;
+        const recentOnly = !!options.recentOnly || quiet;
+        const skipRefresh = !!options.skipRefresh;
+        if (state.syncingInboxId) return 0;
+
+        const inbox = (state.inboxes || []).find(i => i.id === Number(inboxId));
+        if (!inbox) {
+            if (!quiet) alert('Select a personal or shared mailbox to sync.');
+            return 0;
+        }
+        if (!inbox.connected) {
+            if (!quiet) alert('Connect this mailbox to Microsoft 365 before syncing.');
+            return 0;
+        }
+
+        state.syncingInboxId = inbox.id;
+        if (!quiet) {
+            showSyncOverlay(true);
+            setSyncProgress(0, 0, `Counting unsynced emails in ${inbox.name}…`, 0);
+        } else {
+            document.querySelectorAll(`[data-sync-inbox="${inbox.id}"]`).forEach(btn => {
+                btn.classList.add('is-syncing');
+            });
+        }
+
+        let totalEmails = 0;
+        let totalNew = 0;
+        let scanDone = 0;
+        let scanTotal = 0;
+
+        try {
+            let already = 0;
+            let foldersToSync = [];
+
+            if (recentOnly) {
+                // Lightweight newest-first probe — used by auto-sync.
+                foldersToSync = [
+                    { key: 'inbox', label: 'Inbox', remaining: 100, graph: 100, probe: true },
+                    { key: 'sent', label: 'Sent', remaining: 50, graph: 50, probe: true },
+                ];
+                totalEmails = 0;
+                scanTotal = 150;
+                if (!quiet) {
+                    setSyncProgress(0, 1, `Checking ${inbox.name} for new mail…`, 0, 0);
+                }
+            } else {
+                const totals = await apiRetryTransient('/sync-totals', {
+                    method: 'POST',
+                    body: { inbox_id: inbox.id },
+                });
+                totalEmails = totals?.remaining ?? totals?.total ?? 0;
+                const inboxMeta = (totals?.inboxes || []).find(i => i.id === inbox.id) || totals?.inboxes?.[0] || {};
+                already = inboxMeta.already_synced ?? totals?.already_synced ?? 0;
+                const folderRemaining = inboxMeta.folders_remaining || {};
+                const folderGraph = inboxMeta.folders || {};
+                const foldersFailed = new Set(inboxMeta.folders_failed || []);
+
+                // Always probe Inbox (and Sent) newest-first even when count delta is 0 —
+                // Graph totalItemCount can match local while brand-new messages are still missing.
+                // A folder whose Graph count lookup failed (throttling, timeout) is unknown,
+                // not zero — always probe it too, or a transient error would make this pass
+                // silently skip a folder that may have plenty of unsynced mail.
+                foldersToSync = SYNC_FOLDERS
+                    .map(f => {
+                        const remaining = folderRemaining[f.key] || 0;
+                        const graph = folderGraph[f.key] || 0;
+                        const failed = foldersFailed.has(f.key);
+                        const probe = failed || ((f.key === 'inbox' || f.key === 'sent') && remaining <= 0 && graph > 0);
+                        return {
+                            ...f,
+                            remaining: probe ? 100 : remaining,
+                            graph,
+                            probe,
+                        };
+                    })
+                    .filter(f => f.remaining > 0)
+                    .sort((a, b) => {
+                        // Inbox first so new mail lands before deep folder catch-up.
+                        if (a.key === 'inbox') return -1;
+                        if (b.key === 'inbox') return 1;
+                        return b.remaining - a.remaining;
+                    });
+
+                scanTotal = foldersToSync.reduce((sum, f) => sum + (f.probe ? Math.min(100, f.graph || 100) : (f.graph || 0)), 0);
+                if (totalEmails <= 0) {
+                    totalEmails = foldersToSync.reduce((sum, f) => sum + (f.probe ? 0 : f.remaining), 0);
+                }
+            }
+
+            if (!foldersToSync.length) {
+                if (!quiet) {
+                    setSyncProgress(0, 0, already
+                        ? `${inbox.name} is up to date — ${already.toLocaleString()} emails already synced`
+                        : `No emails to sync in ${inbox.name}`, 0, 1);
+                    await new Promise(r => setTimeout(r, 900));
+                    if (!skipRefresh) await loadBootstrap();
+                    el('mailStatusLabel').textContent = already
+                        ? `${inbox.name} · up to date`
+                        : `${inbox.name} · nothing to sync`;
+                }
+                return 0;
+            }
+
+            if (!quiet) {
+                setSyncProgress(
+                    0,
+                    Math.max(totalEmails, 1),
+                    totalEmails > 0
+                        ? `Syncing ${inbox.name}: ${totalEmails.toLocaleString()} new` +
+                            (already ? ` (${already.toLocaleString()} already synced)` : '') +
+                            '…'
+                        : `Checking ${inbox.name} for new mail…`,
+                    0,
+                    0
+                );
+            }
+
+            for (const folder of foldersToSync) {
+                let nextLink = null;
+                let folderFetched = 0;
+                let folderImported = 0;
+                const folderTarget = folder.remaining;
+                let guard = 0;
+
+                do {
+                    const result = await apiRetryTransient('/sync', {
+                        method: 'POST',
+                        body: {
+                            all: false,
+                            paged: true,
+                            inbox_id: inbox.id,
+                            folder: folder.key,
+                            recent_only: recentOnly,
+                            next_link: nextLink,
+                            fetched_so_far: folderFetched,
+                        },
+                    });
+
+                    const fetched = result?.fetched ?? 0;
+                    const synced = result?.synced ?? 0;
+                    const skipped = result?.skipped ?? Math.max(0, fetched - synced);
+                    totalNew += synced;
+                    folderFetched += fetched;
+                    folderImported += synced;
+                    scanDone += fetched;
+
+                    if (totalEmails > 0 && totalNew > totalEmails) {
+                        totalEmails = totalNew;
+                    }
+
+                    if (!quiet) {
+                        const barRatio = scanTotal > 0 ? (scanDone / scanTotal) : null;
+                        setSyncProgress(
+                            totalNew,
+                            Math.max(totalEmails, totalNew, 1),
+                            synced > 0
+                                ? `Syncing ${inbox.name} · ${folder.label}…`
+                                : (skipped > 0
+                                    ? `Checking ${inbox.name} · ${folder.label} (${folderFetched.toLocaleString()} scanned)`
+                                    : `Syncing ${inbox.name} · ${folder.label}…`),
+                            totalNew,
+                            barRatio
+                        );
+                    }
+
+                    nextLink = result?.next_link || null;
+
+                    // Backend marks caught_up when a newest-first page is all already synced.
+                    if (result?.caught_up || result?.done) {
+                        nextLink = null;
+                    }
+
+                    // First page all skipped while count-delta is tiny → already have recent mail.
+                    // Only short-circuit for the cheap auto-probe (recentOnly) or a synthetic
+                    // "always check newest" probe entry — NOT for a real full/backfill folder,
+                    // where a small remaining count can mean "almost caught up after an earlier
+                    // interrupted sync" rather than "nothing left," and the unsynced mail can be
+                    // further back than the very first page.
+                    const looksIncremental = recentOnly || folder.probe;
+                    if (looksIncremental && synced === 0 && fetched > 0 && folderFetched === fetched) {
+                        nextLink = null;
+                    }
+
+                    if (folderTarget > 0 && folderImported >= folderTarget) {
+                        nextLink = null;
+                        const folderGraphCount = folder.graph || folderFetched;
+                        if (!folder.probe && folderGraphCount > folderFetched) {
+                            scanDone += (folderGraphCount - folderFetched);
+                        }
+                    }
+
+                    // Auto-sync: never walk more than a couple pages per folder.
+                    if (quiet && guard >= 2) {
+                        nextLink = null;
+                    }
+
+                    guard++;
+                    if (guard > 2000) break;
+                } while (nextLink);
+            }
+
+            if (!quiet) {
+                setSyncProgress(
+                    totalEmails || totalNew,
+                    totalEmails || totalNew,
+                    `Finished ${inbox.name}…`,
+                    totalNew,
+                    1
+                );
+            }
+
+            if (!skipRefresh) {
+                await loadBootstrap();
+                if (state.selectedId) await openConversation(state.selectedId, { preserveDraft: true });
+            }
+
+            if (!quiet) {
+                el('mailStatusLabel').textContent = totalNew
+                    ? `${inbox.name}: synced ${totalNew.toLocaleString()} new`
+                    : `${inbox.name}: already up to date`;
+            }
+            return totalNew;
+        } catch (err) {
+            if (!quiet) {
+                alert(err.message || 'Sync failed');
+            } else {
+                console.warn('Inbox auto-sync failed', err);
+            }
+            return 0;
+        } finally {
+            state.syncingInboxId = null;
+            if (!quiet) {
+                showSyncOverlay(false);
+            } else {
+                document.querySelectorAll('[data-sync-inbox]').forEach(btn => {
+                    btn.classList.remove('is-syncing');
+                    btn.disabled = false;
+                });
+            }
+        }
+    }
+
+    el('btnConnectOutlook').addEventListener('click', () => { window.location = CONNECT; });
+    el('btnDisconnectOutlook').addEventListener('click', async () => {
+        if (!confirm('Disconnect your Outlook mailbox?')) return;
+        await api('/disconnect', { method: 'POST', body: {} });
+        await loadBootstrap();
+    });
+
+    el('btnArchive').addEventListener('click', async () => {
+        if (!state.selectedId) return;
+        await api('/conversations/' + state.selectedId + '/status', { method: 'PATCH', body: { status: 'archived' } });
+        state.conversation = null; state.selectedId = null;
+        renderThread();
+        await loadBootstrap();
+        await loadConversations();
+    });
+    el('btnSpam').addEventListener('click', async () => {
+        if (!state.selectedId) return;
+        await api('/conversations/' + state.selectedId + '/status', { method: 'PATCH', body: { status: 'spam' } });
+        state.conversation = null; state.selectedId = null;
+        renderThread();
+        await loadBootstrap();
+        await loadConversations();
+    });
+    el('btnTrash').addEventListener('click', async () => {
+        if (!state.selectedId) return;
+        await api('/conversations/' + state.selectedId + '/status', { method: 'PATCH', body: { status: 'trashed' } });
+        state.conversation = null; state.selectedId = null;
+        renderThread();
+        await loadBootstrap();
+        await loadConversations();
+    });
+    el('btnRestore').addEventListener('click', async () => {
+        if (!state.selectedId) return;
+        await api('/conversations/' + state.selectedId + '/status', { method: 'PATCH', body: { status: 'open' } });
+        state.conversation = null; state.selectedId = null;
+        renderThread();
+        await loadBootstrap();
+        await loadConversations();
+    });
+    el('btnReopen').addEventListener('click', async () => {
+        if (!state.selectedId) return;
+        await api('/conversations/' + state.selectedId + '/status', { method: 'PATCH', body: { status: 'open' } });
+        await openConversation(state.selectedId);
+        await loadConversations();
+    });
+
+    el('btnThreadMore')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePop('threadMoreMenu', e.currentTarget);
+    });
+    el('btnSnooze')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePop('snoozeMenu', e.currentTarget);
+    });
+    el('btnAssignToggle')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openAssignMenu(e.currentTarget);
+    });
+    el('assignMenu')?.addEventListener('click', async (e) => {
+        if (e.target.closest('#assignMemberSearch, .inbox-assign-search')) {
+            e.stopPropagation();
+            return;
+        }
+        const btn = e.target.closest('[data-assign]');
+        if (!btn) return;
+        closeThreadPops();
+        await assignConversation(btn.dataset.assign || null);
+    });
+    el('assignMenu')?.addEventListener('input', (e) => {
+        if (e.target.id !== 'assignMemberSearch') return;
+        renderAssignMemberList(e.target.value);
+    });
+    el('assignMenu')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeThreadPops();
+            el('btnAssignToggle')?.focus();
+            return;
+        }
+        if (e.key === 'Enter' && e.target.id === 'assignMemberSearch') {
+            e.preventDefault();
+            const first = el('assignMemberList')?.querySelector('[data-assign]');
+            if (first) first.click();
+        }
+    });
+    el('snoozeMenu')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-snooze]');
+        if (!btn) return;
+        closeThreadPops();
+        const until = snoozeUntilDate(btn.dataset.snooze);
+        try {
+            await snoozeConversation(until);
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+    el('snoozeCustom')?.addEventListener('change', async () => {
+        const raw = el('snoozeCustom').value;
+        if (!raw) return;
+        if (!isDatetimeLocalInFuture(raw)) {
+            alert('Pick a future date and time.');
+            return;
+        }
+        closeThreadPops();
+        try {
+            await snoozeConversation(raw);
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+    el('threadMoreMenu')?.addEventListener('click', async (e) => {
+        const merge = e.target.closest('[data-thread-action="merge"]');
+        if (merge) {
+            closeThreadPops();
+            try {
+                await openMergeModal();
+            } catch (err) {
+                alert(err.message);
+            }
+            return;
+        }
+        const unmerge = e.target.closest('[data-thread-action="unmerge"]');
+        if (unmerge) {
+            closeThreadPops();
+            try {
+                await openMergeModal();
+            } catch (err) {
+                alert(err.message);
+            }
+            return;
+        }
+        const unread = e.target.closest('[data-thread-action="unread"]');
+        if (!unread || !state.selectedId) return;
+        closeThreadPops();
+        await api('/conversations/' + state.selectedId + '/read', { method: 'PATCH', body: { is_read: false } });
+        const row = state.conversations.find(c => Number(c.id) === Number(state.selectedId));
+        if (row) row.is_read = false;
+        if (state.conversation && Number(state.conversation.id) === Number(state.selectedId)) {
+            state.conversation.is_read = false;
+            if (Array.isArray(state.conversation.participants) || Array.isArray(state.conversation.member_reads)) {
+                const list = state.conversation.participants || state.conversation.member_reads || [];
+                state.conversation.participants = list.map(m =>
+                    Number(m.id) === USER_ID ? { ...m, is_read: false, last_read_at: null } : m
+                );
+                state.conversation.member_reads = state.conversation.participants;
+            }
+            renderThread();
+        }
+        el('conversationList')?.querySelector(`[data-conv-id="${state.selectedId}"]`)?.classList.add('unread');
+        await loadConversations();
+    });
+    el('mergeSearch')?.addEventListener('input', () => {
+        clearTimeout(mergeSearchTimer);
+        mergeSearchTimer = setTimeout(() => {
+            loadMergeCandidates(el('mergeSearch').value.trim()).catch(err => {
+                el('mergeCandidateList').innerHTML = `<div class="inbox-tool-empty">${escapeHtml(err.message || 'Search failed.')}</div>`;
+            });
+        }, 250);
+    });
+    el('mergeCandidateList')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-merge-id]');
+        if (!btn) return;
+        try {
+            await mergeSelectedConversation(btn.dataset.mergeId);
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+    el('mergeMergedList')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-unmerge-id]');
+        if (!btn) return;
+        try {
+            await unmergeSelectedConversation(btn.dataset.unmergeId);
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+    el('btnUnmergeAll')?.addEventListener('click', async () => {
+        try {
+            await unmergeSelectedConversation(null);
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+    el('threadParticipants')?.addEventListener('click', async (e) => {
+        const participantsBtn = e.target.closest('#btnParticipants');
+        if (participantsBtn) {
+            e.stopPropagation();
+            togglePop('participantsMenu', participantsBtn);
+            if (!el('participantsMenu')?.hidden) {
+                const search = el('participantsInviteSearch');
+                if (search) {
+                    search.value = '';
+                    renderParticipantsInviteList('');
+                    setTimeout(() => search.focus(), 0);
+                }
+            }
+            return;
+        }
+        const tagsBtn = e.target.closest('#btnTags');
+        if (tagsBtn) {
+            e.stopPropagation();
+            togglePop('tagsMenu', tagsBtn);
+            if (!el('tagsMenu')?.hidden) {
+                const search = el('tagsMenuSearch');
+                const newInput = el('tagsMenuNewInput');
+                if (search) {
+                    search.value = '';
+                    renderTagsMenuAddList('');
+                    setTimeout(() => search.focus(), 0);
+                }
+                if (newInput) {
+                    newInput.value = '';
+                    delete newInput.dataset.touched;
+                }
+            }
+            return;
+        }
+
+        const inviteBtn = e.target.closest('#participantsMenu [data-invite-user]');
+        if (inviteBtn) {
+            e.stopPropagation();
+            const userId = Number(inviteBtn.dataset.inviteUser);
+            if (!userId) return;
+            try {
+                await inviteParticipants([userId]);
+                const search = el('participantsInviteSearch');
+                if (search) {
+                    search.value = '';
+                    renderParticipantsInviteList('');
+                    search.focus();
+                }
+                const menu = el('participantsMenu');
+                const btn = el('btnParticipants');
+                if (menu) menu.hidden = false;
+                btn?.classList.add('is-open');
+                btn?.setAttribute('aria-expanded', 'true');
+            } catch (err) {
+                alert(err.message || 'Could not invite teammate.');
+            }
+            return;
+        }
+
+        const unsubBtn = e.target.closest('#participantsMenu [data-participant-unsubscribe]');
+        if (unsubBtn) {
+            e.stopPropagation();
+            try {
+                await setParticipantSubscription(false);
+            } catch (err) {
+                alert(err.message || 'Could not unsubscribe.');
+            }
+            return;
+        }
+
+        const subBtn = e.target.closest('#participantsMenu [data-participant-subscribe]');
+        if (subBtn) {
+            e.stopPropagation();
+            try {
+                await setParticipantSubscription(true);
+            } catch (err) {
+                alert(err.message || 'Could not subscribe.');
+            }
+            return;
+        }
+
+        const removeBtn = e.target.closest('#participantsMenu [data-remove-participant]');
+        if (removeBtn) {
+            e.stopPropagation();
+            try {
+                await removeParticipant(Number(removeBtn.dataset.removeParticipant));
+            } catch (err) {
+                alert(err.message || 'Could not remove participant.');
+            }
+            return;
+        }
+
+        const removeTagBtn = e.target.closest('#tagsMenu [data-remove-lead-label], #tagsMenu [data-remove-conversation-label], #tagsMenu [data-remove-inbox-tag]');
+        if (removeTagBtn) {
+            e.stopPropagation();
+            await removeConversationLabelFromBtn(removeTagBtn);
+            return;
+        }
+
+        const addTagBtn = e.target.closest('#tagsMenu [data-add-tag-label]');
+        if (addTagBtn) {
+            e.stopPropagation();
+            const labelId = Number(addTagBtn.dataset.addTagLabel);
+            if (labelId) await attachConversationLabel({ labelId });
+            return;
+        }
+
+        const createTagBtn = e.target.closest('#tagsMenu [data-create-tag-label]');
+        if (createTagBtn) {
+            e.stopPropagation();
+            const name = String(createTagBtn.dataset.createTagLabel || '').trim();
+            if (name) await attachConversationLabel({ name });
+            return;
+        }
+
+        const addNewBtn = e.target.closest('#btnTagsMenuAddNew');
+        if (addNewBtn) {
+            e.stopPropagation();
+            const input = el('tagsMenuNewInput');
+            const name = String(input?.value || '').trim();
+            if (!name) {
+                input?.focus();
+                return;
+            }
+            await attachConversationLabel({ name });
+        }
+    });
+    el('threadParticipants')?.addEventListener('input', (e) => {
+        if (e.target?.id === 'participantsInviteSearch') {
+            renderParticipantsInviteList(e.target.value);
+            return;
+        }
+        if (e.target?.id !== 'tagsMenuSearch') return;
+        renderTagsMenuAddList(e.target.value);
+        const newInput = el('tagsMenuNewInput');
+        if (newInput && !newInput.dataset.touched) newInput.value = e.target.value;
+    });
+    el('threadParticipants')?.addEventListener('keydown', (e) => {
+        if (e.target?.id === 'participantsInviteSearch' && e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            closeThreadPops();
+            return;
+        }
+        if (e.target?.id === 'tagsMenuNewInput' && e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            el('btnTagsMenuAddNew')?.click();
+            return;
+        }
+        if (e.target?.id === 'tagsMenuSearch' && e.key === 'Enter') {
+            const createBtn = el('tagsMenuAddList')?.querySelector('[data-create-tag-label]');
+            if (createBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                createBtn.click();
+            }
+            return;
+        }
+        if (e.target?.id === 'tagsMenuSearch' && e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            closeThreadPops();
+        }
+    });
+    el('threadParticipants')?.addEventListener('focusin', (e) => {
+        if (e.target?.id === 'tagsMenuNewInput') e.target.dataset.touched = '1';
+    });
+    el('threadMessages')?.addEventListener('click', (e) => {
+        const msgTime = e.target.closest('[data-msg-time]');
+        if (msgTime) {
+            e.preventDefault();
+            e.stopPropagation();
+            const iso = msgTime.dataset.msgTime;
+            if (!iso) return;
+            msgTime.classList.toggle('is-absolute');
+            applyTimestampDisplay(msgTime, iso, formatThreadTime);
+            return;
+        }
+        const bodyImg = emailBodyImageFromEvent(e);
+        if (bodyImg) {
+            e.preventDefault();
+            e.stopPropagation();
+            openMediaLightbox({
+                url: bodyImg.currentSrc || bodyImg.src,
+                type: 'image',
+                name: bodyImg.alt || 'Image',
+            });
+            return;
+        }
+        const downloadAllBtn = e.target.closest('[data-download-all]');
+        if (downloadAllBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const sep = '\u001e';
+            const urls = String(downloadAllBtn.dataset.downloadAll || '').split(sep).filter(Boolean);
+            const names = String(downloadAllBtn.dataset.downloadNames || '').split(sep);
+            downloadAttachmentFiles(urls, names);
+            return;
+        }
+        const mediaBtn = e.target.closest('[data-media-open]');
+        if (mediaBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            openMediaLightbox({
+                url: mediaBtn.dataset.mediaUrl,
+                type: mediaBtn.dataset.mediaType,
+                name: mediaBtn.dataset.mediaName,
+            });
+            return;
+        }
+        const cancelBtn = e.target.closest('[data-cancel-scheduled]');
+        if (cancelBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const id = cancelBtn.dataset.cancelScheduled;
+            if (!id || !state.selectedId) return;
+            (async () => {
+                if (!confirm('Cancel this scheduled message?')) return;
+                try {
+                    const data = await api('/conversations/' + state.selectedId + '/scheduled-replies/' + id, { method: 'DELETE' });
+                    if (data.deleted) {
+                        state.conversation = null;
+                        state.selectedId = null;
+                        renderThread();
+                        await loadBootstrap();
+                        await loadConversations();
+                        return;
+                    }
+                    await openConversation(state.selectedId);
+                } catch (err) {
+                    alert(err.message);
+                }
+            })();
+            return;
+        }
+        const editCommentBtn = e.target.closest('[data-edit-comment]');
+        if (editCommentBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            startEditComment(editCommentBtn.dataset.editComment);
+            return;
+        }
+        const deleteCommentBtn = e.target.closest('[data-delete-comment]');
+        if (deleteCommentBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            deleteComment(deleteCommentBtn.dataset.deleteComment);
+            return;
+        }
+        const saveCommentBtn = e.target.closest('[data-save-comment]');
+        if (saveCommentBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            saveCommentEdit(saveCommentBtn.dataset.saveComment);
+            return;
+        }
+        const cancelEditCommentBtn = e.target.closest('[data-cancel-edit-comment]');
+        if (cancelEditCommentBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            cancelCommentEdit(cancelEditCommentBtn.dataset.cancelEditComment);
+            return;
+        }
+        const replyBtn = e.target.closest('[data-reply-msg]');
+        if (replyBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const msg = (state.conversation?.messages || []).find(m => String(m.id) === String(replyBtn.dataset.replyMsg));
+            if (msg) startReplyFromMessage(msg, true);
+            return;
+        }
+        const forwardBtn = e.target.closest('[data-forward-msg]');
+        if (forwardBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const msg = (state.conversation?.messages || []).find(m => String(m.id) === String(forwardBtn.dataset.forwardMsg));
+            if (msg) openForwardModal(msg);
+            return;
+        }
+        const resendBtn = e.target.closest('[data-resend-msg]');
+        if (resendBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const msg = (state.conversation?.messages || []).find(m => String(m.id) === String(resendBtn.dataset.resendMsg));
+            if (msg) openResendModal(msg);
+            return;
+        }
+        const copyIdBtn = e.target.closest('[data-copy-msg-id]');
+        if (copyIdBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            copyMessageId(copyIdBtn.dataset.copyMsgId, copyIdBtn);
+            return;
+        }
+        const copyLinkBtn = e.target.closest('[data-copy-msg-link]');
+        if (copyLinkBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            copyMessageLink(copyLinkBtn.dataset.copyMsgLink, copyLinkBtn);
+            return;
+        }
+        const editDraftBtn = e.target.closest('[data-edit-draft]');
+        if (editDraftBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const msg = (state.conversation?.messages || []).find(m => String(m.id) === String(editDraftBtn.dataset.editDraft));
+            if (!msg) return;
+            if (isComposeOnlyDraft(state.conversation)) openComposeDraftModal(msg);
+            else openDraftReplyModal(msg);
+            return;
+        }
+        if (e.target.closest('a, button')) return;
+        if (e.target.closest('.inbox-msg-expanded')) return;
+        const row = e.target.closest('.inbox-msg-row');
+        if (!row) return;
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed) return;
+        const card = row.closest('.inbox-msg[data-msg-id], .inbox-msg[data-comment-id]');
+        if (!card) return;
+        card.classList.toggle('is-expanded');
+        if (card.dataset.msgId) {
+            state.expandedMessageIds[card.dataset.msgId] = card.classList.contains('is-expanded');
+            if (card.classList.contains('is-expanded')) hydratePdfAttachmentPreviews(el('threadMessages'));
+        }
+    });
+    el('threadMessages')?.addEventListener('keydown', (e) => {
+        const editor = e.target.closest('[data-comment-edit-body]');
+        if (!editor) return;
+        const card = editor.closest('.inbox-msg[data-comment-id]');
+        const commentId = card?.dataset.commentId;
+        if (!commentId) return;
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            saveCommentEdit(commentId);
+            return;
+        }
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            cancelCommentEdit(commentId);
+        }
+    });
+    el('btnComposerExpand')?.addEventListener('click', () => {
+        state.composerExpanded = !state.composerExpanded;
+        el('composerArea')?.classList.toggle('is-expanded', state.composerExpanded);
+    });
+    el('commentBody')?.addEventListener('focus', () => {
+        el('composerArea')?.classList.add('is-expanded');
+        state.composerExpanded = true;
+    });
+    el('commentBody')?.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            el('btnSendComment')?.click();
+        }
+    });
+    el('replyBody')?.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            el('btnSendReply')?.click();
+        }
+    });
+    const EMOJIS = ['👍', '🙂', '😂', '🎉', '🙏', '✅', '👀', '❤️', '🔥', '👏'];
+    el('commentEmojiMenu') && (el('commentEmojiMenu').innerHTML = EMOJIS.map(emo =>
+        `<button type="button" data-emoji="${emo}">${emo}</button>`
+    ).join(''));
+    el('btnCommentEmoji')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePop('commentEmojiMenu', e.currentTarget);
+    });
+    el('commentEmojiMenu')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-emoji]');
+        if (!btn) return;
+        const editor = el('commentBody');
+        if (editor) insertHtmlAtCaret(editor, btn.dataset.emoji);
+        closeThreadPops();
+        editor?.focus();
+    });
+    document.addEventListener('click', (e) => {
+        if (e.target.closest('.inbox-pop') || e.target.closest('.inbox-search-select')) return;
+        closeThreadPops();
+    });
+
+    Object.keys(searchSelects).forEach(selectId => {
+        const cfg = searchSelects[selectId];
+        el(cfg.toggle)?.addEventListener('click', () => toggleSearchSelect(selectId));
+        el(cfg.list)?.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-value]');
+            if (!btn) return;
+            chooseSearchSelect(selectId, btn.dataset.value ?? '');
+        });
+        el(cfg.input)?.addEventListener('input', () => {
+            renderSearchSelectList(selectId, { highlightFirst: true });
+        });
+        el(cfg.input)?.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closeSearchSelects();
+                el(cfg.toggle)?.focus();
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                moveSearchSelectHighlight(selectId, 1);
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                moveSearchSelectHighlight(selectId, -1);
+                return;
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const btn = highlightedSearchOption(selectId);
+                if (btn) chooseSearchSelect(selectId, btn.dataset.value ?? '');
+            }
+        });
+    });
+
+    el('assignSelect').addEventListener('change', async () => {
+        const val = el('assignSelect').value;
+        await assignConversation(val || null);
+    });
+
+    function setLabelAttachBusy(busy, labelName = '') {
+        const menu = el('tagsMenu');
+        const chip = el('btnTags');
+        const addNewBtn = el('btnTagsMenuAddNew');
+        const propsAddBtn = el('btnAddLeadLabel');
+        const busyText = el('tagsMenuBusyText');
+        const label = String(labelName || '').trim();
+        const status = label ? `Adding “${label}”…` : 'Adding label…';
+
+        if (busyText) busyText.textContent = status;
+        menu?.classList.toggle('is-busy', !!busy);
+        menu?.setAttribute('aria-busy', busy ? 'true' : 'false');
+        chip?.classList.toggle('is-busy', !!busy);
+        if (chip) chip.title = busy ? status : 'Conversation labels';
+
+        [addNewBtn, propsAddBtn].forEach(btn => {
+            if (!btn) return;
+            btn.classList.toggle('is-busy', !!busy);
+            btn.disabled = !!busy;
+            if (busy) {
+                if (!btn.dataset.idleHtml) btn.dataset.idleHtml = btn.textContent.trim() || 'Add';
+                btn.innerHTML = `<span class="inbox-tags-spinner" aria-hidden="true"></span> Adding…`;
+            } else {
+                btn.innerHTML = btn.dataset.idleHtml || 'Add';
+                delete btn.dataset.idleHtml;
+            }
+        });
+
+        const search = el('tagsMenuSearch');
+        const newInput = el('tagsMenuNewInput');
+        const propsInput = el('addLeadLabelInput');
+        [search, newInput, propsInput].forEach(input => {
+            if (input) input.disabled = !!busy;
+        });
+        el('tagsMenuAddList')?.querySelectorAll('button').forEach(btn => {
+            btn.disabled = !!busy;
+        });
+    }
+
+    async function attachConversationLabel({ labelId = null, name = null } = {}) {
+        if (!state.selectedId || state.labelAttachBusy) return;
+        const lead = conversationLead();
+        const labelName = name
+            || (state.leadLabels || []).find(l => Number(l.id) === Number(labelId))?.name
+            || '';
+        state.labelAttachBusy = true;
+        setLabelAttachBusy(true, labelName);
+        try {
+            await api('/conversations/' + state.selectedId + '/lead-labels', {
+                method: 'POST',
+                body: {
+                    lead_id: lead?.id || null,
+                    label_id: labelId || null,
+                    name: name || null,
+                },
+            });
+            await loadBootstrap();
+            await openConversation(state.selectedId);
+            await loadConversations();
+        } catch (err) {
+            alert(err.message || 'Could not add label.');
+        } finally {
+            state.labelAttachBusy = false;
+            setLabelAttachBusy(false);
+        }
+    }
+
+    async function removeConversationLabelFromBtn(btn) {
+        if (!btn || !state.selectedId) return false;
+        const name = String(btn.dataset.labelName || btn.getAttribute('aria-label') || 'this label')
+            .replace(/^Remove\s+/i, '')
+            .trim() || 'this label';
+        if (!confirm(`Remove label "${name}" from this conversation?`)) return false;
+
+        try {
+            if (btn.dataset.removeLeadLabel) {
+                await api('/conversations/' + state.selectedId + '/lead-labels/' + btn.dataset.removeLeadLabel + (conversationLead()?.id ? '?lead_id=' + conversationLead().id : ''), {
+                    method: 'DELETE',
+                });
+            } else if (btn.dataset.removeConversationLabel) {
+                await api('/conversations/' + state.selectedId + '/labels/' + btn.dataset.removeConversationLabel, {
+                    method: 'DELETE',
+                });
+            } else if (btn.dataset.removeInboxTag) {
+                const removeId = Number(btn.dataset.removeInboxTag);
+                const tagIds = (state.conversation?.tags || [])
+                    .map(t => Number(t.id))
+                    .filter(id => id > 0 && id !== removeId);
+                await api('/conversations/' + state.selectedId + '/tags', {
+                    method: 'POST',
+                    body: { tag_ids: tagIds },
+                });
+            } else {
+                return false;
+            }
+            await openConversation(state.selectedId);
+            await loadConversations();
+            return true;
+        } catch (err) {
+            alert(err.message || 'Could not remove label.');
+            return false;
+        }
+    }
+
+    el('addTagSelect').addEventListener('change', async () => {
+        if (!state.selectedId || !el('addTagSelect').value) return;
+        const labelId = Number(el('addTagSelect').value);
+        await attachConversationLabel({ labelId });
+    });
+
+    el('btnAddLeadLabel')?.addEventListener('click', async () => {
+        const input = el('addLeadLabelInput');
+        const name = String(input?.value || '').trim();
+        if (!name) {
+            input?.focus();
+            return;
+        }
+        await attachConversationLabel({ name });
+    });
+    el('addLeadLabelInput')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            el('btnAddLeadLabel')?.click();
+        }
+    });
+
+    el('conversationTags').addEventListener('click', async (e) => {
+        const removeBtn = e.target.closest('[data-remove-lead-label], [data-remove-conversation-label], [data-remove-inbox-tag]');
+        if (removeBtn) {
+            await removeConversationLabelFromBtn(removeBtn);
+        }
+    });
+
+    function extractMentionUserIdsFrom(editor) {
+        if (!editor) return [];
+        return [...editor.querySelectorAll('[data-mention-user-id]')]
+            .map(node => Number(node.dataset.mentionUserId))
+            .filter(id => Number.isFinite(id));
+    }
+
+    function extractMentionUserIds(kind) {
+        return extractMentionUserIdsFrom(getComposerEl(kind));
+    }
+
+    function commentCardById(commentId) {
+        const id = String(commentId || '');
+        if (!id) return null;
+        return el('threadMessages')?.querySelector(`.inbox-msg[data-comment-id="${CSS.escape(id)}"]`) || null;
+    }
+
+    function findComment(commentId) {
+        return (state.conversation?.comments || []).find(c => String(c.id) === String(commentId)) || null;
+    }
+
+    function cancelCommentEdit(commentId) {
+        commentCardById(commentId)?.classList.remove('is-editing');
+    }
+
+    function startEditComment(commentId) {
+        const comment = findComment(commentId);
+        const card = commentCardById(commentId);
+        const editor = card?.querySelector('[data-comment-edit-body]');
+        if (!comment?.can_edit || !card || !editor) return;
+        document.querySelectorAll('.inbox-msg.internal.is-editing').forEach(node => {
+            if (node !== card) node.classList.remove('is-editing');
+        });
+        editor.innerHTML = sanitizeHtml(comment.body_html || plainToHtml(comment.body_text || ''));
+        if (!htmlToPlain(editor.innerHTML)) editor.innerHTML = '';
+        card.classList.add('is-editing');
+        editor.focus();
+        placeCaretAtEnd(editor);
+    }
+
+    async function saveCommentEdit(commentId) {
+        if (!state.selectedId || !commentId) return;
+        const card = commentCardById(commentId);
+        const editor = card?.querySelector('[data-comment-edit-body]');
+        if (!editor) return;
+        const html = sanitizeHtml(editor.innerHTML || '');
+        if (!htmlToPlain(html) && !(findComment(commentId)?.attachments || []).length) {
+            return alert('Comment cannot be empty.');
+        }
+        const saveBtn = card.querySelector('[data-save-comment]');
+        if (saveBtn) saveBtn.disabled = true;
+        try {
+            await api('/conversations/' + state.selectedId + '/comments/' + commentId, {
+                method: 'PATCH',
+                body: {
+                    body: htmlToPlain(html) ? html : '<p>Attachment</p>',
+                    mentioned_user_ids: extractMentionUserIdsFrom(editor),
+                },
+            });
+            await openConversation(state.selectedId);
+        } catch (err) {
+            alert(err.message || 'Could not save comment.');
+        } finally {
+            if (saveBtn) saveBtn.disabled = false;
+        }
+    }
+
+    async function deleteComment(commentId) {
+        if (!state.selectedId || !commentId) return;
+        if (!confirm('Delete this internal comment?')) return;
+        try {
+            await api('/conversations/' + state.selectedId + '/comments/' + commentId, { method: 'DELETE' });
+            await openConversation(state.selectedId);
+        } catch (err) {
+            alert(err.message || 'Could not delete comment.');
+        }
+    }
+
+    el('btnSendComment')?.addEventListener('click', async () => {
+        if (!state.selectedId) return;
+        const html = getComposerHtml('comment');
+        const hasFiles = state.commentAttachments.length > 0;
+        if (isComposerEmpty('comment') && !hasFiles) {
+            return alert('Write a comment or attach a file.');
+        }
+        el('btnSendComment').disabled = true;
+        try {
+            const body = isComposerEmpty('comment') ? '<p>Attachment</p>' : html;
+            const data = await api('/conversations/' + state.selectedId + '/comments', {
+                method: 'POST',
+                body: {
+                    body,
+                    mentioned_user_ids: extractMentionUserIds('comment'),
+                    attachments: state.commentAttachments.map(a => ({
+                        name: a.name,
+                        contentType: a.contentType,
+                        contentBytes: a.contentBytes,
+                    })),
+                },
+            });
+            setComposerHtml('comment', '');
+            state.commentAttachments = [];
+            renderAttachChips('comment');
+            hideMentionPopup('comment');
+            await openConversation(state.selectedId);
+            await loadConversations();
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            el('btnSendComment').disabled = false;
+        }
+    });
+
+    el('btnSendReply').addEventListener('click', async () => {
+        await sendReply({});
+    });
+
+    el('btnSendReplyMenu')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePop('sendReplyMenu', e.currentTarget);
+    });
+
+    el('sendReplyMenu')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-send-mode]');
+        if (!btn) return;
+        e.stopPropagation();
+        const mode = btn.dataset.sendMode;
+        if (mode === 'later') {
+            const share = el('replyShareDraftFields');
+            if (share) share.hidden = true;
+            const fields = el('sendLaterFields');
+            if (fields) {
+                fields.hidden = false;
+                const input = el('sendLaterAt');
+                if (input && !input.value) {
+                    input.value = toDatetimeLocalValue(new Date(Date.now() + 60 * 60 * 1000));
+                }
+                input?.focus();
+            }
+            return;
+        }
+        if (mode === 'share-draft') {
+            openShareDraftPicker('reply');
+            return;
+        }
+        closeThreadPops();
+        if (mode === 'archive') {
+            await sendReply({ archive: true });
+        } else if (mode === 'draft') {
+            await saveReplyDraft();
+        } else {
+            await sendReply({});
+        }
+    });
+
+    el('btnConfirmSendLater')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const raw = el('sendLaterAt')?.value;
+        if (!raw) return alert('Pick a date and time.');
+        if (!isDatetimeLocalInFuture(raw)) {
+            return alert('Choose a future date and time.');
+        }
+        closeThreadPops();
+        await sendReply({ sendAt: datetimeLocalToApi(raw) });
+    });
+
+    el('replyShareDraftSearch')?.addEventListener('input', (e) => {
+        renderShareDraftList('reply', e.target.value);
+    });
+    el('replyShareDraftSearch')?.addEventListener('click', (e) => e.stopPropagation());
+    el('replyShareDraftList')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-share-user]');
+        if (!btn) return;
+        e.stopPropagation();
+        toggleShareDraftUser('reply', btn.dataset.shareUser);
+    });
+    el('btnConfirmReplyShareDraft')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await submitSharedDraft('reply');
+    });
+
+    function captureReplySendSnapshot() {
+        return {
+            conversationId: state.selectedId,
+            html: getComposerHtml('reply'),
+            to: el('replyTo')?.value || '',
+            cc: el('replyCc')?.value || '',
+            inboxId: el('replyFrom')?.value || '',
+            attachments: (state.replyAttachments || []).map(file => ({ ...file })),
+            replyDraftId: state.replyDraftId,
+            replyCcEmails: [...(state.replyCcEmails || [])],
+            replyAll: !!state.replyAll,
+            title: el('replyModalTitle')?.textContent || 'Reply',
+            help: el('replyModalHelp')?.textContent || 'Email reply via Outlook.',
+            hint: el('composerHint')?.textContent || 'Reply via Outlook',
+        };
+    }
+
+    function clearReplyComposer() {
+        setComposerHtml('reply', '');
+        state.replyAttachments = [];
+        state.replyCcEmails = [];
+        state.replyAll = false;
+        state.replyDraftId = null;
+        if (el('replyTo')) el('replyTo').value = '';
+        if (el('replyCc')) el('replyCc').value = '';
+        renderAttachChips('reply');
+        hideMentionPopup('reply');
+        if (el('composerHint')) el('composerHint').textContent = 'Reply via Outlook';
+    }
+
+    async function restoreReplySendSnapshot(snapshot) {
+        if (snapshot.conversationId && Number(state.selectedId) !== Number(snapshot.conversationId)) {
+            await openConversation(snapshot.conversationId);
+        }
+        state.replyAll = snapshot.replyAll;
+        state.replyDraftId = snapshot.replyDraftId;
+        state.replyCcEmails = snapshot.replyCcEmails || [];
+        state.replyAttachments = snapshot.attachments || [];
+        state.shareDraftSelected.reply = {};
+        setReplyModalCopy(snapshot.title, snapshot.help);
+        hideMentionPopup('reply');
+        syncComposerModeButtons(String(snapshot.title || '').toLowerCase().includes('resend') ? 'resend' : 'reply');
+        openModal('modalReply');
+        fillReplyFromSelect();
+        if (el('replyFrom') && snapshot.inboxId) el('replyFrom').value = String(snapshot.inboxId);
+        if (el('replyTo')) el('replyTo').value = snapshot.to || '';
+        if (el('replyCc')) el('replyCc').value = snapshot.cc || '';
+        setComposerHtml('reply', snapshot.html || '');
+        renderAttachChips('reply');
+        if (el('composerHint')) el('composerHint').textContent = snapshot.hint || 'Reply via Outlook';
+        el('replyBody')?.focus();
+    }
+
+    async function commitReplySend(conversationId, payload, { archive = false, sendAt = null, alreadyCleared = false } = {}) {
+        el('btnSendReply').disabled = true;
+        el('btnSendReplyMenu') && (el('btnSendReplyMenu').disabled = true);
+        let data;
+        try {
+            data = await api('/conversations/' + conversationId + '/reply', { method: 'POST', body: payload });
+        } finally {
+            el('btnSendReply').disabled = false;
+            if (el('btnSendReplyMenu')) el('btnSendReplyMenu').disabled = false;
+        }
+
+        if (!alreadyCleared) {
+            clearReplyComposer();
+            applyComposerSignature('reply');
+            if (el('modalReply')?.style.display === 'grid') closeModal();
+        }
+
+        try {
+            if (data.scheduled) {
+                if (Number(state.selectedId) === Number(conversationId) || !state.selectedId) {
+                    await openConversation(data.conversation?.id || conversationId);
+                }
+                await loadConversations();
+                return;
+            }
+
+            if (data.archived || archive) {
+                if (Number(state.selectedId) === Number(conversationId)) {
+                    state.conversation = null;
+                    state.selectedId = null;
+                    renderThread();
+                }
+                await loadBootstrap();
+                await loadConversations();
+                return;
+            }
+
+            await loadConversations();
+            if (Number(state.selectedId) === Number(conversationId) || !state.selectedId) {
+                await openConversation(data.conversation?.id || conversationId);
+            }
+        } catch (err) {
+            console.warn('Inbox refresh after reply failed', err);
+        }
+    }
+
+    async function sendReply(opts = {}) {
+        if (!state.selectedId) return;
+        const html = getComposerHtml('reply');
+        if (isComposerEmpty('reply')) return alert('Write a reply first.');
+        const to = (el('replyTo')?.value || '').trim();
+        const cc = (el('replyCc')?.value || '').trim();
+        const inboxId = Number(el('replyFrom')?.value || 0);
+        if (!to) return alert('Add at least one To recipient.');
+        const archive = !!opts.archive;
+        const sendAt = opts.sendAt || null;
+        const conversationId = state.selectedId;
+        const snapshot = captureReplySendSnapshot();
+        const prepared = prepareEmailSendPayload(html, snapshot.attachments);
+        const payload = {
+            body: prepared.body,
+            to,
+            cc: cc || null,
+            attachments: prepared.attachments,
+        };
+        if (inboxId) payload.inbox_id = inboxId;
+        if (archive) payload.archive = true;
+        if (sendAt) payload.send_at = sendAt;
+        if (snapshot.replyDraftId) payload.draft_message_id = snapshot.replyDraftId;
+
+        const commit = () => commitReplySend(conversationId, payload, { archive, sendAt, alreadyCleared: !sendAt });
+        if (sendAt) {
+            try {
+                await commit();
+            } catch (err) {
+                alert(err.message);
+            }
+            return;
+        }
+
+        clearReplyComposer();
+        if (el('modalReply')?.style.display === 'grid') closeModal();
+        queueUndoSend({
+            label: 'Sending reply',
+            restore: () => restoreReplySendSnapshot(snapshot),
+            commit,
+            keepalive: () => postInboxKeepalive('/conversations/' + conversationId + '/reply', payload),
+        });
+    }
+
+    async function saveReplyDraft() {
+        if (!state.selectedId) return;
+        const html = getComposerHtml('reply');
+        if (isComposerEmpty('reply')) return alert('Write a reply first.');
+        const to = (el('replyTo')?.value || '').trim();
+        const cc = (el('replyCc')?.value || '').trim();
+        const inboxId = Number(el('replyFrom')?.value || 0);
+        if (!to) return alert('Add at least one To recipient.');
+        el('btnSendReply').disabled = true;
+        el('btnSendReplyMenu') && (el('btnSendReplyMenu').disabled = true);
+        const hint = el('composerHint');
+        const hintPrevText = hint ? hint.textContent : '';
+        try {
+            const payload = { body: html, to, cc: cc || null };
+            if (inboxId) payload.inbox_id = inboxId;
+            if (state.replyDraftId) payload.draft_message_id = state.replyDraftId;
+            const prepared = prepareEmailSendPayload(payload.body, state.replyAttachments);
+            payload.body = prepared.body;
+            payload.attachments = prepared.attachments;
+            const data = await api('/conversations/' + state.selectedId + '/save-draft', { method: 'POST', body: payload });
+            state.replyDraftId = data.draft_message_id || state.replyDraftId;
+            if (hint) {
+                hint.textContent = 'Draft saved to Outlook';
+                setTimeout(() => {
+                    if (el('modalReply')?.style.display === 'grid' && hint.textContent === 'Draft saved to Outlook') {
+                        hint.textContent = hintPrevText || 'Reply via Outlook';
+                    }
+                }, 2500);
+            }
+            await loadConversations();
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            el('btnSendReply').disabled = false;
+            if (el('btnSendReplyMenu')) el('btnSendReplyMenu').disabled = false;
+        }
+    }
+
+    el('btnModeComment')?.addEventListener('click', () => setComposerMode());
+    el('btnModeReply')?.addEventListener('click', () => openReplyModal());
+    el('btnModeForward')?.addEventListener('click', () => openForwardModal());
+    el('btnModeResend')?.addEventListener('click', () => openResendModal());
+
+    el('btnOpenTemplateList')?.addEventListener('click', openTemplateListModal);
+    el('btnCloseTemplateList')?.addEventListener('click', closeModal);
+    el('btnNewTemplate')?.addEventListener('click', () => {
+        if (!state.permissions.create_templates) return;
+        openTemplateModal();
+    });
+    el('templateListSearch')?.addEventListener('input', () => {
+        state.templateSearch = el('templateListSearch').value || '';
+        state.templateListPage = 1;
+        renderTemplateList();
+    });
+    el('templateList')?.addEventListener('click', (e) => {
+        const useBtn = e.target.closest('[data-use-template]');
+        if (useBtn) {
+            useTemplateFromList(useBtn.dataset.useTemplate);
+            return;
+        }
+        const editTemplate = e.target.closest('[data-edit-template]');
+        if (editTemplate) {
+            openTemplateModal(editTemplate.dataset.editTemplate);
+            return;
+        }
+        const delTemplate = e.target.closest('[data-delete-template]');
+        if (delTemplate) {
+            deleteTemplateById(delTemplate.dataset.deleteTemplate);
+        }
+    });
+    el('templateListPrevPage')?.addEventListener('click', () => {
+        if (state.templateListPage > 1) {
+            state.templateListPage -= 1;
+            renderTemplateList();
+        }
+    });
+    el('templateListNextPage')?.addEventListener('click', () => {
+        const meta = paginatedTemplateListItems();
+        if (state.templateListPage < meta.totalPages) {
+            state.templateListPage += 1;
+            renderTemplateList();
+        }
+    });
+    el('btnOpenSignatureList')?.addEventListener('click', openSignatureListModal);
+    el('btnCloseSignatureList')?.addEventListener('click', closeModal);
+    el('btnCloseSignatureModal')?.addEventListener('click', closeModal);
+    el('btnNewSignature')?.addEventListener('click', () => openSignatureModal());
+    el('signatureListSearch')?.addEventListener('input', () => {
+        state.signatureSearch = el('signatureListSearch').value || '';
+        state.signatureListPage = 1;
+        renderSignatureList();
+    });
+    el('signatureList')?.addEventListener('click', (e) => {
+        const defaultBtn = e.target.closest('[data-default-signature]');
+        if (defaultBtn) {
+            setDefaultSignature(defaultBtn.dataset.defaultSignature);
+            return;
+        }
+        const editBtn = e.target.closest('[data-edit-signature]');
+        if (editBtn) {
+            openSignatureModal(editBtn.dataset.editSignature);
+            return;
+        }
+        const delBtn = e.target.closest('[data-delete-signature]');
+        if (delBtn) {
+            deleteSignatureById(delBtn.dataset.deleteSignature);
+        }
+    });
+    el('signatureListPrevPage')?.addEventListener('click', () => {
+        if (state.signatureListPage > 1) {
+            state.signatureListPage -= 1;
+            renderSignatureList();
+        }
+    });
+    el('signatureListNextPage')?.addEventListener('click', () => {
+        const meta = paginatedSignatureListItems();
+        if (state.signatureListPage < meta.totalPages) {
+            state.signatureListPage += 1;
+            renderSignatureList();
+        }
+    });
+    el('btnNewInbox').addEventListener('click', () => openModal('modalInbox'));
+    el('btnNewRule')?.addEventListener('click', () => {
+        if (!state.permissions.create_rules) return;
+        openRuleModal();
+    });
+    el('btnAddRuleTrigger')?.addEventListener('click', () => {
+        const used = new Set([...document.querySelectorAll('#ruleTriggers [data-rule-trigger]')].map(s => s.value));
+        const next = RULE_TRIGGERS.find(t => !used.has(t.value));
+        addRuleTriggerRow({ value: next?.value || 'inbound_message' });
+    });
+    el('btnAddRuleCondition')?.addEventListener('click', () => addRuleConditionRow());
+    el('btnAddRuleAction')?.addEventListener('click', () => addRuleActionRow());
+    el('ruleInboxToggle')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        const menu = el('ruleInboxMenu');
+        if (!menu) return;
+        menu.hidden = !menu.hidden;
+    });
+    el('ruleInboxMenu')?.addEventListener('change', () => updateRuleInboxToggleLabel());
+    document.addEventListener('click', (e) => {
+        const picker = el('ruleInboxPicker');
+        const menu = el('ruleInboxMenu');
+        if (!picker || !menu || menu.hidden) return;
+        if (!picker.contains(e.target)) menu.hidden = true;
+    });
+    el('ruleTriggers')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-remove-rule-row]');
+        if (!btn) return;
+        const wrap = el('ruleTriggers');
+        if (wrap && wrap.querySelectorAll('[data-rule-trigger]').length <= 1) {
+            alert('Keep at least one trigger.');
+            return;
+        }
+        btn.closest('.inbox-rule-extra-card')?.remove();
+        refreshRuleTriggerAddState();
+    });
+    el('ruleTriggers')?.addEventListener('change', (e) => {
+        if (!e.target.matches('[data-rule-trigger]')) return;
+        const help = e.target.closest('.inbox-rule-extra-card')?.querySelector('[data-rule-trigger-help]');
+        if (help) help.textContent = triggerHelp(e.target.value);
+    });
+    el('ruleExtraConditions')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-remove-rule-row]');
+        if (btn) btn.closest('.inbox-rule-extra-card')?.remove();
+    });
+    el('ruleActions')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-remove-rule-row]');
+        if (btn) btn.closest('.inbox-rule-extra-card')?.remove();
+    });
+    el('ruleActions')?.addEventListener('change', (e) => {
+        if (e.target.matches('[data-rule-action-type]')) refreshRuleActionValueSelects();
+    });
+    el('btnCompose').addEventListener('click', openComposeModal);
+    el('btnComposeHeader').addEventListener('click', openComposeModal);
+    document.querySelectorAll('[data-close-modal]').forEach(b => b.addEventListener('click', closeModal));
+    el('modalBackdrop').addEventListener('click', (e) => { if (e.target === el('modalBackdrop')) closeModal(); });
+
+    el('btnToggleInboxTools').addEventListener('click', () => {
+        state.inboxToolsOpen = !state.inboxToolsOpen;
+        renderNav();
+    });
+    el('btnToggleProps')?.addEventListener('click', () => {
+        if (!state.conversation) return;
+        setPropsOpen(!state.propsOpen);
+    });
+    el('btnHideProps')?.addEventListener('click', () => setPropsOpen(false));
+
+    el('inboxToolsSubmenu').addEventListener('click', (e) => {
+        const toggle = e.target.closest('[data-tool-toggle]');
+        if (toggle) {
+            const key = toggle.dataset.toolToggle;
+            state.expandedToolGroups[key] = !state.expandedToolGroups[key];
+            renderNav();
+            return;
+        }
+    });
+
+    document.querySelectorAll('[data-html-editor]').forEach(editor => {
+        const kind = editor.dataset.htmlEditor;
+        editor.addEventListener('mousedown', (e) => {
+            if (e.target.closest('[data-html-link], [data-cmd]')) {
+                saveHtmlEditorSelection(kind);
+            }
+        });
+        editor.addEventListener('click', (e) => {
+            const modeBtn = e.target.closest('[data-html-mode]');
+            if (modeBtn) {
+                e.preventDefault();
+                setHtmlEditorMode(kind, modeBtn.dataset.htmlMode);
+                return;
+            }
+            const cmdBtn = e.target.closest('[data-cmd]');
+            const linkBtn = e.target.closest('[data-html-link]');
+            if (linkBtn) {
+                e.preventDefault();
+                openHtmlLinkDialog(kind);
+                return;
+            }
+            if (!cmdBtn) return;
+            e.preventDefault();
+            const ed = getHtmlEditor(kind);
+            if (ed.source && !ed.source.hidden) {
+                alert('Switch to Visual mode to use formatting buttons, or paste HTML in HTML mode.');
+                return;
+            }
+            ed.visual?.focus();
+            const cmd = cmdBtn.dataset.cmd;
+            if (cmd === 'createLink') {
+                openHtmlLinkDialog(kind);
+            } else {
+                document.execCommand(cmd, false, null);
+            }
+            if (ed.source) ed.source.value = sanitizeHtml(ed.visual?.innerHTML || '');
+        });
+
+        editor.addEventListener('input', () => {
+            const ed = getHtmlEditor(kind);
+            if (ed.source?.hidden !== false && ed.visual && ed.source) {
+                ed.source.value = sanitizeHtml(ed.visual.innerHTML);
+            }
+        });
+        edVisualClick(editor, kind);
+        bindHtmlLinkHover(editor.querySelector('.inbox-html-visual'));
+    });
+
+    function edVisualClick(editor, kind) {
+        editor.querySelector('.inbox-html-visual')?.addEventListener('click', (e) => {
+            const visual = e.currentTarget;
+            const img = e.target.closest('img');
+            if (img && visual.contains(img)) {
+                const range = document.createRange();
+                range.selectNode(img);
+                const sel = window.getSelection();
+                sel?.removeAllRanges();
+                sel?.addRange(range);
+                saveHtmlEditorSelection(kind);
+            }
+            const link = e.target.closest('a');
+            if (link && visual.contains(link)) {
+                e.preventDefault();
+            }
+        });
+    }
+
+    el('btnHtmlLinkApply')?.addEventListener('click', applyHtmlLink);
+    el('btnHtmlLinkCancel')?.addEventListener('click', closeHtmlLinkDialog);
+    el('btnHtmlLinkRemove')?.addEventListener('click', removeHtmlLink);
+    el('htmlLinkDialog')?.addEventListener('click', (e) => {
+        if (e.target === el('htmlLinkDialog')) closeHtmlLinkDialog();
+    });
+    el('mediaLightbox')?.addEventListener('click', (e) => {
+        if (e.target === el('mediaLightbox')) closeMediaLightbox();
+    });
+    el('btnMediaLightboxClose')?.addEventListener('click', () => closeMediaLightbox());
+    el('htmlLinkUrl')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            applyHtmlLink();
+        }
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeHtmlLinkDialog();
+        }
+    });
+    el('htmlLinkText')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            applyHtmlLink();
+        }
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeHtmlLinkDialog();
+        }
+    });
+    el('btnTemplateAttach')?.addEventListener('click', () => el('templateAttachInput')?.click());
+    el('templateAttachInput')?.addEventListener('change', async (e) => {
+        await addAttachments('template', e.target.files);
+        e.target.value = '';
+    });
+    el('templateAttachChips')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-remove-attach]');
+        if (!btn) return;
+        const [bucketKind, idx] = btn.dataset.removeAttach.split(':');
+        const bucket = attachmentBucket(bucketKind);
+        const files = fileAttachmentsOnly(state[bucket] || []);
+        files.splice(Number(idx), 1);
+        state[bucket] = files;
+        renderAttachChips(bucketKind);
+    });
+    el('btnTemplateImage')?.addEventListener('mousedown', () => saveHtmlEditorSelection('template'));
+    el('btnTemplateImage')?.addEventListener('click', () => el('templateImageInput')?.click());
+    el('btnTemplateLink')?.addEventListener('mousedown', () => saveHtmlEditorSelection('template'));
+    el('btnTemplateLink')?.addEventListener('click', () => openHtmlLinkDialog('template'));
+    el('templateImageInput')?.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        await insertHtmlEditorImage('template', file);
+    });
+
+    el('btnSignatureImage')?.addEventListener('mousedown', () => saveHtmlEditorSelection('signature'));
+    el('btnSignatureImage')?.addEventListener('click', () => el('signatureImageInput')?.click());
+    el('signatureImageInput')?.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        await insertHtmlEditorImage('signature', file);
+    });
+
+    el('btnSaveTemplate').addEventListener('click', async () => {
+        if (!state.permissions.create_templates) {
+            return alert('You do not have permission to manage templates.');
+        }
+        const name = el('newTemplateName').value.trim();
+        const bodyHtml = getHtmlEditorContent('template');
+        if (!name || !templateHasBody(bodyHtml)) {
+            alert('Name and body are required.');
+            return;
+        }
+        const payload = {
+            name,
+            subject: el('newTemplateSubject').value.trim() || null,
+            body: htmlToPlain(bodyHtml),
+            body_html: bodyHtml,
+            body_text: htmlToPlain(bodyHtml),
+            attachments: fileAttachmentsOnly(state.templateAttachments).map((a) => ({
+                name: a.name,
+                contentType: a.contentType,
+                contentBytes: a.contentBytes,
+            })),
+        };
+        const editingId = state.editingTemplateId;
+        const btn = el('btnSaveTemplate');
+        btn.disabled = true;
+        try {
+            let saved;
+            if (editingId) {
+                const data = await api('/templates/' + editingId, { method: 'PUT', body: payload });
+                saved = data.template;
+                const idx = state.templates.findIndex(t => String(t.id) === String(editingId));
+                if (idx >= 0) state.templates[idx] = { ...state.templates[idx], ...saved, format: 'html' };
+                else state.templates.unshift({ ...saved, format: 'html' });
+            } else {
+                const data = await api('/templates', { method: 'POST', body: payload });
+                saved = data.template;
+                state.templates.unshift({ ...saved, format: 'html' });
+            }
+            state.templates.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+            const returnToList = state.returnToTemplateList;
+            state.returnToTemplateList = false;
+            closeModal();
+            updateTemplateCount();
+            refreshTemplateSelects();
+            if (returnToList) openTemplateListModal();
+        } catch (err) {
+            alert(err.message || 'Failed to save template');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    el('btnDeleteTemplate').addEventListener('click', async () => {
+        if (!state.editingTemplateId) return;
+        const returnToList = state.returnToTemplateList;
+        if (await deleteTemplateById(state.editingTemplateId)) {
+            state.returnToTemplateList = false;
+            closeModal();
+            if (returnToList) openTemplateListModal();
+        }
+    });
+
+    el('btnSaveSignature').addEventListener('click', async () => {
+        const name = el('newSignatureName').value.trim();
+        const bodyHtml = getHtmlEditorContent('signature');
+        if (!name || !htmlToPlain(bodyHtml)) {
+            alert('Name and signature are required.');
+            return;
+        }
+        const payload = {
+            name,
+            body: htmlToPlain(bodyHtml),
+            body_html: bodyHtml,
+            body_text: htmlToPlain(bodyHtml),
+        };
+        const editingId = state.editingSignatureId;
+        const btn = el('btnSaveSignature');
+        btn.disabled = true;
+        try {
+            const data = editingId
+                ? await api('/signatures/' + editingId, { method: 'PUT', body: payload })
+                : await api('/signatures', { method: 'POST', body: payload });
+            applySignaturesPayload(data);
+            const returnToList = state.returnToSignatureList;
+            state.returnToSignatureList = false;
+            state.editingSignatureId = null;
+            closeModal();
+            if (el('modalCompose')?.style.display === 'grid') {
+                applyComposerSignature('compose', stripSignatureHtml(getComposerHtml('compose')));
+            }
+            if (state.selectedId) {
+                applyComposerSignature('reply', stripSignatureHtml(getComposerHtml('reply')));
+            }
+            if (returnToList) {
+                openSignatureListModal();
+            }
+        } catch (err) {
+            alert(err.message || 'Failed to save signature');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    el('btnSendCompose').addEventListener('click', async () => {
+        await sendCompose({});
+    });
+
+    el('btnSendComposeMenu')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePop('composeSendMenu', e.currentTarget);
+    });
+
+    el('composeSendMenu')?.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-compose-send-mode]');
+        if (!btn) return;
+        e.stopPropagation();
+        const mode = btn.dataset.composeSendMode;
+        if (mode === 'later') {
+            const share = el('composeShareDraftFields');
+            if (share) share.hidden = true;
+            const fields = el('composeSendLaterFields');
+            if (fields) {
+                fields.hidden = false;
+                const input = el('composeSendLaterAt');
+                if (input && !input.value) {
+                    input.value = toDatetimeLocalValue(new Date(Date.now() + 60 * 60 * 1000));
+                }
+                input?.focus();
+            }
+            return;
+        }
+        if (mode === 'share-draft') {
+            openShareDraftPicker('compose');
+            return;
+        }
+        closeThreadPops();
+        await sendCompose({});
+    });
+
+    el('btnConfirmComposeSendLater')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const raw = el('composeSendLaterAt')?.value;
+        if (!raw) return alert('Pick a date and time.');
+        if (!isDatetimeLocalInFuture(raw)) {
+            return alert('Choose a future date and time.');
+        }
+        closeThreadPops();
+        await sendCompose({ sendAt: datetimeLocalToApi(raw) });
+    });
+
+    el('composeShareDraftSearch')?.addEventListener('input', (e) => {
+        renderShareDraftList('compose', e.target.value);
+    });
+    el('composeShareDraftSearch')?.addEventListener('click', (e) => e.stopPropagation());
+    el('composeShareDraftList')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-share-user]');
+        if (!btn) return;
+        e.stopPropagation();
+        toggleShareDraftUser('compose', btn.dataset.shareUser);
+    });
+    el('btnConfirmComposeShareDraft')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await submitSharedDraft('compose');
+    });
+
+    function captureComposeSendSnapshot() {
+        return {
+            html: getComposerHtml('compose'),
+            to: el('composeTo')?.value || '',
+            cc: el('composeCc')?.value || '',
+            subject: el('composeSubject')?.value || '',
+            inboxId: el('composeFrom')?.value || '',
+            attachments: (state.composeAttachments || []).map(file => ({ ...file })),
+            draftConversationId: state.composeDraftConversationId,
+            title: el('composeModalTitle')?.textContent || 'New message',
+            help: el('composeModalHelp')?.textContent || 'Send email through a connected Outlook inbox.',
+        };
+    }
+
+    function clearComposeComposer() {
+        state.composeAttachments = [];
+        state.composeDraftConversationId = null;
+        renderAttachChips('compose');
+        hideMentionPopup('compose');
+        setComposerHtml('compose', '');
+        if (el('composeTo')) el('composeTo').value = '';
+        if (el('composeCc')) el('composeCc').value = '';
+        if (el('composeSubject')) el('composeSubject').value = '';
+    }
+
+    function restoreComposeSendSnapshot(snapshot) {
+        const from = el('composeFrom');
+        if (from) {
+            const inboxId = String(snapshot.inboxId || '');
+            const known = (state.inboxes || []).find(i => String(i.id) === inboxId);
+            const hasOption = [...from.options].some(option => option.value === inboxId);
+            if (inboxId && !hasOption) {
+                const opt = document.createElement('option');
+                opt.value = inboxId;
+                opt.textContent = known
+                    ? `${known.name || 'Inbox'} (${known.email || 'Outlook'})`
+                    : 'Inbox';
+                from.appendChild(opt);
+            }
+            if (inboxId) from.value = inboxId;
+        }
+        if (el('composeTo')) el('composeTo').value = snapshot.to || '';
+        if (el('composeCc')) el('composeCc').value = snapshot.cc || '';
+        if (el('composeSubject')) el('composeSubject').value = snapshot.subject || '';
+        setComposerHtml('compose', snapshot.html || '');
+        state.composeAttachments = snapshot.attachments || [];
+        state.composeDraftConversationId = snapshot.draftConversationId || null;
+        state.shareDraftSelected.compose = {};
+        renderAttachChips('compose');
+        hideMentionPopup('compose');
+        setComposeModalCopy(snapshot.title || 'New message', snapshot.help || 'Send email through a connected Outlook inbox.');
+        openModal('modalCompose');
+        setTimeout(() => el('composeBody')?.focus(), 50);
+    }
+
+    async function commitComposeSend(payload, { inboxId, sendAt = null, alreadyCleared = false } = {}) {
+        el('btnSendCompose').disabled = true;
+        el('btnSendCompose').textContent = sendAt ? 'Scheduling…' : 'Sending…';
+        if (el('btnSendComposeMenu')) el('btnSendComposeMenu').disabled = true;
+        let data;
+        try {
+            data = await api('/compose', { method: 'POST', body: payload });
+        } finally {
+            el('btnSendCompose').disabled = false;
+            el('btnSendCompose').textContent = 'Send';
+            if (el('btnSendComposeMenu')) el('btnSendComposeMenu').disabled = false;
+        }
+
+        if (!alreadyCleared) {
+            clearComposeComposer();
+            if (el('modalCompose')?.style.display === 'grid') closeModal();
+        }
+
+        try {
+            if (data.scheduled) {
+                state.view = 'drafts';
+                state.viewGroup = null;
+                state.selectedInboxId = inboxId;
+                state.expandedInboxIds[inboxId] = true;
+                await loadBootstrap();
+                await loadConversations();
+                if (data.conversation?.id) {
+                    await openConversation(data.conversation.id);
+                }
+                return;
+            }
+
+            state.view = 'sent';
+            state.viewGroup = null;
+            state.selectedInboxId = inboxId;
+            state.expandedInboxIds[inboxId] = true;
+            await loadBootstrap();
+            await loadConversations();
+            if (data.conversation?.id) {
+                await openConversation(data.conversation.id);
+            }
+        } catch (err) {
+            console.warn('Inbox refresh after compose failed', err);
+        }
+    }
+
+    async function sendCompose(opts = {}) {
+        const inboxId = Number(el('composeFrom').value);
+        const to = el('composeTo').value.trim();
+        const cc = el('composeCc').value.trim();
+        const subject = el('composeSubject').value.trim();
+        const html = getComposerHtml('compose');
+        if (!inboxId) return alert('Select a From inbox.');
+        if (!to) return alert('Add at least one recipient.');
+        if (!subject) return alert('Subject is required.');
+        if (isComposerEmpty('compose')) return alert('Write a message first.');
+
+        const sendAt = opts.sendAt || null;
+        const snapshot = captureComposeSendSnapshot();
+        const prepared = prepareEmailSendPayload(html, snapshot.attachments);
+        const payload = {
+            inbox_id: inboxId,
+            to,
+            cc: cc || null,
+            subject,
+            body: prepared.body,
+            attachments: prepared.attachments,
+        };
+        if (sendAt) payload.send_at = sendAt;
+        if (snapshot.draftConversationId) payload.draft_conversation_id = snapshot.draftConversationId;
+
+        const commit = () => commitComposeSend(payload, { inboxId, sendAt, alreadyCleared: !sendAt });
+        if (sendAt) {
+            try {
+                await commit();
+            } catch (err) {
+                alert(err.message);
+            }
+            return;
+        }
+
+        clearComposeComposer();
+        if (el('modalCompose')?.style.display === 'grid') closeModal();
+        queueUndoSend({
+            label: 'Sending message',
+            restore: () => restoreComposeSendSnapshot(snapshot),
+            commit,
+            keepalive: () => postInboxKeepalive('/compose', payload),
+        });
+    }
+
+    function getConnectMode() {
+        return document.querySelector('input[name="connectMode"]:checked')?.value || 'mailbox_login';
+    }
+
+    function updateInboxEmailLabel() {
+        const mode = getConnectMode();
+        const label = el('newInboxEmailLabel');
+        if (!label) return;
+        label.childNodes[0].textContent = mode === 'shared_mailbox'
+            ? 'Shared mailbox email (required) '
+            : 'Mailbox email (required) ';
+        el('newInboxEmail').placeholder = mode === 'shared_mailbox'
+            ? 'support@yourcompany.com'
+            : 'inquiry@yourcompany.com — must match the MS365 account you sign in with';
+        el('newInboxEmail').required = true;
+    }
+
+    document.querySelectorAll('input[name="connectMode"]').forEach(r => {
+        r.addEventListener('change', updateInboxEmailLabel);
+    });
+
+    async function createSharedInbox(andConnect) {
+        const name = el('newInboxName').value.trim();
+        if (!name) return alert('Name required');
+        const mode = getConnectMode();
+        const email = el('newInboxEmail').value.trim();
+        if (!email) {
+            return alert(mode === 'shared_mailbox'
+                ? 'Shared mailbox email is required.'
+                : 'Mailbox email is required. Sign in with that same Microsoft 365 account.');
+        }
+        const member_ids = [...el('newInboxMembers').selectedOptions].map(o => Number(o.value));
+        const data = await api('/inboxes', {
+            method: 'POST',
+            body: {
+                name,
+                email: email || null,
+                external_mailbox: mode === 'shared_mailbox' ? email : null,
+                connect_mode: mode,
+                member_ids,
+            },
+        });
+        el('newInboxName').value = '';
+        el('newInboxEmail').value = '';
+        closeModal();
+        if (andConnect && data.connect_url) {
+            window.location = data.connect_url;
+            return;
+        }
+        await loadBootstrap();
+        if (data.inbox && !data.inbox.connected) {
+            alert('Shared inbox created. Click “Sign in” next to it to connect Microsoft 365.');
+        }
+    }
+
+    el('btnSaveInbox').addEventListener('click', async () => {
+        try {
+            await createSharedInbox(false);
+        } catch (err) {
+            alert(err.message);
+        }
+    });
+    el('btnSaveInboxConnect').addEventListener('click', async () => {
+        el('btnSaveInboxConnect').disabled = true;
+        try {
+            await createSharedInbox(true);
+        } catch (err) {
+            alert(err.message);
+            el('btnSaveInboxConnect').disabled = false;
+        }
+    });
+
+    el('btnSaveRule')?.addEventListener('click', async () => {
+        if (!state.permissions.create_rules) return alert('You do not have permission to add rules.');
+        const payload = collectRulePayload();
+        if (!payload.name) return alert('Enter a name for this rule.');
+        if (!payload.triggers.length) return alert('Add at least one trigger.');
+        const extraConditions = payload.conditions.filter(c => c.field !== 'inbox');
+        if (extraConditions.some(c => !String(c.value || '').trim())) {
+            return alert('Each condition needs a value.');
+        }
+        if (!payload.actions.length) {
+            return alert('Add at least one action.');
+        }
+        for (const action of payload.actions) {
+            if (['assign'].includes(action.type) && (action.value === null || action.value === '')) {
+                return alert('Assign actions need a teammate.');
+            }
+            if (action.type === 'reopen_after_days') {
+                const days = Number(action.value);
+                if (!Number.isFinite(days) || days < 1 || days > 365) {
+                    return alert('Choose how many days before reopen (1–365).');
+                }
+            }
+        }
+        const btn = el('btnSaveRule');
+        btn.disabled = true;
+        try {
+            await api('/rules', { method: 'POST', body: payload });
+            closeModal();
+            await loadBootstrap();
+        } catch (err) {
+            alert(err.message || 'Failed to create rule');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    function openMembersModal(inboxId) {
+        const inbox = state.inboxes.find(i => i.id === inboxId);
+        if (!inbox) return;
+        state.editingMembersInboxId = inboxId;
+        el('membersInboxName').textContent = inbox.name;
+        const selected = new Map((inbox.members || []).map(m => [m.id, m.role]));
+        el('membersEditor').innerHTML = state.members.map(m => {
+            const role = selected.get(m.id);
+            const checked = role ? 'checked' : '';
+            return `<div class="inbox-member-row">
+                <label style="display:flex;align-items:center;gap:0.5rem;font-weight:500;">
+                    <input type="checkbox" data-member-id="${m.id}" ${checked}>
+                    ${escapeHtml(m.name)}
+                </label>
+                <select data-member-role="${m.id}">
+                    <option value="member" ${role === 'member' ? 'selected' : ''}>Member</option>
+                    <option value="admin" ${role === 'admin' ? 'selected' : ''}>Admin</option>
+                </select>
+            </div>`;
+        }).join('');
+        openModal('modalMembers');
+    }
+
+    el('btnSaveMembers').addEventListener('click', async () => {
+        if (!state.editingMembersInboxId) return;
+        const members = [];
+        el('membersEditor').querySelectorAll('[data-member-id]').forEach(cb => {
+            if (!cb.checked) return;
+            const id = Number(cb.dataset.memberId);
+            const role = el('membersEditor').querySelector(`[data-member-role="${id}"]`)?.value || 'member';
+            members.push({ user_id: id, role });
+        });
+        await api('/inboxes/' + state.editingMembersInboxId + '/members', { method: 'PUT', body: { members } });
+        closeModal();
+        await loadBootstrap();
+    });
+
+    bindComposerExtras('comment');
+    bindComposerExtras('reply');
+    bindComposerExtras('compose');
+    bindHtmlLinkHover(el('commentBody'));
+    bindHtmlLinkHover(el('replyBody'));
+    bindHtmlLinkHover(el('composeBody'));
+    setComposerMode();
+    window.addEventListener('resize', syncOpenTemplatePickerPosition);
+    document.addEventListener('scroll', syncOpenTemplatePickerPosition, true);
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('[data-template-picker]')) closeTemplatePickers();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (el('mediaLightbox') && !el('mediaLightbox').hidden) {
+                e.preventDefault();
+                closeMediaLightbox();
+                return;
+            }
+            if (el('htmlLinkDialog') && !el('htmlLinkDialog').hidden) {
+                e.preventDefault();
+                closeHtmlLinkDialog();
+                return;
+            }
+            closeTemplatePickers();
+            if (state.checkedIds.length) clearCheckedConversations();
+            if (el('modalBackdrop')?.style.display === 'flex') {
+                closeModal();
+            }
+        }
+    });
+    loadLocalTools();
+    renderViewGroups();
+    const startupParams = new URLSearchParams(window.location.search);
+    const startupConversationId = Number(startupParams.get('conversation') || 0);
+    const startupMessageId = Number(startupParams.get('message') || 0);
+    const startupLabelId = Number(startupParams.get('label') || 0);
+
+    // Popout: fetch the thread immediately — don't wait on sidebar bootstrap/counts.
+    const popoutOpenPromise = (INBOX_POPOUT && startupConversationId)
+        ? openConversation(startupConversationId, startupMessageId ? { messageId: startupMessageId } : {})
+        : null;
+
+    // Shell first (lite), then counts in parallel with the conversation list.
+    // Composer tools (large HTML) load in the background and only block popout.
+    const inboxStartup = [
+        loadBootstrap({
+            conversations: false,
+            lite: true,
+            counts: !INBOX_POPOUT,
+            composerTools: true,
+            awaitComposerTools: INBOX_POPOUT,
+        }),
+    ];
+    if (!INBOX_POPOUT) inboxStartup.push(loadConversations());
+    Promise.all(inboxStartup).then(async () => {
+        const params = startupParams;
+        const conversationId = startupConversationId;
+        const messageId = startupMessageId;
+        const labelId = startupLabelId;
+        if (labelId && !INBOX_POPOUT) {
+            state.selectedLabelId = labelId;
+            state.selectedInboxId = null;
+            state.viewGroup = null;
+            state.view = 'open';
+            renderNav();
+            await loadConversations();
+            params.delete('label');
+        }
+        if (conversationId && !popoutOpenPromise) {
+            await openConversation(conversationId, messageId ? { messageId } : {});
+            if (!INBOX_POPOUT) {
+                params.delete('conversation');
+                params.delete('message');
+                const next = params.toString();
+                window.history.replaceState({}, '', window.location.pathname + (next ? '?' + next : ''));
+            }
+        } else if (popoutOpenPromise) {
+            await popoutOpenPromise;
+            // Bootstrap finished after the thread — refresh composer tools that depend on it.
+            refreshTemplateSelects();
+            if (!state.replyDraftId) {
+                const replyPlain = htmlToPlain(getComposerHtml('reply') || '').trim();
+                if (!replyPlain) applyComposerSignature('reply');
+            }
+        }
+    }).catch(err => {
+        if (INBOX_POPOUT) {
+            if (state.conversation) {
+                console.warn('Inbox popout bootstrap failed', err);
+                return;
+            }
+            el('threadPlaceholder').style.display = 'none';
+            el('threadView').style.display = 'flex';
+            el('threadView')?.classList.remove('is-loading');
+            el('threadView')?.removeAttribute('aria-busy');
+            el('threadSubject').textContent = 'Could not open conversation';
+            if (INBOX_POPOUT) document.title = 'Could not open conversation - Inbox';
+            el('threadMessages').innerHTML = `<div class="inbox-empty">${escapeHtml(err.message)}</div>`;
+            return;
+        }
+        el('conversationList').innerHTML = `<div class="inbox-empty">${escapeHtml(err.message)}</div>`;
+    });
+
+    // Keep relative hours/minutes fresh while the inbox is open.
+    setInterval(refreshConversationTimes, 30000);
+
+    // Poll conversation list + sidebar counts when the tab is focused so queued
+    // background sync shows up without a manual refresh (no Redis/Reverb required).
+    const LIST_POLL_MS = 45000;
+    let listPollTimer = null;
+    let listPolling = false;
+
+    async function pollConversationList() {
+        if (INBOX_POPOUT || document.hidden || listPolling || state.listLoading) return;
+        if (el('modalBackdrop')?.style.display === 'flex') return;
+        listPolling = true;
+        try {
+            await loadConversations({ append: false, preserveList: true });
+            await loadNavCounts();
+        } catch (_) {
+            // Ignore transient poll errors; next tick retries.
+        } finally {
+            listPolling = false;
+        }
+    }
+
+    function startListPolling() {
+        if (INBOX_POPOUT || listPollTimer) return;
+        listPollTimer = setInterval(pollConversationList, LIST_POLL_MS);
+    }
+
+    function stopListPolling() {
+        if (!listPollTimer) return;
+        clearInterval(listPollTimer);
+        listPollTimer = null;
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            stopListPolling();
+            return;
+        }
+        startListPolling();
+        pollConversationList();
+    });
+
+    if (!document.hidden) {
+        startListPolling();
+    }
+})();

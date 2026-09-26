@@ -829,3 +829,7 @@ function clear(rootOrSelector) {
 }
 
 window.LnsContactHistory = { load, clear, renderPanel, saveAsLead };
+
+window.loadChannelContactHistory = function (selector, opts) {
+    return load(selector, opts);
+};
