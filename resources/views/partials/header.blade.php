@@ -150,21 +150,8 @@
             $headerQueueStatus = $headerQueuePresence?->status ?? 'offline';
             $headerQueueOn = in_array($headerQueueStatus, ['available', 'busy'], true);
             $headerQueueLabel = $headerQueueStatus === 'busy' ? 'On call' : ($headerQueueOn ? 'Available' : 'Offline');
-            $headerQueueSnapshot = app(\App\Services\InboundCallQueueService::class)
-                ->queueSnapshot((int) $headerQueueUser->company_id);
-            $headerQueueAvailable = (int) ($headerQueueSnapshot['counts']['available'] ?? 0);
-            $headerQueueNext = $headerQueueSnapshot['next_agent'] ?? null;
-            $headerQueueNextName = trim((string) ($headerQueueNext['name'] ?? ''));
-            if ($headerQueueAvailable > 0) {
-                $headerQueueMeta = $headerQueueAvailable === 1 ? '1 available' : $headerQueueAvailable.' available';
-                if ($headerQueueNextName !== '') {
-                    $headerQueueMeta .= ' · '.$headerQueueNextName;
-                }
-            } elseif ($headerQueueStatus === 'busy') {
-                $headerQueueMeta = 'On call';
-            } else {
-                $headerQueueMeta = '0 available';
-            }
+            // Avoid queueSnapshot() on every page render — JS fills meta after one presence fetch.
+            $headerQueueMeta = $headerQueueStatus === 'busy' ? 'On call' : '';
         @endphp
         <div class="header-agent-queue" id="headerAgentQueue" title="Receive inbound calls on any CRM page while available">
             <button type="button"
@@ -183,7 +170,6 @@
                 const toggle = document.getElementById('headerAgentAvailableToggle');
                 const metaEl = document.getElementById('headerAgentQueueMeta');
                 if (!toggle) return;
-                const currentUserId = {{ (int) auth()->id() }};
 
                 const storageKey = 'lnscrm.callQueueAvailable';
                 const csrfHeaders = function () {
@@ -233,16 +219,20 @@
                     }
                 };
 
-                const stopHeartbeat = function () {
+                // Heartbeats live in twilio-global.js only (one timer per session).
+                // This fallback is used only if the Vite bundle has not loaded yet.
+                const stopFallbackHeartbeat = function () {
                     if (window.__headerQueueHeartbeat) {
                         clearInterval(window.__headerQueueHeartbeat);
                         window.__headerQueueHeartbeat = null;
                     }
                 };
 
-                const startHeartbeat = function () {
-                    stopHeartbeat();
+                const startFallbackHeartbeat = function () {
+                    if (typeof window.syncCallQueuePresence === 'function') return;
+                    stopFallbackHeartbeat();
                     const beat = function () {
+                        if (document.hidden) return;
                         fetch('/twilio/agent-presence/heartbeat', {
                             method: 'POST',
                             headers: csrfHeaders(),
@@ -250,7 +240,17 @@
                         }).catch(function () {});
                     };
                     beat();
-                    window.__headerQueueHeartbeat = setInterval(beat, 20000);
+                    window.__headerQueueHeartbeat = setInterval(beat, 30000);
+                };
+
+                const syncPresenceClient = function (on, status) {
+                    if (typeof window.syncCallQueuePresence === 'function') {
+                        stopFallbackHeartbeat();
+                        window.syncCallQueuePresence(on, status || (on ? 'available' : 'offline'));
+                        return;
+                    }
+                    if (on) startFallbackHeartbeat();
+                    else stopFallbackHeartbeat();
                 };
 
                 const applyPresencePayload = function (payload) {
@@ -260,8 +260,7 @@
                     setUi(on, status);
                     persist(on);
                     updateQueueMeta(payload);
-                    if (on) startHeartbeat();
-                    else stopHeartbeat();
+                    syncPresenceClient(on, status);
                 };
 
                 const fetchPresence = async function () {
@@ -279,8 +278,6 @@
                         const result = await window.setCallQueueAvailable(on);
                         persist(on);
                         if (result && result.data) updateQueueMeta(result.data);
-                        if (on) startHeartbeat();
-                        else stopHeartbeat();
                         return result;
                     }
                     const response = await fetch('/twilio/agent-presence', {
@@ -294,8 +291,7 @@
                     }
                     persist(on);
                     if (data.data) updateQueueMeta(data.data);
-                    if (on) startHeartbeat();
-                    else stopHeartbeat();
+                    syncPresenceClient(on, on ? 'available' : 'offline');
                     return data;
                 };
 
@@ -303,7 +299,7 @@
                     const persistedOn = readPersisted();
                     if (persistedOn || toggle.getAttribute('aria-checked') === 'true') {
                         setUi(true);
-                        startHeartbeat();
+                        syncPresenceClient(true, 'available');
                     }
 
                     try {
@@ -352,23 +348,22 @@
                 }
 
                 restorePresence();
+                // Soft refresh of queue meta only — no heartbeat here. 90s is enough for the header label.
                 setInterval(function () {
+                    if (document.hidden) return;
+                    if (toggle.getAttribute('aria-checked') !== 'true') return;
                     fetchPresence().then(function (payload) {
-                        if (payload) applyPresencePayload(payload);
+                        if (payload) {
+                            updateQueueMeta(payload);
+                            const status = payload.me?.status;
+                            const on = status === 'available' || status === 'busy';
+                            setUi(on, status);
+                        }
                     }).catch(function () {});
-                }, 15000);
+                }, 90000);
 
                 window.addEventListener('lnscrm:call-queue-changed', function (event) {
                     if (event.detail && event.detail.data) applyPresencePayload(event.detail.data);
-                });
-
-                window.addEventListener('pagehide', function () {
-                    if (toggle.getAttribute('aria-checked') !== 'true') return;
-                    fetch('/twilio/agent-presence/heartbeat', {
-                        method: 'POST',
-                        headers: csrfHeaders(),
-                        keepalive: true,
-                    }).catch(function () {});
                 });
             })();
         </script>

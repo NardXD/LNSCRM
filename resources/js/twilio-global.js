@@ -243,6 +243,9 @@ let callStartTime = null;
 let callQueueHeartbeatTimer = null;
 let callQueueAvailable = false;
 const CALL_QUEUE_STORAGE_KEY = 'lnscrm.callQueueAvailable';
+const CALL_QUEUE_HEARTBEAT_MS = 30000;
+const CALL_QUEUE_LEADER_KEY = 'lnscrm.callQueueHeartbeatLeader';
+const CALL_QUEUE_TAB_ID = 'tab-' + Math.random().toString(36).slice(2) + '-' + Date.now();
 
 function csrfHeaders() {
     return {
@@ -265,6 +268,43 @@ function readPersistedCallQueueAvailable() {
         return localStorage.getItem(CALL_QUEUE_STORAGE_KEY) === '1';
     } catch (error) {
         return false;
+    }
+}
+
+function claimCallQueueHeartbeatLeadership() {
+    try {
+        const raw = localStorage.getItem(CALL_QUEUE_LEADER_KEY);
+        const now = Date.now();
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            const age = now - Number(parsed?.at || 0);
+            if (parsed?.id && parsed.id !== CALL_QUEUE_TAB_ID && age < CALL_QUEUE_HEARTBEAT_MS * 2) {
+                return false;
+            }
+        }
+        localStorage.setItem(CALL_QUEUE_LEADER_KEY, JSON.stringify({ id: CALL_QUEUE_TAB_ID, at: now }));
+        return true;
+    } catch (error) {
+        return true;
+    }
+}
+
+function isCallQueueHeartbeatLeader() {
+    try {
+        const raw = localStorage.getItem(CALL_QUEUE_LEADER_KEY);
+        if (!raw) return claimCallQueueHeartbeatLeadership();
+        const parsed = JSON.parse(raw);
+        if (parsed?.id === CALL_QUEUE_TAB_ID) {
+            localStorage.setItem(CALL_QUEUE_LEADER_KEY, JSON.stringify({ id: CALL_QUEUE_TAB_ID, at: Date.now() }));
+            return true;
+        }
+        const age = Date.now() - Number(parsed?.at || 0);
+        if (age >= CALL_QUEUE_HEARTBEAT_MS * 2) {
+            return claimCallQueueHeartbeatLeadership();
+        }
+        return false;
+    } catch (error) {
+        return true;
     }
 }
 
@@ -295,6 +335,8 @@ function applyCallQueuePresenceUi(isOn, status) {
 
 async function sendCallQueueHeartbeat() {
     if (!callQueueAvailable) return;
+    if (document.hidden) return;
+    if (!isCallQueueHeartbeatLeader()) return;
     try {
         await fetch('/twilio/agent-presence/heartbeat', {
             method: 'POST',
@@ -309,11 +351,17 @@ async function sendCallQueueHeartbeat() {
 function startCallQueueHeartbeat() {
     callQueueAvailable = true;
     persistCallQueueAvailable(true);
+    // Kill the header fallback timer if it started before this module loaded.
+    if (window.__headerQueueHeartbeat) {
+        clearInterval(window.__headerQueueHeartbeat);
+        window.__headerQueueHeartbeat = null;
+    }
     if (callQueueHeartbeatTimer) {
         clearInterval(callQueueHeartbeatTimer);
     }
+    claimCallQueueHeartbeatLeadership();
     sendCallQueueHeartbeat();
-    callQueueHeartbeatTimer = setInterval(sendCallQueueHeartbeat, 20000);
+    callQueueHeartbeatTimer = setInterval(sendCallQueueHeartbeat, CALL_QUEUE_HEARTBEAT_MS);
 }
 
 function stopCallQueueHeartbeat() {
@@ -322,6 +370,15 @@ function stopCallQueueHeartbeat() {
     if (callQueueHeartbeatTimer) {
         clearInterval(callQueueHeartbeatTimer);
         callQueueHeartbeatTimer = null;
+    }
+    try {
+        const raw = localStorage.getItem(CALL_QUEUE_LEADER_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (parsed?.id === CALL_QUEUE_TAB_ID) {
+            localStorage.removeItem(CALL_QUEUE_LEADER_KEY);
+        }
+    } catch (error) {
+        // Ignore storage failures.
     }
 }
 

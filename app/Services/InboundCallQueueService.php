@@ -18,7 +18,18 @@ class InboundCallQueueService
 {
     public function heartbeatTtlSeconds(): int
     {
-        return (int) config('services.twilio.call_queue_heartbeat_ttl', 45);
+        return max(30, (int) config('services.twilio.call_queue_heartbeat_ttl', 90));
+    }
+
+    /**
+     * Skip DB writes when the same agent (or duplicate tabs) heartbeats too often.
+     */
+    public function heartbeatMinWriteSeconds(): int
+    {
+        $configured = (int) config('services.twilio.call_queue_heartbeat_min_write_seconds', 20);
+        $ceiling = max(5, (int) floor($this->heartbeatTtlSeconds() / 3));
+
+        return max(5, min($configured, $ceiling));
     }
 
     public function getOrCreatePresence(User $user): CallAgentPresence
@@ -74,18 +85,37 @@ class InboundCallQueueService
 
     public function heartbeat(User $user): CallAgentPresence
     {
-        $presence = $this->getOrCreatePresence($user);
+        $presence = CallAgentPresence::query()->where('user_id', $user->id)->first();
+        if (! $presence) {
+            return $this->getOrCreatePresence($user);
+        }
 
         if ($presence->status === CallAgentPresence::STATUS_OFFLINE) {
             return $presence;
         }
 
-        $presence->fill([
-            'company_id' => $user->company_id,
-            'last_heartbeat_at' => now(),
-        ])->save();
+        // Duplicate tabs / dual client timers should not rewrite the row every few seconds.
+        if (
+            $presence->last_heartbeat_at
+            && $presence->last_heartbeat_at->gte(now()->subSeconds($this->heartbeatMinWriteSeconds()))
+        ) {
+            return $presence;
+        }
 
-        return $presence->fresh();
+        $now = now();
+        CallAgentPresence::query()
+            ->whereKey($presence->id)
+            ->where('status', '!=', CallAgentPresence::STATUS_OFFLINE)
+            ->update([
+                'company_id' => $user->company_id,
+                'last_heartbeat_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+        $presence->company_id = $user->company_id;
+        $presence->last_heartbeat_at = $now;
+
+        return $presence;
     }
 
     public function markBusy(User $user, string $callSid): CallAgentPresence

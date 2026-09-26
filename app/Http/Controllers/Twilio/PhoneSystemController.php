@@ -83,6 +83,8 @@ class PhoneSystemController extends Controller
                 'status' => $presence->status,
                 'last_heartbeat_at' => $presence->last_heartbeat_at?->toIso8601String(),
             ],
+        ], 200, [
+            'Cache-Control' => 'no-store',
         ]);
     }
 
