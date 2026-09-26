@@ -81,6 +81,114 @@ class LeadAgeRuleTest extends TestCase
         $this->assertFalse($converted->labels()->where('lead_labels.id', $label->id)->exists());
     }
 
+    public function test_lead_age_rule_matches_channel_and_shared_inbox_from_linked_thread(): void
+    {
+        [$user, $company] = $this->userWithPermissions(['view_leads']);
+        LeadStatus::ensureForCompany((int) $company->id);
+
+        $account = \App\Models\OutlookMailAccount::query()->create([
+            'company_id' => $company->id,
+            'user_id' => $user->id,
+            'email' => 'talk2us@example.com',
+            'access_token' => 'token',
+            'refresh_token' => 'refresh',
+            'token_expires_at' => now()->addHour(),
+            'is_active' => true,
+        ]);
+        $talk2us = \App\Models\SharedInbox::query()->create([
+            'company_id' => $company->id,
+            'outlook_mail_account_id' => $account->id,
+            'name' => 'Talk2Us',
+            'email' => 'talk2us@example.com',
+            'type' => \App\Models\SharedInbox::TYPE_SHARED,
+            'is_active' => true,
+        ]);
+        $otherInbox = \App\Models\SharedInbox::query()->create([
+            'company_id' => $company->id,
+            'outlook_mail_account_id' => $account->id,
+            'name' => 'Payment',
+            'email' => 'payment@example.com',
+            'type' => \App\Models\SharedInbox::TYPE_SHARED,
+            'is_active' => true,
+        ]);
+
+        $fuLabel = LeadLabel::query()->create([
+            'company_id' => $company->id,
+            'name' => '2nd Day FU',
+            'color' => '#4338ca',
+        ]);
+        $seedLabel = LeadLabel::query()->create([
+            'company_id' => $company->id,
+            'name' => 'Inquiry',
+            'color' => '#166534',
+        ]);
+
+        LeadRule::query()->create([
+            'company_id' => $company->id,
+            'name' => '2nd day FU',
+            'priority' => 10,
+            'is_active' => true,
+            'triggers' => [LeadRuleEngine::TRIGGER_LEAD_AGE_REACHED],
+            'conditions' => [
+                ['field' => 'channel', 'operator' => 'in', 'value' => ['inbox']],
+                ['field' => 'shared_inbox', 'operator' => 'in', 'value' => [$talk2us->id]],
+                ['field' => 'lead_age', 'operator' => 'greater_than', 'value' => '1'],
+                ['field' => 'lead_label', 'operator' => 'has', 'value' => []],
+                ['field' => 'lead_label', 'operator' => 'does_not_have', 'value' => [$fuLabel->id]],
+            ],
+            'actions' => [
+                ['type' => 'notify_assignee', 'value' => null],
+                ['type' => 'add_label', 'value' => [$fuLabel->id]],
+            ],
+        ]);
+
+        $matched = $this->makeLead($company, 'Talk2Us Lead', 'new', now()->subDays(2), [
+            'source' => 'web',
+            'assigned_to' => $user->id,
+        ]);
+        $matched->labels()->attach($seedLabel->id);
+        \App\Models\InboxConversation::query()->create([
+            'company_id' => $company->id,
+            'shared_inbox_id' => $talk2us->id,
+            'lead_id' => $matched->id,
+            'folder' => 'inbox',
+            'status' => 'archived',
+            'subject' => 'Follow up',
+            'from_name' => 'Customer',
+            'from_email' => 'customer@example.com',
+            'external_conversation_id' => 'conv-age-1',
+            'last_message_at' => now()->subDay(),
+            'message_count' => 1,
+            'is_read' => true,
+        ]);
+
+        $wrongInbox = $this->makeLead($company, 'Payment Lead', 'new', now()->subDays(2), [
+            'source' => 'inbox',
+            'assigned_to' => $user->id,
+        ]);
+        \App\Models\InboxConversation::query()->create([
+            'company_id' => $company->id,
+            'shared_inbox_id' => $otherInbox->id,
+            'lead_id' => $wrongInbox->id,
+            'folder' => 'inbox',
+            'status' => 'archived',
+            'subject' => 'Payment',
+            'from_name' => 'Other',
+            'from_email' => 'other@example.com',
+            'external_conversation_id' => 'conv-age-2',
+            'last_message_at' => now()->subDay(),
+            'message_count' => 1,
+            'is_read' => true,
+        ]);
+
+        Artisan::call('leads:process-lead-age');
+
+        $matched->refresh();
+        $wrongInbox->refresh();
+        $this->assertTrue($matched->labels()->where('lead_labels.id', $fuLabel->id)->exists());
+        $this->assertFalse($wrongInbox->labels()->where('lead_labels.id', $fuLabel->id)->exists());
+    }
+
     /**
      * @param  list<string>  $slugs
      * @return array{0: User, 1: Company}
@@ -89,15 +197,15 @@ class LeadAgeRuleTest extends TestCase
     {
         $company = Company::query()->create([
             'name' => 'LNS',
-            'subdomain' => 'lns-lead-age',
+            'subdomain' => 'lns-lead-age-'.uniqid(),
             'status' => 'active',
-            'email' => 'admin-lead-age@lns.test',
+            'email' => 'admin-lead-age-'.uniqid().'@lns.test',
             'timezone' => 'UTC',
         ]);
 
         $role = Role::query()->create([
             'name' => 'Manager',
-            'slug' => 'manager-lead-age',
+            'slug' => 'manager-lead-age-'.uniqid(),
             'company_id' => $company->id,
             'is_active' => true,
         ]);
@@ -114,7 +222,7 @@ class LeadAgeRuleTest extends TestCase
 
         $user = User::query()->create([
             'name' => 'Manager',
-            'email' => 'manager-lead-age@lns.test',
+            'email' => 'manager-lead-age-'.uniqid().'@lns.test',
             'password' => Hash::make('password'),
             'company_id' => $company->id,
             'role_id' => $role->id,

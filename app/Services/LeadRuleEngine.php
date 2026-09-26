@@ -277,11 +277,16 @@ class LeadRuleEngine
                 if ($channels === []) {
                     continue;
                 }
-                if ($channel === '' || ! in_array($channel, $channels, true)) {
-                    return false;
+                if ($channel !== '' && in_array($channel, $channels, true)) {
+                    continue;
+                }
+                // Lead-lifecycle events (age, assigned, labeled, …) pass an empty
+                // channel — match against the lead's source / linked threads instead.
+                if ($channel === '' && $lead && $this->leadMatchesChannels($lead, $channels)) {
+                    continue;
                 }
 
-                continue;
+                return false;
             }
 
             if ($field === 'shared_inbox' || $field === 'inbox') {
@@ -294,11 +299,14 @@ class LeadRuleEngine
                     continue;
                 }
                 $eventInboxId = (int) ($context['inbox_id'] ?? $context['shared_inbox_id'] ?? 0);
-                if ($eventInboxId < 1 || ! in_array($eventInboxId, $inboxIds, true)) {
-                    return false;
+                if ($eventInboxId > 0 && in_array($eventInboxId, $inboxIds, true)) {
+                    continue;
+                }
+                if ($eventInboxId < 1 && $lead && $this->leadMatchesSharedInboxes($lead, $inboxIds)) {
+                    continue;
                 }
 
-                continue;
+                return false;
             }
 
             if ($field === 'lead_status') {
@@ -313,7 +321,14 @@ class LeadRuleEngine
                 if (! $lead) {
                     return false;
                 }
-                $hasAny = $this->leadHasAnyLabel($lead, $value);
+                $wanted = collect(is_array($value) ? $value : [$value])
+                    ->map(fn ($item) => trim((string) $item))
+                    ->filter()
+                    ->values();
+                if ($wanted->isEmpty()) {
+                    continue;
+                }
+                $hasAny = $this->leadHasAnyLabel($lead, $wanted->all());
                 $missing = in_array($operator, ['does_not_have', 'not_equals'], true);
                 if ($missing ? $hasAny : ! $hasAny) {
                     return false;
@@ -1058,6 +1073,39 @@ class LeadRuleEngine
     /**
      * @param  mixed  $value  One label id or name, or a list of them.
      */
+    /**
+     * @param  list<string>  $channels
+     */
+    private function leadMatchesChannels(Lead $lead, array $channels): bool
+    {
+        $source = self::normalizeChannel(strtolower(trim((string) $lead->source)));
+        if ($source !== '' && in_array($source, $channels, true)) {
+            return true;
+        }
+
+        if (in_array('inbox', $channels, true)
+            && $lead->inboxConversations()->whereNull('merged_into_id')->exists()) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  list<int>  $inboxIds
+     */
+    private function leadMatchesSharedInboxes(Lead $lead, array $inboxIds): bool
+    {
+        if ($inboxIds === []) {
+            return false;
+        }
+
+        return $lead->inboxConversations()
+            ->whereNull('merged_into_id')
+            ->whereIn('shared_inbox_id', $inboxIds)
+            ->exists();
+    }
+
     private function leadHasAnyLabel(Lead $lead, mixed $value): bool
     {
         $wanted = collect(is_array($value) ? $value : [$value])

@@ -3345,7 +3345,7 @@ body:has(.ld-page-wrapper) {
         { value: 'lead_labeled', label: 'Label added', help: 'When this label is added to the lead.' },
         { value: 'lead_status_changed', label: 'Status changed', help: 'When the lead status changes to this status. Delayed actions, like set status after X days, start counting from this change date.' },
         { value: 'lead_note_added', label: 'Note is added to lead', help: 'When a note is saved on the lead.' },
-        { value: 'lead_age_reached', label: 'Lead age is reached', help: 'Checked once a day, based on how many days since the lead was created. Add a "Lead age" condition below to set greater than or equal to, less than or equal to, or equal to which number of days.' },
+        { value: 'lead_age_reached', label: 'Lead age is reached', help: 'Checked once a day, based on how many days since the lead was created. Channel and shared inbox filters match the lead’s linked email threads (this trigger has no message channel of its own).' },
     ];
     const RULE_CHANNELS = [
         ['phone', 'Phone'],
