@@ -1791,12 +1791,15 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 }
 .inbox-adv-chip:hover { border-color: var(--inbox-accent); }
 .inbox-conv {
-    width: 100%; text-align: left; border: none; background: transparent;
+    width: 100%; text-align: left; border: 2px solid transparent; background: transparent;
     padding: 0.75rem 0.7rem; border-radius: 10px; cursor: pointer; display: grid; gap: 0.2rem;
     user-select: none;
 }
 .inbox-conv:hover { background: var(--inbox-bg); }
-.inbox-conv.active { background: #eef0f3; }
+.inbox-conv.active {
+    background: #eef0f3;
+    border-color: var(--inbox-accent);
+}
 .inbox-conv.active.unread { background: var(--inbox-accent-soft); }
 .inbox-conv.is-checked {
     background: var(--inbox-accent-soft);
