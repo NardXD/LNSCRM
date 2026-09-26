@@ -10,6 +10,7 @@ use App\Models\InboxSignature;
 use App\Models\InboxTag;
 use App\Models\InboxTemplate;
 use App\Models\InboxUserSetting;
+use App\Models\InboxConversationFollower;
 use App\Models\InboxConversationUserRead;
 use App\Models\Lead;
 use App\Models\LeadLabel;
@@ -692,7 +693,17 @@ class InboxController extends Controller
             'lead.labels:id,name,color',
         ])
             ->notMerged()
-            ->whereIn('shared_inbox_id', $inboxIds);
+            ->where(function ($q) use ($inboxIds, $user, $validated) {
+                $q->whereIn('inbox_conversations.shared_inbox_id', $inboxIds);
+                // Invited followers can open threads outside their mailboxes (e.g. via notification).
+                // Keep that out of a specific mailbox filter so sidebar inbox counts stay accurate.
+                if (empty($validated['inbox_id'])) {
+                    $q->orWhereHas('followers', function ($followers) use ($user) {
+                        $followers->where('users.id', $user->id)
+                            ->where('inbox_conversation_followers.is_subscribed', true);
+                    });
+                }
+            });
 
         // Compute per-user read state for shared inboxes.
         // - shared inbox: use inbox_conversation_user_reads
@@ -1034,6 +1045,7 @@ class InboxController extends Controller
             'lead.assignedUser:id,name',
             'lead.labels',
             'userReads',
+            'followers:id,name,email',
         ]);
 
         $relatedConversations = $conversation->relatedFolderConversations();
@@ -1073,6 +1085,8 @@ class InboxController extends Controller
                 $conversation->update(['is_read' => true]);
             }
         }
+
+        // Opening a thread does not auto-subscribe (Front: invite / comment / reply / @mention does).
 
         return response()->json([
             'conversation' => $this->formatConversation($conversation, true),
@@ -1175,6 +1189,7 @@ class InboxController extends Controller
         $this->syncLeadAssignment($conversation, $newAssigneeId);
 
         if ($assignee) {
+            $this->ensureConversationFollowers($conversation, [$assignee->id, $request->user()->id], true);
             $this->recordActivity(
                 $conversation,
                 $request->user(),
@@ -1188,6 +1203,7 @@ class InboxController extends Controller
                 ]
             );
         } else {
+            $this->ensureConversationFollowers($conversation, [$request->user()->id], true);
             $this->recordActivity(
                 $conversation,
                 $request->user(),
@@ -1200,7 +1216,11 @@ class InboxController extends Controller
             );
         }
 
-        return response()->json(['conversation' => $this->formatConversation($conversation)]);
+        return response()->json([
+            'conversation' => $this->formatConversation(
+                $conversation->fresh(['assignee', 'tags', 'leadLabels', 'inbox.members', 'followers', 'userReads'])
+            ),
+        ]);
     }
 
     public function updateStatus(Request $request, InboxConversation $conversation): JsonResponse
@@ -1523,6 +1543,171 @@ class InboxController extends Controller
         ]);
     }
 
+    public function addParticipants(Request $request, InboxConversation $conversation): JsonResponse
+    {
+        $actor = $request->user();
+        $this->authorizeConversation($actor, $conversation);
+
+        $validated = $request->validate([
+            'user_ids' => ['required', 'array', 'min:1', 'max:50'],
+            'user_ids.*' => ['integer', 'exists:users,id'],
+        ]);
+
+        $ids = User::query()
+            ->where('company_id', $actor->company_id)
+            ->whereIn('id', $validated['user_ids'])
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->reject(fn ($id) => $id === (int) $actor->id)
+            ->values()
+            ->all();
+
+        if ($ids === []) {
+            return response()->json(['message' => 'Select at least one teammate to invite.'], 422);
+        }
+
+        $newlyAdded = $this->ensureConversationFollowers($conversation, $ids, true);
+        // Inviting also subscribes the inviter so they stay in the participants list.
+        $this->ensureConversationFollowers($conversation, [$actor->id], true);
+
+        if ($newlyAdded !== []) {
+            $names = User::query()->whereIn('id', $newlyAdded)->pluck('name')->implode(', ');
+            $this->recordActivity(
+                $conversation,
+                $actor,
+                'participants_invited',
+                $actor->name.' invited '.$names,
+                [
+                    'user_ids' => $newlyAdded,
+                    'involves' => 'invite',
+                ]
+            );
+            $this->notifyInvitedParticipants($conversation, $actor, $newlyAdded);
+        }
+
+        $conversation = $conversation->fresh([
+            'assignee',
+            'tags',
+            'leadLabels',
+            'inbox.members',
+            'followers',
+            'userReads',
+        ]);
+
+        return response()->json([
+            'conversation' => $this->formatConversation($conversation, true),
+        ]);
+    }
+
+    public function removeParticipant(Request $request, InboxConversation $conversation, User $user): JsonResponse
+    {
+        $actor = $request->user();
+        $this->authorizeConversation($actor, $conversation);
+        $conversation->loadMissing('inbox');
+
+        if ((int) $user->company_id !== (int) $actor->company_id) {
+            return response()->json(['message' => 'Teammate not found.'], 404);
+        }
+
+        if ((int) $user->id === (int) $actor->id) {
+            return response()->json(['message' => 'Use unsubscribe to leave this conversation.'], 422);
+        }
+
+        if (! $conversation->followers()->where('users.id', $user->id)->exists()) {
+            return response()->json(['message' => 'That teammate is not a participant.'], 422);
+        }
+
+        // Front: cannot remove teammates who already have access to the mailbox.
+        if ($conversation->inbox && $conversation->inbox->userCanAccess($user)) {
+            return response()->json([
+                'message' => 'Teammates with access to this inbox cannot be removed from the conversation.',
+            ], 422);
+        }
+
+        $conversation->followers()->detach($user->id);
+
+        $this->recordActivity(
+            $conversation,
+            $actor,
+            'participant_removed',
+            $actor->name.' removed '.$user->name,
+            ['user_id' => $user->id],
+            false
+        );
+
+        $conversation = $conversation->fresh([
+            'assignee',
+            'tags',
+            'leadLabels',
+            'inbox.members',
+            'followers',
+            'userReads',
+        ]);
+
+        return response()->json([
+            'conversation' => $this->formatConversation($conversation, true),
+        ]);
+    }
+
+    public function subscribe(Request $request, InboxConversation $conversation): JsonResponse
+    {
+        $user = $request->user();
+        $this->authorizeConversation($user, $conversation);
+        $this->ensureConversationFollowers($conversation, [$user->id], true);
+
+        return response()->json([
+            'conversation' => $this->formatConversation(
+                $conversation->fresh(['assignee', 'tags', 'leadLabels', 'inbox.members', 'followers', 'userReads']),
+                true
+            ),
+        ]);
+    }
+
+    public function unsubscribe(Request $request, InboxConversation $conversation): JsonResponse
+    {
+        $user = $request->user();
+        $this->authorizeConversation($user, $conversation);
+        $conversation->loadMissing('inbox');
+
+        if ((int) ($conversation->assigned_to ?? 0) === (int) $user->id) {
+            return response()->json([
+                'message' => 'Unassign yourself before unsubscribing from this conversation.',
+            ], 422);
+        }
+
+        $follower = InboxConversationFollower::query()
+            ->where('inbox_conversation_id', $conversation->id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (! $follower) {
+            // Stay out of participants entirely when they never subscribed.
+            return response()->json([
+                'conversation' => $this->formatConversation(
+                    $conversation->fresh(['assignee', 'tags', 'leadLabels', 'inbox.members', 'followers', 'userReads']),
+                    true
+                ),
+            ]);
+        }
+
+        // Shared-inbox members keep access; mark unsubscribed (Front "Not subscribed").
+        // Personal invites without mailbox access are fully removed.
+        $hasMailboxAccess = $conversation->inbox && $conversation->inbox->userCanAccess($user);
+        if ($hasMailboxAccess) {
+            $follower->is_subscribed = false;
+            $follower->save();
+        } else {
+            $follower->delete();
+        }
+
+        return response()->json([
+            'conversation' => $this->formatConversation(
+                $conversation->fresh(['assignee', 'tags', 'leadLabels', 'inbox.members', 'followers', 'userReads']),
+                true
+            ),
+        ]);
+    }
+
     public function syncTags(Request $request, InboxConversation $conversation): JsonResponse
     {
         $this->authorizeConversation($request->user(), $conversation);
@@ -1831,11 +2016,15 @@ class InboxController extends Controller
                 ]
             );
 
+            $this->ensureConversationFollowers($conversation, [$request->user()->id], true);
+
             $conversation->load([
                 'assignee',
                 'tags',
                 'leadLabels',
-                'inbox',
+                'inbox.members',
+                'followers',
+                'userReads',
                 'scheduledReplies' => fn ($q) => $q->where('status', ScheduledInboxReply::STATUS_PENDING)->with('user:id,name,email'),
             ]);
 
@@ -1883,6 +2072,8 @@ class InboxController extends Controller
             $request->user()->name.' sent a reply',
             ['message_id' => $result['message']->id]
         );
+
+        $this->ensureConversationFollowers($conversation, [$request->user()->id], true);
 
         if ($archive) {
             $this->recordActivity(
@@ -2317,6 +2508,15 @@ class InboxController extends Controller
 
         $comment->load('user:id,name,email');
 
+        $followIds = collect([$request->user()->id])
+            ->merge($mentionIds)
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $this->ensureConversationFollowers($conversation, $followIds, true);
+
         $mentionLabel = $mentionIds->isEmpty()
             ? ''
             : ' (mentioned '.User::whereIn('id', $mentionIds)->pluck('name')->implode(', ').')';
@@ -2336,7 +2536,9 @@ class InboxController extends Controller
 
         return response()->json([
             'comment' => $this->formatComment($comment),
-            'conversation' => $this->formatConversation($conversation->fresh(['assignee', 'tags', 'leadLabels', 'inbox'])),
+            'conversation' => $this->formatConversation(
+                $conversation->fresh(['assignee', 'tags', 'leadLabels', 'inbox.members', 'followers', 'userReads'])
+            ),
         ], 201);
     }
 
@@ -2392,6 +2594,12 @@ class InboxController extends Controller
             $request->user(),
             $mentionIds->diff($previousMentionIds)->values(),
             $plain
+        );
+
+        $this->ensureConversationFollowers(
+            $conversation,
+            collect([$request->user()->id])->merge($mentionIds)->all(),
+            true
         );
 
         return response()->json([
@@ -3989,10 +4197,23 @@ class InboxController extends Controller
 
     private function authorizeConversation(User $user, InboxConversation $conversation): void
     {
-        $inbox = $conversation->inbox;
-        if (! $inbox || ! $inbox->userCanAccess($user)) {
-            abort(403, 'Forbidden');
+        $inbox = $conversation->relationLoaded('inbox')
+            ? $conversation->inbox
+            : $conversation->inbox()->first();
+
+        if ($inbox && $inbox->userCanAccess($user)) {
+            return;
         }
+
+        $isFollower = $conversation->followers()
+            ->where('users.id', $user->id)
+            ->exists();
+
+        if ($isFollower) {
+            return;
+        }
+
+        abort(403, 'Forbidden');
     }
 
     private function formatInbox(SharedInbox $inbox): array
@@ -4100,7 +4321,12 @@ class InboxController extends Controller
         }
 
         if ($withMessages) {
-            $data['member_reads'] = $this->formatMemberReads($c);
+            $data['participants'] = $this->formatParticipants($c);
+            // Kept for older clients that still read member_reads.
+            $data['member_reads'] = $data['participants'];
+            $data['is_subscribed'] = $c->relationLoaded('followers')
+                ? (bool) $c->followers->firstWhere('id', auth()->id())?->pivot?->is_subscribed
+                : null;
         }
 
         return $data;
@@ -4210,22 +4436,18 @@ class InboxController extends Controller
     }
 
     /**
-     * Shared-inbox teammates and when each of them last read this conversation.
+     * Invited / engaged teammates for the Front-style participants menu.
+     * Does not default to every shared-inbox member.
      *
-     * @return list<array{id: int, name: string, email: ?string, is_read: bool, last_read_at: ?string}>
+     * @return list<array{id: int, name: string, email: ?string, is_me: bool, is_subscribed: bool, can_remove: bool, is_read: bool, last_read_at: ?string}>
      */
-    private function formatMemberReads(InboxConversation $c): array
+    private function formatParticipants(InboxConversation $c): array
     {
-        $inbox = $c->relationLoaded('inbox') ? $c->inbox : null;
-        if (! $inbox || $inbox->type !== SharedInbox::TYPE_SHARED) {
-            return [];
-        }
+        $followers = $c->relationLoaded('followers')
+            ? $c->followers
+            : $c->followers()->get(['users.id', 'users.name', 'users.email']);
 
-        $members = $inbox->relationLoaded('members')
-            ? $inbox->members
-            : $inbox->members()->orderBy('name')->get(['users.id', 'users.name', 'users.email']);
-
-        if ($members->isEmpty()) {
+        if ($followers->isEmpty()) {
             return [];
         }
 
@@ -4233,25 +4455,49 @@ class InboxController extends Controller
             ? $c->userReads->keyBy('user_id')
             : InboxConversationUserRead::query()
                 ->where('inbox_conversation_id', $c->id)
-                ->whereIn('user_id', $members->pluck('id'))
+                ->whereIn('user_id', $followers->pluck('id'))
                 ->get()
                 ->keyBy('user_id');
 
-        return $members
-            ->map(function ($member) use ($reads) {
+        $inbox = $c->relationLoaded('inbox') ? $c->inbox : $c->inbox()->with('members:id')->first();
+        $memberIds = collect();
+        if ($inbox && $inbox->type === SharedInbox::TYPE_SHARED) {
+            $memberIds = $inbox->relationLoaded('members')
+                ? $inbox->members->pluck('id')
+                : $inbox->members()->pluck('users.id');
+        }
+        $memberIdSet = $memberIds->map(fn ($id) => (int) $id)->all();
+        $viewerId = (int) (auth()->id() ?? 0);
+
+        return $followers
+            ->map(function ($member) use ($reads, $memberIdSet, $inbox, $viewerId) {
                 $row = $reads->get($member->id);
                 $isRead = (bool) ($row?->is_read);
                 $lastReadAt = $row?->last_read_at;
+                $isSubscribed = (bool) ($member->pivot->is_subscribed ?? true);
+                $hasMailboxAccess = $inbox
+                    ? (
+                        $inbox->type === SharedInbox::TYPE_SHARED
+                            ? in_array((int) $member->id, $memberIdSet, true)
+                            : (int) $inbox->created_by === (int) $member->id
+                    )
+                    : false;
 
                 return [
                     'id' => (int) $member->id,
                     'name' => $member->name,
                     'email' => $member->email,
+                    'is_me' => (int) $member->id === $viewerId,
+                    'is_subscribed' => $isSubscribed,
+                    'can_remove' => ! $hasMailboxAccess && (int) $member->id !== $viewerId,
                     'is_read' => $isRead,
                     'last_read_at' => $isRead && $lastReadAt ? $lastReadAt->toIso8601String() : null,
                 ];
             })
             ->sort(function (array $a, array $b) {
+                if ($a['is_subscribed'] !== $b['is_subscribed']) {
+                    return $a['is_subscribed'] ? -1 : 1;
+                }
                 if ($a['is_read'] !== $b['is_read']) {
                     return $a['is_read'] ? -1 : 1;
                 }
@@ -4263,6 +4509,84 @@ class InboxController extends Controller
             })
             ->values()
             ->all();
+    }
+
+    /**
+     * @param  list<int>  $userIds
+     * @return list<int> Newly attached user ids
+     */
+    private function ensureConversationFollowers(InboxConversation $conversation, array $userIds, bool $subscribed = true): array
+    {
+        $newlyAdded = [];
+
+        foreach (array_unique(array_map('intval', $userIds)) as $userId) {
+            if ($userId <= 0) {
+                continue;
+            }
+
+            $row = InboxConversationFollower::query()->firstOrNew([
+                'inbox_conversation_id' => $conversation->id,
+                'user_id' => $userId,
+            ]);
+
+            if (! $row->exists) {
+                $row->is_subscribed = $subscribed;
+                $row->save();
+                $newlyAdded[] = $userId;
+                continue;
+            }
+
+            if ($subscribed && ! $row->is_subscribed) {
+                $row->is_subscribed = true;
+                $row->save();
+            }
+        }
+
+        if ($conversation->relationLoaded('followers')) {
+            $conversation->unsetRelation('followers');
+        }
+
+        return $newlyAdded;
+    }
+
+    /**
+     * @param  list<int>  $userIds
+     */
+    private function notifyInvitedParticipants(InboxConversation $conversation, User $actor, array $userIds): void
+    {
+        $actorId = (int) $actor->id;
+        $recipients = User::query()
+            ->where('company_id', $conversation->company_id)
+            ->whereIn('id', $userIds)
+            ->where('id', '!=', $actorId)
+            ->get();
+
+        if ($recipients->isEmpty()) {
+            return;
+        }
+
+        $subjectLabel = $conversation->subject ?: 'a conversation';
+        $summary = $actor->name.' invited you to "'.$subjectLabel.'"';
+
+        foreach ($recipients as $recipient) {
+            try {
+                $recipient->notify(new InboxThreadUpdateNotification(
+                    conversation: $conversation,
+                    action: 'invited',
+                    summary: $summary,
+                    actor: $actor,
+                    snippet: null,
+                    isMention: false,
+                    involves: 'invite',
+                ));
+            } catch (\Throwable $e) {
+                Log::warning('Failed to notify invited inbox participant', [
+                    'conversation_id' => $conversation->id,
+                    'user_id' => $recipient->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     private function formatScheduledReply(ScheduledInboxReply $reply): array

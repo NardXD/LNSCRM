@@ -675,6 +675,10 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/conversations/{conversation}/merge', [InboxController::class, 'mergeConversations'])->name('api.inbox.conversations.merge');
         Route::post('/conversations/{conversation}/unmerge', [InboxController::class, 'unmergeConversations'])->name('api.inbox.conversations.unmerge');
         Route::patch('/conversations/{conversation}/read', [InboxController::class, 'updateRead'])->name('api.inbox.conversations.read');
+        Route::post('/conversations/{conversation}/participants', [InboxController::class, 'addParticipants'])->name('api.inbox.conversations.participants');
+        Route::delete('/conversations/{conversation}/participants/{user}', [InboxController::class, 'removeParticipant'])->name('api.inbox.conversations.participants.destroy');
+        Route::post('/conversations/{conversation}/subscribe', [InboxController::class, 'subscribe'])->name('api.inbox.conversations.subscribe');
+        Route::post('/conversations/{conversation}/unsubscribe', [InboxController::class, 'unsubscribe'])->name('api.inbox.conversations.unsubscribe');
         Route::post('/conversations/{conversation}/tags', [InboxController::class, 'syncTags'])->name('api.inbox.conversations.tags');
         Route::post('/conversations/{conversation}/lead-labels', [InboxController::class, 'attachLeadLabel'])->name('api.inbox.conversations.lead-labels.attach');
         Route::delete('/conversations/{conversation}/lead-labels/{leadLabel}', [InboxController::class, 'detachLeadLabel'])->name('api.inbox.conversations.lead-labels.detach');

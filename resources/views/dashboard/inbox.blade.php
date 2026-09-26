@@ -2050,6 +2050,74 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 }
 .inbox-participant-status.is-read { color: #64748b; }
 .inbox-participant-status.is-unread { color: #94a3b8; }
+.inbox-participant-status.is-unsubscribed { color: #94a3b8; font-style: italic; }
+.inbox-participant-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    flex: 0 0 auto;
+}
+.inbox-participant-action {
+    border: none;
+    background: transparent;
+    color: var(--inbox-accent);
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.15rem 0.35rem;
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.inbox-participant-action:hover { background: #eef2ff; }
+.inbox-participant-action.is-danger { color: #b91c1c; }
+.inbox-participant-action.is-danger:hover { background: #fee2e2; }
+.inbox-participants-section-label {
+    padding: 0.45rem 0.9rem 0.2rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--inbox-muted);
+}
+.inbox-participants-add {
+    margin-top: 0.2rem;
+    padding: 0.45rem 0.55rem 0.15rem;
+    border-top: 1px solid var(--inbox-border);
+    display: grid;
+    gap: 0.35rem;
+}
+.inbox-participants-add-list {
+    display: grid;
+    gap: 0.08rem;
+    max-height: 180px;
+    overflow: auto;
+}
+.inbox-participants-add-list button {
+    border: none;
+    background: transparent;
+    text-align: left;
+    padding: 0.45rem 0.55rem;
+    border-radius: 7px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.82rem;
+    color: var(--inbox-text);
+    display: grid;
+    gap: 0.08rem;
+    width: 100%;
+}
+.inbox-participants-add-list button:hover { background: var(--inbox-bg); }
+.inbox-participants-add-list .inbox-assign-email {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--inbox-muted);
+}
+.inbox-participants-empty {
+    padding: 0.55rem;
+    font-size: 0.78rem;
+    color: var(--inbox-muted);
+}
 .inbox-participants-foot {
     margin-top: 0.35rem;
     padding: 0.55rem 0.9rem 0.25rem;
@@ -7822,7 +7890,14 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         return [...map.values()];
     }
 
+    function conversationParticipants(c) {
+        if (Array.isArray(c?.participants)) return c.participants;
+        if (Array.isArray(c?.member_reads)) return c.member_reads;
+        return [];
+    }
+
     function formatReadReceipt(member) {
+        if (member?.is_subscribed === false) return 'Not subscribed';
         if (!member?.is_read || !member?.last_read_at) return 'Unread';
         const d = new Date(member.last_read_at);
         if (Number.isNaN(d.getTime())) return 'Read';
@@ -7836,40 +7911,149 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         return 'Read just now';
     }
 
+    function inviteableTeammates(c, query = '') {
+        const participantIds = new Set(conversationParticipants(c).map((p) => Number(p.id)));
+        const q = String(query || '').trim().toLowerCase();
+        return (state.members || []).filter((m) => {
+            if (participantIds.has(Number(m.id))) return false;
+            if (!q) return true;
+            return String(m.name || '').toLowerCase().includes(q)
+                || String(m.email || '').toLowerCase().includes(q);
+        });
+    }
+
+    function participantsInviteListHtml(c, query = '') {
+        const addable = inviteableTeammates(c, query);
+        if (!addable.length) {
+            const q = String(query || '').trim();
+            return `<div class="inbox-participants-empty">${q ? 'No matching teammates.' : 'Everyone is already a participant.'}</div>`;
+        }
+        return addable.map((t) => `
+            <button type="button" data-invite-user="${t.id}">
+                <span class="inbox-assign-name">${escapeHtml(t.name)}</span>
+                <span class="inbox-assign-email">${escapeHtml(t.email || '')}</span>
+            </button>
+        `).join('');
+    }
+
+    function renderParticipantsInviteList(query) {
+        const list = el('participantsInviteList');
+        if (!list || !state.conversation) return;
+        list.innerHTML = participantsInviteListHtml(state.conversation, query);
+    }
+
+    function participantRowHtml(m) {
+        const status = formatReadReceipt(m);
+        const statusClass = m.is_subscribed === false
+            ? 'is-unsubscribed'
+            : (m.is_read ? 'is-read' : 'is-unread');
+        const actions = [];
+        if (m.is_me) {
+            if (m.is_subscribed === false) {
+                actions.push('<button type="button" class="inbox-participant-action" data-participant-subscribe>Subscribe</button>');
+            } else {
+                actions.push('<button type="button" class="inbox-participant-action" data-participant-unsubscribe>Unsubscribe</button>');
+            }
+        } else if (m.can_remove) {
+            actions.push(`<button type="button" class="inbox-participant-action is-danger" data-remove-participant="${m.id}" title="Remove">×</button>`);
+        }
+        return `
+            <div class="inbox-participant-row" title="${escapeHtml(m.email || '')}">
+                <span class="inbox-participant-avatar" style="background:${avatarHue(m.email || m.name)}">${escapeHtml(initials(m.name))}</span>
+                <span class="inbox-participant-name">${escapeHtml(m.name || m.email || 'Member')}${m.is_me ? ' (you)' : ''}</span>
+                <span class="inbox-participant-status ${statusClass}">${escapeHtml(status)}</span>
+                ${actions.length ? `<span class="inbox-participant-actions">${actions.join('')}</span>` : ''}
+            </div>`;
+    }
+
     function participantsMenuHtml(c) {
-        const members = Array.isArray(c?.member_reads) ? c.member_reads : [];
-        if (!members.length) return '';
+        const members = conversationParticipants(c);
         const inbox = c.inbox || state.inboxes.find(i => Number(i.id) === Number(c.inbox_id));
         const inboxName = inbox?.name || 'this inbox';
-        const readCount = members.filter(m => m.is_read).length;
-        const preview = members.slice(0, 3).map(m => `
+        const isShared = inbox?.type === 'shared';
+        const subscribed = members.filter((m) => m.is_subscribed !== false);
+        const unsubscribed = members.filter((m) => m.is_subscribed === false);
+        const readCount = subscribed.filter(m => m.is_read).length;
+        const previewSource = subscribed.length ? subscribed : members;
+        const preview = previewSource.slice(0, 3).map(m => `
             <span class="inbox-chip-avatar" style="background:${avatarHue(m.email || m.name)}">${escapeHtml(initials(m.name))}</span>
-        `).join('');
-        const rows = members.map(m => {
-            const status = formatReadReceipt(m);
-            const statusClass = m.is_read ? 'is-read' : 'is-unread';
-            return `
-                <div class="inbox-participant-row" title="${escapeHtml(m.email || '')}">
-                    <span class="inbox-participant-avatar" style="background:${avatarHue(m.email || m.name)}">${escapeHtml(initials(m.name))}</span>
-                    <span class="inbox-participant-name">${escapeHtml(m.name || m.email || 'Member')}</span>
-                    <span class="inbox-participant-status ${statusClass}">${escapeHtml(status)}</span>
-                </div>`;
-        }).join('');
+        `).join('') || `<span class="inbox-chip-avatar" style="background:#94a3b8">+</span>`;
+        const chipLabel = members.length
+            ? (subscribed.length ? `${readCount}/${subscribed.length} read` : `${members.length} participant${members.length === 1 ? '' : 's'}`)
+            : 'Participants';
+        const subscribedRows = subscribed.length
+            ? subscribed.map(participantRowHtml).join('')
+            : `<div class="inbox-participants-empty">No participants yet — invite a teammate.</div>`;
+        const unsubscribedBlock = unsubscribed.length
+            ? `<div class="inbox-participants-section-label">Not subscribed</div>${unsubscribed.map(participantRowHtml).join('')}`
+            : '';
+        const footIcon = isShared
+            ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`
+            : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+        const footText = isShared
+            ? `Members of <strong>${escapeHtml(inboxName)}</strong> can view`
+            : `Only people invited to this conversation`;
         return `
             <div class="inbox-pop inbox-participants-pop" id="participantsPop">
-                <button type="button" class="inbox-chip inbox-participants-chip" id="btnParticipants" title="Who has read" aria-haspopup="menu" aria-expanded="false">
+                <button type="button" class="inbox-chip inbox-participants-chip" id="btnParticipants" title="Participants" aria-haspopup="menu" aria-expanded="false">
                     ${preview}
-                    <span>${readCount}/${members.length} read</span>
+                    <span>${chipLabel}</span>
                 </button>
                 <div class="inbox-pop-menu inbox-participants-menu" id="participantsMenu" hidden>
                     <div class="inbox-participants-head">Participants</div>
-                    <div class="inbox-participants-list">${rows}</div>
+                    <div class="inbox-participants-list" id="participantsList">
+                        ${subscribedRows}
+                        ${unsubscribedBlock}
+                    </div>
+                    <div class="inbox-participants-add">
+                        <div class="inbox-participants-section-label" style="padding-left:0.35rem;padding-right:0.35rem;">Invite teammates</div>
+                        <div class="inbox-assign-search">
+                            <input type="search" id="participantsInviteSearch" placeholder="Search teammates…" autocomplete="off" aria-label="Search teammates to invite">
+                        </div>
+                        <div class="inbox-participants-add-list" id="participantsInviteList">${participantsInviteListHtml(c)}</div>
+                    </div>
                     <div class="inbox-participants-foot">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                        <span>Members of <strong>${escapeHtml(inboxName)}</strong> can view</span>
+                        ${footIcon}
+                        <span>${footText}</span>
                     </div>
                 </div>
             </div>`;
+    }
+
+    function applyParticipantsPayload(conversation) {
+        if (!conversation || !state.conversation || Number(conversation.id) !== Number(state.conversation.id)) {
+            return;
+        }
+        state.conversation.participants = conversation.participants || conversation.member_reads || [];
+        state.conversation.member_reads = state.conversation.participants;
+        state.conversation.is_subscribed = conversation.is_subscribed;
+        renderThread();
+    }
+
+    async function inviteParticipants(userIds) {
+        if (!state.selectedId || !userIds?.length) return;
+        const data = await api('/conversations/' + state.selectedId + '/participants', {
+            method: 'POST',
+            body: { user_ids: userIds },
+        });
+        applyParticipantsPayload(data.conversation || data);
+    }
+
+    async function removeParticipant(userId) {
+        if (!state.selectedId || !userId) return;
+        const data = await api('/conversations/' + state.selectedId + '/participants/' + userId, {
+            method: 'DELETE',
+        });
+        applyParticipantsPayload(data.conversation || data);
+    }
+
+    async function setParticipantSubscription(subscribe) {
+        if (!state.selectedId) return;
+        const data = await api('/conversations/' + state.selectedId + '/' + (subscribe ? 'subscribe' : 'unsubscribe'), {
+            method: 'POST',
+            body: {},
+        });
+        applyParticipantsPayload(data.conversation || data);
     }
 
     function tagSwatchColor(label) {
@@ -9036,16 +9220,14 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
 
         const people = collectParticipants(c);
         const inbox = c.inbox || state.inboxes.find(i => Number(i.id) === Number(c.inbox_id));
-        const isShared = inbox?.type === 'shared';
         el('threadParticipants').innerHTML = people.slice(0, 6).map(p => `
             <span class="inbox-chip" title="${escapeHtml(p.email)}">
                 <span class="inbox-chip-avatar" style="background:${avatarHue(p.email)}">${escapeHtml(initials(p.name))}</span>
                 <span>${escapeHtml(p.name || p.email)}</span>
             </span>
         `).join('') + (people.length > 6 ? `<span class="inbox-chip">+${people.length - 6}</span>` : '') +
-            (isShared ? participantsMenuHtml(c) : '') +
-            tagsMenuHtml(c) +
-            '<button type="button" class="inbox-chip-add" id="btnAddParticipant" title="Assign teammate">+</button>';
+            participantsMenuHtml(c) +
+            tagsMenuHtml(c);
 
         const folder = c.folder || 'inbox';
         const isInboxOpen = folder === 'inbox' && c.status === 'open';
@@ -10567,10 +10749,12 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         if (row) row.is_read = false;
         if (state.conversation && Number(state.conversation.id) === Number(state.selectedId)) {
             state.conversation.is_read = false;
-            if (Array.isArray(state.conversation.member_reads)) {
-                state.conversation.member_reads = state.conversation.member_reads.map(m =>
+            if (Array.isArray(state.conversation.participants) || Array.isArray(state.conversation.member_reads)) {
+                const list = state.conversation.participants || state.conversation.member_reads || [];
+                state.conversation.participants = list.map(m =>
                     Number(m.id) === USER_ID ? { ...m, is_read: false, last_read_at: null } : m
                 );
+                state.conversation.member_reads = state.conversation.participants;
             }
             renderThread();
         }
@@ -10615,6 +10799,14 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         if (participantsBtn) {
             e.stopPropagation();
             togglePop('participantsMenu', participantsBtn);
+            if (!el('participantsMenu')?.hidden) {
+                const search = el('participantsInviteSearch');
+                if (search) {
+                    search.value = '';
+                    renderParticipantsInviteList('');
+                    setTimeout(() => search.focus(), 0);
+                }
+            }
             return;
         }
         const tagsBtn = e.target.closest('#btnTags');
@@ -10633,6 +10825,63 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
                     newInput.value = '';
                     delete newInput.dataset.touched;
                 }
+            }
+            return;
+        }
+
+        const inviteBtn = e.target.closest('#participantsMenu [data-invite-user]');
+        if (inviteBtn) {
+            e.stopPropagation();
+            const userId = Number(inviteBtn.dataset.inviteUser);
+            if (!userId) return;
+            try {
+                await inviteParticipants([userId]);
+                const search = el('participantsInviteSearch');
+                if (search) {
+                    search.value = '';
+                    renderParticipantsInviteList('');
+                    search.focus();
+                }
+                const menu = el('participantsMenu');
+                const btn = el('btnParticipants');
+                if (menu) menu.hidden = false;
+                btn?.classList.add('is-open');
+                btn?.setAttribute('aria-expanded', 'true');
+            } catch (err) {
+                alert(err.message || 'Could not invite teammate.');
+            }
+            return;
+        }
+
+        const unsubBtn = e.target.closest('#participantsMenu [data-participant-unsubscribe]');
+        if (unsubBtn) {
+            e.stopPropagation();
+            try {
+                await setParticipantSubscription(false);
+            } catch (err) {
+                alert(err.message || 'Could not unsubscribe.');
+            }
+            return;
+        }
+
+        const subBtn = e.target.closest('#participantsMenu [data-participant-subscribe]');
+        if (subBtn) {
+            e.stopPropagation();
+            try {
+                await setParticipantSubscription(true);
+            } catch (err) {
+                alert(err.message || 'Could not subscribe.');
+            }
+            return;
+        }
+
+        const removeBtn = e.target.closest('#participantsMenu [data-remove-participant]');
+        if (removeBtn) {
+            e.stopPropagation();
+            try {
+                await removeParticipant(Number(removeBtn.dataset.removeParticipant));
+            } catch (err) {
+                alert(err.message || 'Could not remove participant.');
             }
             return;
         }
@@ -10670,20 +10919,25 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
                 return;
             }
             await attachConversationLabel({ name });
-            return;
         }
-
-        if (!e.target.closest('#btnAddParticipant')) return;
-        e.stopPropagation();
-        openAssignMenu(el('btnAssignToggle'));
     });
     el('threadParticipants')?.addEventListener('input', (e) => {
+        if (e.target?.id === 'participantsInviteSearch') {
+            renderParticipantsInviteList(e.target.value);
+            return;
+        }
         if (e.target?.id !== 'tagsMenuSearch') return;
         renderTagsMenuAddList(e.target.value);
         const newInput = el('tagsMenuNewInput');
         if (newInput && !newInput.dataset.touched) newInput.value = e.target.value;
     });
     el('threadParticipants')?.addEventListener('keydown', (e) => {
+        if (e.target?.id === 'participantsInviteSearch' && e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            closeThreadPops();
+            return;
+        }
         if (e.target?.id === 'tagsMenuNewInput' && e.key === 'Enter') {
             e.preventDefault();
             e.stopPropagation();

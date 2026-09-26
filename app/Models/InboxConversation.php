@@ -165,4 +165,20 @@ class InboxConversation extends Model
     {
         return $this->hasMany(InboxConversationUserRead::class, 'inbox_conversation_id');
     }
+
+    /**
+     * Teammates invited or auto-subscribed to this conversation (Front-style participants).
+     */
+    public function followers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'inbox_conversation_followers')
+            ->withPivot(['is_subscribed'])
+            ->withTimestamps()
+            ->orderBy('users.name');
+    }
+
+    public function followerRows(): HasMany
+    {
+        return $this->hasMany(InboxConversationFollower::class, 'inbox_conversation_id');
+    }
 }
