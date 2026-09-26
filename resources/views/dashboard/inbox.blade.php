@@ -1995,7 +1995,7 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     display: flex;
     flex-direction: column;
     gap: 0.05rem;
-    max-height: min(420px, 55vh);
+    max-height: min(220px, 30vh);
     overflow-x: hidden;
     overflow-y: auto;
     padding: 0 0.35rem;
@@ -2111,7 +2111,7 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 }
 .inbox-tags-add .inbox-assign-search { padding: 0 0.2rem; }
 .inbox-tags-add .inbox-assign-list {
-    max-height: min(220px, 32vh);
+    max-height: min(180px, 28vh);
     overflow-y: auto;
     padding: 0 0.15rem;
 }
@@ -2134,6 +2134,66 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     padding: 0.45rem 0.55rem;
     font-size: 0.82rem;
     color: var(--inbox-muted);
+}
+.inbox-tags-add .inbox-lead-label-add {
+    margin: 0.1rem 0.2rem 0;
+    gap: 0.35rem;
+    align-items: center;
+}
+.inbox-tags-add .inbox-lead-label-add input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 34px;
+}
+.inbox-pop-menu .inbox-tags-add .inbox-lead-label-add .inbox-btn {
+    width: auto !important;
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 0.4rem 0.7rem;
+    text-align: center;
+}
+.inbox-tags-add.is-busy,
+#tagsMenu.is-busy .inbox-tags-add {
+    position: relative;
+    pointer-events: none;
+    opacity: 0.72;
+}
+.inbox-tags-busy {
+    display: none;
+    align-items: center;
+    gap: 0.45rem;
+    margin: 0 0.2rem;
+    padding: 0.4rem 0.55rem;
+    border-radius: 8px;
+    background: var(--inbox-accent-soft);
+    color: var(--inbox-accent);
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+#tagsMenu.is-busy .inbox-tags-busy,
+.inbox-lead-label-add.is-busy .inbox-tags-busy-inline {
+    display: inline-flex;
+}
+.inbox-tags-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid #c7d2fe;
+    border-top-color: var(--inbox-accent, #2f6fed);
+    border-radius: 50%;
+    animation: inbox-spin 0.75s linear infinite;
+    flex: 0 0 14px;
+}
+.inbox-participants-chip.is-busy {
+    opacity: 0.75;
+    pointer-events: none;
+}
+.inbox-participants-chip.is-busy .inbox-chip-avatar:last-of-type,
+.inbox-btn.is-busy .inbox-tags-spinner {
+    display: inline-flex;
+}
+.inbox-btn.is-busy {
+    pointer-events: none;
+    opacity: 0.75;
 }
 .inbox-thread-actions {
     display: flex;
@@ -3855,6 +3915,7 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         },
         members: [],
         leadLabels: [],
+        labelAttachBusy: false,
         sidebarLabelIds: null,
         selectedLabelId: null,
         sidebarLabelSearch: '',
@@ -7831,20 +7892,29 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
     }
 
     function tagsMenuAddOptionsHtml(c, query = '') {
-        const q = String(query || '').trim().toLowerCase();
+        const q = String(query || '').trim();
+        const qLower = q.toLowerCase();
         const available = availableLabelsForConversation(c).filter(t => {
-            if (!q) return true;
-            return String(t.name || '').toLowerCase().includes(q);
+            if (!qLower) return true;
+            return String(t.name || '').toLowerCase().includes(qLower);
         });
-        if (!available.length) {
-            return `<div class="inbox-assign-empty">${q ? 'No matching labels' : 'No more labels to add'}</div>`;
-        }
-        return available.map(t => `
+        const exactMatch = available.some(t => String(t.name || '').toLowerCase() === qLower)
+            || conversationTagItems(c).some(t => String(t.name || '').toLowerCase() === qLower);
+        const rows = available.length
+            ? available.map(t => `
             <button type="button" class="inbox-tag-add-option" data-add-tag-label="${t.id}" title="${escapeHtml(t.name || '')}">
                 <span class="inbox-participant-avatar" style="background:${tagSwatchColor(t)}">${escapeHtml(initials(t.name))}</span>
                 <span class="inbox-participant-name">${escapeHtml(t.name || 'Label')}</span>
             </button>
-        `).join('');
+        `).join('')
+            : `<div class="inbox-assign-empty">${q ? 'No matching labels' : 'No more labels to add'}</div>`;
+        const createRow = q && !exactMatch
+            ? `<button type="button" class="inbox-tag-add-option" data-create-tag-label="${escapeHtml(q)}" title="Create label ${escapeHtml(q)}">
+                <span class="inbox-participant-avatar" style="background:#4338ca">+</span>
+                <span class="inbox-participant-name">Create “${escapeHtml(q)}”</span>
+            </button>`
+            : '';
+        return createRow + rows;
     }
 
     function renderTagsMenuAddList(query) {
@@ -7880,10 +7950,18 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
                     <div class="inbox-participants-head">Labels</div>
                     <div class="inbox-participants-list" id="tagsMenuApplied">${rows}</div>
                     <div class="inbox-tags-add">
+                        <div class="inbox-tags-busy" id="tagsMenuBusy" aria-live="polite">
+                            <span class="inbox-tags-spinner" aria-hidden="true"></span>
+                            <span id="tagsMenuBusyText">Adding label…</span>
+                        </div>
                         <div class="inbox-assign-search">
                             <input type="search" id="tagsMenuSearch" placeholder="Search labels to add…" autocomplete="off" aria-label="Search labels to add">
                         </div>
                         <div class="inbox-assign-list" id="tagsMenuAddList">${tagsMenuAddOptionsHtml(c)}</div>
+                        <div class="inbox-lead-label-add">
+                            <input type="text" id="tagsMenuNewInput" class="inbox-select" maxlength="50" placeholder="New label" aria-label="Create new label">
+                            <button type="button" class="inbox-btn ghost" id="btnTagsMenuAddNew">Add</button>
+                        </div>
                     </div>
                 </div>
             </div>`;
@@ -10535,10 +10613,15 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
             togglePop('tagsMenu', tagsBtn);
             if (!el('tagsMenu')?.hidden) {
                 const search = el('tagsMenuSearch');
+                const newInput = el('tagsMenuNewInput');
                 if (search) {
                     search.value = '';
                     renderTagsMenuAddList('');
                     setTimeout(() => search.focus(), 0);
+                }
+                if (newInput) {
+                    newInput.value = '';
+                    delete newInput.dataset.touched;
                 }
             }
             return;
@@ -10559,6 +10642,27 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
             return;
         }
 
+        const createTagBtn = e.target.closest('#tagsMenu [data-create-tag-label]');
+        if (createTagBtn) {
+            e.stopPropagation();
+            const name = String(createTagBtn.dataset.createTagLabel || '').trim();
+            if (name) await attachConversationLabel({ name });
+            return;
+        }
+
+        const addNewBtn = e.target.closest('#btnTagsMenuAddNew');
+        if (addNewBtn) {
+            e.stopPropagation();
+            const input = el('tagsMenuNewInput');
+            const name = String(input?.value || '').trim();
+            if (!name) {
+                input?.focus();
+                return;
+            }
+            await attachConversationLabel({ name });
+            return;
+        }
+
         if (!e.target.closest('#btnAddParticipant')) return;
         e.stopPropagation();
         openAssignMenu(el('btnAssignToggle'));
@@ -10566,13 +10670,33 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
     el('threadParticipants')?.addEventListener('input', (e) => {
         if (e.target?.id !== 'tagsMenuSearch') return;
         renderTagsMenuAddList(e.target.value);
+        const newInput = el('tagsMenuNewInput');
+        if (newInput && !newInput.dataset.touched) newInput.value = e.target.value;
     });
     el('threadParticipants')?.addEventListener('keydown', (e) => {
+        if (e.target?.id === 'tagsMenuNewInput' && e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            el('btnTagsMenuAddNew')?.click();
+            return;
+        }
+        if (e.target?.id === 'tagsMenuSearch' && e.key === 'Enter') {
+            const createBtn = el('tagsMenuAddList')?.querySelector('[data-create-tag-label]');
+            if (createBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                createBtn.click();
+            }
+            return;
+        }
         if (e.target?.id === 'tagsMenuSearch' && e.key === 'Escape') {
             e.preventDefault();
             e.stopPropagation();
             closeThreadPops();
         }
+    });
+    el('threadParticipants')?.addEventListener('focusin', (e) => {
+        if (e.target?.id === 'tagsMenuNewInput') e.target.dataset.touched = '1';
     });
     el('threadMessages')?.addEventListener('click', (e) => {
         const msgTime = e.target.closest('[data-msg-time]');
@@ -10830,9 +10954,53 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         await assignConversation(val || null);
     });
 
+    function setLabelAttachBusy(busy, labelName = '') {
+        const menu = el('tagsMenu');
+        const chip = el('btnTags');
+        const addNewBtn = el('btnTagsMenuAddNew');
+        const propsAddBtn = el('btnAddLeadLabel');
+        const busyText = el('tagsMenuBusyText');
+        const label = String(labelName || '').trim();
+        const status = label ? `Adding “${label}”…` : 'Adding label…';
+
+        if (busyText) busyText.textContent = status;
+        menu?.classList.toggle('is-busy', !!busy);
+        menu?.setAttribute('aria-busy', busy ? 'true' : 'false');
+        chip?.classList.toggle('is-busy', !!busy);
+        if (chip) chip.title = busy ? status : 'Conversation labels';
+
+        [addNewBtn, propsAddBtn].forEach(btn => {
+            if (!btn) return;
+            btn.classList.toggle('is-busy', !!busy);
+            btn.disabled = !!busy;
+            if (busy) {
+                if (!btn.dataset.idleHtml) btn.dataset.idleHtml = btn.innerHTML;
+                btn.innerHTML = `<span class="inbox-tags-spinner" aria-hidden="true"></span> Adding…`;
+            } else if (btn.dataset.idleHtml) {
+                btn.innerHTML = btn.dataset.idleHtml;
+                delete btn.dataset.idleHtml;
+            }
+        });
+
+        const search = el('tagsMenuSearch');
+        const newInput = el('tagsMenuNewInput');
+        const propsInput = el('addLeadLabelInput');
+        [search, newInput, propsInput].forEach(input => {
+            if (input) input.disabled = !!busy;
+        });
+        el('tagsMenuAddList')?.querySelectorAll('button').forEach(btn => {
+            btn.disabled = !!busy;
+        });
+    }
+
     async function attachConversationLabel({ labelId = null, name = null } = {}) {
-        if (!state.selectedId) return;
+        if (!state.selectedId || state.labelAttachBusy) return;
         const lead = conversationLead();
+        const labelName = name
+            || (state.leadLabels || []).find(l => Number(l.id) === Number(labelId))?.name
+            || '';
+        state.labelAttachBusy = true;
+        setLabelAttachBusy(true, labelName);
         try {
             await api('/conversations/' + state.selectedId + '/lead-labels', {
                 method: 'POST',
@@ -10847,6 +11015,9 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
             await loadConversations();
         } catch (err) {
             alert(err.message || 'Could not add label.');
+            setLabelAttachBusy(false);
+        } finally {
+            state.labelAttachBusy = false;
         }
     }
 
