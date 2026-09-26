@@ -9129,7 +9129,17 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
         const leadLabelRow = el('addLeadLabelRow');
         if (leadLabelRow) leadLabelRow.hidden = false;
         const leadLabelInput = el('addLeadLabelInput');
-        if (leadLabelInput) leadLabelInput.value = '';
+        if (leadLabelInput) {
+            leadLabelInput.value = '';
+            leadLabelInput.disabled = false;
+        }
+        const propsAddBtn = el('btnAddLeadLabel');
+        if (propsAddBtn) {
+            propsAddBtn.disabled = false;
+            propsAddBtn.classList.remove('is-busy');
+            propsAddBtn.innerHTML = propsAddBtn.dataset.idleHtml || 'Add';
+            delete propsAddBtn.dataset.idleHtml;
+        }
 
         const emails = [...(c.messages || [])].sort((a, b) => String(a.sent_at || '').localeCompare(String(b.sent_at || '')));
         const lastEmailId = emails.length ? String(emails[emails.length - 1].id) : null;
@@ -10974,10 +10984,10 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
             btn.classList.toggle('is-busy', !!busy);
             btn.disabled = !!busy;
             if (busy) {
-                if (!btn.dataset.idleHtml) btn.dataset.idleHtml = btn.innerHTML;
+                if (!btn.dataset.idleHtml) btn.dataset.idleHtml = btn.textContent.trim() || 'Add';
                 btn.innerHTML = `<span class="inbox-tags-spinner" aria-hidden="true"></span> Adding…`;
-            } else if (btn.dataset.idleHtml) {
-                btn.innerHTML = btn.dataset.idleHtml;
+            } else {
+                btn.innerHTML = btn.dataset.idleHtml || 'Add';
                 delete btn.dataset.idleHtml;
             }
         });
@@ -11015,9 +11025,9 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
             await loadConversations();
         } catch (err) {
             alert(err.message || 'Could not add label.');
-            setLabelAttachBusy(false);
         } finally {
             state.labelAttachBusy = false;
+            setLabelAttachBusy(false);
         }
     }
 
