@@ -6162,7 +6162,30 @@
         }
     }
 
+    function setMobileNavOpen(open) {
+        const shell = document.querySelector('.inbox-shell');
+        if (!shell) return;
+        shell.classList.toggle('inbox-mobile-nav-open', !!open);
+        const backdrop = el('mobileNavBackdrop');
+        if (backdrop) backdrop.hidden = !open;
+        el('btnMobileNav')?.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
     // Events
+    el('btnMobileNav')?.addEventListener('click', () => setMobileNavOpen(true));
+    el('mobileNavBackdrop')?.addEventListener('click', () => setMobileNavOpen(false));
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && document.querySelector('.inbox-shell.inbox-mobile-nav-open')) {
+            setMobileNavOpen(false);
+        }
+    });
+    document.querySelector('.inbox-nav')?.addEventListener('click', (e) => {
+        if (!document.querySelector('.inbox-shell.inbox-mobile-nav-open')) return;
+        if (e.target.closest('[data-unpin-label], [data-manage-members], [data-connect-inbox], [data-sync-inbox], .inbox-mailbox-chevron')) return;
+        if (e.target.closest('[data-view][data-scope="all"], .inbox-view-head, [data-sidebar-label], [data-folder-view], [data-inbox-toggle], #btnCompose, #btnOpenTemplateList, #btnOpenSignatureList, #btnCustomizeLabels, #btnNewInbox')) {
+            setMobileNavOpen(false);
+        }
+    });
     document.querySelectorAll('[data-view][data-scope="all"]').forEach(btn => {
         btn.addEventListener('click', async () => {
             state.view = btn.dataset.view;

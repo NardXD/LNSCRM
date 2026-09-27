@@ -123,11 +123,15 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
                 <button type="button" class="inbox-disconnect-btn" id="btnDisconnectOutlook" style="display:none;">Disconnect Personal</button>
             </div>
         </aside>
+        <div class="inbox-mobile-nav-backdrop" id="mobileNavBackdrop" hidden></div>
 
         {{-- Conversation list --}}
         <section class="inbox-list-pane">
             <div class="inbox-list-header">
                 <div class="inbox-list-header-row">
+                    <button type="button" class="inbox-mobile-nav-toggle" id="btnMobileNav" title="Views, labels & inboxes" aria-label="Open inbox menu" aria-expanded="false">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                    </button>
                     <h2 id="listTitle">Open</h2>
                     <div class="inbox-list-header-actions">
                         <div class="inbox-pop" id="sortPop">
