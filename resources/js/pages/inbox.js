@@ -60,6 +60,7 @@
     ];
 
     const state = {
+        contactHistoryLoadedFor: null,
         inboxes: [],
         rules: [],
         templates: [],
@@ -5629,7 +5630,7 @@
         const snippetEl = el('conversationList')?.querySelector(`[data-conv-id="${c.id}"] .inbox-conv-snippet`);
         if (snippetEl) snippetEl.textContent = snippet;
 
-        loadInboxContactHistory(c);
+        prepareInboxContactHistory(c);
     }
 
     function extractContactEmail(value) {
@@ -5870,11 +5871,8 @@
         }
     }
 
-    async function loadInboxContactHistory(c) {
+    function inboxContactHistoryOpts(c) {
         const root = el('inboxContactHistory');
-        const body = el('inboxContactHistoryBody') || root;
-        if (!body || !c) return;
-
         const extractedName = String(c.extracted_name || (c.extracted_names || [])[0] || '').trim();
         const extractedPhones = c.extracted_phones || [];
         const extractedEmails = c.extracted_emails || [];
@@ -5903,12 +5901,38 @@
                 }
             },
         };
+        return { root, opts };
+    }
 
-        if (!email && !name && !phone) {
+    function prepareInboxContactHistory(c) {
+        const body = el('inboxContactHistoryBody') || el('inboxContactHistory');
+        if (!body || !c) return;
+        const { opts } = inboxContactHistoryOpts(c);
+
+        if (!opts.email && !opts.name && !opts.phone) {
             body.innerHTML = '<p class="chp-empty">No email or name on this conversation to look up history.</p>';
             updateContactLeadAction(null, opts);
             return;
         }
+
+        if (Number(state.contactHistoryLoadedFor) === Number(c.id)) {
+            loadInboxContactHistory(c);
+            return;
+        }
+
+        updateContactLeadAction(null, opts);
+        body.innerHTML = '<button type="button" class="inbox-btn ghost" id="btnShowContactHistory">Show contact history</button>';
+        el('btnShowContactHistory')?.addEventListener('click', () => {
+            state.contactHistoryLoadedFor = c.id;
+            loadInboxContactHistory(c);
+        });
+    }
+
+    async function loadInboxContactHistory(c) {
+        const body = el('inboxContactHistoryBody') || el('inboxContactHistory');
+        if (!body || !c) return;
+        const { root, opts } = inboxContactHistoryOpts(c);
+        const { email, name, phone } = opts;
 
         body.innerHTML = '<p class="chp-empty">Loading contact history…</p>';
 
