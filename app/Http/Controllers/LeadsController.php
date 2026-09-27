@@ -547,6 +547,13 @@ class LeadsController extends Controller
 
         $lead->syncIdentities($identities);
         $this->leadActivity->recordDiff($lead, $before);
+
+        $storeganise = null;
+        if ($request->boolean('sync_storeganise') && trim((string) $lead->storeganise_user_id) !== '') {
+            $storeganise = $this->syncSavedLeadToStoreganise($lead);
+            $lead->refresh();
+        }
+
         $lead->unsetRelation('identities');
         $lead->load(['identities', 'assignedUser:id,name', 'labels', 'leadNotes.user:id,name']);
         $this->forgetLeadSourcesCache((int) $lead->company_id);
@@ -555,7 +562,45 @@ class LeadsController extends Controller
             'success' => true,
             'message' => 'Lead updated.',
             'data' => $this->serializeWithInbox($lead),
+            'storeganise' => $storeganise,
         ]);
+    }
+
+    /**
+     * @return array{synced: bool, message?: string, error?: string}
+     */
+    protected function syncSavedLeadToStoreganise(Lead $lead): array
+    {
+        $siteId = trim((string) $lead->storeganise_site_id);
+        if ($siteId === '') {
+            return ['synced' => false, 'error' => 'Select a facility to update this lead in Storeganise.'];
+        }
+
+        $service = new LeadStoreganiseService((int) $lead->company_id);
+        if (! $service->isConfigured()) {
+            return ['synced' => false, 'error' => 'Storeganise is not connected.'];
+        }
+
+        $result = rescue(
+            fn () => $service->updateLead($lead, $siteId),
+            ['success' => false, 'error' => 'Failed to update lead in Storeganise.'],
+            report: true
+        );
+
+        if (! ($result['success'] ?? false)) {
+            return ['synced' => false, 'error' => $result['error'] ?? 'Failed to update lead in Storeganise.'];
+        }
+
+        $siteName = $this->storeganiseSiteName((int) $lead->company_id, (string) ($result['site_id'] ?? ''));
+        $summary = 'Updated Storeganise user at '.($siteName ?: 'selected facility').'.';
+
+        $this->leadActivity->record($lead, LeadActivity::STOREGANISE_UPDATE, $summary, [
+            'site_id' => $result['site_id'] ?? null,
+            'site_name' => $siteName,
+            'user_id' => $result['user_id'] ?? null,
+        ]);
+
+        return ['synced' => true, 'message' => $summary];
     }
 
     public function destroy(Lead $lead): JsonResponse

@@ -310,6 +310,84 @@ class LeadStoreganisePushTest extends TestCase
         });
     }
 
+    public function test_saving_pushed_lead_updates_storeganise_user(): void
+    {
+        [$company] = $this->actingAsLeadViewer();
+
+        Http::fake([
+            'https://demo.storeganise.com/api/v1/admin/sites*' => Http::response([
+                'id' => 'site-1',
+                'code' => 'nwp',
+                'name' => 'Makati',
+            ]),
+            'https://demo.storeganise.com/api/v1/admin/users/sg-user-1' => Http::response([
+                'id' => 'sg-user-1',
+                'email' => 'jane@example.com',
+            ]),
+        ]);
+
+        $lead = Lead::query()->create([
+            'company_id' => $company->id,
+            'name' => 'Jane Doe',
+            'first_name' => 'Jane',
+            'last_name' => 'Doe',
+            'status' => 'new',
+            'storeganise_site_id' => 'site-1',
+            'storeganise_user_id' => 'sg-user-1',
+            'storeganise_pushed_at' => now(),
+        ]);
+        $lead->addIdentity(LeadIdentity::TYPE_EMAIL, 'jane@example.com');
+
+        $response = $this->putJson('/api/leads/'.$lead->id, [
+            'first_name' => 'Janet',
+            'last_name' => 'Doe',
+            'city' => 'Pasay',
+            'emails' => [['value' => 'jane@example.com', 'label' => 'Primary']],
+            'storeganise_site_id' => 'site-1',
+            'sync_storeganise' => true,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('storeganise.synced', true)
+            ->assertJsonPath('data.first_name', 'Janet');
+
+        $this->assertDatabaseHas('lead_activities', [
+            'lead_id' => $lead->id,
+            'action' => 'storeganise_update',
+        ]);
+
+        Http::assertSent(function ($request) {
+            return $request->method() === 'PUT'
+                && str_contains($request->url(), '/api/v1/admin/users/sg-user-1')
+                && ($request->data()['firstName'] ?? null) === 'Janet';
+        });
+    }
+
+    public function test_saving_lead_without_sync_flag_does_not_call_storeganise(): void
+    {
+        [$company] = $this->actingAsLeadViewer();
+        Http::fake();
+
+        $lead = Lead::query()->create([
+            'company_id' => $company->id,
+            'name' => 'Jane Doe',
+            'status' => 'new',
+            'storeganise_site_id' => 'site-1',
+            'storeganise_user_id' => 'sg-user-1',
+            'storeganise_pushed_at' => now(),
+        ]);
+        $lead->addIdentity(LeadIdentity::TYPE_EMAIL, 'jane@example.com');
+
+        $this->putJson('/api/leads/'.$lead->id, [
+            'first_name' => 'Janet',
+            'last_name' => 'Doe',
+            'emails' => [['value' => 'jane@example.com', 'label' => 'Primary']],
+        ])->assertOk()->assertJsonPath('storeganise', null);
+
+        Http::assertNothingSent();
+    }
+
     public function test_duplicates_endpoint_returns_email_matches(): void
     {
         [$company] = $this->actingAsLeadViewer();

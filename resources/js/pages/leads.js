@@ -2018,7 +2018,7 @@
     }
 
     async function persistLeadForm(options = {}) {
-        const { reloadList = true, useOverlay = true } = options;
+        const { reloadList = true, useOverlay = true, syncStoreganise = false } = options;
         errorEl.hidden = true;
         if (!form.checkValidity()) {
             const invalid = form.querySelector(':invalid');
@@ -2029,6 +2029,9 @@
         }
         const payload = collectLeadFormPayload();
         const id = document.getElementById('leadId').value;
+        if (id && syncStoreganise) {
+            payload.sync_storeganise = true;
+        }
         const saveBtn = document.getElementById('saveLeadBtn');
         const busyLabel = id ? 'Saving…' : 'Adding…';
         if (useOverlay) {
@@ -2057,6 +2060,13 @@
                 url.searchParams.set('lead', data.data.id);
                 history.replaceState(null, '', url);
             }
+            if (data.storeganise) {
+                renderStoreganiseBlock(data.data);
+                renderActivities(data.data);
+                if (!data.storeganise.synced) {
+                    alert('Lead saved, but Storeganise was not updated: ' + (data.storeganise.error || 'Unknown error.'));
+                }
+            }
             return data.data;
         } catch (err) {
             errorEl.hidden = false;
@@ -2072,7 +2082,7 @@
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        await persistLeadForm();
+        await persistLeadForm({ syncStoreganise: true });
     });
 
     document.getElementById('deleteLeadBtn').addEventListener('click', async () => {
