@@ -54,6 +54,32 @@ class MessagingEditAndSeenTest extends TestCase
         $this->assertSame('Hello there', $message->fresh()->body);
     }
 
+    public function test_resending_with_same_client_message_id_does_not_duplicate(): void
+    {
+        [$alice, $bob, $conversation] = $this->directChat();
+        $url = '/api/messaging/conversations/'.$conversation->id.'/messages';
+        $payload = ['body' => 'Only once', 'client_message_id' => 'abc-123'];
+
+        $first = $this->actingAs($alice)->postJson($url, $payload)->assertOk()->json('data.id');
+        $second = $this->actingAs($alice)->postJson($url, $payload)->assertOk()->json('data.id');
+
+        $this->assertSame($first, $second);
+        $this->assertSame(1, Message::query()->where('conversation_id', $conversation->id)->count());
+    }
+
+    public function test_different_client_message_ids_send_separate_messages(): void
+    {
+        [$alice, $bob, $conversation] = $this->directChat();
+        $url = '/api/messaging/conversations/'.$conversation->id.'/messages';
+
+        $this->actingAs($alice)->postJson($url, ['body' => 'Hi', 'client_message_id' => 'one'])->assertOk();
+        $this->actingAs($alice)->postJson($url, ['body' => 'Hi', 'client_message_id' => 'two'])->assertOk();
+        $this->actingAs($alice)->postJson($url, ['body' => 'Hi'])->assertOk();
+        $this->actingAs($alice)->postJson($url, ['body' => 'Hi'])->assertOk();
+
+        $this->assertSame(4, Message::query()->where('conversation_id', $conversation->id)->count());
+    }
+
     public function test_edit_rejects_empty_body_without_attachment(): void
     {
         [$alice, $bob, $conversation] = $this->directChat();

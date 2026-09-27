@@ -20,6 +20,7 @@ class Message extends Model
     protected $fillable = [
         'conversation_id',
         'user_id',
+        'client_message_id',
         'reply_to_id',
         'body',
         'mentioned_user_ids',

@@ -772,7 +772,13 @@
         hideMentionPopup();
     });
 
+    let isSending = false;
+
     function updateSendButtonState() {
+        if (isSending) {
+            sendBtn.disabled = true;
+            return;
+        }
         if (editingMessageId) {
             const row = document.querySelector('.msg-row[data-message-id="' + editingMessageId + '"]');
             const hasAttachment = row && row.dataset.hasAttachment === '1';
@@ -1035,10 +1041,38 @@
     }
 
     async function sendMessage() {
-        if (editingMessageId) {
-            await saveEditedMessage();
-            return;
+        if (isSending) return;
+        isSending = true;
+        messageInput.readOnly = true;
+        updateSendButtonState();
+        try {
+            if (editingMessageId) {
+                await saveEditedMessage();
+            } else {
+                await submitNewMessage();
+            }
+        } finally {
+            isSending = false;
+            messageInput.readOnly = false;
+            updateSendButtonState();
         }
+    }
+
+    let pendingClientMessage = null;
+
+    function newClientMessageId() {
+        if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+        return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+    }
+
+    function clientMessageIdFor(signature) {
+        if (!pendingClientMessage || pendingClientMessage.signature !== signature) {
+            pendingClientMessage = { id: newClientMessageId(), signature };
+        }
+        return pendingClientMessage.id;
+    }
+
+    async function submitNewMessage() {
         const text = messageInput.value.trim();
         if ((!text && !pendingAttachment) || !currentConversationId) return;
         const body = { body: text || null };
@@ -1053,6 +1087,7 @@
         if (replyingTo && currentConversationType === 'group') {
             body.reply_to_id = replyingTo.id;
         }
+        body.client_message_id = clientMessageIdFor(JSON.stringify([currentConversationId, body]));
         let res, json;
         try {
             res = await api(baseUrl + '/conversations/' + currentConversationId + '/messages', {
@@ -1065,6 +1100,7 @@
             return;
         }
         if (json.success) {
+            pendingClientMessage = null;
             messageInput.value = '';
             messageInput.style.height = 'auto';
             setPendingAttachment(null);
@@ -1072,7 +1108,9 @@
             updateSendButtonState();
             const m = json.data;
             const group = document.getElementById('messageGroup');
-            appendMessage(m, group);
+            if (!group.querySelector('.msg-row[data-message-id="' + m.id + '"]')) {
+                appendMessage(m, group);
+            }
             document.getElementById('messagesArea').scrollTop = document.getElementById('messagesArea').scrollHeight;
             loadConversations(document.getElementById('conversationSearch').value);
         } else {

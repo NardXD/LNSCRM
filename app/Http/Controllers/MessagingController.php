@@ -7,6 +7,7 @@ use App\Models\Message;
 use App\Models\MessageReaction;
 use App\Models\User;
 use App\Notifications\MessagingMentionNotification;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
@@ -379,10 +380,16 @@ class MessagingController extends Controller
             'reply_to_id' => ['nullable', 'integer'],
             'mentioned_user_ids' => ['nullable', 'array', 'max:20'],
             'mentioned_user_ids.*' => ['integer'],
+            'client_message_id' => ['nullable', 'string', 'max:64'],
         ]);
 
         if (empty($validated['body']) && empty($validated['attachment_path'])) {
             return response()->json(['success' => false, 'message' => 'Message body or attachment required'], 422);
+        }
+
+        $clientMessageId = $validated['client_message_id'] ?? null;
+        if ($clientMessageId && ($existing = $this->findClientMessage($conversation, $user->id, $clientMessageId))) {
+            return $this->sentMessageResponse($existing, $user);
         }
 
         $replyToId = $validated['reply_to_id'] ?? null;
@@ -400,18 +407,41 @@ class MessagingController extends Controller
             $validated['mentioned_user_ids'] ?? []
         );
 
-        $message = $conversation->messages()->create([
-            'user_id' => $user->id,
-            'reply_to_id' => $replyToId,
-            'body' => $validated['body'] ?? null,
-            'mentioned_user_ids' => $mentionIds ?: null,
-            'attachment_path' => $validated['attachment_path'] ?? null,
-            'attachment_name' => $validated['attachment_name'] ?? null,
-            'attachment_type' => $validated['attachment_type'] ?? null,
-        ]);
+        try {
+            $message = $conversation->messages()->create([
+                'user_id' => $user->id,
+                'client_message_id' => $clientMessageId,
+                'reply_to_id' => $replyToId,
+                'body' => $validated['body'] ?? null,
+                'mentioned_user_ids' => $mentionIds ?: null,
+                'attachment_path' => $validated['attachment_path'] ?? null,
+                'attachment_name' => $validated['attachment_name'] ?? null,
+                'attachment_type' => $validated['attachment_type'] ?? null,
+            ]);
+        } catch (UniqueConstraintViolationException $e) {
+            $existing = $clientMessageId ? $this->findClientMessage($conversation, $user->id, $clientMessageId) : null;
+            if (! $existing) {
+                throw $e;
+            }
+
+            return $this->sentMessageResponse($existing, $user);
+        }
 
         $this->notifyMentions($conversation, $message, $user, $mentionIds);
 
+        return $this->sentMessageResponse($message, $user);
+    }
+
+    protected function findClientMessage(Conversation $conversation, int $userId, string $clientMessageId): ?Message
+    {
+        return $conversation->messages()
+            ->where('user_id', $userId)
+            ->where('client_message_id', $clientMessageId)
+            ->first();
+    }
+
+    protected function sentMessageResponse(Message $message, $user)
+    {
         return response()->json([
             'success' => true,
             'data' => $this->formatMessage(
