@@ -1174,7 +1174,8 @@ class InboxController extends Controller
             return response()->json(['message' => 'Attachment not found.'], 404);
         }
 
-        $name = $file['name'];
+        $name = str_replace(['/', '\\'], '_', (string) $file['name']) ?: 'attachment';
+        $fallbackName = preg_replace('/[^\x20-\x7E]|[%\/\\\\]/', '_', $name) ?: 'attachment';
         $contentType = $file['content_type'] ?: 'application/octet-stream';
 
         return response($file['content'], 200, [
@@ -1182,7 +1183,7 @@ class InboxController extends Controller
             'Content-Disposition' => HeaderUtils::makeDisposition(
                 HeaderUtils::DISPOSITION_INLINE,
                 $name,
-                preg_replace('/[^\x20-\x7E]/', '_', $name) ?: 'attachment'
+                $fallbackName
             ),
             'Content-Length' => (string) strlen($file['content']),
             'X-Content-Type-Options' => 'nosniff',
