@@ -1007,15 +1007,15 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 }
 .inbox-conv:hover { background: var(--inbox-bg); }
 .inbox-conv.active {
-    background: #eef0f3;
-    border-color: var(--inbox-accent);
+    background: #fdf2f8;
+    border-color: #ec4899;
 }
-.inbox-conv.active.unread { background: var(--inbox-accent-soft); }
+.inbox-conv.active.unread { background: #fce7f3; }
 .inbox-conv.is-checked {
     background: var(--inbox-accent-soft);
     box-shadow: inset 3px 0 0 var(--inbox-accent);
 }
-.inbox-conv.is-checked.active { background: #dce7fb; }
+.inbox-conv.is-checked.active { background: #fce7f3; }
 .inbox-list-merge-bar {
     display: flex;
     align-items: center;
