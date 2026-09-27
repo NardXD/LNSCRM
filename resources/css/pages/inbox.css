@@ -996,6 +996,14 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     width: 100%; text-align: left; border: 2px solid transparent; background: transparent;
     padding: 0.75rem 0.7rem; border-radius: 10px; cursor: pointer; display: grid; gap: 0.2rem;
     user-select: none;
+    border-color: var(--inbox-border);
+    margin-bottom: 0.35rem;
+}
+.inbox-conv.unread {
+    border-color: #bcd0fa;
+    border-left: 5px solid var(--inbox-accent);
+    padding-left: calc(0.7rem - 3px);
+    background: #f7faff;
 }
 .inbox-conv:hover { background: var(--inbox-bg); }
 .inbox-conv.active {
