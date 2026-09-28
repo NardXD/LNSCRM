@@ -1408,6 +1408,31 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     color: inherit;
 }
 .inbox-tag-add-option:hover { background: var(--inbox-bg); }
+.inbox-tag-add-option .inbox-tag-check {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid var(--inbox-border);
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    line-height: 1;
+    color: transparent;
+    background: #fff;
+}
+.inbox-tag-add-option.is-selected { background: #eef2ff; }
+.inbox-tag-add-option.is-selected .inbox-tag-check {
+    border-color: #4338ca;
+    background: #4338ca;
+    color: #fff;
+}
+.inbox-tags-add .inbox-tags-add-selected {
+    margin: 0 0.2rem;
+    width: auto !important;
+    text-align: center;
+}
 .inbox-tags-add .inbox-assign-empty {
     padding: 0.45rem 0.55rem;
     font-size: 0.82rem;

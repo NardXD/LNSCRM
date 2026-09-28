@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\ApplyLeadLabeledRulesJob;
 use App\Models\InboxConversation;
 use App\Models\InboxConversationActivity;
 use App\Models\InboxConversationComment;
@@ -1802,50 +1803,56 @@ class InboxController extends Controller
         $validated = $request->validate([
             'lead_id' => ['nullable', 'integer'],
             'label_id' => ['nullable', 'integer', 'exists:lead_labels,id'],
+            'label_ids' => ['nullable', 'array', 'max:50'],
+            'label_ids.*' => ['integer'],
             'name' => ['nullable', 'string', 'max:50'],
             'color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
         ]);
 
         $lead = $this->matchingLead($conversation, isset($validated['lead_id']) ? (int) $validated['lead_id'] : null);
         $companyId = $lead ? (int) $lead->company_id : (int) $conversation->company_id;
-        $label = null;
-        if (! empty($validated['label_id'])) {
-            $label = LeadLabel::query()
-                ->where('company_id', $companyId)
-                ->whereKey($validated['label_id'])
-                ->first();
-        }
+
+        $ids = collect($validated['label_ids'] ?? [])
+            ->push($validated['label_id'] ?? null)
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->values();
+        $labels = $ids->isEmpty()
+            ? collect()
+            : LeadLabel::query()->where('company_id', $companyId)->whereIn('id', $ids->all())->get()
+                ->sortBy(fn (LeadLabel $l) => $ids->search((int) $l->id))
+                ->values();
 
         $name = trim((string) ($validated['name'] ?? ''));
-        if (! $label && $name !== '') {
-            $label = LeadLabel::query()
+        if ($name !== '') {
+            $named = LeadLabel::query()
                 ->where('company_id', $companyId)
                 ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
-                ->first();
-            if (! $label) {
-                $label = LeadLabel::create([
+                ->first()
+                ?? LeadLabel::create([
                     'company_id' => $companyId,
                     'name' => $name,
                     'color' => $validated['color'] ?? '#4338ca',
                 ]);
+            if (! $labels->contains('id', $named->id)) {
+                $labels->push($named);
             }
         }
 
-        if (! $label) {
+        if ($labels->isEmpty()) {
             return response()->json(['message' => 'Choose or type a label.'], 422);
         }
 
-        if ($lead) {
-            $alreadyAttached = $lead->labels()->where('lead_labels.id', $label->id)->exists();
-            $lead->labels()->syncWithoutDetaching([$label->id]);
-            if (! $alreadyAttached) {
-                $this->leadActivity->recordLabel($lead, $label->name, true, labelId: $label->id);
-            }
-            $this->crmLookup->forgetLeadIndexes($companyId);
-        } else {
-            $alreadyAttached = $conversation->leadLabels()->where('lead_labels.id', $label->id)->exists();
-            $conversation->leadLabels()->syncWithoutDetaching([$label->id]);
-            if (! $alreadyAttached) {
+        $relation = $lead ? $lead->labels() : $conversation->leadLabels();
+        $attachedIds = array_map('intval', $relation->syncWithoutDetaching($labels->pluck('id')->all())['attached']);
+        $attachedLabels = $labels->filter(fn (LeadLabel $l) => in_array((int) $l->id, $attachedIds, true));
+
+        foreach ($attachedLabels as $label) {
+            if ($lead) {
+                $this->leadActivity->recordLabel($lead, $label->name, true, labelId: $label->id, applyRules: false);
+                ApplyLeadLabeledRulesJob::dispatchAfterResponse((int) $lead->id, (string) $label->name, (int) $label->id);
+            } else {
                 $this->recordActivity(
                     $conversation,
                     $request->user(),
@@ -1858,8 +1865,11 @@ class InboxController extends Controller
                 );
             }
         }
+        if ($lead && $attachedLabels->isNotEmpty()) {
+            $this->crmLookup->refreshLeadInIndexes($lead);
+        }
 
-        return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'leadLabels', 'inbox', 'assignee']))]);
+        return $this->conversationLabelsResponse($conversation, $lead, $labels->all());
     }
 
     public function detachLeadLabel(Request $request, InboxConversation $conversation, LeadLabel $leadLabel): JsonResponse
@@ -1872,11 +1882,12 @@ class InboxController extends Controller
                 abort(404);
             }
 
-            $lead->labels()->detach($leadLabel->id);
-            $this->leadActivity->recordLabel($lead, $leadLabel->name, false);
-            $this->crmLookup->forgetLeadIndexes((int) $lead->company_id);
+            if ($lead->labels()->detach($leadLabel->id) > 0) {
+                $this->leadActivity->recordLabel($lead, $leadLabel->name, false);
+                $this->crmLookup->refreshLeadInIndexes($lead);
+            }
 
-            return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'leadLabels', 'inbox', 'assignee', 'lead.identities', 'lead.assignedUser:id,name', 'lead.labels']))]);
+            return $this->conversationLabelsResponse($conversation, $lead);
         }
 
         if ((int) $leadLabel->company_id !== (int) $conversation->company_id) {
@@ -1885,7 +1896,7 @@ class InboxController extends Controller
 
         $conversation->leadLabels()->detach($leadLabel->id);
 
-        return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'leadLabels', 'inbox', 'assignee']))]);
+        return $this->conversationLabelsResponse($conversation, null);
     }
 
     /**
@@ -1901,7 +1912,38 @@ class InboxController extends Controller
 
         $conversation->leadLabels()->detach($leadLabel->id);
 
-        return response()->json(['conversation' => $this->formatConversation($conversation->fresh(['tags', 'leadLabels', 'inbox', 'assignee']))]);
+        return $this->conversationLabelsResponse($conversation, null);
+    }
+
+    /**
+     * Label-only payload for the inbox label chips; the client merges it into the
+     * open thread and list rows instead of reloading them.
+     */
+    /**
+     * @param  list<LeadLabel>  $labels  Labels the request added (new ones are appended to the client's label list).
+     */
+    private function conversationLabelsResponse(InboxConversation $conversation, ?Lead $lead, array $labels = []): JsonResponse
+    {
+        $conversation->load('leadLabels');
+        $lead?->load(['assignedUser:id,name', 'labels']);
+        $formatLabel = fn (LeadLabel $l) => [
+            'id' => (int) $l->id,
+            'name' => $l->name,
+            'color' => $l->color,
+        ];
+
+        return response()->json([
+            'conversation' => [
+                'id' => (int) $conversation->id,
+                'lead_id' => $conversation->lead_id ? (int) $conversation->lead_id : null,
+                'lead_labels' => $conversation->leadLabels
+                    ->map(fn ($l) => ['id' => $l->id, 'name' => $l->name, 'color' => $l->color])
+                    ->values(),
+                'lead' => $lead ? $this->crmLookup->leadPayload($lead) : null,
+            ],
+            'label' => $labels !== [] ? $formatLabel($labels[0]) : null,
+            'labels' => array_map($formatLabel, $labels),
+        ]);
     }
 
     public function attachLead(Request $request, InboxConversation $conversation): JsonResponse

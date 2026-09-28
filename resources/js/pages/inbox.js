@@ -76,6 +76,7 @@
         members: [],
         leadLabels: [],
         labelAttachBusy: false,
+        tagsMenuSelectedIds: [],
         sidebarLabelIds: null,
         selectedLabelId: null,
         sidebarLabelSearch: '',
@@ -4300,13 +4301,18 @@
         });
         const exactMatch = available.some(t => String(t.name || '').toLowerCase() === qLower)
             || conversationTagItems(c).some(t => String(t.name || '').toLowerCase() === qLower);
+        const selected = new Set(state.tagsMenuSelectedIds || []);
         const rows = available.length
-            ? available.map(t => `
-            <button type="button" class="inbox-tag-add-option" data-add-tag-label="${t.id}" title="${escapeHtml(t.name || '')}">
+            ? available.map(t => {
+                const isSelected = selected.has(Number(t.id));
+                return `
+            <button type="button" class="inbox-tag-add-option ${isSelected ? 'is-selected' : ''}" data-toggle-tag-label="${t.id}" role="menuitemcheckbox" aria-checked="${isSelected ? 'true' : 'false'}" title="${escapeHtml(t.name || '')}">
+                <span class="inbox-tag-check" aria-hidden="true">✓</span>
                 <span class="inbox-participant-avatar" style="background:${tagSwatchColor(t)}">${escapeHtml(initials(t.name))}</span>
                 <span class="inbox-participant-name">${escapeHtml(t.name || 'Label')}</span>
             </button>
-        `).join('')
+        `;
+            }).join('')
             : `<div class="inbox-assign-empty">${q ? 'No matching labels' : 'No more labels to add'}</div>`;
         const createRow = q && !exactMatch
             ? `<button type="button" class="inbox-tag-add-option" data-create-tag-label="${escapeHtml(q)}" title="Create label ${escapeHtml(q)}">
@@ -4321,6 +4327,29 @@
         const list = el('tagsMenuAddList');
         if (!list) return;
         list.innerHTML = tagsMenuAddOptionsHtml(state.conversation, query);
+        syncTagsMenuAddSelected();
+    }
+
+    function tagsMenuAddSelectedLabel(count) {
+        return count === 1 ? 'Add 1 label' : `Add ${count} labels`;
+    }
+
+    function syncTagsMenuAddSelected() {
+        const btn = el('btnTagsMenuAddSelected');
+        if (!btn) return;
+        const count = (state.tagsMenuSelectedIds || []).length;
+        btn.hidden = count === 0;
+        if (!btn.classList.contains('is-busy')) btn.textContent = tagsMenuAddSelectedLabel(count);
+    }
+
+    function toggleTagsMenuSelection(labelId) {
+        const id = Number(labelId);
+        if (!id) return;
+        const current = state.tagsMenuSelectedIds || [];
+        state.tagsMenuSelectedIds = current.includes(id)
+            ? current.filter(x => x !== id)
+            : [...current, id];
+        renderTagsMenuAddList(el('tagsMenuSearch')?.value || '');
     }
 
     function tagsMenuHtml(c) {
@@ -4358,6 +4387,7 @@
                             <input type="search" id="tagsMenuSearch" placeholder="Search labels to add…" autocomplete="off" aria-label="Search labels to add">
                         </div>
                         <div class="inbox-assign-list" id="tagsMenuAddList">${tagsMenuAddOptionsHtml(c)}</div>
+                        <button type="button" class="inbox-btn primary inbox-tags-add-selected" id="btnTagsMenuAddSelected" ${(state.tagsMenuSelectedIds || []).length ? '' : 'hidden'}>${tagsMenuAddSelectedLabel((state.tagsMenuSelectedIds || []).length)}</button>
                         <div class="inbox-lead-label-add">
                             <input type="text" id="tagsMenuNewInput" class="inbox-select" maxlength="50" placeholder="New label" aria-label="Create new label">
                             <button type="button" class="inbox-btn ghost" id="btnTagsMenuAddNew">Add</button>
@@ -5432,6 +5462,96 @@
         syncInboxMobileThreadView();
     }
 
+    function renderPropsLabels(c) {
+        const tagItems = conversationTagItems(c);
+        el('conversationTags').innerHTML = tagItems.length
+            ? tagItems.map(t => conversationLabelPillHtml(t, { removable: true })).join('')
+            : `<span style="color:var(--inbox-muted);font-size:0.8rem;">No labels</span>`;
+
+        const used = new Set(tagItems.map(t => Number(t.id)));
+        const addSelect = el('addTagSelect');
+        if (addSelect) {
+            addSelect.style.display = '';
+            addSelect.innerHTML = '<option value="">Add existing label…</option>' +
+                (state.leadLabels || []).filter(t => !used.has(Number(t.id)))
+                    .map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+            refreshSearchSelect('addTagSelect');
+        }
+        const leadLabelRow = el('addLeadLabelRow');
+        if (leadLabelRow) leadLabelRow.hidden = false;
+        const leadLabelInput = el('addLeadLabelInput');
+        if (leadLabelInput) {
+            leadLabelInput.value = '';
+            leadLabelInput.disabled = false;
+        }
+        const propsAddBtn = el('btnAddLeadLabel');
+        if (propsAddBtn) {
+            propsAddBtn.disabled = false;
+            propsAddBtn.classList.remove('is-busy');
+            propsAddBtn.innerHTML = propsAddBtn.dataset.idleHtml || 'Add';
+            delete propsAddBtn.dataset.idleHtml;
+        }
+    }
+
+    // Redraw only the label chip/menu and props labels, keeping the menu open.
+    function renderThreadLabels() {
+        const c = state.conversation;
+        if (!c) return;
+        const pop = el('tagsPop');
+        if (pop) {
+            const wasOpen = el('tagsMenu') ? !el('tagsMenu').hidden : false;
+            pop.outerHTML = tagsMenuHtml(c);
+            if (wasOpen) {
+                const menu = el('tagsMenu');
+                if (menu) menu.hidden = false;
+                el('btnTags')?.classList.add('is-open');
+                el('btnTags')?.setAttribute('aria-expanded', 'true');
+                el('tagsMenuSearch')?.focus();
+            }
+        }
+        renderPropsLabels(c);
+    }
+
+    function rerenderConversationRow(conv) {
+        const row = el('conversationList')?.querySelector(`[data-conv-id="${Number(conv.id)}"]`);
+        if (row) row.outerHTML = conversationRowHtml(conv);
+    }
+
+    // Merge a label endpoint response into the open thread and any affected list rows.
+    function applyConversationLabelsPayload(payload) {
+        const updated = payload?.conversation;
+        if (!updated) return;
+        const convId = Number(updated.id);
+        const lead = updated.lead || null;
+
+        const returned = Array.isArray(payload.labels) ? payload.labels : (payload.label ? [payload.label] : []);
+        returned.forEach(label => {
+            if (label?.id && !(state.leadLabels || []).some(l => Number(l.id) === Number(label.id))) {
+                state.leadLabels = [...(state.leadLabels || []), { ...label, count: 0 }];
+            }
+        });
+
+        const sameLead = (c) => lead && c?.lead && Number(c.lead.id) === Number(lead.id);
+
+        const open = state.conversation;
+        if (open && Number(open.id) === convId) {
+            open.lead_labels = updated.lead_labels || [];
+            if (lead) open.lead = { ...(open.lead || {}), ...lead };
+        } else if (sameLead(open)) {
+            open.lead = { ...open.lead, labels: lead.labels || [] };
+        }
+
+        (state.conversations || []).forEach(c => {
+            const isTarget = Number(c.id) === convId;
+            if (!isTarget && !sameLead(c)) return;
+            if (isTarget) c.lead_labels = updated.lead_labels || [];
+            if (sameLead(c)) c.lead = { ...c.lead, labels: lead.labels || [] };
+            rerenderConversationRow(c);
+        });
+
+        if (open && (Number(open.id) === convId || sameLead(open))) renderThreadLabels();
+    }
+
     function renderThread() {
         const c = state.conversation;
         if (!c) {
@@ -5533,34 +5653,7 @@
             propLead.innerHTML = leadAssignedBlock(c.lead);
         }
 
-        const tagItems = conversationTagItems(c);
-        el('conversationTags').innerHTML = tagItems.length
-            ? tagItems.map(t => conversationLabelPillHtml(t, { removable: true })).join('')
-            : `<span style="color:var(--inbox-muted);font-size:0.8rem;">No labels</span>`;
-
-        const used = new Set(tagItems.map(t => Number(t.id)));
-        const addSelect = el('addTagSelect');
-        if (addSelect) {
-            addSelect.style.display = '';
-            addSelect.innerHTML = '<option value="">Add existing label…</option>' +
-                (state.leadLabels || []).filter(t => !used.has(Number(t.id)))
-                    .map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
-            refreshSearchSelect('addTagSelect');
-        }
-        const leadLabelRow = el('addLeadLabelRow');
-        if (leadLabelRow) leadLabelRow.hidden = false;
-        const leadLabelInput = el('addLeadLabelInput');
-        if (leadLabelInput) {
-            leadLabelInput.value = '';
-            leadLabelInput.disabled = false;
-        }
-        const propsAddBtn = el('btnAddLeadLabel');
-        if (propsAddBtn) {
-            propsAddBtn.disabled = false;
-            propsAddBtn.classList.remove('is-busy');
-            propsAddBtn.innerHTML = propsAddBtn.dataset.idleHtml || 'Add';
-            delete propsAddBtn.dataset.idleHtml;
-        }
+        renderPropsLabels(c);
 
         const emails = [...(c.messages || [])].sort((a, b) => String(a.sent_at || '').localeCompare(String(b.sent_at || '')));
         const lastEmailId = emails.length ? String(emails[emails.length - 1].id) : null;
@@ -7123,6 +7216,7 @@
             e.stopPropagation();
             togglePop('tagsMenu', tagsBtn);
             if (!el('tagsMenu')?.hidden) {
+                state.tagsMenuSelectedIds = [];
                 const search = el('tagsMenuSearch');
                 const newInput = el('tagsMenuNewInput');
                 if (search) {
@@ -7202,11 +7296,18 @@
             return;
         }
 
-        const addTagBtn = e.target.closest('#tagsMenu [data-add-tag-label]');
-        if (addTagBtn) {
+        const toggleTagBtn = e.target.closest('#tagsMenu [data-toggle-tag-label]');
+        if (toggleTagBtn) {
             e.stopPropagation();
-            const labelId = Number(addTagBtn.dataset.addTagLabel);
-            if (labelId) await attachConversationLabel({ labelId });
+            if (!state.labelAttachBusy) toggleTagsMenuSelection(toggleTagBtn.dataset.toggleTagLabel);
+            return;
+        }
+
+        const addSelectedBtn = e.target.closest('#btnTagsMenuAddSelected');
+        if (addSelectedBtn) {
+            e.stopPropagation();
+            const labelIds = [...(state.tagsMenuSelectedIds || [])];
+            if (labelIds.length) await attachConversationLabel({ labelIds });
             return;
         }
 
@@ -7214,7 +7315,7 @@
         if (createTagBtn) {
             e.stopPropagation();
             const name = String(createTagBtn.dataset.createTagLabel || '').trim();
-            if (name) await attachConversationLabel({ name });
+            if (name) await attachConversationLabel({ name, labelIds: [...(state.tagsMenuSelectedIds || [])] });
             return;
         }
 
@@ -7227,7 +7328,7 @@
                 input?.focus();
                 return;
             }
-            await attachConversationLabel({ name });
+            await attachConversationLabel({ name, labelIds: [...(state.tagsMenuSelectedIds || [])] });
         }
     });
     el('threadParticipants')?.addEventListener('input', (e) => {
@@ -7255,10 +7356,15 @@
         }
         if (e.target?.id === 'tagsMenuSearch' && e.key === 'Enter') {
             const createBtn = el('tagsMenuAddList')?.querySelector('[data-create-tag-label]');
+            const addSelectedBtn = el('btnTagsMenuAddSelected');
             if (createBtn) {
                 e.preventDefault();
                 e.stopPropagation();
                 createBtn.click();
+            } else if (addSelectedBtn && !addSelectedBtn.hidden) {
+                e.preventDefault();
+                e.stopPropagation();
+                addSelectedBtn.click();
             }
             return;
         }
@@ -7531,6 +7637,7 @@
         const menu = el('tagsMenu');
         const chip = el('btnTags');
         const addNewBtn = el('btnTagsMenuAddNew');
+        const addSelectedBtn = el('btnTagsMenuAddSelected');
         const propsAddBtn = el('btnAddLeadLabel');
         const busyText = el('tagsMenuBusyText');
         const label = String(labelName || '').trim();
@@ -7542,7 +7649,7 @@
         chip?.classList.toggle('is-busy', !!busy);
         if (chip) chip.title = busy ? status : 'Conversation labels';
 
-        [addNewBtn, propsAddBtn].forEach(btn => {
+        [addNewBtn, addSelectedBtn, propsAddBtn].forEach(btn => {
             if (!btn) return;
             btn.classList.toggle('is-busy', !!busy);
             btn.disabled = !!busy;
@@ -7564,33 +7671,64 @@
         el('tagsMenuAddList')?.querySelectorAll('button').forEach(btn => {
             btn.disabled = !!busy;
         });
+        if (!busy) syncTagsMenuAddSelected();
     }
 
-    async function attachConversationLabel({ labelId = null, name = null } = {}) {
+    async function attachConversationLabel({ labelId = null, labelIds = [], name = null } = {}) {
         if (!state.selectedId || state.labelAttachBusy) return;
         const lead = conversationLead();
+        const ids = [...new Set([...(labelIds || []), labelId].map(Number).filter(id => id > 0))];
+        const known = ids
+            .map(id => (state.leadLabels || []).find(l => Number(l.id) === id))
+            .filter(Boolean);
         const labelName = name
-            || (state.leadLabels || []).find(l => Number(l.id) === Number(labelId))?.name
-            || '';
+            || (known.length === 1 ? known[0].name : '')
+            || (known.length > 1 ? `${known.length} labels` : '');
         state.labelAttachBusy = true;
+
+        const conv = state.conversation;
+        const snapshot = conv ? { lead_labels: conv.lead_labels, lead: conv.lead } : null;
+        const selectedBefore = state.tagsMenuSelectedIds || [];
+        state.tagsMenuSelectedIds = [];
+        if (conv && known.length) {
+            const chips = known.map(l => ({ id: l.id, name: l.name, color: l.color }));
+            if (conv.lead) conv.lead = { ...conv.lead, labels: [...(conv.lead.labels || []), ...chips] };
+            else conv.lead_labels = [...(conv.lead_labels || []), ...chips];
+            renderThreadLabels();
+        }
         setLabelAttachBusy(true, labelName);
+
         try {
-            await api('/conversations/' + state.selectedId + '/lead-labels', {
+            const data = await api('/conversations/' + state.selectedId + '/lead-labels', {
                 method: 'POST',
                 body: {
                     lead_id: lead?.id || null,
-                    label_id: labelId || null,
+                    label_ids: ids,
                     name: name || null,
                 },
             });
-            await loadBootstrap();
-            await openConversation(state.selectedId);
-            await loadConversations();
+            applyConversationLabelsPayload(data);
+            refreshAfterLabelChange();
         } catch (err) {
-            alert(err.message || 'Could not add label.');
+            if (conv && state.conversation === conv) {
+                conv.lead_labels = snapshot.lead_labels;
+                conv.lead = snapshot.lead;
+                state.tagsMenuSelectedIds = selectedBefore;
+                renderThreadLabels();
+            }
+            alert(err.message || (ids.length > 1 ? 'Could not add labels.' : 'Could not add label.'));
         } finally {
             state.labelAttachBusy = false;
             setLabelAttachBusy(false);
+        }
+    }
+
+    // Counts and label-filtered lists are the only things a label change can move.
+    function refreshAfterLabelChange() {
+        loadNavCounts().catch(err => console.warn('Nav counts refresh failed', err));
+        const labelFiltered = normalizedFilterLabelIds(state.filters.label_ids).length || state.selectedLabelId;
+        if (labelFiltered) {
+            loadConversations({ preserveList: true }).catch(err => console.warn('List refresh failed', err));
         }
     }
 
@@ -7603,27 +7741,39 @@
 
         try {
             if (btn.dataset.removeLeadLabel) {
-                await api('/conversations/' + state.selectedId + '/lead-labels/' + btn.dataset.removeLeadLabel + (conversationLead()?.id ? '?lead_id=' + conversationLead().id : ''), {
+                const data = await api('/conversations/' + state.selectedId + '/lead-labels/' + btn.dataset.removeLeadLabel + (conversationLead()?.id ? '?lead_id=' + conversationLead().id : ''), {
                     method: 'DELETE',
                 });
+                applyConversationLabelsPayload(data);
             } else if (btn.dataset.removeConversationLabel) {
-                await api('/conversations/' + state.selectedId + '/labels/' + btn.dataset.removeConversationLabel, {
+                const data = await api('/conversations/' + state.selectedId + '/labels/' + btn.dataset.removeConversationLabel, {
                     method: 'DELETE',
                 });
+                applyConversationLabelsPayload(data);
             } else if (btn.dataset.removeInboxTag) {
                 const removeId = Number(btn.dataset.removeInboxTag);
                 const tagIds = (state.conversation?.tags || [])
                     .map(t => Number(t.id))
                     .filter(id => id > 0 && id !== removeId);
-                await api('/conversations/' + state.selectedId + '/tags', {
+                const data = await api('/conversations/' + state.selectedId + '/tags', {
                     method: 'POST',
                     body: { tag_ids: tagIds },
                 });
+                const tags = data?.conversation?.tags || [];
+                const convId = Number(data?.conversation?.id || state.selectedId);
+                if (state.conversation && Number(state.conversation.id) === convId) {
+                    state.conversation.tags = tags;
+                    renderThreadLabels();
+                }
+                const row = (state.conversations || []).find(c => Number(c.id) === convId);
+                if (row) {
+                    row.tags = tags;
+                    rerenderConversationRow(row);
+                }
             } else {
                 return false;
             }
-            await openConversation(state.selectedId);
-            await loadConversations();
+            refreshAfterLabelChange();
             return true;
         } catch (err) {
             alert(err.message || 'Could not remove label.');

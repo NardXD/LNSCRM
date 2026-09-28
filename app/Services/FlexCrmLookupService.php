@@ -138,8 +138,26 @@ class FlexCrmLookupService
 
         $needle = strtolower($name);
 
+        // Any whole-word match (either direction) shares at least one word with the
+        // needle, so narrow candidates in SQL instead of loading every FB/IG identity.
+        $words = collect(preg_split('/[^\p{L}\p{N}]+/u', $needle) ?: [])
+            ->filter(fn ($word) => mb_strlen($word) >= 2)
+            ->unique()
+            ->take(6)
+            ->values();
+
         return LeadIdentity::query()
             ->whereIn('type', [LeadIdentity::TYPE_FACEBOOK, LeadIdentity::TYPE_INSTAGRAM])
+            ->where(function ($q) use ($words, $name) {
+                if ($words->isEmpty()) {
+                    $q->where('value', $name);
+
+                    return;
+                }
+                foreach ($words as $word) {
+                    $q->orWhere('value', 'like', '%'.addcslashes($word, '%_\\').'%');
+                }
+            })
             ->whereHas('lead', fn ($q) => $q->where('company_id', $companyId))
             ->with(['lead.identities', 'lead.assignedUser:id,name', 'lead.labels'])
             ->get()
@@ -252,6 +270,59 @@ class FlexCrmLookupService
         unset($this->assignedLeadIndexCache[$companyId], $this->leadIndexCache[$companyId]);
         Cache::forget($this->leadIndexCacheKey($companyId, true));
         Cache::forget($this->leadIndexCacheKey($companyId, false));
+    }
+
+    /**
+     * Swap one lead's payload inside the cached indexes (e.g. after a label change)
+     * instead of dropping the whole company index and forcing a full rebuild.
+     * Only safe when the lead's phones, emails, name and assignee are unchanged.
+     */
+    public function refreshLeadInIndexes(Lead $lead): void
+    {
+        $companyId = (int) $lead->company_id;
+        $leadId = (int) $lead->id;
+        $lead->load(['assignedUser:id,name', 'labels']);
+
+        foreach ([true, false] as $assignedOnly) {
+            $payload = $assignedOnly ? $this->assignedLeadPayload($lead) : $this->leadPayload($lead);
+            $key = $this->leadIndexCacheKey($companyId, $assignedOnly);
+
+            $cached = Cache::get($key);
+            if (is_array($cached)) {
+                Cache::put($key, $this->replaceLeadInIndex($cached, $leadId, $payload), 45);
+            }
+
+            $memo = $assignedOnly ? 'assignedLeadIndexCache' : 'leadIndexCache';
+            if (isset($this->{$memo}[$companyId])) {
+                $this->{$memo}[$companyId] = $this->replaceLeadInIndex($this->{$memo}[$companyId], $leadId, $payload);
+            }
+        }
+    }
+
+    /**
+     * @param  array<string, array<string, array<string, mixed>>>  $index
+     * @param  array<string, mixed>|null  $payload
+     * @return array<string, array<string, array<string, mixed>>>
+     */
+    protected function replaceLeadInIndex(array $index, int $leadId, ?array $payload): array
+    {
+        foreach ($index as $bucket => $entries) {
+            if (! is_array($entries)) {
+                continue;
+            }
+            foreach ($entries as $entryKey => $entry) {
+                if ((int) ($entry['id'] ?? 0) !== $leadId) {
+                    continue;
+                }
+                if ($payload === null) {
+                    unset($index[$bucket][$entryKey]);
+                } else {
+                    $index[$bucket][$entryKey] = $payload;
+                }
+            }
+        }
+
+        return $index;
     }
 
     /**
