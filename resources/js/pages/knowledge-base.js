@@ -1,1000 +1,650 @@
-/* Vite page entry — IIFE preserves onclick globals */
+/* Vite page entry — Front-style knowledge base: category tree, article list, reader/editor */
 (function () {
-// Rich text editor: sync contenteditable to hidden input
-    function richEditorSync(editorEl) {
-        const hiddenId = editorEl.dataset.hidden;
-        if (hiddenId) {
-            const hidden = document.getElementById(hiddenId);
-            if (hidden) hidden.value = editorEl.innerHTML;
-        }
-    }
-
-    function stripHtml(html) {
-        const div = document.createElement('div');
-        div.innerHTML = html || '';
-        return (div.textContent || div.innerText || '').trim();
-    }
-
-    document.querySelectorAll('.rich-editor-content').forEach(editor => {
-        editor.addEventListener('input', function() { richEditorSync(this); });
-        editor.addEventListener('paste', function() { setTimeout(() => richEditorSync(this), 0); });
-    });
-
-    document.querySelectorAll('.rich-editor-toolbar').forEach(toolbar => {
-        toolbar.addEventListener('click', function(e) {
-            const btn = e.target.closest('.rich-editor-btn');
-            if (!btn) return;
-            e.preventDefault();
-            const editorId = this.dataset.editor;
-            const cmd = btn.dataset.cmd;
-            const value = btn.dataset.value;
-            const editor = document.getElementById(editorId);
-            if (!editor) return;
-            editor.focus();
-            if (cmd === 'createLink') {
-                const url = prompt('Enter URL:', 'https://');
-                if (url) {
-                    document.execCommand('createLink', false, url);
-                    richEditorSync(editor);
-                }
-            } else if (cmd === 'formatBlock' && value) {
-                document.execCommand('formatBlock', false, value);
-                richEditorSync(editor);
-            } else {
-                document.execCommand(cmd, false, null);
-                richEditorSync(editor);
-            }
-        });
-    });
-
-    document.querySelectorAll('.rich-editor-select').forEach(select => {
-        select.addEventListener('change', function() {
-            const editorId = this.dataset.editor;
-            const editor = document.getElementById(editorId);
-            if (!editor) return;
-            editor.focus();
-            document.execCommand('formatBlock', false, this.value);
-            richEditorSync(editor);
-        });
-    });
-
-    // Tab Switching
-    function kebabToCamel(str) {
-        return str.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
-    }
-
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const tabId = this.dataset.tab;
-            const camelTabId = kebabToCamel(tabId);
-            
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            this.classList.add('active');
-            
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
-            const tabContent = document.getElementById(camelTabId + 'Tab');
-            if (tabContent) {
-                tabContent.classList.add('active');
-            }
-        });
-    });
-
-    // Articles, FAQs, Guides (from backend, per company)
-    let articlesData = [];
-    let faqsData = [];
-    let guidesData = [];
     const CFG = window.__knowledgeBaseConfig || {};
-    const canCreateKnowledgeBase = CFG.canCreate !== false;
-    const canEditKnowledgeBase = CFG.canEdit !== false;
-    const canDeleteKnowledgeBase = CFG.canDelete !== false;
+    const canCreate = CFG.canCreate !== false;
+    const canEdit = CFG.canEdit !== false;
+    const canDelete = CFG.canDelete !== false;
+    const baseUrl = CFG.baseUrl || '/api/knowledge-base';
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+    const COLLAPSED_KEY = 'kb.collapsedCategories';
+    const SEPARATOR = ' › ';
 
-    let articleCategoriesData = [];
-    let faqCategoriesData = [];
-    let guideCategoriesData = [];
-
-    const knowledgeBaseApi = {
-        baseUrl: CFG.baseUrl || '/api/knowledge-base',
-        csrfToken: document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
-        async postCategories(data) {
-            return this._post('/categories', data, 'Failed to add category.');
-        },
-        async _post(path, data, errorLabel) {
-            const res = await fetch(this.baseUrl + path, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'Accept': 'application/json' },
-                body: JSON.stringify(data)
-            });
-            const json = await res.json();
-            if (!res.ok) {
-                const msg = json.errors ? Object.values(json.errors).flat().join(' ') : (json.message || errorLabel);
-                throw new Error(msg);
-            }
-            return json;
-        },
-        async postArticles(data) {
-            return this._post('/articles', data, 'Failed to create article.');
-        },
-        async postFaqs(data) {
-            return this._post('/faqs', data, 'Failed to create FAQ.');
-        },
-        async postGuides(data) {
-            return this._post('/guides', data, 'Failed to create guide.');
-        },
-        async _put(path, data, errorLabel) {
-            const res = await fetch(this.baseUrl + path, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'Accept': 'application/json' },
-                body: JSON.stringify(data)
-            });
-            const json = await res.json();
-            if (!res.ok) {
-                const msg = json.errors ? Object.values(json.errors).flat().join(' ') : (json.message || errorLabel);
-                throw new Error(msg);
-            }
-            return json;
-        },
-        async _delete(path, errorLabel) {
-            const res = await fetch(this.baseUrl + path, {
-                method: 'DELETE',
-                headers: { 'X-CSRF-TOKEN': this.csrfToken, 'Accept': 'application/json' }
-            });
-            const json = res.status === 204 ? {} : await res.json();
-            if (!res.ok) {
-                const msg = json.message || errorLabel;
-                throw new Error(msg);
-            }
-            return json;
-        },
-        async putArticle(id, data) {
-            return this._put('/articles/' + id, data, 'Failed to update article.');
-        },
-        async deleteArticle(id) {
-            return this._delete('/articles/' + id, 'Failed to delete article.');
-        },
-        async putFaq(id, data) {
-            return this._put('/faqs/' + id, data, 'Failed to update FAQ.');
-        },
-        async deleteFaq(id) {
-            return this._delete('/faqs/' + id, 'Failed to delete FAQ.');
-        },
-        async putGuide(id, data) {
-            return this._put('/guides/' + id, data, 'Failed to update guide.');
-        },
-        async deleteGuide(id) {
-            return this._delete('/guides/' + id, 'Failed to delete guide.');
-        }
+    const el = {
+        tree: document.getElementById('kbTree'),
+        listTitle: document.getElementById('kbListTitle'),
+        list: document.getElementById('kbArticleList'),
+        empty: document.getElementById('kbEmpty'),
+        reader: document.getElementById('kbReader'),
+        readerStatus: document.getElementById('kbReaderStatus'),
+        readerBreadcrumb: document.getElementById('kbReaderBreadcrumb'),
+        readerTitle: document.getElementById('kbReaderTitle'),
+        readerMeta: document.getElementById('kbReaderMeta'),
+        readerBody: document.getElementById('kbReaderBody'),
+        editor: document.getElementById('kbEditor'),
+        editorHeading: document.getElementById('kbEditorHeading'),
+        editorTitle: document.getElementById('kbEditorTitle'),
+        editorCategory: document.getElementById('kbEditorCategory'),
+        editorContent: document.getElementById('kbEditorContent'),
+        categoryModal: document.getElementById('kbCategoryModal'),
+        categoryModalTitle: document.getElementById('kbCategoryModalTitle'),
+        categoryForm: document.getElementById('kbCategoryForm'),
+        categoryName: document.getElementById('kbCategoryName'),
+        categoryParent: document.getElementById('kbCategoryParent'),
+        categorySubmit: document.getElementById('kbCategorySubmit'),
     };
 
-    function formatArticleStatus(status) {
-        const labels = {
-            draft: 'Draft',
-            published: 'Published',
-            archived: 'Archived',
-            internal: 'Published',
-            public: 'Published',
-        };
-        return labels[status] || (status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Draft');
+    const state = {
+        categories: [],
+        articles: [],
+        selection: { type: 'all', id: null },
+        status: 'all',
+        articleId: null,
+        mode: 'empty',
+        editingId: null,
+        dirty: false,
+        saving: false,
+        categoryModal: { mode: 'create', id: null },
+        collapsed: new Set(readCollapsed()),
+    };
+
+    // ---------- helpers ----------
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
-    function normalizeArticleStatus(status) {
-        if (status === 'internal' || status === 'public') {
-            return 'published';
+    function textFromHtml(html) {
+        const div = document.createElement('div');
+        div.innerHTML = html || '';
+        return (div.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function readCollapsed() {
+        try {
+            const ids = JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '[]');
+            return Array.isArray(ids) ? ids.map(Number) : [];
+        } catch {
+            return [];
         }
-        return status || 'draft';
     }
 
-    function getArticleCategoryFilter() {
-        return document.getElementById('articleCategoryFilter')?.value || 'all';
+    function saveCollapsed() {
+        try {
+            localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...state.collapsed]));
+        } catch {
+            /* storage unavailable */
+        }
     }
 
-    // Render Articles
-    function renderArticles(categoryFilter = 'all') {
-        const grid = document.getElementById('articlesGrid');
-        const filtered = categoryFilter === 'all'
-            ? articlesData
-            : articlesData.filter(article => article.category === categoryFilter);
-        grid.innerHTML = filtered.map(article => {
-            const status = normalizeArticleStatus(article.visibility);
+    function normalizeStatus(status) {
+        if (status === 'internal' || status === 'public') return 'published';
+        return ['draft', 'published', 'archived'].includes(status) ? status : 'draft';
+    }
+
+    function statusLabel(status) {
+        return { draft: 'Draft', published: 'Published', archived: 'Archived' }[normalizeStatus(status)];
+    }
+
+    async function api(method, path, body) {
+        const res = await fetch(baseUrl + path, {
+            method,
+            headers: {
+                Accept: 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                ...(body ? { 'Content-Type': 'application/json' } : {}),
+            },
+            body: body ? JSON.stringify(body) : undefined,
+        });
+        const json = res.status === 204 ? {} : await res.json().catch(() => ({}));
+        if (!res.ok || json.success === false) {
+            const msg = json.errors ? Object.values(json.errors).flat().join(' ') : (json.message || 'Request failed.');
+            throw new Error(msg);
+        }
+        return json;
+    }
+
+    // ---------- category tree ----------
+
+    function categoryById(id) {
+        return state.categories.find(c => c.id === Number(id)) || null;
+    }
+
+    function childrenOf(parentId) {
+        return state.categories
+            .filter(c => (c.parent_id ?? null) === (parentId ?? null))
+            .sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name));
+    }
+
+    function subtreeIds(id) {
+        const ids = [];
+        const queue = [Number(id)];
+        while (queue.length) {
+            const current = queue.shift();
+            if (ids.includes(current)) continue;
+            ids.push(current);
+            childrenOf(current).forEach(child => queue.push(child.id));
+        }
+        return ids;
+    }
+
+    function ancestorIds(id) {
+        const ids = [];
+        let current = categoryById(id);
+        while (current && current.parent_id && !ids.includes(current.parent_id)) {
+            ids.push(current.parent_id);
+            current = categoryById(current.parent_id);
+        }
+        return ids;
+    }
+
+    function articleCountFor(categoryId) {
+        const ids = subtreeIds(categoryId);
+        return state.articles.filter(a => a.category_id && ids.includes(a.category_id)).length;
+    }
+
+    function renderTree() {
+        const build = (parentId, depth) => childrenOf(parentId).map((category, index, siblings) => {
+            const children = childrenOf(category.id);
+            const hasChildren = children.length > 0;
+            const collapsed = state.collapsed.has(category.id);
+            const active = state.selection.type === 'category' && state.selection.id === category.id;
+            const actions = [
+                canCreate ? `<button type="button" class="kb-row-btn" data-action="add-subcategory" data-id="${category.id}" title="Add subcategory" aria-label="Add subcategory">+</button>` : '',
+                canEdit ? `<button type="button" class="kb-row-btn" data-action="edit-category" data-id="${category.id}" title="Rename or move" aria-label="Rename or move">✎</button>` : '',
+                canEdit && index > 0 ? `<button type="button" class="kb-row-btn" data-action="move-category" data-direction="up" data-id="${category.id}" title="Move up" aria-label="Move up">↑</button>` : '',
+                canEdit && index < siblings.length - 1 ? `<button type="button" class="kb-row-btn" data-action="move-category" data-direction="down" data-id="${category.id}" title="Move down" aria-label="Move down">↓</button>` : '',
+                canDelete ? `<button type="button" class="kb-row-btn kb-danger" data-action="delete-category" data-id="${category.id}" title="Delete category" aria-label="Delete category">×</button>` : '',
+            ].join('');
+
             return `
-            <div class="article-card" onclick="openArticle(${article.id})">
-                <div class="article-header">
-                    <span class="article-badge ${status}">${formatArticleStatus(article.visibility)}</span>
-                </div>
-                <h3 class="article-title">${article.title}</h3>
-                <div class="article-excerpt article-excerpt-html">${article.excerpt}</div>
-                <div class="article-footer">
-                    ${article.category ? `<span class="article-category">${article.category}</span>` : ''}
-                    <span>${article.views} views</span>
-                </div>
-            </div>
-        `;
+                <div class="kb-tree-node" role="treeitem" aria-selected="${active}"${hasChildren ? ` aria-expanded="${!collapsed}"` : ''}>
+                    <div class="kb-tree-row${active ? ' active' : ''}" data-select="category" data-id="${category.id}" style="padding-left:${6 + depth * 14}px">
+                        ${hasChildren
+                            ? `<button type="button" class="kb-caret${collapsed ? '' : ' open'}" data-action="toggle-category" data-id="${category.id}" aria-label="${collapsed ? 'Expand' : 'Collapse'}">▸</button>`
+                            : '<span class="kb-caret-spacer"></span>'}
+                        <span class="kb-nav-label" title="${escapeHtml(category.name)}">${escapeHtml(category.name)}</span>
+                        <span class="kb-count">${articleCountFor(category.id) || ''}</span>
+                        ${actions ? `<span class="kb-row-actions">${actions}</span>` : ''}
+                    </div>
+                    ${hasChildren && !collapsed ? `<div class="kb-tree-children" role="group">${build(category.id, depth + 1)}</div>` : ''}
+                </div>`;
+        }).join('');
+
+        el.tree.innerHTML = state.categories.length
+            ? build(null, 0)
+            : `<p class="kb-tree-empty">No categories yet.${canCreate ? ' Use + to add one.' : ''}</p>`;
+
+        document.querySelectorAll('.kb-nav-item').forEach(item => {
+            item.classList.toggle('active', state.selection.type === item.dataset.select);
+        });
+        document.querySelector('[data-count="all"]').textContent = state.articles.length || '';
+        document.querySelector('[data-count="uncategorized"]').textContent = state.articles.filter(a => !a.category_id).length || '';
+    }
+
+    function categoryOptions(select, { includeNone, noneLabel, exclude = [], selected = null }) {
+        const rows = [];
+        const walk = (parentId, depth) => childrenOf(parentId).forEach(category => {
+            if (exclude.includes(category.id)) return;
+            rows.push(`<option value="${category.id}"${category.id === selected ? ' selected' : ''}>${'\u00a0\u00a0\u00a0'.repeat(depth)}${escapeHtml(category.name)}</option>`);
+            walk(category.id, depth + 1);
+        });
+        walk(null, 0);
+        select.innerHTML = (includeNone ? `<option value=""${selected === null ? ' selected' : ''}>${escapeHtml(noneLabel)}</option>` : '') + rows.join('');
+    }
+
+    // ---------- article list ----------
+
+    function visibleArticles() {
+        let items = state.articles;
+        if (state.selection.type === 'uncategorized') {
+            items = items.filter(a => !a.category_id);
+        } else if (state.selection.type === 'category') {
+            const ids = subtreeIds(state.selection.id);
+            items = items.filter(a => a.category_id && ids.includes(a.category_id));
+        }
+        if (state.status !== 'all') {
+            items = items.filter(a => normalizeStatus(a.visibility) === state.status);
+        }
+        return items;
+    }
+
+    function renderList() {
+        const selectedCategory = state.selection.type === 'category' ? categoryById(state.selection.id) : null;
+        el.listTitle.textContent = selectedCategory
+            ? selectedCategory.name
+            : (state.selection.type === 'uncategorized' ? 'Uncategorized' : 'All articles');
+
+        document.querySelectorAll('.kb-status-tab').forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.status === state.status);
+        });
+
+        const items = visibleArticles();
+        el.list.removeAttribute('aria-busy');
+
+        if (!items.length) {
+            el.list.innerHTML = `<p class="kb-list-empty">No articles here yet.</p>`;
+            return;
+        }
+
+        el.list.innerHTML = items.map(article => {
+            const status = normalizeStatus(article.visibility);
+            const showPath = article.category && (!selectedCategory || article.category_id !== selectedCategory.id);
+            return `
+                <button type="button" class="kb-article-item${article.id === state.articleId ? ' active' : ''}" data-article="${article.id}">
+                    <span class="kb-article-item-title">${escapeHtml(article.title)}</span>
+                    <span class="kb-article-item-excerpt">${escapeHtml(textFromHtml(article.excerpt))}</span>
+                    <span class="kb-article-item-meta">
+                        <span class="article-badge ${status}">${statusLabel(status)}</span>
+                        ${showPath ? `<span class="kb-article-item-path">${escapeHtml(article.category)}</span>` : ''}
+                        <span class="kb-article-item-date">${escapeHtml(article.updated || article.date || '')}</span>
+                    </span>
+                </button>`;
         }).join('');
     }
 
-    const articleCategoryFilter = document.getElementById('articleCategoryFilter');
-    if (articleCategoryFilter) {
-        articleCategoryFilter.addEventListener('change', function() {
-            renderArticles(this.value);
-        });
+    // ---------- detail pane ----------
+
+    function setMode(mode) {
+        state.mode = mode;
+        el.empty.hidden = mode !== 'empty';
+        el.reader.hidden = mode !== 'read';
+        el.editor.hidden = mode !== 'edit';
     }
 
-    // Render FAQs
-    function getFaqCategoryFilter() {
-        return document.querySelector('.faq-category-btn.active')?.dataset.category || 'all';
+    function showEmpty() {
+        state.articleId = null;
+        state.dirty = false;
+        setMode('empty');
+        renderList();
     }
 
-    function renderFAQs(category = getFaqCategoryFilter()) {
-        const list = document.getElementById('faqsList');
-        const filtered = category === 'all' ? faqsData : faqsData.filter(faq => faq.category === category);
-
-        list.innerHTML = filtered.map(faq => {
-            const status = normalizeArticleStatus(faq.visibility);
-            return `
-            <div class="faq-item" onclick="toggleFAQ(${faq.id})">
-                <div class="faq-question">
-                    <div class="faq-question-main">
-                        <span class="article-badge ${status}">${formatArticleStatus(faq.visibility)}</span>
-                        <div class="faq-question-text">${faq.question}</div>
-                    </div>
-                    <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="6 9 12 15 18 9"/>
-                    </svg>
-                </div>
-                <div class="faq-answer">
-                    <div class="faq-answer-text">${faq.answer}</div>
-                    <div class="faq-meta">
-                        ${faq.category ? `<span>${faq.category}</span>` : ''}
-                        <span>${faq.views} views</span>
-                        <div class="faq-item-actions" onclick="event.stopPropagation()">
-                            ${canEditKnowledgeBase ? `<button type="button" class="btn btn-secondary btn-sm" onclick="editFaq(${faq.id})">Edit</button>` : ''}
-                            ${canDeleteKnowledgeBase ? `<button type="button" class="btn btn-secondary btn-sm knowledge-modal-delete" onclick="deleteFaqConfirm(${faq.id})">Delete</button>` : ''}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-        }).join('');
-    }
-
-    // Render Guides
-    function renderGuides() {
-        const grid = document.getElementById('guidesGrid');
-        grid.innerHTML = guidesData.map(guide => `
-            <div class="guide-card" onclick="openGuide(${guide.id})">
-                <div class="guide-image">${guide.icon}</div>
-                <div class="guide-content">
-                    <div class="guide-category">${guide.category}</div>
-                    <h3 class="guide-title">${guide.title}</h3>
-                    <div class="guide-excerpt guide-excerpt-html">${guide.excerpt}</div>
-                    <div class="guide-footer">
-                        <span>${guide.duration} read</span>
-                    </div>
-                </div>
-            </div>
-        `).join('');
-    }
-
-    // FAQ Category Switching (delegated so dynamic buttons work)
-    document.getElementById('faqCategoriesContainer').addEventListener('click', function(e) {
-        const btn = e.target.closest('.faq-category-btn');
-        if (!btn) return;
-        this.querySelectorAll('.faq-category-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        renderFAQs(btn.dataset.category);
-    });
-
-    // Toggle FAQ
-    function toggleFAQ(faqId) {
-        const faqItem = document.querySelector(`.faq-item[onclick="toggleFAQ(${faqId})"]`);
-        const isActive = faqItem.classList.contains('active');
-        
-        // Close all FAQs
-        document.querySelectorAll('.faq-item').forEach(item => {
-            item.classList.remove('active');
-        });
-        
-        // Open clicked FAQ if it wasn't active
-        if (!isActive) {
-            faqItem.classList.add('active');
-        }
-    }
-
-    // Open Article/Guide
-    function openArticle(articleId) {
-        const article = articlesData.find(a => a.id === articleId);
-        if (!article) return;
-        
-        openKnowledgeModal(article, 'article');
-    }
-
-    function openGuide(guideId) {
-        const guide = guidesData.find(g => g.id === guideId);
-        if (!guide) return;
-        
-        openKnowledgeModal(guide, 'guide');
-    }
-
-    let currentKnowledgeItem = null;
-    let currentKnowledgeType = null;
-
-    function openKnowledgeModal(item, type) {
-        currentKnowledgeItem = item;
-        currentKnowledgeType = type;
-        document.getElementById('modalBadge').textContent = formatArticleStatus(item.visibility);
-        document.getElementById('modalBadge').className = `modal-badge ${normalizeArticleStatus(item.visibility)}`;
-        document.getElementById('modalTitle').textContent = item.title;
-        document.getElementById('modalCategory').textContent = item.category || 'No category';
-        document.getElementById('modalCategory').style.display = type === 'article' && !item.category ? 'none' : '';
-        document.getElementById('modalDate').textContent = item.date || 'Dec 31, 2025';
-        document.getElementById('modalAuthor').textContent = `By ${item.author || 'Admin'}`;
-        
-        const contentBody = document.getElementById('contentBody');
-        if (type === 'article') {
-            contentBody.innerHTML = (item.content && item.content.trim()) ? item.content : `<p>${item.excerpt}</p>`;
-        } else {
-            contentBody.innerHTML = `<h2>${item.title}</h2><p>${item.excerpt}</p>`;
-        }
-        
-        document.getElementById('knowledgeModal').classList.add('active');
-        document.body.style.overflow = 'hidden';
-    }
-
-    function editContent() {
-        if (!currentKnowledgeItem || !currentKnowledgeType) return;
-        if (currentKnowledgeType === 'article') {
-            startEditArticle(currentKnowledgeItem);
-        } else {
-            startEditGuide(currentKnowledgeItem);
-        }
-        closeKnowledgeModal();
-    }
-
-    async function deleteContent() {
-        if (!currentKnowledgeItem || !currentKnowledgeType) return;
-        if (!confirm('Are you sure you want to delete this?')) return;
-        try {
-            if (currentKnowledgeType === 'article') {
-                await knowledgeBaseApi.deleteArticle(currentKnowledgeItem.id);
-                const idx = articlesData.findIndex(a => a.id === currentKnowledgeItem.id);
-                if (idx !== -1) articlesData.splice(idx, 1);
-                renderArticles(getArticleCategoryFilter());
-            } else {
-                await knowledgeBaseApi.deleteGuide(currentKnowledgeItem.id);
-                const idx = guidesData.findIndex(g => g.id === currentKnowledgeItem.id);
-                if (idx !== -1) guidesData.splice(idx, 1);
-                renderGuides();
-            }
-            closeKnowledgeModal();
-        } catch (err) {
-            alert(err.message || 'Failed to delete.');
-        }
-    }
-
-    function closeKnowledgeModal() {
-        document.getElementById('knowledgeModal').classList.remove('active');
-        document.body.style.overflow = '';
-    }
-
-    document.getElementById('knowledgeModal').addEventListener('click', function(e) {
-        if (e.target === this) {
-            closeKnowledgeModal();
-        }
-    });
-
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') {
-            if (document.getElementById('addCategoryModal').classList.contains('active')) {
-                closeAddCategoryModal();
-            } else if (document.getElementById('articlePreviewModal').classList.contains('active')) {
-                closeArticlePreviewModal();
-            } else if (document.getElementById('newArticleModal').classList.contains('active')) {
-                closeNewArticleModal();
-            } else if (document.getElementById('faqPreviewModal').classList.contains('active')) {
-                closeFaqPreviewModal();
-            } else if (document.getElementById('newFAQModal').classList.contains('active')) {
-                closeNewFAQModal();
-            } else if (document.getElementById('newGuideModal').classList.contains('active')) {
-                closeNewGuideModal();
-            } else {
-                closeKnowledgeModal();
-            }
-        }
-    });
-
-    // Add Category Modal
-    const addCategoryTypeLabels = { article: 'Article', faq: 'FAQ', guide: 'Guide' };
-    function openAddCategoryModal(type) {
-        document.getElementById('addCategoryType').value = type;
-        document.getElementById('addCategoryModalTitle').textContent = 'Add ' + addCategoryTypeLabels[type] + ' category';
-        document.getElementById('addCategoryName').value = '';
-        document.getElementById('addCategoryModal').classList.add('active');
-        document.body.style.overflow = 'hidden';
-    }
-    function closeAddCategoryModal() {
-        document.getElementById('addCategoryModal').classList.remove('active');
-        document.body.style.overflow = '';
-    }
-    async function submitAddCategory(e) {
-        e.preventDefault();
-        const type = document.getElementById('addCategoryType').value;
-        const name = document.getElementById('addCategoryName').value.trim();
-        if (!name) return;
-        try {
-            const { category } = await knowledgeBaseApi.postCategories({ type, name });
-            if (type === 'article') {
-                articleCategoriesData.push(category);
-                const sel = document.getElementById('newArticleCategory');
-                const opt = document.createElement('option');
-                opt.value = category.slug;
-                opt.textContent = category.name;
-                sel.appendChild(opt);
-                opt.selected = true;
-                const filterSel = document.getElementById('articleCategoryFilter');
-                if (filterSel) {
-                    const filterOpt = document.createElement('option');
-                    filterOpt.value = category.name;
-                    filterOpt.textContent = category.name;
-                    filterSel.appendChild(filterOpt);
-                } else {
-                    const sectionActions = document.querySelector('#articlesTab .section-actions');
-                    if (sectionActions) {
-                        const select = document.createElement('select');
-                        select.className = 'filter-select';
-                        select.id = 'articleCategoryFilter';
-                        select.innerHTML = '<option value="all">All Categories</option>';
-                        const filterOpt = document.createElement('option');
-                        filterOpt.value = category.name;
-                        filterOpt.textContent = category.name;
-                        select.appendChild(filterOpt);
-                        select.addEventListener('change', function() {
-                            renderArticles(this.value);
-                        });
-                        sectionActions.insertBefore(select, sectionActions.firstChild);
-                    }
-                }
-            } else if (type === 'faq') {
-                faqCategoriesData.push(category);
-                const sel = document.getElementById('newFAQCategory');
-                const opt = document.createElement('option');
-                opt.value = category.slug;
-                opt.textContent = category.name;
-                sel.appendChild(opt);
-                opt.selected = true;
-                const container = document.getElementById('faqCategoriesContainer');
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'leads-tab faq-category-btn';
-                btn.dataset.category = category.name;
-                btn.textContent = category.name;
-                container.appendChild(btn);
-            } else {
-                guideCategoriesData.push(category);
-                const sel = document.getElementById('newGuideCategory');
-                const opt = document.createElement('option');
-                opt.value = category.slug;
-                opt.textContent = category.name;
-                sel.appendChild(opt);
-                opt.selected = true;
-            }
-            closeAddCategoryModal();
-        } catch (err) {
-            alert(err.message || 'Failed to add category.');
-        }
-    }
-    document.getElementById('addCategoryModal').addEventListener('click', function(e) {
-        if (e.target === this) closeAddCategoryModal();
-    });
-
-    let editArticleId = null;
-    let editFaqId = null;
-    let editGuideId = null;
-
-    function setArticleCategoryByDisplayName(displayName) {
-        const sel = document.getElementById('newArticleCategory');
-        if (!displayName) {
-            sel.value = '';
-            return;
-        }
-        for (const opt of sel.options) {
-            if (opt.textContent === displayName) { sel.value = opt.value; return; }
-        }
-        sel.value = '';
-    }
-
-    function setFaqCategoryByDisplayName(displayName) {
-        const sel = document.getElementById('newFAQCategory');
-        if (!displayName) {
-            sel.value = '';
-            return;
-        }
-        for (const opt of sel.options) {
-            if (opt.textContent === displayName) { sel.value = opt.value; return; }
-        }
-        sel.value = '';
-    }
-
-    function setGuideCategoryByDisplayName(displayName) {
-        const sel = document.getElementById('newGuideCategory');
-        for (const opt of sel.options) {
-            if (opt.textContent === displayName) { sel.value = opt.value; return; }
-        }
-    }
-
-    function startEditArticle(article) {
-        editArticleId = article.id;
-        document.getElementById('newArticleTitle').value = article.title;
-        const excerptEditor = document.getElementById('newArticleExcerptEditor');
-        const excerptHidden = document.getElementById('newArticleExcerpt');
-        excerptEditor.innerHTML = article.excerpt || '';
-        excerptHidden.value = article.excerpt || '';
-        const contentEditor = document.getElementById('newArticleContentEditor');
-        const contentHidden = document.getElementById('newArticleContent');
-        contentEditor.innerHTML = article.content || '';
-        contentHidden.value = article.content || '';
-        setArticleCategoryByDisplayName(article.category);
-        document.getElementById('newArticleModal').classList.add('active');
-        document.querySelector('#newArticleModal .modal-title').textContent = 'Edit Article';
-        document.body.style.overflow = 'hidden';
-    }
-
-    function startEditGuide(guide) {
-        editGuideId = guide.id;
-        document.getElementById('newGuideTitle').value = guide.title;
-        const excerptEditor = document.getElementById('newGuideExcerptEditor');
-        const excerptHidden = document.getElementById('newGuideExcerpt');
-        excerptEditor.innerHTML = guide.excerpt || '';
-        excerptHidden.value = guide.excerpt || '';
-        setGuideCategoryByDisplayName(guide.category);
-        document.getElementById('newGuideDuration').value = guide.duration || '';
-        document.getElementById('newGuideIcon').value = guide.icon || '📖';
-        document.querySelectorAll('#newGuideIconPicker .icon-picker-btn').forEach(btn => {
-            btn.classList.toggle('selected', btn.dataset.icon === (guide.icon || '📖'));
-        });
-        document.getElementById('newGuideModal').classList.add('active');
-        document.querySelector('#newGuideModal .modal-title').textContent = 'Edit Guide';
-        document.body.style.overflow = 'hidden';
-    }
-
-    function editFaq(id) {
-        const faq = faqsData.find(f => f.id === id);
-        if (!faq) return;
-        editFaqId = id;
-        document.getElementById('newFAQQuestion').value = faq.question;
-        const answerEditor = document.getElementById('newFAQAnswerEditor');
-        const answerHidden = document.getElementById('newFAQAnswer');
-        answerEditor.innerHTML = faq.answer || '';
-        answerHidden.value = faq.answer || '';
-        setFaqCategoryByDisplayName(faq.category);
-        document.getElementById('newFAQModal').classList.add('active');
-        document.querySelector('#newFAQModal .modal-title').textContent = 'Edit FAQ';
-        document.body.style.overflow = 'hidden';
-    }
-
-    async function deleteFaqConfirm(id) {
-        if (!confirm('Are you sure you want to delete this FAQ?')) return;
-        try {
-            await knowledgeBaseApi.deleteFaq(id);
-            const idx = faqsData.findIndex(f => f.id === id);
-            if (idx !== -1) faqsData.splice(idx, 1);
-            renderFAQs(getFaqCategoryFilter());
-        } catch (err) {
-            alert(err.message || 'Failed to delete.');
-        }
-    }
-
-    function syncArticleEditors() {
-        ['newArticleExcerptEditor', 'newArticleContentEditor'].forEach(id => {
-            const editor = document.getElementById(id);
-            if (editor) richEditorSync(editor);
-        });
-    }
-
-    function collectArticleFormData() {
-        syncArticleEditors();
-        const title = document.getElementById('newArticleTitle').value.trim();
-        const excerptHtml = document.getElementById('newArticleExcerpt').value;
-        const excerpt = stripHtml(excerptHtml).length ? excerptHtml : (document.getElementById('newArticleExcerptEditor').innerText || '').trim();
-        const category = document.getElementById('newArticleCategory').value;
-        const content = document.getElementById('newArticleContent').value;
-        const categorySelect = document.getElementById('newArticleCategory');
-        const categoryLabel = category
-            ? categorySelect.options[categorySelect.selectedIndex]?.textContent || 'No category'
-            : 'No category';
-        return { title, excerpt, category, categoryLabel, content };
-    }
-
-    function validateArticleForm(data) {
-        if (!data.title) {
-            document.getElementById('newArticleTitle').focus();
-            return false;
-        }
-        if (!data.excerpt) {
-            document.getElementById('newArticleExcerptEditor').focus();
-            return false;
-        }
-        return true;
-    }
-
-    // New Article Modal
-    function createArticle() {
-        editArticleId = null;
-        document.getElementById('newArticleForm').reset();
-        document.querySelector('#newArticleModal .modal-title').textContent = 'New Article';
-        const excerptEditor = document.getElementById('newArticleExcerptEditor');
-        const excerptHidden = document.getElementById('newArticleExcerpt');
-        const contentEditor = document.getElementById('newArticleContentEditor');
-        const contentHidden = document.getElementById('newArticleContent');
-        if (excerptEditor) { excerptEditor.innerHTML = ''; }
-        if (excerptHidden) { excerptHidden.value = ''; }
-        if (contentEditor) { contentEditor.innerHTML = ''; }
-        if (contentHidden) { contentHidden.value = ''; }
-        document.getElementById('newArticleCategory').value = '';
-        document.getElementById('newArticleModal').classList.add('active');
-        document.body.style.overflow = 'hidden';
-    }
-
-    function closeNewArticleModal() {
-        document.getElementById('newArticleModal').classList.remove('active');
-        if (!document.getElementById('articlePreviewModal').classList.contains('active')) {
-            document.body.style.overflow = '';
-        }
-    }
-
-    function previewArticle(e) {
-        e.preventDefault();
-        const data = collectArticleFormData();
-        if (!validateArticleForm(data)) return;
-
-        document.getElementById('articlePreviewTitle').textContent = data.title;
-        document.getElementById('articlePreviewCategory').textContent = data.categoryLabel;
-        document.getElementById('articlePreviewMeta').style.display = data.category ? '' : 'none';
-        document.getElementById('articlePreviewExcerpt').innerHTML = data.excerpt;
-        document.getElementById('articlePreviewContent').innerHTML = data.content || '';
-        document.getElementById('articlePreviewBadge').textContent = 'Preview';
-        document.getElementById('articlePreviewBadge').className = 'modal-badge draft';
-
-        document.getElementById('articlePreviewModal').classList.add('active');
-        document.body.style.overflow = 'hidden';
-    }
-
-    function closeArticlePreviewModal() {
-        document.getElementById('articlePreviewModal').classList.remove('active');
-        if (document.getElementById('newArticleModal').classList.contains('active')) {
-            document.body.style.overflow = 'hidden';
-        } else {
-            document.body.style.overflow = '';
-        }
-    }
-
-    async function saveArticleWithStatus(status) {
-        const data = collectArticleFormData();
-        if (!validateArticleForm(data)) {
-            closeArticlePreviewModal();
+    function showArticle(id) {
+        const article = state.articles.find(a => a.id === Number(id));
+        if (!article) {
+            showEmpty();
             return;
         }
 
+        state.articleId = article.id;
+        state.dirty = false;
+        const status = normalizeStatus(article.visibility);
+
+        el.readerStatus.className = `article-badge ${status}`;
+        el.readerStatus.textContent = statusLabel(status);
+        el.readerBreadcrumb.innerHTML = article.category_id && categoryById(article.category_id)
+            ? [...ancestorIds(article.category_id).reverse(), article.category_id]
+                .map(cid => `<button type="button" class="kb-crumb" data-select="category" data-id="${cid}">${escapeHtml(categoryById(cid)?.name)}</button>`)
+                .join(`<span class="kb-crumb-sep">${SEPARATOR.trim()}</span>`)
+            : '<span class="kb-crumb-muted">Uncategorized</span>';
+        el.readerTitle.textContent = article.title;
+        el.readerMeta.textContent = `By ${article.author || 'Unknown'} · Updated ${article.updated || article.date || ''}`;
+        el.readerBody.innerHTML = (article.content && article.content.trim())
+            ? article.content
+            : '<p class="kb-crumb-muted">This article has no content yet.</p>';
+
+        setMode('read');
+        renderList();
+        setHash(`article-${article.id}`);
+    }
+
+    function showEditor(article) {
+        state.editingId = article ? article.id : null;
+        state.articleId = article ? article.id : null;
+        state.dirty = false;
+
+        el.editorHeading.textContent = article ? 'Edit article' : 'New article';
+        el.editorTitle.value = article ? article.title : '';
+        el.editorContent.innerHTML = article ? (article.content || '') : '';
+
+        const defaultCategory = article
+            ? (article.category_id || null)
+            : (state.selection.type === 'category' ? state.selection.id : null);
+        categoryOptions(el.editorCategory, { includeNone: true, noneLabel: 'Uncategorized', selected: defaultCategory });
+
+        setMode('edit');
+        renderList();
+        el.editorTitle.focus();
+    }
+
+    function confirmDiscard() {
+        return state.mode !== 'edit' || !state.dirty || confirm('Discard your unsaved changes?');
+    }
+
+    async function saveArticle(visibility) {
+        if (state.saving) return;
+        const title = el.editorTitle.value.trim();
+        if (!title) {
+            alert('Please enter a title.');
+            el.editorTitle.focus();
+            return;
+        }
+
+        const hasContent = textFromHtml(el.editorContent.innerHTML) !== '' || el.editorContent.querySelector('img') !== null;
+        const content = hasContent ? el.editorContent.innerHTML : '';
         const payload = {
-            title: data.title,
-            excerpt: data.excerpt || data.title,
-            content: data.content,
-            category: data.category || null,
-            visibility: status,
+            title,
+            content,
+            category_id: el.editorCategory.value ? Number(el.editorCategory.value) : null,
+            visibility,
         };
 
+        state.saving = true;
+        el.editor.querySelectorAll('[data-save]').forEach(btn => { btn.disabled = true; });
         try {
-            if (editArticleId) {
-                const { article } = await knowledgeBaseApi.putArticle(editArticleId, payload);
-                const idx = articlesData.findIndex(a => a.id === editArticleId);
-                if (idx !== -1) articlesData[idx] = article;
-                editArticleId = null;
-            } else {
-                const { article } = await knowledgeBaseApi.postArticles(payload);
-                articlesData.unshift(article);
-            }
-            renderArticles(getArticleCategoryFilter());
-            closeArticlePreviewModal();
-            closeNewArticleModal();
+            const { article } = state.editingId
+                ? await api('PUT', `/articles/${state.editingId}`, payload)
+                : await api('POST', '/articles', payload);
+            state.articles = [article, ...state.articles.filter(a => a.id !== article.id)];
+            state.dirty = false;
+            renderTree();
+            showArticle(article.id);
         } catch (err) {
             alert(err.message || 'Failed to save article.');
+        } finally {
+            state.saving = false;
+            el.editor.querySelectorAll('[data-save]').forEach(btn => { btn.disabled = false; });
         }
     }
 
-    document.getElementById('newArticleModal').addEventListener('click', function(e) {
-        if (e.target === this) closeNewArticleModal();
-    });
-
-    document.getElementById('articlePreviewModal').addEventListener('click', function(e) {
-        if (e.target === this) closeArticlePreviewModal();
-    });
-
-    // New FAQ Modal
-    function syncFaqEditors() {
-        const editor = document.getElementById('newFAQAnswerEditor');
-        if (editor) richEditorSync(editor);
-    }
-
-    function collectFaqFormData() {
-        syncFaqEditors();
-        const question = document.getElementById('newFAQQuestion').value.trim();
-        const answerHtml = document.getElementById('newFAQAnswer').value;
-        const answer = stripHtml(answerHtml).length ? answerHtml : (document.getElementById('newFAQAnswerEditor').innerText || '').trim();
-        const category = document.getElementById('newFAQCategory').value;
-        const categorySelect = document.getElementById('newFAQCategory');
-        const categoryLabel = category
-            ? categorySelect.options[categorySelect.selectedIndex]?.textContent || 'No category'
-            : 'No category';
-        return { question, answer, answerHtml, category, categoryLabel };
-    }
-
-    function validateFaqForm(data) {
-        if (!data.question) {
-            document.getElementById('newFAQQuestion').focus();
-            return false;
-        }
-        if (!data.answer) {
-            document.getElementById('newFAQAnswerEditor').focus();
-            return false;
-        }
-        return true;
-    }
-
-    function createFAQ() {
-        editFaqId = null;
-        document.getElementById('newFAQForm').reset();
-        document.querySelector('#newFAQModal .modal-title').textContent = 'New FAQ';
-        const answerEditor = document.getElementById('newFAQAnswerEditor');
-        const answerHidden = document.getElementById('newFAQAnswer');
-        if (answerEditor) { answerEditor.innerHTML = ''; }
-        if (answerHidden) { answerHidden.value = ''; }
-        document.getElementById('newFAQCategory').value = '';
-        document.getElementById('newFAQModal').classList.add('active');
-        document.body.style.overflow = 'hidden';
-    }
-
-    function closeNewFAQModal() {
-        document.getElementById('newFAQModal').classList.remove('active');
-        if (!document.getElementById('faqPreviewModal').classList.contains('active')) {
-            document.body.style.overflow = '';
+    async function deleteArticle() {
+        const article = state.articles.find(a => a.id === state.articleId);
+        if (!article || !confirm(`Delete "${article.title}"? This cannot be undone.`)) return;
+        try {
+            await api('DELETE', `/articles/${article.id}`);
+            state.articles = state.articles.filter(a => a.id !== article.id);
+            renderTree();
+            showEmpty();
+            setHash(selectionHash());
+        } catch (err) {
+            alert(err.message || 'Failed to delete article.');
         }
     }
 
-    function previewFaq(e) {
-        e.preventDefault();
-        const data = collectFaqFormData();
-        if (!validateFaqForm(data)) return;
+    // ---------- selection & hash ----------
 
-        document.getElementById('faqPreviewQuestion').textContent = data.question;
-        document.getElementById('faqPreviewCategory').textContent = data.categoryLabel;
-        document.getElementById('faqPreviewMeta').style.display = data.category ? '' : 'none';
-        document.getElementById('faqPreviewAnswer').innerHTML = data.answer;
-        document.getElementById('faqPreviewBadge').textContent = 'Preview';
-        document.getElementById('faqPreviewBadge').className = 'modal-badge draft';
-
-        document.getElementById('faqPreviewModal').classList.add('active');
-        document.body.style.overflow = 'hidden';
+    function selectionHash() {
+        if (state.selection.type === 'category') return `category-${state.selection.id}`;
+        if (state.selection.type === 'uncategorized') return 'uncategorized';
+        return '';
     }
 
-    function closeFaqPreviewModal() {
-        document.getElementById('faqPreviewModal').classList.remove('active');
-        if (document.getElementById('newFAQModal').classList.contains('active')) {
-            document.body.style.overflow = 'hidden';
+    function setHash(hash) {
+        const target = hash ? `#${hash}` : '';
+        if (location.hash !== target) {
+            history.replaceState(null, '', location.pathname + location.search + target);
+        }
+    }
+
+    function select(type, id = null) {
+        if (!confirmDiscard()) return;
+        state.selection = { type, id: id !== null ? Number(id) : null };
+        if (type === 'category') {
+            ancestorIds(id).forEach(aid => state.collapsed.delete(aid));
+            saveCollapsed();
+        }
+        renderTree();
+        const current = state.articles.find(a => a.id === state.articleId);
+        if (state.mode === 'edit' || !current || !visibleArticles().includes(current)) {
+            showEmpty();
         } else {
-            document.body.style.overflow = '';
+            renderList();
+        }
+        setHash(state.mode === 'read' && state.articleId ? `article-${state.articleId}` : selectionHash());
+    }
+
+    function applyHash() {
+        const hash = location.hash.replace(/^#/, '');
+        const articleMatch = hash.match(/^article-(\d+)$/);
+        const categoryMatch = hash.match(/^category-(\d+)$/);
+        if (articleMatch && state.articles.some(a => a.id === Number(articleMatch[1]))) {
+            showArticle(articleMatch[1]);
+        } else if (categoryMatch && categoryById(categoryMatch[1])) {
+            select('category', categoryMatch[1]);
+        } else if (hash === 'uncategorized') {
+            select('uncategorized');
         }
     }
 
-    async function saveFaqWithStatus(status) {
-        const data = collectFaqFormData();
-        if (!validateFaqForm(data)) {
-            closeFaqPreviewModal();
-            return;
-        }
+    // ---------- category modal & actions ----------
 
-        const payload = {
-            question: data.question,
-            answer: data.answerHtml.length ? data.answerHtml : data.answer,
-            category: data.category || null,
-            visibility: status,
-        };
+    function openCategoryModal(mode, id = null) {
+        state.categoryModal = { mode, id: id !== null ? Number(id) : null };
+        const category = mode === 'edit' ? categoryById(id) : null;
 
-        try {
-            if (editFaqId) {
-                const { faq } = await knowledgeBaseApi.putFaq(editFaqId, payload);
-                const idx = faqsData.findIndex(f => f.id === editFaqId);
-                if (idx !== -1) faqsData[idx] = faq;
-                editFaqId = null;
-            } else {
-                const { faq } = await knowledgeBaseApi.postFaqs(payload);
-                faqsData.unshift(faq);
-            }
-            renderFAQs(getFaqCategoryFilter());
-            closeFaqPreviewModal();
-            closeNewFAQModal();
-        } catch (err) {
-            alert(err.message || 'Failed to save FAQ.');
-        }
-    }
+        el.categoryModalTitle.textContent = mode === 'edit' ? 'Edit category' : 'New category';
+        el.categorySubmit.textContent = mode === 'edit' ? 'Save' : 'Create';
+        el.categoryName.value = category ? category.name : '';
 
-    document.getElementById('newFAQModal').addEventListener('click', function(e) {
-        if (e.target === this) closeNewFAQModal();
-    });
-
-    document.getElementById('faqPreviewModal').addEventListener('click', function(e) {
-        if (e.target === this) closeFaqPreviewModal();
-    });
-
-    // New Guide Modal
-    function createGuide() {
-        editGuideId = null;
-        document.getElementById('newGuideForm').reset();
-        document.querySelector('#newGuideModal .modal-title').textContent = 'New Guide';
-        document.getElementById('newGuideIcon').value = '📖';
-        document.querySelectorAll('#newGuideIconPicker .icon-picker-btn').forEach((btn) => {
-            btn.classList.toggle('selected', btn.dataset.icon === '📖');
+        const parentId = mode === 'edit'
+            ? (category?.parent_id ?? null)
+            : (mode === 'create-child' ? Number(id) : null);
+        categoryOptions(el.categoryParent, {
+            includeNone: true,
+            noneLabel: 'None (top level)',
+            exclude: mode === 'edit' ? subtreeIds(id) : [],
+            selected: parentId,
         });
-        const guideExcerptEditor = document.getElementById('newGuideExcerptEditor');
-        const guideExcerptHidden = document.getElementById('newGuideExcerpt');
-        if (guideExcerptEditor) { guideExcerptEditor.innerHTML = ''; }
-        if (guideExcerptHidden) { guideExcerptHidden.value = ''; }
-        document.getElementById('newGuideModal').classList.add('active');
-        document.body.style.overflow = 'hidden';
+
+        el.categoryModal.classList.add('active');
+        el.categoryName.focus();
     }
 
-    function closeNewGuideModal() {
-        document.getElementById('newGuideModal').classList.remove('active');
-        document.body.style.overflow = '';
+    function closeCategoryModal() {
+        el.categoryModal.classList.remove('active');
     }
 
-    async function submitNewGuide(e) {
-        e.preventDefault();
-        const title = document.getElementById('newGuideTitle').value.trim();
-        const excerptHtml = document.getElementById('newGuideExcerpt').value;
-        const excerpt = stripHtml(excerptHtml).length ? excerptHtml : (document.getElementById('newGuideExcerptEditor').innerText || '').trim();
-        if (!excerpt) {
-            document.getElementById('newGuideExcerptEditor').focus();
+    async function submitCategory(event) {
+        event.preventDefault();
+        const name = el.categoryName.value.trim();
+        if (!name) {
+            el.categoryName.focus();
             return;
         }
-        const category = document.getElementById('newGuideCategory').value;
-        const duration = document.getElementById('newGuideDuration').value.trim() || '10 min';
-        const icon = document.getElementById('newGuideIcon').value.trim() || '📖';
-        if (!title || !category) return;
+        const parentId = el.categoryParent.value ? Number(el.categoryParent.value) : null;
+
+        el.categorySubmit.disabled = true;
         try {
-            if (editGuideId) {
-                const { guide } = await knowledgeBaseApi.putGuide(editGuideId, { title, excerpt: excerpt || title, category, duration, icon });
-                const idx = guidesData.findIndex(g => g.id === editGuideId);
-                if (idx !== -1) guidesData[idx] = guide;
-                editGuideId = null;
+            if (state.categoryModal.mode === 'edit') {
+                const { categories } = await api('PUT', `/categories/${state.categoryModal.id}`, { name, parent_id: parentId });
+                state.categories = categories;
+                const paths = new Map(categories.map(c => [c.id, c.path]));
+                state.articles = state.articles.map(a => ({ ...a, category: a.category_id ? (paths.get(a.category_id) ?? null) : null }));
             } else {
-                const { guide } = await knowledgeBaseApi.postGuides({ title, excerpt: excerpt || title, category, duration, icon });
-                guidesData.unshift(guide);
+                const { categories, category } = await api('POST', '/categories', { type: 'article', name, parent_id: parentId });
+                state.categories = categories;
+                if (parentId) state.collapsed.delete(parentId);
+                saveCollapsed();
+                closeCategoryModal();
+                select('category', category.id);
+                return;
             }
-            renderGuides();
-            closeNewGuideModal();
+            closeCategoryModal();
+            renderTree();
+            renderList();
+            if (state.mode === 'read') showArticle(state.articleId);
         } catch (err) {
-            alert(err.message || 'Failed to save guide.');
+            alert(err.message || 'Failed to save category.');
+        } finally {
+            el.categorySubmit.disabled = false;
         }
     }
 
-    document.getElementById('newGuideModal').addEventListener('click', function(e) {
-        if (e.target === this) closeNewGuideModal();
-    });
+    async function moveCategory(id, direction) {
+        try {
+            const { categories } = await api('POST', `/categories/${id}/move`, { direction });
+            state.categories = categories;
+            renderTree();
+        } catch (err) {
+            alert(err.message || 'Failed to move category.');
+        }
+    }
 
-    document.getElementById('newGuideIconPicker').addEventListener('click', function(e) {
-        const btn = e.target.closest('.icon-picker-btn');
+    async function deleteCategory(id) {
+        const category = categoryById(id);
+        if (!category) return;
+        const parent = category.parent_id ? categoryById(category.parent_id) : null;
+        const direct = state.articles.filter(a => a.category_id === category.id).length;
+        const subs = childrenOf(category.id).length;
+        const lines = [`Delete the category "${category.name}"?`];
+        if (direct) {
+            lines.push(`${direct} article${direct === 1 ? '' : 's'} will move to ${parent ? `"${parent.name}"` : 'Uncategorized'}.`);
+        }
+        if (subs) {
+            lines.push(`${subs} subcategor${subs === 1 ? 'y' : 'ies'} will move ${parent ? `under "${parent.name}"` : 'to the top level'}.`);
+        }
+        if (direct || subs) {
+            lines.push('No articles are deleted.');
+        }
+        if (!confirm(lines.join('\n\n'))) return;
+
+        try {
+            const { categories, articles } = await api('DELETE', `/categories/${category.id}`);
+            state.categories = categories;
+            state.articles = articles;
+            state.collapsed.delete(category.id);
+            saveCollapsed();
+            const selectedGone = state.selection.type === 'category' && !categoryById(state.selection.id);
+            if (selectedGone) {
+                state.selection = parent ? { type: 'category', id: parent.id } : { type: 'all', id: null };
+            }
+            renderTree();
+            if (state.mode === 'read' && state.articleId) {
+                showArticle(state.articleId);
+            } else {
+                renderList();
+            }
+            if (selectedGone) setHash(selectionHash());
+        } catch (err) {
+            alert(err.message || 'Failed to delete category.');
+        }
+    }
+
+    // ---------- rich editor ----------
+
+    el.editor.querySelector('.rich-editor-toolbar').addEventListener('click', (event) => {
+        const btn = event.target.closest('.rich-editor-btn');
         if (!btn) return;
-        document.getElementById('newGuideIcon').value = btn.dataset.icon;
-        this.querySelectorAll('.icon-picker-btn').forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
+        event.preventDefault();
+        el.editorContent.focus();
+        const { cmd, value } = btn.dataset;
+        if (cmd === 'createLink' || cmd === 'insertImage') {
+            const url = prompt(cmd === 'createLink' ? 'Link URL:' : 'Image URL:', 'https://');
+            if (url && url !== 'https://') document.execCommand(cmd, false, url);
+        } else if (cmd === 'formatBlock') {
+            document.execCommand('formatBlock', false, value);
+        } else {
+            document.execCommand(cmd, false, null);
+        }
+        state.dirty = true;
     });
 
-    // Initialize after bootstrap (inbox/facebook-style: shell first, then JSON)
-    function fillCategorySelect(selectId, categories, placeholder) {
-        const sel = document.getElementById(selectId);
-        if (!sel) return;
-        const current = sel.value;
-        const keepFirst = sel.querySelector('option');
-        sel.innerHTML = '';
-        if (keepFirst && !keepFirst.value) {
-            sel.appendChild(keepFirst);
-        } else if (placeholder) {
-            const opt = document.createElement('option');
-            opt.value = '';
-            opt.textContent = placeholder;
-            sel.appendChild(opt);
-        }
-        categories.forEach((category) => {
-            const opt = document.createElement('option');
-            opt.value = category.slug;
-            opt.textContent = category.name;
-            sel.appendChild(opt);
-        });
-        if (current) sel.value = current;
-    }
+    el.editor.querySelector('.rich-editor-select').addEventListener('change', (event) => {
+        el.editorContent.focus();
+        document.execCommand('formatBlock', false, event.target.value);
+        state.dirty = true;
+    });
 
-    function applyKnowledgeBootstrap(data) {
-        articlesData = data.articles || [];
-        faqsData = data.faqs || [];
-        guidesData = data.guides || [];
-        articleCategoriesData = data.article_categories || [];
-        faqCategoriesData = data.faq_categories || [];
-        guideCategoriesData = data.guide_categories || [];
+    [el.editorTitle, el.editorContent].forEach(input => input.addEventListener('input', () => { state.dirty = true; }));
+    el.editorCategory.addEventListener('change', () => { state.dirty = true; });
 
-        fillCategorySelect('newArticleCategory', articleCategoriesData, 'No category');
-        fillCategorySelect('newFAQCategory', faqCategoriesData, 'No category');
-        fillCategorySelect('newGuideCategory', guideCategoriesData, 'Select category');
+    // ---------- events ----------
 
-        const filterSel = document.getElementById('articleCategoryFilter');
-        if (filterSel) {
-            const current = filterSel.value || 'all';
-            filterSel.innerHTML = '<option value="all">All Categories</option>';
-            articleCategoriesData.forEach((category) => {
-                const opt = document.createElement('option');
-                opt.value = category.name;
-                opt.textContent = category.name;
-                filterSel.appendChild(opt);
-            });
-            filterSel.value = current;
+    el.tree.closest('.ld-page').addEventListener('click', (event) => {
+        const action = event.target.closest('[data-action]');
+        if (action) {
+            const { id, direction } = action.dataset;
+            switch (action.dataset.action) {
+                case 'new-category': openCategoryModal('create'); return;
+                case 'add-subcategory': openCategoryModal('create-child', id); return;
+                case 'edit-category': openCategoryModal('edit', id); return;
+                case 'move-category': moveCategory(id, direction); return;
+                case 'delete-category': deleteCategory(id); return;
+                case 'close-category-modal': closeCategoryModal(); return;
+                case 'toggle-category': {
+                    const cid = Number(id);
+                    state.collapsed.has(cid) ? state.collapsed.delete(cid) : state.collapsed.add(cid);
+                    saveCollapsed();
+                    renderTree();
+                    return;
+                }
+                case 'new-article':
+                    if (confirmDiscard()) showEditor(null);
+                    return;
+                case 'edit-article': {
+                    const article = state.articles.find(a => a.id === state.articleId);
+                    if (article) showEditor(article);
+                    return;
+                }
+                case 'delete-article': deleteArticle(); return;
+                case 'cancel-edit':
+                    if (!confirmDiscard()) return;
+                    state.dirty = false;
+                    state.editingId ? showArticle(state.editingId) : showEmpty();
+                    return;
+                default: break;
+            }
         }
 
-        const faqContainer = document.getElementById('faqCategoriesContainer');
-        if (faqContainer) {
-            const active = faqContainer.querySelector('.faq-category-btn.active')?.dataset.category || 'all';
-            faqContainer.querySelectorAll('.faq-category-btn:not([data-category="all"])').forEach((btn) => btn.remove());
-            faqCategoriesData.forEach((category) => {
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'leads-tab faq-category-btn';
-                btn.dataset.category = category.name;
-                btn.textContent = category.name;
-                faqContainer.appendChild(btn);
-            });
-            const keep = faqContainer.querySelector(`.faq-category-btn[data-category="${active}"]`);
-            faqContainer.querySelectorAll('.faq-category-btn').forEach((b) => b.classList.remove('active'));
-            (keep || faqContainer.querySelector('[data-category="all"]'))?.classList.add('active');
+        const save = event.target.closest('[data-save]');
+        if (save) {
+            saveArticle(save.dataset.save);
+            return;
         }
 
-        document.getElementById('articlesGrid')?.removeAttribute('aria-busy');
-        document.getElementById('faqsList')?.removeAttribute('aria-busy');
-        document.getElementById('guidesGrid')?.removeAttribute('aria-busy');
-        renderArticles(getArticleCategoryFilter());
-        renderFAQs(getFaqCategoryFilter());
-        renderGuides();
-    }
+        const selectable = event.target.closest('[data-select]');
+        if (selectable) {
+            select(selectable.dataset.select, selectable.dataset.id ?? null);
+            return;
+        }
 
-    fetch(CFG.bootstrapUrl || '/api/knowledge-base/bootstrap', { headers: { Accept: 'application/json' } })
-        .then((res) => {
-            if (!res.ok) throw new Error('Failed to load knowledge base');
-            return res.json();
+        const articleItem = event.target.closest('[data-article]');
+        if (articleItem) {
+            const alreadyOpen = Number(articleItem.dataset.article) === state.articleId && state.mode === 'read';
+            if (!alreadyOpen && confirmDiscard()) showArticle(articleItem.dataset.article);
+            return;
+        }
+
+        const statusTab = event.target.closest('[data-status]');
+        if (statusTab) {
+            state.status = statusTab.dataset.status;
+            renderList();
+        }
+    });
+
+    el.categoryForm.addEventListener('submit', submitCategory);
+    el.categoryModal.addEventListener('click', (event) => {
+        if (event.target === el.categoryModal) closeCategoryModal();
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && el.categoryModal.classList.contains('active')) closeCategoryModal();
+    });
+    window.addEventListener('beforeunload', (event) => {
+        if (state.mode === 'edit' && state.dirty) {
+            event.preventDefault();
+            event.returnValue = '';
+        }
+    });
+
+    // ---------- load ----------
+
+    fetch(CFG.bootstrapUrl || `${baseUrl}/bootstrap`, { headers: { Accept: 'application/json' } })
+        .then(res => res.json())
+        .then(data => {
+            if (!data.success) throw new Error(data.message || 'Failed to load knowledge base.');
+            state.categories = data.categories || [];
+            state.articles = data.articles || [];
+            renderTree();
+            renderList();
+            setMode('empty');
+            applyHash();
         })
-        .then(applyKnowledgeBootstrap)
-        .catch((err) => {
-            console.error(err);
-            document.getElementById('articlesGrid').innerHTML = '';
-            document.getElementById('faqsList').innerHTML = '';
-            document.getElementById('guidesGrid').innerHTML = '';
+        .catch(err => {
+            el.list.removeAttribute('aria-busy');
+            el.list.innerHTML = `<p class="kb-list-empty">${escapeHtml(err.message || 'Failed to load knowledge base.')}</p>`;
         });
-
-    if (typeof closeAddCategoryModal === 'function') window.closeAddCategoryModal = closeAddCategoryModal;
-    if (typeof closeArticlePreviewModal === 'function') window.closeArticlePreviewModal = closeArticlePreviewModal;
-    if (typeof closeFaqPreviewModal === 'function') window.closeFaqPreviewModal = closeFaqPreviewModal;
-    if (typeof closeKnowledgeModal === 'function') window.closeKnowledgeModal = closeKnowledgeModal;
-    if (typeof closeNewArticleModal === 'function') window.closeNewArticleModal = closeNewArticleModal;
-    if (typeof closeNewFAQModal === 'function') window.closeNewFAQModal = closeNewFAQModal;
-    if (typeof closeNewGuideModal === 'function') window.closeNewGuideModal = closeNewGuideModal;
-    if (typeof createArticle === 'function') window.createArticle = createArticle;
-    if (typeof createFAQ === 'function') window.createFAQ = createFAQ;
-    if (typeof createGuide === 'function') window.createGuide = createGuide;
-    if (typeof deleteContent === 'function') window.deleteContent = deleteContent;
-    if (typeof deleteFaqConfirm === 'function') window.deleteFaqConfirm = deleteFaqConfirm;
-    if (typeof editContent === 'function') window.editContent = editContent;
-    if (typeof editFaq === 'function') window.editFaq = editFaq;
-    if (typeof openAddCategoryModal === 'function') window.openAddCategoryModal = openAddCategoryModal;
-    if (typeof openArticle === 'function') window.openArticle = openArticle;
-    if (typeof openGuide === 'function') window.openGuide = openGuide;
-    if (typeof saveArticleWithStatus === 'function') window.saveArticleWithStatus = saveArticleWithStatus;
-    if (typeof saveFaqWithStatus === 'function') window.saveFaqWithStatus = saveFaqWithStatus;
-    if (typeof stopPropagation === 'function') window.stopPropagation = stopPropagation;
-    if (typeof toggleFAQ === 'function') window.toggleFAQ = toggleFAQ;
 })();

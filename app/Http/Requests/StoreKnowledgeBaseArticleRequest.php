@@ -23,17 +23,15 @@ class StoreKnowledgeBaseArticleRequest extends FormRequest
      */
     public function rules(): array
     {
-        $companyId = $this->user()?->company_id;
-
         return [
             'title' => 'required|string|max:255',
-            'excerpt' => 'required|string',
+            'excerpt' => 'nullable|string',
             'content' => 'nullable|string',
-            'category' => [
+            'category_id' => [
                 'nullable',
-                'string',
-                Rule::exists('knowledge_base_categories', 'slug')
-                    ->where('company_id', $companyId)
+                'integer',
+                Rule::exists('knowledge_base_categories', 'id')
+                    ->where('company_id', $this->user()?->company_id)
                     ->where('type', 'article'),
             ],
             'visibility' => 'required|string|in:draft,published,archived',

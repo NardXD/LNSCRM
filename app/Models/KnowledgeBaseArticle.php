@@ -15,6 +15,8 @@ class KnowledgeBaseArticle extends Model
     protected $fillable = [
         'company_id',
         'user_id',
+        'front_article_id',
+        'category_id',
         'title',
         'excerpt',
         'content',
@@ -26,6 +28,7 @@ class KnowledgeBaseArticle extends Model
     protected function casts(): array
     {
         return [
+            'category_id' => 'integer',
             'views' => 'integer',
         ];
     }
@@ -38,5 +41,10 @@ class KnowledgeBaseArticle extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function categoryModel(): BelongsTo
+    {
+        return $this->belongsTo(KnowledgeBaseCategory::class, 'category_id');
     }
 }

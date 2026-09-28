@@ -135,7 +135,7 @@
     ]
   },
   "resources/css/pages/knowledge-base.css": {
-    "file": "assets/knowledge-base-aUq0mTNS.css",
+    "file": "assets/knowledge-base-j47F4u7c.css",
     "src": "resources/css/pages/knowledge-base.css",
     "isEntry": true,
     "name": "knowledge-base",
@@ -366,7 +366,7 @@
     "isEntry": true
   },
   "resources/js/pages/knowledge-base.js": {
-    "file": "assets/knowledge-base-vZ8vGqQr.js",
+    "file": "assets/knowledge-base-DHFiw7am.js",
     "name": "knowledge-base",
     "src": "resources/js/pages/knowledge-base.js",
     "isEntry": true

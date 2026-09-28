@@ -810,6 +810,9 @@ Route::middleware(['auth', 'company.active'])->group(function () {
     Route::prefix('api/knowledge-base')->middleware('permission:view_knowledge_base')->group(function () {
         Route::get('/bootstrap', [KnowledgeBaseController::class, 'bootstrap'])->name('api.knowledge-base.bootstrap');
         Route::post('/categories', [KnowledgeBaseController::class, 'storeCategory'])->middleware('permission:create_knowledge_base')->name('api.knowledge-base.categories.store');
+        Route::put('/categories/{id}', [KnowledgeBaseController::class, 'updateCategory'])->middleware('permission:edit_knowledge_base')->name('api.knowledge-base.categories.update');
+        Route::post('/categories/{id}/move', [KnowledgeBaseController::class, 'moveCategory'])->middleware('permission:edit_knowledge_base')->name('api.knowledge-base.categories.move');
+        Route::delete('/categories/{id}', [KnowledgeBaseController::class, 'destroyCategory'])->middleware('permission:delete_knowledge_base')->name('api.knowledge-base.categories.destroy');
         Route::post('/articles', [KnowledgeBaseController::class, 'storeArticle'])->middleware('permission:create_knowledge_base')->name('api.knowledge-base.articles.store');
         Route::put('/articles/{id}', [KnowledgeBaseController::class, 'updateArticle'])->middleware('permission:edit_knowledge_base')->name('api.knowledge-base.articles.update');
         Route::delete('/articles/{id}', [KnowledgeBaseController::class, 'destroyArticle'])->middleware('permission:delete_knowledge_base')->name('api.knowledge-base.articles.destroy');

@@ -249,6 +249,78 @@ class FrontApiClient
     }
 
     /**
+     * @return list<array<string, mixed>>
+     */
+    public function listKnowledgeBases(): array
+    {
+        return iterator_to_array($this->paginate('/knowledge_bases'), false);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function listKnowledgeBaseCategories(string $knowledgeBaseId): array
+    {
+        return iterator_to_array($this->paginate('/knowledge_bases/'.rawurlencode($knowledgeBaseId).'/categories', ['limit' => 100]), false);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function listKnowledgeBaseArticles(string $knowledgeBaseId): array
+    {
+        return iterator_to_array($this->paginate('/knowledge_bases/'.rawurlencode($knowledgeBaseId).'/articles', ['limit' => 100]), false);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function getKnowledgeBaseCategoryContent(string $categoryId): array
+    {
+        return $this->getJson('/knowledge_base_categories/'.rawurlencode($categoryId).'/content');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function getKnowledgeBaseArticleContent(string $articleId): array
+    {
+        return $this->getJson('/knowledge_base_articles/'.rawurlencode($articleId).'/content');
+    }
+
+    /**
+     * GET a single Front resource (path or absolute API URL), retrying when rate limited.
+     *
+     * @return array<string, mixed>
+     */
+    public function getJson(string $pathOrUrl): array
+    {
+        $attempt = 0;
+        do {
+            $response = Http::timeout(60)
+                ->withToken($this->token)
+                ->acceptJson()
+                ->get($this->absoluteUrl($pathOrUrl));
+
+            if ($response->status() !== 429 || $attempt >= 5) {
+                break;
+            }
+
+            $attempt++;
+            sleep(max(1, min(60, (int) ($response->header('Retry-After') ?: 2 ** $attempt))));
+        } while (true);
+
+        $this->assertSuccessful($response);
+
+        $payload = $response->json();
+        if (! is_array($payload)) {
+            throw new RuntimeException('Front API returned an unexpected response.');
+        }
+
+        return $payload;
+    }
+
+    /**
      * @param  array<string, mixed>  $query
      */
     private function requestConversationPage(string $path, array $query): Response
