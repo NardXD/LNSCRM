@@ -6,7 +6,7 @@
     const STOREGANISE_CONNECTED = !!window.__leadsConfig?.storeganiseConnected;
     const CAN_VIEW_QUOTATION_BUILDER = !!window.__leadsConfig?.canViewQuotationBuilder;
     const LEAD_QUOTE_URL_BASE = window.__leadsConfig?.leadQuoteUrlBase || '/quotation-builder/leads';
-    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', noSharedThread: false, labelIds: [], sort: 'lead_age', sortDir: 'asc', statusCounts: {}, editingId: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], emailTemplates: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: !!window.__leadsConfig?.canManageLeadRules, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', savedLeadStoreganiseSiteId: null, storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
+    const state = { page: 1, status: 'all', search: '', source: '', assignedTo: '', noSharedThread: false, labelIds: [], sort: 'lead_age', sortDir: 'asc', statusCounts: {}, editingId: null, historyLoadedFor: null, editingRuleId: null, labels: [], notes: [], companyLabels: [], statuses: [], defaultStatus: 'new', assignees: [], inboxes: [], emailTemplates: [], activities: [], activityPage: 1, activityLastPage: 1, activityTotal: 0, rules: [], rulesPage: 1, rulesLastPage: 1, rulesTotal: 0, rulesSearch: '', canManageRules: !!window.__leadsConfig?.canManageLeadRules, attachedInboxConversations: [], pendingInboxConversations: [], inboxSearchTimer: null, messageLeadId: '', messageChannels: [], messageChannel: '', leadPhones: [], leadName: '', savedLeadStoreganiseSiteId: null, storeganiseSites: [], storeganiseSitesLoaded: false, storeganiseAction: null };
 
     const body = document.getElementById('leadsTableBody');
     const modal = document.getElementById('leadModal');
@@ -1286,11 +1286,29 @@
         renderNotes(lead.notes || []);
         renderActivities(lead);
         setExtrasVisible(true);
-        loadHistory(lead.id);
+        prepareHistory(lead.id);
         if (activityModal.classList.contains('open')) {
             loadActivityPage(1).catch(() => {});
         }
         renderStoreganiseBlock(lead);
+    }
+
+    // Contact history is loaded on demand (like the inbox) so opening a lead stays fast.
+    function prepareHistory(id) {
+        if (Number(state.historyLoadedFor) === Number(id)) {
+            loadHistory(id);
+            return;
+        }
+        const empty = document.getElementById('leadHistoryEmpty');
+        const pane = document.getElementById('leadHistoryBody');
+        pane.hidden = true;
+        pane.innerHTML = '';
+        empty.hidden = false;
+        empty.innerHTML = '<button type="button" class="btn btn-secondary btn-sm" id="btnShowLeadHistory">Show contact history</button>';
+        document.getElementById('btnShowLeadHistory')?.addEventListener('click', () => {
+            state.historyLoadedFor = id;
+            loadHistory(id);
+        });
     }
 
     async function loadHistory(id) {
@@ -1303,6 +1321,7 @@
         try {
             const res = await fetch(api + '/' + id + '/history', { credentials: 'same-origin', headers: headers() });
             const data = await res.json();
+            if (Number(state.editingId) !== Number(id)) return;
             const threads = data.threads || [];
             const events = (data.events || []).slice(0, 20);
             renderLeadModalChannelLinks(threads, data.events || [], state.leadPhones);
@@ -1436,7 +1455,7 @@
                 renderLabels(data.data.labels);
             }
             renderAttachedInboxEmails();
-            loadHistory(state.editingId);
+            prepareHistory(state.editingId);
             return;
         }
         if (!state.pendingInboxConversations.some(c => Number(c.id) === Number(conversation.id))) {
@@ -1455,7 +1474,7 @@
             if (!res.ok) throw new Error(data.message || 'Could not detach email.');
             state.attachedInboxConversations = data.data || [];
             renderAttachedInboxEmails();
-            loadHistory(state.editingId);
+            prepareHistory(state.editingId);
             return;
         }
         state.pendingInboxConversations = state.pendingInboxConversations.filter(c => Number(c.id) !== Number(id));
