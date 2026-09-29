@@ -77,6 +77,8 @@
         leadLabels: [],
         labelAttachBusy: false,
         tagsMenuSelectedIds: [],
+        pendingRemovedIds: new Set(),
+        quietRefreshTimer: null,
         sidebarLabelIds: null,
         selectedLabelId: null,
         sidebarLabelSearch: '',
@@ -3416,33 +3418,71 @@
         await openConversation(target.id);
     }
 
-    async function archiveCheckedConversations() {
-        const ids = checkedConversations().map(c => Number(c.id));
-        if (!ids.length) return;
-
-        const archiveBtn = el('btnArchiveSelected');
-        if (archiveBtn) {
-            archiveBtn.disabled = true;
-            archiveBtn.textContent = 'Archiving…';
-        }
-
-        const failures = [];
-        await Promise.all(ids.map(async (id) => {
-            try {
-                await api('/conversations/' + id + '/status', { method: 'PATCH', body: { status: 'archived' } });
-            } catch (err) {
-                failures.push(err.message || 'Could not archive');
+    // Counts and list membership catch up in the background; debounced so rapid archiving costs one refresh.
+    function scheduleQuietListRefresh() {
+        clearTimeout(state.quietRefreshTimer);
+        state.quietRefreshTimer = setTimeout(() => {
+            loadNavCounts().catch(err => console.warn('Nav counts refresh failed', err));
+            // Past page 1 a refetch would drop the rows the user scrolled to.
+            if (state.listPage <= 1) {
+                loadConversations({ preserveList: true }).catch(err => console.warn('List refresh failed', err));
             }
-        }));
+        }, 400);
+    }
 
-        if (state.selectedId && ids.includes(Number(state.selectedId))) {
+    // Take a thread out of the current view immediately, then persist; restores it if the request fails.
+    async function moveConversationOut(id, request) {
+        const convId = Number(id);
+        const index = state.conversations.findIndex(c => Number(c.id) === convId);
+        const removed = index >= 0 ? state.conversations[index] : null;
+        const wasSelected = Number(state.selectedId) === convId;
+        const prevConversation = state.conversation;
+
+        state.pendingRemovedIds.add(convId);
+        if (removed) state.conversations.splice(index, 1);
+        el('conversationList')?.querySelector(`[data-conv-id="${convId}"]`)?.remove();
+        if (!state.conversations.length) renderConversations();
+        if (wasSelected) {
             state.conversation = null;
             state.selectedId = null;
             renderThread();
         }
+
+        try {
+            await request();
+        } catch (err) {
+            if (removed && !state.conversations.some(c => Number(c.id) === convId)) {
+                state.conversations.splice(Math.min(index, state.conversations.length), 0, removed);
+                const list = el('conversationList');
+                const prevScroll = list ? list.scrollTop : 0;
+                renderConversations();
+                if (list) list.scrollTop = prevScroll;
+            }
+            if (wasSelected && !state.selectedId) {
+                state.selectedId = convId;
+                state.conversation = prevConversation;
+                renderThread();
+            }
+            throw err;
+        } finally {
+            state.pendingRemovedIds.delete(convId);
+        }
+        scheduleQuietListRefresh();
+    }
+
+    function setConversationStatus(id, status) {
+        return moveConversationOut(id, () => api('/conversations/' + id + '/status', { method: 'PATCH', body: { status } }));
+    }
+
+    async function archiveCheckedConversations() {
+        const ids = checkedConversations().map(c => Number(c.id));
+        if (!ids.length) return;
+
         clearCheckedConversations();
-        await loadBootstrap();
-        await loadConversations();
+        const failures = [];
+        await Promise.all(ids.map(id => setConversationStatus(id, 'archived').catch(err => {
+            failures.push(err.message || 'Could not archive');
+        })));
         if (failures.length) {
             alert(failures.length === ids.length
                 ? 'Could not archive the selected conversations.'
@@ -3709,7 +3749,8 @@
             if (state.sort && state.sort !== 'newest') params.set('sort', state.sort);
 
             const data = await api('/conversations?' + params.toString());
-            const batch = data.conversations || [];
+            // Threads still being archived/moved must not flash back in from a list fetch that raced the request.
+            const batch = (data.conversations || []).filter(c => !state.pendingRemovedIds.has(Number(c.id)));
             const meta = data.meta || {};
             if (meta.label_folders) {
                 state.labelFolderCounts = {
@@ -4793,15 +4834,11 @@
             ? datetimeLocalToApi(toDatetimeLocalValue(until))
             : (typeof until === 'string' ? (datetimeLocalToApi(until) || until) : null);
         if (!untilValue) return;
-        await api('/conversations/' + state.selectedId + '/snooze', {
+        const id = state.selectedId;
+        await moveConversationOut(id, () => api('/conversations/' + id + '/snooze', {
             method: 'POST',
             body: { until: untilValue },
-        });
-        state.conversation = null;
-        state.selectedId = null;
-        renderThread();
-        await loadBootstrap();
-        await loadConversations();
+        }));
     }
 
     function conversationInbox() {
@@ -7019,43 +7056,48 @@
         await loadBootstrap();
     });
 
-    el('btnArchive').addEventListener('click', async () => {
-        if (!state.selectedId) return;
-        await api('/conversations/' + state.selectedId + '/status', { method: 'PATCH', body: { status: 'archived' } });
-        state.conversation = null; state.selectedId = null;
-        renderThread();
-        await loadBootstrap();
-        await loadConversations();
-    });
-    el('btnSpam').addEventListener('click', async () => {
-        if (!state.selectedId) return;
-        await api('/conversations/' + state.selectedId + '/status', { method: 'PATCH', body: { status: 'spam' } });
-        state.conversation = null; state.selectedId = null;
-        renderThread();
-        await loadBootstrap();
-        await loadConversations();
-    });
-    el('btnTrash').addEventListener('click', async () => {
-        if (!state.selectedId) return;
-        await api('/conversations/' + state.selectedId + '/status', { method: 'PATCH', body: { status: 'trashed' } });
-        state.conversation = null; state.selectedId = null;
-        renderThread();
-        await loadBootstrap();
-        await loadConversations();
-    });
-    el('btnRestore').addEventListener('click', async () => {
-        if (!state.selectedId) return;
-        await api('/conversations/' + state.selectedId + '/status', { method: 'PATCH', body: { status: 'open' } });
-        state.conversation = null; state.selectedId = null;
-        renderThread();
-        await loadBootstrap();
-        await loadConversations();
+    [
+        ['btnArchive', 'archived', 'Could not archive.'],
+        ['btnSpam', 'spam', 'Could not mark as spam.'],
+        ['btnTrash', 'trashed', 'Could not move to trash.'],
+        ['btnRestore', 'open', 'Could not restore.'],
+    ].forEach(([btnId, status, errorMessage]) => {
+        el(btnId).addEventListener('click', async () => {
+            if (!state.selectedId) return;
+            try {
+                await setConversationStatus(state.selectedId, status);
+            } catch (err) {
+                alert(err.message || errorMessage);
+            }
+        });
     });
     el('btnReopen').addEventListener('click', async () => {
         if (!state.selectedId) return;
-        await api('/conversations/' + state.selectedId + '/status', { method: 'PATCH', body: { status: 'open' } });
-        await openConversation(state.selectedId);
-        await loadConversations();
+        const id = Number(state.selectedId);
+        let data;
+        try {
+            data = await api('/conversations/' + id + '/status', { method: 'PATCH', body: { status: 'open' } });
+        } catch (err) {
+            alert(err.message || 'Could not reopen.');
+            return;
+        }
+        const updated = data?.conversation;
+        if (!updated) return;
+        if (Number(updated.id) !== id) {
+            await openConversation(updated.id);
+        } else {
+            const patch = { status: updated.status, folder: updated.folder, reopen_at: updated.reopen_at };
+            if (state.conversation && Number(state.selectedId) === id) {
+                Object.assign(state.conversation, patch);
+                renderThread();
+            }
+            const row = state.conversations.find(c => Number(c.id) === id);
+            if (row) {
+                Object.assign(row, patch);
+                rerenderConversationRow(row);
+            }
+        }
+        scheduleQuietListRefresh();
     });
 
     el('btnThreadMore')?.addEventListener('click', (e) => {
