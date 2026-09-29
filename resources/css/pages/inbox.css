@@ -2193,7 +2193,7 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     max-height: 240px;
     outline: none;
 }
-.inbox-composer-editor.form-input { min-height: 160px; max-height: 280px; }
+.inbox-composer-editor.form-input { min-height: 220px; max-height: 420px; }
 .inbox-composer-editor.is-drag-over {
     border-color: var(--inbox-accent, #4f46e5);
     box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
@@ -2952,6 +2952,23 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 .inbox-modal-help { margin: 0; color: var(--inbox-muted); font-size: 0.84rem; }
 .inbox-modal label { display: grid; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; color: #374151; }
 .inbox-modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; position: sticky; bottom: -0.25rem; background: #fff; padding-top: 0.35rem; }
+/* Compact From/To/Cc/Subject rows in the reply & compose composers, so the
+   header fields take less vertical space and the message editor gets more. */
+.inbox-field-inline {
+    display: grid;
+    grid-template-columns: 60px minmax(0, 1fr);
+    align-items: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+}
+.inbox-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+}
+@media (max-width: 640px) {
+    .inbox-field-row { grid-template-columns: 1fr; }
+}
 .inbox-rule-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; }
 
 .inbox-rule-name-label { display: block; margin-bottom: 1.1rem; }
@@ -3296,7 +3313,7 @@ html.inbox-is-popout .inbox-props {
     box-shadow: none !important;
 }
 html.inbox-is-popout .inbox-composer.has-inline-mail {
-    max-height: min(58vh, 640px);
+    max-height: min(68vh, 760px);
     overflow: auto;
 }
 html.inbox-is-popout .inbox-modal.inbox-inline-composer {
@@ -3319,8 +3336,8 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-help {
     font-size: 0.78rem;
 }
 html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-composer-editor.form-input {
-    min-height: 110px;
-    max-height: 200px;
+    min-height: 180px;
+    max-height: 380px;
 }
 html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
     position: sticky;

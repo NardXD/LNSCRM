@@ -391,16 +391,18 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
     <div class="inbox-modal inbox-modal-wide" id="modalCompose" style="display:none;">
         <h3 id="composeModalTitle">New message</h3>
         <p class="inbox-modal-help" id="composeModalHelp">Send email through a connected Outlook inbox.</p>
-        <label>From
+        <label class="inbox-field-inline">From
             <select id="composeFrom" class="form-input"></select>
         </label>
-        <label>To
-            <input type="text" id="composeTo" class="form-input" placeholder="name@company.com, other@company.com">
-        </label>
-        <label>Cc
-            <input type="text" id="composeCc" class="form-input" placeholder="optional">
-        </label>
-        <label>Subject
+        <div class="inbox-field-row">
+            <label class="inbox-field-inline">To
+                <input type="text" id="composeTo" class="form-input" placeholder="name@company.com, other@company.com">
+            </label>
+            <label class="inbox-field-inline">Cc
+                <input type="text" id="composeCc" class="form-input" placeholder="optional">
+            </label>
+        </div>
+        <label class="inbox-field-inline">Subject
             <input type="text" id="composeSubject" class="form-input" placeholder="Subject">
         </label>
         <div class="inbox-composer-tools">
@@ -421,7 +423,7 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
         </div>
         <div class="inbox-attach-chips" id="composeAttachChips"></div>
         <div class="inbox-mention-popup" id="composeMentionPopup" hidden></div>
-        <label>Message
+        <label class="inbox-message-field">Message
             <div class="inbox-html-editor inbox-composer-html-editor" data-html-editor="compose">
                 <div class="inbox-html-toolbar">
                     <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
@@ -463,16 +465,18 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
     <div class="inbox-modal inbox-modal-wide" id="modalReply" style="display:none;">
         <h3 id="replyModalTitle">Reply</h3>
         <p class="inbox-modal-help" id="replyModalHelp">Email reply via Outlook.</p>
-        <label>From
+        <label class="inbox-field-inline">From
             <select id="replyFrom" class="form-input" aria-label="From"></select>
         </label>
-        <label>To
-            <input type="text" id="replyTo" class="form-input" placeholder="name@company.com, other@company.com" autocomplete="off">
-        </label>
-        <label>Cc
-            <input type="text" id="replyCc" class="form-input" placeholder="optional" autocomplete="off">
-        </label>
-        <label>Subject
+        <div class="inbox-field-row">
+            <label class="inbox-field-inline">To
+                <input type="text" id="replyTo" class="form-input" placeholder="name@company.com, other@company.com" autocomplete="off">
+            </label>
+            <label class="inbox-field-inline">Cc
+                <input type="text" id="replyCc" class="form-input" placeholder="optional" autocomplete="off">
+            </label>
+        </div>
+        <label class="inbox-field-inline">Subject
             <input type="text" id="replySubjectDisplay" class="form-input" readonly tabindex="-1" aria-readonly="true">
         </label>
         <div class="inbox-composer-tools">
@@ -493,7 +497,7 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
         </div>
         <div class="inbox-attach-chips" id="replyAttachChips"></div>
         <div class="inbox-mention-popup" id="replyMentionPopup" hidden></div>
-        <label>Message
+        <label class="inbox-message-field">Message
             <div class="inbox-html-editor inbox-composer-html-editor" data-html-editor="reply">
                 <div class="inbox-html-toolbar">
                     <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
