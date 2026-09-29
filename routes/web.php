@@ -705,6 +705,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/templates', [InboxController::class, 'storeTemplate'])->name('api.inbox.templates.store');
         Route::put('/templates/{template}', [InboxController::class, 'updateTemplate'])->name('api.inbox.templates.update');
         Route::delete('/templates/{template}', [InboxController::class, 'destroyTemplate'])->name('api.inbox.templates.destroy');
+        Route::post('/templates/{template}/use', [InboxController::class, 'touchTemplateUsage'])->name('api.inbox.templates.use');
         Route::post('/templates/import', [InboxController::class, 'importTemplates'])->name('api.inbox.templates.import');
         Route::post('/signatures', [InboxController::class, 'storeSignature'])->name('api.inbox.signatures.store');
         Route::post('/signatures/import', [InboxController::class, 'importSignatures'])->name('api.inbox.signatures.import');

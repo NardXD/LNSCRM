@@ -3451,6 +3451,22 @@ class InboxController extends Controller
         return response()->json(['deleted' => true]);
     }
 
+    /**
+     * Marks a template as used just now, so it sorts to the top of the
+     * "Insert template" picker. Any inbox user can insert a template, so
+     * this only checks company scoping, not create_inbox_templates.
+     */
+    public function touchTemplateUsage(Request $request, InboxTemplate $template): JsonResponse
+    {
+        if ($template->company_id !== $request->user()->company_id) {
+            return response()->json(['message' => 'Forbidden.'], 403);
+        }
+
+        $template->update(['last_used_at' => now()]);
+
+        return response()->json(['last_used_at' => $template->last_used_at?->toIso8601String()]);
+    }
+
     public function importTemplates(Request $request): JsonResponse
     {
         if ($denied = $this->denyUnlessPermission($request, 'create_inbox_templates')) {
@@ -4855,6 +4871,7 @@ class InboxController extends Controller
             'format' => 'html',
             'created_by' => $template->created_by,
             'updated_at' => $template->updated_at?->toIso8601String(),
+            'last_used_at' => $template->last_used_at?->toIso8601String(),
         ];
     }
 

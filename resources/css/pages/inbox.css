@@ -1160,6 +1160,31 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     display: inline-flex; align-items: center; justify-content: center;
 }
 .inbox-chip-add:hover { border-color: var(--inbox-accent); color: var(--inbox-accent); }
+.inbox-label-chips {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+}
+.inbox-label-chips:empty { display: none; }
+.inbox-label-chip {
+    padding: 0.12rem 0.35rem 0.12rem 0.55rem;
+    border-style: solid;
+}
+.inbox-chip-remove {
+    border: none;
+    background: transparent;
+    color: inherit;
+    opacity: 0.7;
+    cursor: pointer;
+    font-size: 0.85rem;
+    line-height: 1;
+    padding: 0;
+}
+.inbox-chip-remove:hover { opacity: 1; }
+.inbox-chip.inbox-add-label-chip {
+    border-style: dashed;
+}
 .inbox-participants-chip {
     cursor: pointer;
     border-style: solid;
@@ -2586,6 +2611,19 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     line-height: 1;
     padding: 0;
 }
+.inbox-attach-chip .inbox-attach-chip-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 180px;
+    font: inherit;
+    font-weight: 600;
+    color: var(--inbox-text);
+}
+.inbox-attach-chip .inbox-attach-chip-name:hover {
+    color: var(--inbox-accent);
+    text-decoration: underline;
+}
 .inbox-mention-popup {
     position: absolute;
     left: 1rem;
@@ -2795,6 +2833,11 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 .inbox-props-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--inbox-muted); font-weight: 600; margin-bottom: 0.4rem; }
 .inbox-select, .inbox-modal .form-input {
     width: 100%; border: 1px solid var(--inbox-border); border-radius: 8px; padding: 0.5rem 0.65rem; font-size: 0.84rem; background: #fff;
+}
+.inbox-modal .form-input[readonly] {
+    background: var(--inbox-bg);
+    color: var(--inbox-muted);
+    cursor: default;
 }
 .inbox-search-select { position: relative; }
 .inbox-search-select > select { display: none !important; }

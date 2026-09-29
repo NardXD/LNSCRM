@@ -589,6 +589,17 @@
     }
 
     function getHtmlEditor(kind) {
+        // Reply/compose bodies are plain contenteditable divs with no raw-HTML
+        // source view (unlike template/signature), so `source` stays null —
+        // every caller below already treats a missing `source` as "no source
+        // mode available" and falls back to acting on `visual` directly.
+        if (kind === 'reply' || kind === 'compose') {
+            return {
+                root: document.querySelector(`[data-html-editor="${kind}"]`),
+                visual: el(kind === 'reply' ? 'replyBody' : 'composeBody'),
+                source: null,
+            };
+        }
         return {
             root: document.querySelector(`[data-html-editor="${kind}"]`),
             visual: el(kind === 'template' ? 'newTemplateVisual' : 'newSignatureVisual'),
@@ -908,6 +919,7 @@
         syncComposerModeButtons('reply');
         openModal('modalReply');
         fillReplyFromSelect();
+        setReplySubjectDisplay(message.subject || replySubjectForDisplay());
         if (el('replyTo')) el('replyTo').value = parseEmailList(message.to || message.to_emails).join(', ');
         if (el('replyCc')) el('replyCc').value = parseEmailList(message.cc || message.cc_emails).join(', ');
         setComposerHtml('reply', message.body_html || '');
@@ -1383,12 +1395,24 @@
         return preview;
     }
 
+    // Most-recently-inserted template first, so the picker (not the "Manage
+    // templates" list, which stays alphabetical for browsing) surfaces the one
+    // someone is likely to reach for again.
+    function sortTemplatesByRecency(templates) {
+        return templates.slice().sort((a, b) => {
+            const at = a.last_used_at ? new Date(a.last_used_at).getTime() : 0;
+            const bt = b.last_used_at ? new Date(b.last_used_at).getTime() : 0;
+            if (at !== bt) return bt - at;
+            return String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+        });
+    }
+
     function renderTemplatePickerList(picker) {
         if (!picker) return;
         const list = picker.querySelector('[data-template-picker-list]');
         const search = picker.querySelector('[data-template-picker-search]');
         if (!list) return;
-        const items = templatesMatchingQuery(search?.value || '');
+        const items = sortTemplatesByRecency(templatesMatchingQuery(search?.value || ''));
         if (!state.templates.length) {
             list.innerHTML = '<div class="inbox-template-picker-empty">No templates yet</div>';
             positionTemplatePickerMenu(picker);
@@ -1738,7 +1762,7 @@
         if (!chips) return;
         chips.innerHTML = files.map((f, idx) => `
             <span class="inbox-attach-chip">
-                <span title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
+                <button type="button" class="inbox-attach-chip-name" data-view-attach="${kind}:${idx}" title="Review ${escapeHtml(f.name)}">${escapeHtml(f.name)}</button>
                 <button type="button" data-remove-attach="${kind}:${idx}" aria-label="Remove">×</button>
             </span>
         `).join('');
@@ -1764,6 +1788,33 @@
             reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
             reader.readAsDataURL(file);
         });
+    }
+
+    // Lets someone review a staged (not-yet-sent) attachment before sending —
+    // decodes the base64 payload already held in state and opens it in a new
+    // tab via a Blob URL, revoked shortly after so it doesn't leak memory.
+    function previewAttachmentFile(file) {
+        if (!file?.contentBytes) return;
+        let blob;
+        try {
+            const binary = atob(file.contentBytes);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            blob = new Blob([bytes], { type: file.contentType || 'application/octet-stream' });
+        } catch (_) {
+            alert('Could not preview this file.');
+            return;
+        }
+        const url = URL.createObjectURL(blob);
+        const win = window.open(url, '_blank', 'noopener');
+        if (!win) alert('Allow pop-ups to review attachments.');
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+
+    function viewAttachmentFromChip(kind, idx) {
+        const files = fileAttachmentsOnly(state[attachmentBucket(kind)] || []);
+        const file = files[Number(idx)];
+        if (file) previewAttachmentFile(file);
     }
 
     function filesFromClipboard(e) {
@@ -1927,9 +1978,15 @@
         hideMentionPopup(kind);
     }
 
+    function markTemplateUsed(item) {
+        item.last_used_at = new Date().toISOString();
+        api('/templates/' + item.id + '/use', { method: 'POST' }).catch(() => {});
+    }
+
     function insertTemplateInto(kind, templateId) {
         const item = state.templates.find(t => String(t.id) === String(templateId));
         if (!item) return;
+        markTemplateUsed(item);
         const html = sanitizeHtml(item.body_html || plainToHtml(item.body || ''));
         if (kind === 'compose' && item.subject && !el('composeSubject').value.trim()) {
             el('composeSubject').value = item.subject;
@@ -1983,6 +2040,12 @@
         });
 
         chips?.addEventListener('click', (e) => {
+            const viewBtn = e.target.closest('[data-view-attach]');
+            if (viewBtn) {
+                const [bucketKind, idx] = viewBtn.dataset.viewAttach.split(':');
+                viewAttachmentFromChip(bucketKind, idx);
+                return;
+            }
             const btn = e.target.closest('[data-remove-attach]');
             if (!btn) return;
             const [bucketKind, idx] = btn.dataset.removeAttach.split(':');
@@ -4127,23 +4190,6 @@
         return source.replace(/\s+/g, ' ').trim();
     }
 
-    function collectParticipants(c) {
-        const map = new Map();
-        const add = (email, name) => {
-            const key = String(email || '').trim().toLowerCase();
-            if (!key || !key.includes('@')) return;
-            if (!map.has(key)) map.set(key, { email: key, name: name || key.split('@')[0] });
-            else if (name && map.get(key).name === map.get(key).email.split('@')[0]) map.get(key).name = name;
-        };
-        add(c.from_email, c.from_name);
-        (c.messages || []).forEach(m => {
-            add(m.from_email, m.from_name);
-            parseEmailList(m.to || m.to_emails).forEach(email => add(email, ''));
-            parseEmailList(m.cc || m.cc_emails).forEach(email => add(email, ''));
-        });
-        return [...map.values()];
-    }
-
     function conversationParticipants(c) {
         if (Array.isArray(c?.participants)) return c.participants;
         if (Array.isArray(c?.member_reads)) return c.member_reads;
@@ -4325,6 +4371,20 @@
         return `data-remove-inbox-tag="${label.id}"`;
     }
 
+    // One chip per label in the thread header, replacing the old single
+    // "N labels" summary chip so every label is visible without opening the
+    // dropdown. Remove clicks are handled by the delegated #threadParticipants
+    // listener via removeConversationLabelFromBtn.
+    function labelHeaderChipHtml(label) {
+        const color = tagSwatchColor(label);
+        return `
+            <span class="inbox-chip inbox-label-chip" style="border-color:${color}55;background:${color}1a;color:${color};" title="${escapeHtml(label.name || 'Label')}">
+                <span>${escapeHtml(label.name || 'Label')}</span>
+                <button type="button" class="inbox-chip-remove" ${tagRemoveDataset(label)} data-label-name="${escapeHtml(label.name || '')}" title="Remove label" aria-label="Remove ${escapeHtml(label.name || 'label')}">×</button>
+            </span>
+        `;
+    }
+
     function availableLabelsForConversation(c) {
         const used = new Set(conversationTagItems(c).map(t => Number(t.id)).filter(id => id > 0));
         return (state.leadLabels || [])
@@ -4394,31 +4454,14 @@
     }
 
     function tagsMenuHtml(c) {
-        const tags = conversationTagItems(c);
-        const preview = tags.length
-            ? tags.slice(0, 3).map(t => `
-                <span class="inbox-chip-avatar" style="background:${tagSwatchColor(t)}">${escapeHtml(initials(t.name))}</span>
-            `).join('')
-            : `<span class="inbox-chip-avatar" style="background:#94a3b8">+</span>`;
-        const rows = tags.length
-            ? tags.map(t => `
-                <div class="inbox-participant-row" title="${escapeHtml(t.name || '')}">
-                    <span class="inbox-participant-avatar" style="background:${tagSwatchColor(t)}">${escapeHtml(initials(t.name))}</span>
-                    <span class="inbox-participant-name">${escapeHtml(t.name || 'Label')}</span>
-                    <button type="button" class="inbox-tag-remove" ${tagRemoveDataset(t)} data-label-name="${escapeHtml(t.name || '')}" title="Remove label" aria-label="Remove ${escapeHtml(t.name || 'label')}">×</button>
-                </div>
-            `).join('')
-            : `<div class="inbox-assign-empty">No labels on this conversation</div>`;
-        const label = tags.length === 0 ? 'Labels' : (tags.length === 1 ? '1 label' : `${tags.length} labels`);
         return `
             <div class="inbox-pop inbox-participants-pop" id="tagsPop">
-                <button type="button" class="inbox-chip inbox-participants-chip" id="btnTags" title="Conversation labels" aria-haspopup="menu" aria-expanded="false">
-                    ${preview}
-                    <span>${label}</span>
+                <button type="button" class="inbox-chip inbox-participants-chip inbox-add-label-chip" id="btnTags" title="Add label" aria-haspopup="menu" aria-expanded="false">
+                    <span aria-hidden="true">+</span>
+                    <span>Label</span>
                 </button>
                 <div class="inbox-pop-menu inbox-participants-menu" id="tagsMenu" hidden>
-                    <div class="inbox-participants-head">Labels</div>
-                    <div class="inbox-participants-list" id="tagsMenuApplied">${rows}</div>
+                    <div class="inbox-participants-head">Add a label</div>
                     <div class="inbox-tags-add">
                         <div class="inbox-tags-busy" id="tagsMenuBusy" aria-live="polite">
                             <span class="inbox-tags-spinner" aria-hidden="true"></span>
@@ -4930,6 +4973,7 @@
 
     function populateReplyHeaders(message = null, { replyAll = false, force = false } = {}) {
         fillReplyFromSelect();
+        setReplySubjectDisplay(replySubjectForDisplay());
         const toEl = el('replyTo');
         const ccEl = el('replyCc');
         if (!force && toEl?.value.trim()) return;
@@ -4955,6 +4999,18 @@
     function forwardSubject(subject) {
         const value = String(subject || state.conversation?.subject || '').trim() || '(no subject)';
         return /^fwd:\s*/i.test(value) ? value : 'Fwd: ' + value;
+    }
+
+    // Mirrors the "Re: " prefixing InboxReplyService applies server-side, so this
+    // read-only display matches the subject Outlook will actually send with.
+    function replySubjectForDisplay(subject) {
+        const value = String(subject ?? state.conversation?.subject ?? '').trim() || '(no subject)';
+        return /^re:\s*/i.test(value) ? value : 'Re: ' + value;
+    }
+
+    function setReplySubjectDisplay(text) {
+        const node = el('replySubjectDisplay');
+        if (node) node.value = text || '';
     }
 
     function quotedForwardHtml(message) {
@@ -5049,6 +5105,7 @@
         syncComposerModeButtons('resend');
         openModal('modalReply');
         fillReplyFromSelect();
+        setReplySubjectDisplay(source.subject || replySubjectForDisplay());
         if (el('replyTo')) el('replyTo').value = parseEmailList(source.to || source.to_emails).join(', ');
         if (el('replyCc')) el('replyCc').value = parseEmailList(source.cc || source.cc_emails).join(', ');
         setComposerHtml('reply', source.body_html || plainToHtml(source.body_text || ''));
@@ -5534,6 +5591,8 @@
     function renderThreadLabels() {
         const c = state.conversation;
         if (!c) return;
+        const chipsWrap = el('threadLabelChips');
+        if (chipsWrap) chipsWrap.innerHTML = conversationTagItems(c).map(labelHeaderChipHtml).join('');
         const pop = el('tagsPop');
         if (pop) {
             const wasOpen = el('tagsMenu') ? !el('tagsMenu').hidden : false;
@@ -5614,14 +5673,8 @@
         if (mergedCount) metaBits.push(mergedCount === 1 ? '1 conversation merged in' : mergedCount + ' conversations merged in');
         el('threadMeta').textContent = metaBits.join(' · ');
 
-        const people = collectParticipants(c);
         const inbox = c.inbox || state.inboxes.find(i => Number(i.id) === Number(c.inbox_id));
-        el('threadParticipants').innerHTML = people.slice(0, 6).map(p => `
-            <span class="inbox-chip" title="${escapeHtml(p.email)}">
-                <span class="inbox-chip-avatar" style="background:${avatarHue(p.email)}">${escapeHtml(initials(p.name))}</span>
-                <span>${escapeHtml(p.name || p.email)}</span>
-            </span>
-        `).join('') + (people.length > 6 ? `<span class="inbox-chip">+${people.length - 6}</span>` : '') +
+        el('threadParticipants').innerHTML = `<div class="inbox-label-chips" id="threadLabelChips">${conversationTagItems(c).map(labelHeaderChipHtml).join('')}</div>` +
             participantsMenuHtml(c) +
             tagsMenuHtml(c);
 
@@ -7331,7 +7384,9 @@
             return;
         }
 
-        const removeTagBtn = e.target.closest('#tagsMenu [data-remove-lead-label], #tagsMenu [data-remove-conversation-label], #tagsMenu [data-remove-inbox-tag]');
+        // Matches both the per-label chips rendered directly in the header and
+        // the (redundant but harmless) rows still listed inside #tagsMenu.
+        const removeTagBtn = e.target.closest('[data-remove-lead-label], [data-remove-conversation-label], [data-remove-inbox-tag]');
         if (removeTagBtn) {
             e.stopPropagation();
             await removeConversationLabelFromBtn(removeTagBtn);
@@ -7689,7 +7744,7 @@
         menu?.classList.toggle('is-busy', !!busy);
         menu?.setAttribute('aria-busy', busy ? 'true' : 'false');
         chip?.classList.toggle('is-busy', !!busy);
-        if (chip) chip.title = busy ? status : 'Conversation labels';
+        if (chip) chip.title = busy ? status : 'Add label';
 
         [addNewBtn, addSelectedBtn, propsAddBtn].forEach(btn => {
             if (!btn) return;
@@ -8511,6 +8566,12 @@
         e.target.value = '';
     });
     el('templateAttachChips')?.addEventListener('click', (e) => {
+        const viewBtn = e.target.closest('[data-view-attach]');
+        if (viewBtn) {
+            const [bucketKind, idx] = viewBtn.dataset.viewAttach.split(':');
+            viewAttachmentFromChip(bucketKind, idx);
+            return;
+        }
         const btn = e.target.closest('[data-remove-attach]');
         if (!btn) return;
         const [bucketKind, idx] = btn.dataset.removeAttach.split(':');

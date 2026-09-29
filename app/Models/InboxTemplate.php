@@ -16,12 +16,14 @@ class InboxTemplate extends Model
         'body_text',
         'attachments',
         'front_template_id',
+        'last_used_at',
     ];
 
     protected function casts(): array
     {
         return [
             'attachments' => 'array',
+            'last_used_at' => 'datetime',
         ];
     }
 

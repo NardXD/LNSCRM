@@ -422,7 +422,17 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
         <div class="inbox-attach-chips" id="composeAttachChips"></div>
         <div class="inbox-mention-popup" id="composeMentionPopup" hidden></div>
         <label>Message
-            <div id="composeBody" class="inbox-composer-editor form-input" contenteditable="true" data-placeholder="Write your message… Type @ to mention teammates." role="textbox" aria-multiline="true"></div>
+            <div class="inbox-html-editor inbox-composer-html-editor" data-html-editor="compose">
+                <div class="inbox-html-toolbar">
+                    <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
+                    <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
+                    <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
+                    <button type="button" data-cmd="insertUnorderedList" title="Bullet list">• List</button>
+                    <button type="button" data-html-link title="Insert or edit a link on selected text or image">Link</button>
+                    <button type="button" data-cmd="removeFormat" title="Clear formatting">Clear</button>
+                </div>
+                <div id="composeBody" class="inbox-composer-editor form-input" contenteditable="true" data-placeholder="Write your message… Type @ to mention teammates." role="textbox" aria-multiline="true"></div>
+            </div>
         </label>
         <div class="inbox-modal-actions">
             <button type="button" class="inbox-btn ghost" data-close-modal>Cancel</button>
@@ -462,6 +472,9 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
         <label>Cc
             <input type="text" id="replyCc" class="form-input" placeholder="optional" autocomplete="off">
         </label>
+        <label>Subject
+            <input type="text" id="replySubjectDisplay" class="form-input" readonly tabindex="-1" aria-readonly="true">
+        </label>
         <div class="inbox-composer-tools">
             <button type="button" class="inbox-composer-tool" id="btnReplyAttach" title="Attach files">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
@@ -481,7 +494,17 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
         <div class="inbox-attach-chips" id="replyAttachChips"></div>
         <div class="inbox-mention-popup" id="replyMentionPopup" hidden></div>
         <label>Message
-            <div id="replyBody" class="inbox-composer-editor form-input" contenteditable="true" data-placeholder="Write a reply… Type @ to mention teammates." role="textbox" aria-multiline="true"></div>
+            <div class="inbox-html-editor inbox-composer-html-editor" data-html-editor="reply">
+                <div class="inbox-html-toolbar">
+                    <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
+                    <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
+                    <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
+                    <button type="button" data-cmd="insertUnorderedList" title="Bullet list">• List</button>
+                    <button type="button" data-html-link title="Insert or edit a link on selected text or image">Link</button>
+                    <button type="button" data-cmd="removeFormat" title="Clear formatting">Clear</button>
+                </div>
+                <div id="replyBody" class="inbox-composer-editor form-input" contenteditable="true" data-placeholder="Write a reply… Type @ to mention teammates." role="textbox" aria-multiline="true"></div>
+            </div>
         </label>
         <div class="inbox-modal-actions">
             <span class="inbox-composer-hint" id="composerHint">Reply via Outlook</span>
