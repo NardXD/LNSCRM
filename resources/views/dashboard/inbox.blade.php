@@ -160,13 +160,36 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
                     <div class="inbox-list-merge-bar" id="listMergeBar" hidden>
                         <span class="inbox-list-merge-count" id="listMergeCount">0 selected</span>
                         <button type="button" class="inbox-btn ghost" id="btnArchiveSelected">Archive</button>
+                        <button type="button" class="inbox-btn ghost" id="btnTrashSelected">Trash</button>
+                        <div class="inbox-pop" id="bulkAssignPop">
+                            <button type="button" class="inbox-btn ghost inbox-bulk-menu-btn" id="btnAssignSelected" aria-haspopup="menu" aria-expanded="false">Assign</button>
+                            <div class="inbox-pop-menu inbox-assign-menu" id="bulkAssignMenu" hidden>
+                                <div class="inbox-assign-search">
+                                    <input type="search" id="bulkAssignSearch" placeholder="Search team members…" autocomplete="off" aria-label="Search team members">
+                                </div>
+                                <div class="inbox-assign-list" id="bulkAssignList"></div>
+                            </div>
+                        </div>
+                        <div class="inbox-pop" id="bulkTagPop">
+                            <button type="button" class="inbox-btn ghost inbox-bulk-menu-btn" id="btnTagSelected" aria-haspopup="menu" aria-expanded="false">Tag</button>
+                            <div class="inbox-pop-menu inbox-assign-menu" id="bulkTagMenu" hidden>
+                                <div class="inbox-assign-search">
+                                    <input type="search" id="bulkTagSearch" placeholder="Search labels…" autocomplete="off" aria-label="Search labels">
+                                </div>
+                                <div class="inbox-assign-list" id="bulkTagList"></div>
+                                <div class="inbox-lead-label-add">
+                                    <input type="text" id="bulkTagNewInput" class="inbox-select" maxlength="50" placeholder="New label" aria-label="Create new label">
+                                    <button type="button" class="inbox-btn ghost" id="btnBulkTagAddNew">Add</button>
+                                </div>
+                            </div>
+                        </div>
                         <button type="button" class="inbox-btn primary" id="btnMergeSelected">Merge conversations</button>
                         <button type="button" class="inbox-btn ghost" id="btnClearChecked">Clear</button>
                     </div>
                 </div>
                 <div class="inbox-label-folders" id="labelFolders" hidden></div>
             </div>
-            <div class="inbox-conversation-list" id="conversationList" aria-busy="true" title="Click to open. Double-click to pop out. Ctrl+click (Cmd+click on Mac) to select threads, then Archive.">
+            <div class="inbox-conversation-list" id="conversationList" aria-busy="true" title="Click to open. Double-click to pop out. Ctrl+click (Cmd+click on Mac) to select threads one at a time, Shift+click to select a range.">
                 <div class="inbox-skel-list" aria-hidden="true">
                     @for ($i = 0; $i < 8; $i++)
                         <div class="inbox-skel-conv">

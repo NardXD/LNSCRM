@@ -101,6 +101,7 @@
         sort: 'newest',
         conversations: [],
         checkedIds: [],
+        checkAnchorId: null,
         selectedInboxId: null,
         view: 'open',
         selectedId: null,
@@ -3465,6 +3466,7 @@
 
     function clearCheckedConversations() {
         state.checkedIds = [];
+        state.checkAnchorId = null;
         syncCheckedRows();
     }
 
@@ -3476,6 +3478,29 @@
         if (next.has(Number(id))) next.delete(Number(id));
         else next.add(Number(id));
         state.checkedIds = [...next];
+        state.checkAnchorId = Number(id);
+        syncCheckedRows();
+    }
+
+    // Shift+click extends the selection from the last clicked/checked row
+    // (or the currently open conversation) through to this one, inclusive —
+    // same convention as Gmail/Explorer. Ctrl/Cmd+click still toggles one at
+    // a time via toggleCheckedConversation().
+    function selectCheckedRange(id) {
+        const anchor = state.checkAnchorId != null ? state.checkAnchorId : state.selectedId;
+        if (anchor == null) {
+            toggleCheckedConversation(id);
+            return;
+        }
+        const ids = state.conversations.map(c => Number(c.id));
+        const fromIdx = ids.indexOf(Number(anchor));
+        const toIdx = ids.indexOf(Number(id));
+        if (fromIdx === -1 || toIdx === -1) {
+            toggleCheckedConversation(id);
+            return;
+        }
+        const [start, end] = fromIdx <= toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
+        state.checkedIds = ids.slice(start, end + 1);
         syncCheckedRows();
     }
 
@@ -3575,6 +3600,61 @@
             alert(failures.length === ids.length
                 ? 'Could not archive the selected conversations.'
                 : 'Some conversations could not be archived.');
+        }
+    }
+
+    async function trashCheckedConversations() {
+        const ids = checkedConversations().map(c => Number(c.id));
+        if (!ids.length) return;
+        if (!confirm(ids.length === 1 ? 'Move this conversation to trash?' : `Move ${ids.length} conversations to trash?`)) return;
+
+        clearCheckedConversations();
+        const failures = [];
+        await Promise.all(ids.map(id => setConversationStatus(id, 'trashed').catch(err => {
+            failures.push(err.message || 'Could not move to trash');
+        })));
+        if (failures.length) {
+            alert(failures.length === ids.length
+                ? 'Could not move the selected conversations to trash.'
+                : 'Some conversations could not be moved to trash.');
+        }
+    }
+
+    async function assignCheckedConversations(userId) {
+        const ids = checkedConversations().map(c => Number(c.id));
+        if (!ids.length) return;
+        closeThreadPops();
+        clearCheckedConversations();
+        const failures = [];
+        await Promise.all(ids.map(id => api('/conversations/' + id + '/assign', {
+            method: 'POST',
+            body: { assigned_to: userId ? Number(userId) : null },
+        }).catch(err => failures.push(err.message || 'Could not assign'))));
+        await loadBootstrap();
+        await loadConversations();
+        if (failures.length) {
+            alert(failures.length === ids.length
+                ? 'Could not assign the selected conversations.'
+                : 'Some conversations could not be assigned.');
+        }
+    }
+
+    async function tagCheckedConversations({ labelId = null, name = null } = {}) {
+        const ids = checkedConversations().map(c => Number(c.id));
+        if (!ids.length) return;
+        closeThreadPops();
+        clearCheckedConversations();
+        const failures = [];
+        await Promise.all(ids.map(id => api('/conversations/' + id + '/lead-labels', {
+            method: 'POST',
+            body: { label_id: labelId ? Number(labelId) : null, name: name || null },
+        }).catch(err => failures.push(err.message || 'Could not add label'))));
+        await loadBootstrap();
+        await loadConversations();
+        if (failures.length) {
+            alert(failures.length === ids.length
+                ? 'Could not label the selected conversations.'
+                : 'Some conversations could not be labeled.');
         }
     }
 
@@ -4632,14 +4712,15 @@
 
     function closeThreadPops() {
         closeSearchSelects();
-        ['threadMoreMenu', 'snoozeMenu', 'assignMenu', 'commentEmojiMenu', 'sendReplyMenu', 'composeSendMenu', 'participantsMenu', 'tagsMenu', 'sortMenu'].forEach(id => {
+        ['threadMoreMenu', 'snoozeMenu', 'assignMenu', 'commentEmojiMenu', 'sendReplyMenu', 'composeSendMenu', 'participantsMenu', 'tagsMenu', 'sortMenu', 'bulkAssignMenu', 'bulkTagMenu'].forEach(id => {
             const node = el(id);
             if (node) node.hidden = true;
         });
-        document.querySelectorAll('.inbox-icon-action.is-open, .inbox-assign-btn.is-open, .inbox-send-caret.is-open, .inbox-participants-chip.is-open').forEach(btn => {
+        document.querySelectorAll('.inbox-icon-action.is-open, .inbox-assign-btn.is-open, .inbox-send-caret.is-open, .inbox-participants-chip.is-open, .inbox-bulk-menu-btn.is-open').forEach(btn => {
             btn.classList.remove('is-open');
             if (btn.id === 'btnParticipants' || btn.id === 'btnTags') btn.setAttribute('aria-expanded', 'false');
             if (btn.id === 'btnSortMenu') btn.setAttribute('aria-expanded', 'false');
+            if (btn.id === 'btnAssignSelected' || btn.id === 'btnTagSelected') btn.setAttribute('aria-expanded', 'false');
         });
         const laterFields = el('sendLaterFields');
         if (laterFields) laterFields.hidden = true;
@@ -4658,7 +4739,7 @@
         closeThreadPops();
         menu.hidden = !willOpen;
         btn?.classList.toggle('is-open', willOpen);
-        if (btn?.id === 'btnParticipants' || btn?.id === 'btnTags' || btn?.id === 'btnSortMenu') {
+        if (btn?.id === 'btnParticipants' || btn?.id === 'btnTags' || btn?.id === 'btnSortMenu' || btn?.id === 'btnAssignSelected' || btn?.id === 'btnTagSelected') {
             btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
         }
     }
@@ -4707,6 +4788,48 @@
             <div class="inbox-assign-list" id="assignMemberList"></div>
         `;
         renderAssignMemberList(previous);
+    }
+
+    function renderBulkAssignList(query) {
+        const list = el('bulkAssignList');
+        if (!list) return;
+        const q = String(query || '').trim().toLowerCase();
+        const members = matchingAssignMembers(q);
+        const parts = [];
+        if (!q || 'unassigned'.includes(q)) {
+            parts.push('<button type="button" data-bulk-assign="">Unassigned</button>');
+        }
+        members.forEach(m => {
+            parts.push(
+                `<button type="button" data-bulk-assign="${m.id}">` +
+                `<span class="inbox-assign-name">${escapeHtml(m.name)}</span>` +
+                (m.email ? `<span class="inbox-assign-email">${escapeHtml(m.email)}</span>` : '') +
+                `</button>`
+            );
+        });
+        if (!parts.length) {
+            parts.push('<div class="inbox-assign-empty">No matching teammates</div>');
+        }
+        list.innerHTML = parts.join('');
+    }
+
+    function matchingBulkTagLabels(query) {
+        const q = String(query || '').trim().toLowerCase();
+        return (state.leadLabels || []).filter(l => !q || (l.name || '').toLowerCase().includes(q));
+    }
+
+    function renderBulkTagList(query) {
+        const list = el('bulkTagList');
+        if (!list) return;
+        const labels = matchingBulkTagLabels(query);
+        list.innerHTML = labels.length
+            ? labels.map(l => `
+                <button type="button" data-bulk-tag="${l.id}">
+                    <span class="inbox-dot" style="background:${escapeHtml(l.color || '#64748b')}"></span>
+                    <span>${escapeHtml(l.name)}</span>
+                </button>
+            `).join('')
+            : '<div class="inbox-assign-empty">No matching labels</div>';
     }
 
     function shareDraftKindIds(kind) {
@@ -4852,6 +4975,28 @@
                 renderAssignMemberList('');
                 input.focus();
             }
+        }
+    }
+
+    function openBulkAssignMenu(btn) {
+        togglePop('bulkAssignMenu', btn);
+        if (!el('bulkAssignMenu')?.hidden) {
+            const input = el('bulkAssignSearch');
+            if (input) input.value = '';
+            renderBulkAssignList('');
+            input?.focus();
+        }
+    }
+
+    function openBulkTagMenu(btn) {
+        togglePop('bulkTagMenu', btn);
+        if (!el('bulkTagMenu')?.hidden) {
+            const input = el('bulkTagSearch');
+            if (input) input.value = '';
+            const newInput = el('bulkTagNewInput');
+            if (newInput) newInput.value = '';
+            renderBulkTagList('');
+            input?.focus();
         }
     }
 
@@ -6611,12 +6756,18 @@
         const row = e.target.closest('[data-conv-id]');
         if (!row) return;
         const id = Number(row.dataset.convId);
+        if (e.shiftKey) {
+            e.preventDefault();
+            selectCheckedRange(id);
+            return;
+        }
         if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
             toggleCheckedConversation(id);
             return;
         }
         clearCheckedConversations();
+        state.checkAnchorId = id;
         openConversation(id);
     });
     function conversationPopoutUrl(id) {
@@ -6662,6 +6813,69 @@
         } catch (err) {
             alert(err.message || 'Could not archive the selected conversations.');
             syncCheckedRows();
+        }
+    });
+    el('btnTrashSelected')?.addEventListener('click', async () => {
+        try {
+            await trashCheckedConversations();
+        } catch (err) {
+            alert(err.message || 'Could not move the selected conversations to trash.');
+            syncCheckedRows();
+        }
+    });
+    el('btnAssignSelected')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openBulkAssignMenu(e.currentTarget);
+    });
+    el('bulkAssignMenu')?.addEventListener('click', async (e) => {
+        if (e.target.closest('#bulkAssignSearch, .inbox-assign-search')) return;
+        const btn = e.target.closest('[data-bulk-assign]');
+        if (!btn) return;
+        try {
+            await assignCheckedConversations(btn.dataset.bulkAssign);
+        } catch (err) {
+            alert(err.message || 'Could not assign the selected conversations.');
+        }
+    });
+    el('bulkAssignMenu')?.addEventListener('input', (e) => {
+        if (e.target.id !== 'bulkAssignSearch') return;
+        renderBulkAssignList(e.target.value);
+    });
+    el('btnTagSelected')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openBulkTagMenu(e.currentTarget);
+    });
+    el('bulkTagMenu')?.addEventListener('click', async (e) => {
+        if (e.target.closest('#bulkTagSearch, .inbox-assign-search, .inbox-lead-label-add')) return;
+        const btn = e.target.closest('[data-bulk-tag]');
+        if (!btn) return;
+        try {
+            await tagCheckedConversations({ labelId: btn.dataset.bulkTag });
+        } catch (err) {
+            alert(err.message || 'Could not label the selected conversations.');
+        }
+    });
+    el('bulkTagMenu')?.addEventListener('input', (e) => {
+        if (e.target.id !== 'bulkTagSearch') return;
+        renderBulkTagList(e.target.value);
+    });
+    el('btnBulkTagAddNew')?.addEventListener('click', async () => {
+        const input = el('bulkTagNewInput');
+        const name = String(input?.value || '').trim();
+        if (!name) {
+            input?.focus();
+            return;
+        }
+        try {
+            await tagCheckedConversations({ name });
+        } catch (err) {
+            alert(err.message || 'Could not label the selected conversations.');
+        }
+    });
+    el('bulkTagNewInput')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            el('btnBulkTagAddNew')?.click();
         }
     });
     el('btnClearChecked')?.addEventListener('click', () => {
