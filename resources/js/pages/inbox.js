@@ -80,6 +80,7 @@
         pendingRemovedIds: new Set(),
         quietRefreshTimer: null,
         sidebarLabelIds: null,
+        convTimeFormat: 'relative',
         selectedLabelId: null,
         sidebarLabelSearch: '',
         sidebarLabelPickerDraft: [],
@@ -2367,6 +2368,15 @@
         }
     }
 
+    // Conversation-list timestamps all share one format (state.convTimeFormat),
+    // toggled together and persisted per user — see setConvTimeFormat().
+    function convTimeChipHtml(at) {
+        const isAbsolute = state.convTimeFormat === 'absolute';
+        const text = at ? (isAbsolute ? formatAbsoluteTime(at) : formatRelativeTime(at)) : '';
+        const title = isAbsolute ? 'Click to show relative time' : 'Click to show date & time';
+        return `<span class="inbox-conv-time${isAbsolute ? ' is-absolute' : ''}" data-conv-time="${escapeHtml(at)}" title="${title}">${escapeHtml(text)}</span>`;
+    }
+
     function refreshConversationTimes() {
         document.querySelectorAll('[data-conv-time]').forEach(node => {
             applyTimestampDisplay(node, node.dataset.convTime, formatRelativeTime);
@@ -2374,6 +2384,21 @@
         document.querySelectorAll('[data-msg-time]').forEach(node => {
             applyTimestampDisplay(node, node.dataset.msgTime, formatThreadTime);
         });
+    }
+
+    // Applies to every row in the conversation list at once (unlike the
+    // per-message time toggle in an open thread, which stays independent),
+    // and is saved server-side so it survives a refresh and follows the user
+    // across devices.
+    function setConvTimeFormat(format) {
+        const normalized = format === 'absolute' ? 'absolute' : 'relative';
+        if (state.convTimeFormat === normalized) return;
+        state.convTimeFormat = normalized;
+        document.querySelectorAll('[data-conv-time]').forEach(node => {
+            node.classList.toggle('is-absolute', normalized === 'absolute');
+            applyTimestampDisplay(node, node.dataset.convTime, formatRelativeTime);
+        });
+        api('/conv-time-format', { method: 'PUT', body: { format: normalized } }).catch(() => {});
     }
 
     function openModal(id) {
@@ -3372,7 +3397,7 @@
             <button type="button" class="inbox-conv ${c.id === state.selectedId ? 'active' : ''} ${isConversationChecked(c.id) ? 'is-checked' : ''} ${c.is_read ? '' : 'unread'}" data-conv-id="${c.id}" title="Double-click to open in a new window">
                 <div class="inbox-conv-top">
                     <span>${escapeHtml(c.inbox?.name || '')}</span>
-                    <span class="inbox-conv-time" data-conv-time="${escapeHtml(at)}" title="Click to show date & time">${formatRelativeTime(at)}</span>
+                    ${convTimeChipHtml(at)}
                 </div>
                 <div class="inbox-conv-from">${escapeHtml(c.from_name || c.from_email || 'Unknown')}</div>
                 <div class="inbox-conv-subject">${escapeHtml(c.subject || '(No subject)')}</div>
@@ -6188,6 +6213,7 @@
         state.members = data.members || [];
         state.leadLabels = data.lead_labels || [];
         state.sidebarLabelIds = Array.isArray(data.sidebar_label_ids) ? data.sidebar_label_ids.map(id => Number(id)) : null;
+        state.convTimeFormat = data.conv_time_format === 'absolute' ? 'absolute' : 'relative';
         state.permissions = {
             create_templates: !!(data.permissions && data.permissions.create_templates),
             create_rules: !!(data.permissions && data.permissions.create_rules),
@@ -6579,8 +6605,7 @@
         if (time) {
             e.preventDefault();
             e.stopPropagation();
-            time.classList.toggle('is-absolute');
-            applyTimestampDisplay(time, time.dataset.convTime, formatRelativeTime);
+            setConvTimeFormat(state.convTimeFormat === 'absolute' ? 'relative' : 'absolute');
             return;
         }
         const row = e.target.closest('[data-conv-id]');

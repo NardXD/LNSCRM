@@ -234,6 +234,7 @@ class InboxController extends Controller
             'tags' => $tags,
             'lead_labels' => $leadLabels,
             'sidebar_label_ids' => $sidebarLabelIds,
+            'conv_time_format' => $settings->conv_time_format === 'absolute' ? 'absolute' : 'relative',
             'templates' => $templates,
             'signatures' => $signaturePayload['signatures'],
             'default_signature_id' => $signaturePayload['default_signature_id'],
@@ -3326,6 +3327,27 @@ class InboxController extends Controller
 
         return response()->json([
             'sidebar_label_ids' => $settings->sidebar_label_ids ?? [],
+        ]);
+    }
+
+    /**
+     * How this user wants conversation-list timestamps displayed ("relative"
+     * like "2h ago", or "absolute" like "Sep 30, 3:14 PM"). Applies to every
+     * row in the list at once, and persists across devices/refreshes.
+     */
+    public function updateConvTimeFormat(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'format' => ['required', 'in:relative,absolute'],
+        ]);
+
+        $settings = InboxUserSetting::updateOrCreate(
+            ['user_id' => $request->user()->id],
+            ['conv_time_format' => $validated['format']]
+        );
+
+        return response()->json([
+            'conv_time_format' => $settings->conv_time_format,
         ]);
     }
 

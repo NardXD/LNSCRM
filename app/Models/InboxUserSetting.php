@@ -11,6 +11,7 @@ class InboxUserSetting extends Model
         'user_id',
         'pinned_tag_ids',
         'sidebar_label_ids',
+        'conv_time_format',
     ];
 
     protected $casts = [
