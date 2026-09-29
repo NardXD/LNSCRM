@@ -1,6 +1,6 @@
 {
   "resources/css/app.css": {
-    "file": "assets/app-C6LFsUk8.css",
+    "file": "assets/app-DsyfACpK.css",
     "src": "resources/css/app.css",
     "isEntry": true,
     "name": "app",
@@ -324,7 +324,7 @@
     "isEntry": true
   },
   "resources/js/pages/discussions.js": {
-    "file": "assets/discussions-BY3l5G5O.js",
+    "file": "assets/discussions-ahla31a3.js",
     "name": "discussions",
     "src": "resources/js/pages/discussions.js",
     "isEntry": true
