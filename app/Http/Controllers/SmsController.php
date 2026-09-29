@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SendSmsMessageJob;
 use App\Models\MessageTemplate;
 use App\Models\SmsConversation;
 use App\Models\SmsMessage;
@@ -10,11 +11,11 @@ use App\Services\LeadAutoCreateService;
 use App\Services\LeadRuleEngine;
 use App\Services\SmsConversationService;
 use App\Services\TwilioCompanyService;
-use App\Services\TwilioService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 
 class SmsController extends Controller
 {
@@ -220,26 +221,22 @@ class SmsController extends Controller
             return response()->json(['message' => 'Invalid Twilio credentials.'], 422);
         }
 
-        try {
-            $twilio = new TwilioService($credentials['sid'], $credentials['token']);
-            $sent = $twilio->sendSms($from, $to, $validated['body'], route('twilio.sms-status'));
-        } catch (\Throwable $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
-
         $conversation->our_number = $from;
         $conversation->save();
 
+        // The actual Twilio API call happens in the background (SendSmsMessageJob) so
+        // this request doesn't block on it. The message row is created now, in a
+        // "queued" state, so it appears in the conversation immediately.
         $message = SmsMessage::create([
             'company_id' => $conversation->company_id,
             'sms_conversation_id' => $conversation->id,
             'user_id' => $user->id,
-            'message_sid' => $sent->sid,
+            'message_sid' => 'pending-'.Str::uuid(),
             'direction' => 'outbound',
             'from_number' => $from,
             'to_number' => $to,
             'body' => $validated['body'],
-            'status' => $sent->status,
+            'status' => 'queued',
             'sent_at' => now(),
         ]);
 
@@ -257,6 +254,8 @@ class SmsController extends Controller
             'phone' => $conversation->peer_phone,
             'message' => $validated['body'],
         ]);
+
+        SendSmsMessageJob::dispatch($message->id);
 
         return response()->json(['data' => $this->formatMessage($message)], 201);
     }

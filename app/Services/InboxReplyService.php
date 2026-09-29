@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Http\Controllers\InboxController;
 use App\Jobs\ProcessScheduledInboxReplyJob;
 use App\Models\InboxConversation;
 use App\Models\InboxConversationActivity;
@@ -429,26 +430,27 @@ class InboxReplyService
             return null;
         }
 
-        InboxConversationActivity::create([
-            'inbox_conversation_id' => $conversation->id,
-            'user_id' => $actor->id,
-            'action' => 'replied',
-            'summary' => mb_substr($actor->name.' sent a scheduled reply', 0, 500),
-            'meta' => [
-                'message_id' => $result['message']->id,
-                'scheduled_reply_id' => $scheduled->id,
-                'source' => 'scheduled',
-            ],
+        $this->deleteOutlookNativeDraftIfAny($scheduled, $inbox);
+
+        $inboxController = app(InboxController::class);
+        $summary = $scheduled->is_immediate
+            ? $actor->name.' sent a reply'
+            : $actor->name.' sent a scheduled reply';
+        $inboxController->recordActivity($conversation, $actor, 'replied', $summary, [
+            'message_id' => $result['message']->id,
+            'scheduled_reply_id' => $scheduled->id,
+            'source' => $scheduled->is_immediate ? 'queued' : 'scheduled',
         ]);
+        $inboxController->ensureConversationFollowers($conversation, [$actor->id], true);
 
         if ($archive) {
-            InboxConversationActivity::create([
-                'inbox_conversation_id' => $conversation->id,
-                'user_id' => $actor->id,
-                'action' => 'archived',
-                'summary' => mb_substr($actor->name.' archived this conversation', 0, 500),
-                'meta' => ['source' => 'send_and_archive', 'scheduled_reply_id' => $scheduled->id],
-            ]);
+            $inboxController->recordActivity(
+                $conversation,
+                $actor,
+                'archived',
+                $actor->name.' archived this conversation',
+                ['source' => 'send_and_archive', 'scheduled_reply_id' => $scheduled->id]
+            );
         }
 
         $this->applyLeadRules($result['conversation'], LeadRuleEngine::TRIGGER_OUTBOUND_REPLY);
@@ -456,6 +458,34 @@ class InboxReplyService
         $this->finalizeScheduledSuccess($scheduled, $result['message']->id);
 
         return $result;
+    }
+
+    /**
+     * Delete the Outlook-native draft this reply was composed from (if any) and
+     * the stale local CRM copy of it, now that the real reply has been sent.
+     * Only relevant when the user was editing a draft that already existed in
+     * Outlook's own Drafts folder, not a CRM-only "shared draft".
+     */
+    private function deleteOutlookNativeDraftIfAny(ScheduledInboxReply $scheduled, SharedInbox $inbox): void
+    {
+        $draftMessageId = (string) ($scheduled->draft_message_id ?? '');
+        if ($draftMessageId === '' || str_starts_with($draftMessageId, 'local-')) {
+            return;
+        }
+
+        $this->mailService->deleteDraftMessage($inbox, $draftMessageId);
+
+        $staleDraft = InboxMessage::where('external_message_id', $draftMessageId)
+            ->where('is_draft', true)
+            ->first();
+        if ($staleDraft) {
+            $staleDraftConversation = $staleDraft->conversation;
+            $staleDraft->delete();
+            if ($staleDraftConversation) {
+                $staleDraftConversation->message_count = $staleDraftConversation->messages()->count();
+                $staleDraftConversation->save();
+            }
+        }
     }
 
     /**

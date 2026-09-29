@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\ApplyLeadLabeledRulesJob;
+use App\Jobs\ProcessScheduledInboxReplyJob;
 use App\Models\InboxConversation;
 use App\Models\InboxConversationActivity;
 use App\Models\InboxConversationComment;
@@ -1063,7 +1064,7 @@ class InboxController extends Controller
             'messages',
             'comments.user:id,name,email',
             'activities.user:id,name,email',
-            'scheduledReplies' => fn ($q) => $q->where('status', ScheduledInboxReply::STATUS_PENDING)->with('user:id,name,email'),
+            'pendingUserScheduledReplies' => fn ($q) => $q->with('user:id,name,email'),
             'assignee:id,name,email',
             'tags',
             'leadLabels',
@@ -2031,8 +2032,6 @@ class InboxController extends Controller
             return response()->json(['message' => 'This inbox is not connected to Outlook.'], 422);
         }
 
-        $lastInbound = $conversation->messages()->where('direction', 'inbound')->orderByDesc('sent_at')->first();
-
         $targets = $this->resolveReplyRecipients($request, $conversation, $inbox, $validated);
         if ($targets instanceof JsonResponse) {
             return $targets;
@@ -2100,7 +2099,7 @@ class InboxController extends Controller
                 'inbox.members',
                 'followers',
                 'userReads',
-                'scheduledReplies' => fn ($q) => $q->where('status', ScheduledInboxReply::STATUS_PENDING)->with('user:id,name,email'),
+                'pendingUserScheduledReplies' => fn ($q) => $q->with('user:id,name,email'),
             ]);
 
             return response()->json([
@@ -2110,61 +2109,43 @@ class InboxController extends Controller
             ]);
         }
 
-        try {
-            $result = $this->replyService->send($conversation, $inbox, $request->user(), [
-                'body' => $validated['body'],
-                'to' => $to,
-                'cc' => $cc,
-                'attachments' => $attachments,
-                'archive' => $archive,
-                'reply_to_message_id' => $lastInbound?->external_message_id,
-            ]);
-        } catch (\RuntimeException $e) {
-            return response()->json(['message' => $e->getMessage()], 502);
-        }
-
         $draftMessageId = (string) ($validated['draft_message_id'] ?? '');
-        if ($draftMessageId !== '' && ! str_starts_with($draftMessageId, 'local-')) {
-            $this->mailService->deleteDraftMessage($inbox, $draftMessageId);
 
-            $staleDraft = InboxMessage::where('external_message_id', $draftMessageId)
-                ->where('is_draft', true)
-                ->first();
-            if ($staleDraft) {
-                $staleDraftConversation = $staleDraft->conversation;
-                $staleDraft->delete();
-                if ($staleDraftConversation) {
-                    $staleDraftConversation->message_count = $staleDraftConversation->messages()->count();
-                    $staleDraftConversation->save();
-                }
-            }
+        // The Outlook (Graph API) send happens in the background — see
+        // InboxReplyService::dispatchScheduled(), which this row feeds into via
+        // ProcessScheduledInboxReplyJob — so this request isn't blocked on it.
+        // is_immediate=true marks it as "queued right now", not a real user-chosen
+        // schedule, which keeps it out of the "scheduled reply" UI/relations.
+        $scheduled = ScheduledInboxReply::create([
+            'inbox_conversation_id' => $conversation->id,
+            'user_id' => $request->user()->id,
+            'shared_inbox_id' => $inbox->id,
+            'type' => ScheduledInboxReply::TYPE_REPLY,
+            'to_emails' => $to,
+            'cc_emails' => $cc,
+            'body_html' => $validated['body'],
+            'body_text' => strip_tags($validated['body']),
+            'attachments' => [],
+            'draft_message_id' => $draftMessageId !== '' ? $draftMessageId : null,
+            'send_at' => now(),
+            'is_immediate' => true,
+            'archive_after' => $archive,
+            'status' => ScheduledInboxReply::STATUS_PENDING,
+        ]);
+
+        if ($attachments !== []) {
+            $scheduled->update([
+                'attachments' => $this->replyService->storeScheduledAttachments($scheduled, $attachments),
+            ]);
         }
 
-        $this->recordActivity(
-            $conversation,
-            $request->user(),
-            'replied',
-            $request->user()->name.' sent a reply',
-            ['message_id' => $result['message']->id]
-        );
+        ProcessScheduledInboxReplyJob::dispatch($scheduled->id);
 
         $this->ensureConversationFollowers($conversation, [$request->user()->id], true);
 
-        if ($archive) {
-            $this->recordActivity(
-                $conversation,
-                $request->user(),
-                'archived',
-                $request->user()->name.' archived this conversation',
-                ['source' => 'send_and_archive', 'message_id' => $result['message']->id]
-            );
-        }
-
-        $this->applyLeadRules($conversation, LeadRuleEngine::TRIGGER_OUTBOUND_REPLY);
-
         return response()->json([
-            'message' => $this->formatMessage($result['message']),
-            'conversation' => $this->formatConversation($result['conversation']),
+            'queued' => true,
+            'conversation' => $this->formatConversation($conversation),
             'archived' => $archive,
         ]);
     }
@@ -2496,7 +2477,7 @@ class InboxController extends Controller
             'tags',
             'leadLabels',
             'inbox',
-            'scheduledReplies' => fn ($q) => $q->where('status', ScheduledInboxReply::STATUS_PENDING)->with('user:id,name,email'),
+            'pendingUserScheduledReplies' => fn ($q) => $q->with('user:id,name,email'),
         ]);
 
         return response()->json([
@@ -2904,7 +2885,7 @@ class InboxController extends Controller
                 'tags',
                 'leadLabels',
                 'inbox',
-                'scheduledReplies' => fn ($q) => $q->where('status', ScheduledInboxReply::STATUS_PENDING)->with('user:id,name,email'),
+                'pendingUserScheduledReplies' => fn ($q) => $q->with('user:id,name,email'),
             ]);
 
             return response()->json([
@@ -4462,9 +4443,8 @@ class InboxController extends Controller
             $data['activities'] = $c->activities->map(fn ($activity) => $this->formatActivity($activity));
         }
 
-        if ($c->relationLoaded('scheduledReplies')) {
-            $data['scheduled_replies'] = $c->scheduledReplies
-                ->filter(fn (ScheduledInboxReply $r) => $r->status === ScheduledInboxReply::STATUS_PENDING)
+        if ($c->relationLoaded('pendingUserScheduledReplies')) {
+            $data['scheduled_replies'] = $c->pendingUserScheduledReplies
                 ->map(fn (ScheduledInboxReply $r) => $this->formatScheduledReply($r))
                 ->values();
         }
@@ -4664,7 +4644,7 @@ class InboxController extends Controller
      * @param  list<int>  $userIds
      * @return list<int> Newly attached user ids
      */
-    private function ensureConversationFollowers(InboxConversation $conversation, array $userIds, bool $subscribed = true): array
+    public function ensureConversationFollowers(InboxConversation $conversation, array $userIds, bool $subscribed = true): array
     {
         $newlyAdded = [];
 
@@ -5347,7 +5327,7 @@ class InboxController extends Controller
         ];
     }
 
-    private function recordActivity(
+    public function recordActivity(
         InboxConversation $conversation,
         ?User $actor,
         string $action,

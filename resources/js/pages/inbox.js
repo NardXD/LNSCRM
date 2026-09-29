@@ -8127,6 +8127,18 @@
             if (Number(state.selectedId) === Number(conversationId) || !state.selectedId) {
                 await openConversation(data.conversation?.id || conversationId);
             }
+
+            // The actual Outlook send now happens in a background job, so it may not
+            // have finished by the time this reload ran. One extra refresh shortly
+            // after catches the common case without waiting for the 45s poll.
+            if (data.queued) {
+                setTimeout(() => {
+                    if (Number(state.selectedId) === Number(conversationId)) {
+                        loadConversations().catch(() => {});
+                        openConversation(conversationId).catch(() => {});
+                    }
+                }, 2500);
+            }
         } catch (err) {
             console.warn('Inbox refresh after reply failed', err);
         }

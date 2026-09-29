@@ -175,6 +175,7 @@ class UserManagementController extends Controller
         // Update role
         if (isset($validated['role_id'])) {
             $user->roles()->sync([$validated['role_id']]);
+            User::bumpCompanyPermissionsVersion($user->company_id);
         }
 
         return response()->json([
@@ -264,6 +265,7 @@ class UserManagementController extends Controller
 
         if (! empty($validated['permission_ids'])) {
             $role->permissions()->attach($validated['permission_ids']);
+            User::bumpCompanyPermissionsVersion($role->company_id);
         }
 
         return response()->json([
@@ -297,6 +299,7 @@ class UserManagementController extends Controller
 
         if (isset($validated['permission_ids'])) {
             $role->permissions()->sync($validated['permission_ids']);
+            User::bumpCompanyPermissionsVersion($role->company_id);
         }
 
         return response()->json([
@@ -317,6 +320,7 @@ class UserManagementController extends Controller
 
         $role->permissions()->detach();
         $role->users()->detach();
+        User::bumpCompanyPermissionsVersion($role->company_id);
         $role->delete();
 
         return response()->json([
@@ -408,6 +412,7 @@ class UserManagementController extends Controller
         }
 
         $permission->roles()->detach();
+        User::bumpCompanyPermissionsVersion($permission->company_id);
         $permission->delete();
 
         return response()->json([

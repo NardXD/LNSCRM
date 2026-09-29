@@ -32,7 +32,9 @@ class ScheduledInboxReply extends Model
         'body_html',
         'body_text',
         'attachments',
+        'draft_message_id',
         'send_at',
+        'is_immediate',
         'archive_after',
         'status',
         'error_message',
@@ -45,6 +47,7 @@ class ScheduledInboxReply extends Model
         'send_at' => 'datetime',
         'sent_at' => 'datetime',
         'archive_after' => 'boolean',
+        'is_immediate' => 'boolean',
     ];
 
     public function conversation(): BelongsTo

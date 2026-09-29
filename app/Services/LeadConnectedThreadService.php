@@ -11,6 +11,7 @@ use App\Models\SmsConversation;
 use App\Models\ViberConversation;
 use App\Models\WhatsAppConversation;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
 class LeadConnectedThreadService
 {
@@ -20,6 +21,13 @@ class LeadConnectedThreadService
 
     /**
      * Best connected channel thread per lead for the current page.
+     *
+     * This fans out to ~6 queries across channels (see buildThreadCandidates()),
+     * and the frontend re-requests it for the visible page after every leads list
+     * load/filter/sort. Cached briefly per (company, exact set of lead ids) so
+     * agents viewing the same queue within a few seconds of each other — common
+     * with 50 concurrent users on a handful of shared views — share one fan-out
+     * instead of each re-running it.
      *
      * @param  iterable<Lead>  $leads
      * @return array<int, array{channel: string, label: string, url: string, conversation_id: int, at: ?string}>
@@ -33,6 +41,25 @@ class LeadConnectedThreadService
         }
 
         $leadIds = $leads->map(fn (Lead $lead) => (int) $lead->id)->all();
+
+        $sortedIds = $leadIds;
+        sort($sortedIds);
+        $cacheKey = 'lead-connected-threads:'.$companyId.':'.md5(implode(',', $sortedIds));
+
+        $result = Cache::remember($cacheKey, now()->addSeconds(20), function () use ($companyId, $leads, $leadIds) {
+            return $this->computeForLeads($companyId, $leads, $leadIds);
+        });
+
+        return $result;
+    }
+
+    /**
+     * @param  Collection<int, Lead>  $leads
+     * @param  list<int>  $leadIds
+     * @return array<int, array{channel: string, label: string, url: string, conversation_id: int, at: ?string}>
+     */
+    protected function computeForLeads(int $companyId, Collection $leads, array $leadIds): array
+    {
         $candidates = $this->buildThreadCandidates($companyId, $leads);
 
         $preferred = [];

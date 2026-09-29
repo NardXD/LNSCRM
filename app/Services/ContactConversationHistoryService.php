@@ -20,6 +20,14 @@ use Illuminate\Support\Facades\Log;
 
 class ContactConversationHistoryService
 {
+    /**
+     * Per-request memo of matched conversations, keyed so the same channel query
+     * (e.g. WhatsApp) isn't re-run once for threads() and again for events().
+     *
+     * @var array<string, Collection<int, mixed>>
+     */
+    protected array $conversationMatchCache = [];
+
     public function __construct(
         protected TwilioCompanyService $twilioCompany,
         protected FlexCrmLookupService $crmLookup
@@ -295,14 +303,7 @@ class ContactConversationHistoryService
      */
     protected function whatsappThreads(int $companyId, array $phones): Collection
     {
-        if ($phones === []) {
-            return collect();
-        }
-
-        return WhatsAppConversation::query()
-            ->where('company_id', $companyId)
-            ->get()
-            ->filter(fn (WhatsAppConversation $c) => $this->phoneListMatch($phones, [(string) $c->wa_id, (string) $c->phone]))
+        return $this->matchedPhoneConversations('whatsapp', WhatsAppConversation::class, $companyId, $phones, ['wa_id', 'phone'])
             ->map(fn (WhatsAppConversation $c) => [
                 'channel' => 'whatsapp',
                 'label' => 'WhatsApp',
@@ -321,14 +322,7 @@ class ContactConversationHistoryService
      */
     protected function viberThreads(int $companyId, array $phones): Collection
     {
-        if ($phones === []) {
-            return collect();
-        }
-
-        return ViberConversation::query()
-            ->where('company_id', $companyId)
-            ->get()
-            ->filter(fn (ViberConversation $c) => $this->phoneListMatch($phones, [(string) $c->viber_user_id, (string) $c->phone]))
+        return $this->matchedPhoneConversations('viber', ViberConversation::class, $companyId, $phones, ['viber_user_id', 'phone'])
             ->map(fn (ViberConversation $c) => [
                 'channel' => 'viber',
                 'label' => 'Viber',
@@ -347,14 +341,7 @@ class ContactConversationHistoryService
      */
     protected function smsThreads(int $companyId, array $phones): Collection
     {
-        if ($phones === []) {
-            return collect();
-        }
-
-        return SmsConversation::query()
-            ->where('company_id', $companyId)
-            ->get()
-            ->filter(fn (SmsConversation $c) => $this->phoneListMatch($phones, [(string) $c->peer_phone]))
+        return $this->matchedPhoneConversations('sms', SmsConversation::class, $companyId, $phones, ['peer_phone'])
             ->map(fn (SmsConversation $c) => [
                 'channel' => 'sms',
                 'label' => 'SMS',
@@ -373,35 +360,7 @@ class ContactConversationHistoryService
      */
     protected function inboxThreads(int $companyId, array $emails, ?int $leadId = null): Collection
     {
-        if ($emails === [] && ! $leadId) {
-            return collect();
-        }
-
-        return InboxConversation::query()
-            ->notMerged()
-            ->where('company_id', $companyId)
-            ->whereHas('inbox', fn ($inbox) => $inbox->where('type', SharedInbox::TYPE_SHARED))
-            ->where(function ($query) use ($emails, $leadId) {
-                if ($leadId) {
-                    $query->where('lead_id', $leadId);
-                }
-                if ($emails !== []) {
-                    $query->orWhere(function ($emailQuery) use ($emails) {
-                        $this->applyInboxEmailMatch($emailQuery, $emails);
-                    });
-                }
-            })
-            ->with('messages')
-            ->orderByDesc('last_message_at')
-            ->limit(80)
-            ->get()
-            ->filter(function (InboxConversation $c) use ($emails, $leadId) {
-                if ($leadId && (int) $c->lead_id === (int) $leadId) {
-                    return true;
-                }
-
-                return $this->inboxConversationMatchesEmails($c, $emails);
-            })
+        return $this->matchedInboxConversations($companyId, $emails, $leadId)
             ->map(fn (InboxConversation $c) => [
                 'channel' => 'inbox',
                 'label' => 'Inbox',
@@ -441,8 +400,23 @@ class ContactConversationHistoryService
             return collect();
         }
 
-        return FacebookConversation::query()
-            ->where('company_id', $companyId)
+        $query = FacebookConversation::query()->where('company_id', $companyId);
+
+        // Superset pre-filter: narrow to rows whose name/username could plausibly
+        // match one of our candidates before the exact word-boundary check below
+        // runs in PHP. Skipped (falls back to fetching all) if every candidate is
+        // a placeholder, since isPlaceholderName() is what the real check excludes.
+        $sqlNames = array_values(array_filter($names, fn ($n) => ! FacebookConversation::isPlaceholderName($n)));
+        if ($sqlNames !== []) {
+            $query->where(function ($q) use ($sqlNames) {
+                foreach ($sqlNames as $name) {
+                    $q->orWhere('name', 'like', '%'.$name.'%')
+                        ->orWhere('username', 'like', '%'.$name.'%');
+                }
+            });
+        }
+
+        return $query
             ->get()
             ->filter(function (FacebookConversation $c) use ($names) {
                 $candidates = array_filter([
@@ -489,14 +463,7 @@ class ContactConversationHistoryService
      */
     protected function whatsappEvents(int $companyId, array $phones, int $limit): Collection
     {
-        if ($phones === []) {
-            return collect();
-        }
-
-        $convIds = WhatsAppConversation::query()
-            ->where('company_id', $companyId)
-            ->get()
-            ->filter(fn (WhatsAppConversation $c) => $this->phoneListMatch($phones, [(string) $c->wa_id, (string) $c->phone]))
+        $convIds = $this->matchedPhoneConversations('whatsapp', WhatsAppConversation::class, $companyId, $phones, ['wa_id', 'phone'])
             ->pluck('id');
 
         if ($convIds->isEmpty()) {
@@ -526,14 +493,7 @@ class ContactConversationHistoryService
      */
     protected function viberEvents(int $companyId, array $phones, int $limit): Collection
     {
-        if ($phones === []) {
-            return collect();
-        }
-
-        $convIds = ViberConversation::query()
-            ->where('company_id', $companyId)
-            ->get()
-            ->filter(fn (ViberConversation $c) => $this->phoneListMatch($phones, [(string) $c->viber_user_id, (string) $c->phone]))
+        $convIds = $this->matchedPhoneConversations('viber', ViberConversation::class, $companyId, $phones, ['viber_user_id', 'phone'])
             ->pluck('id');
 
         if ($convIds->isEmpty()) {
@@ -563,14 +523,7 @@ class ContactConversationHistoryService
      */
     protected function smsEvents(int $companyId, array $phones, int $limit): Collection
     {
-        if ($phones === []) {
-            return collect();
-        }
-
-        $convIds = SmsConversation::query()
-            ->where('company_id', $companyId)
-            ->get()
-            ->filter(fn (SmsConversation $c) => $this->phoneListMatch($phones, [(string) $c->peer_phone]))
+        $convIds = $this->matchedPhoneConversations('sms', SmsConversation::class, $companyId, $phones, ['peer_phone'])
             ->pluck('id');
 
         if ($convIds->isEmpty()) {
@@ -600,11 +553,102 @@ class ContactConversationHistoryService
      */
     protected function inboxEvents(int $companyId, array $emails, int $limit, ?int $leadId = null): Collection
     {
+        return $this->matchedInboxConversations($companyId, $emails, $leadId)
+            ->take($limit)
+            ->map(fn (InboxConversation $c) => [
+                'channel' => 'inbox',
+                'label' => 'Inbox',
+                'direction' => 'inbound',
+                'preview' => ($c->subject ? $c->subject.' — ' : '').($c->snippet ?: ''),
+                'at' => ($c->last_message_at ?? $c->updated_at)?->toIso8601String(),
+                'conversation_id' => $c->id,
+                'deep_link' => url('/inbox').'?conversation='.$c->id,
+            ]);
+    }
+
+    /**
+     * Fetch + fuzzy-filter a phone-keyed conversation table (WhatsApp/Viber/SMS),
+     * memoized per (channel, phones) so threads() and events() for the same
+     * channel share one query instead of each pulling the full company table.
+     *
+     * @param  class-string<\Illuminate\Database\Eloquent\Model>  $modelClass
+     * @param  list<string>  $phones
+     * @param  list<string>  $columns  column names on the model that may hold a phone identifier
+     * @return Collection<int, \Illuminate\Database\Eloquent\Model>
+     */
+    protected function matchedPhoneConversations(string $channel, string $modelClass, int $companyId, array $phones, array $columns): Collection
+    {
+        if ($phones === []) {
+            return collect();
+        }
+
+        $cacheKey = $channel.':'.$companyId.':'.implode('|', $columns).':'.implode('|', $phones);
+        if (array_key_exists($cacheKey, $this->conversationMatchCache)) {
+            return $this->conversationMatchCache[$cacheKey];
+        }
+
+        $query = $modelClass::query()->where('company_id', $companyId);
+        $this->applyPhoneCandidateFilter($query, $phones, $columns);
+
+        return $this->conversationMatchCache[$cacheKey] = $query->get()
+            ->filter(fn ($c) => $this->phoneListMatch($phones, array_map(fn ($column) => (string) $c->{$column}, $columns)))
+            ->values();
+    }
+
+    /**
+     * Narrow a phone-keyed query to rows that could plausibly match one of the
+     * candidate phones, before the exact fuzzy check runs in PHP on the (much
+     * smaller) result. Uses a "contains last 4 digits" filter, which is a
+     * strict superset of the suffix match phoneListMatch()/crmLookupPhonesMatch()
+     * ultimately apply — it can only add false positives, never drop a true match.
+     *
+     * @param  list<string>  $phones
+     * @param  list<string>  $columns
+     */
+    protected function applyPhoneCandidateFilter($query, array $phones, array $columns): void
+    {
+        $suffixes = [];
+        foreach ($phones as $phone) {
+            $digits = preg_replace('/\D+/', '', $phone) ?? '';
+            if (strlen($digits) >= 4) {
+                $suffixes[] = substr($digits, -4);
+            }
+        }
+        $suffixes = array_values(array_unique($suffixes));
+
+        if ($suffixes === []) {
+            return;
+        }
+
+        $query->where(function ($q) use ($suffixes, $columns) {
+            foreach ($columns as $column) {
+                foreach ($suffixes as $suffix) {
+                    $q->orWhere($column, 'like', '%'.$suffix.'%');
+                }
+            }
+        });
+    }
+
+    /**
+     * Fetch + fuzzy-filter Inbox conversations by email/lead, memoized so
+     * inboxThreads() and inboxEvents() share one query instead of each
+     * running the same lookup independently.
+     *
+     * @param  list<string>  $emails
+     * @return Collection<int, InboxConversation>
+     */
+    protected function matchedInboxConversations(int $companyId, array $emails, ?int $leadId): Collection
+    {
         if ($emails === [] && ! $leadId) {
             return collect();
         }
 
-        return InboxConversation::query()
+        $cacheKey = 'inbox:'.$companyId.':'.($leadId ?? '').':'.implode('|', $emails);
+        if (array_key_exists($cacheKey, $this->conversationMatchCache)) {
+            return $this->conversationMatchCache[$cacheKey];
+        }
+
+        return $this->conversationMatchCache[$cacheKey] = InboxConversation::query()
             ->notMerged()
             ->where('company_id', $companyId)
             ->whereHas('inbox', fn ($inbox) => $inbox->where('type', SharedInbox::TYPE_SHARED))
@@ -629,16 +673,7 @@ class ContactConversationHistoryService
 
                 return $this->inboxConversationMatchesEmails($c, $emails);
             })
-            ->take($limit)
-            ->map(fn (InboxConversation $c) => [
-                'channel' => 'inbox',
-                'label' => 'Inbox',
-                'direction' => 'inbound',
-                'preview' => ($c->subject ? $c->subject.' — ' : '').($c->snippet ?: ''),
-                'at' => ($c->last_message_at ?? $c->updated_at)?->toIso8601String(),
-                'conversation_id' => $c->id,
-                'deep_link' => url('/inbox').'?conversation='.$c->id,
-            ]);
+            ->values();
     }
 
     /**

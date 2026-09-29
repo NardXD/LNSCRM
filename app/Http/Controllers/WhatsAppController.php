@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SendWhatsAppMessageJob;
 use App\Models\Company;
 use App\Models\LeadLabel;
 use App\Models\MessageTemplate;
@@ -293,9 +294,11 @@ class WhatsAppController extends Controller
             'longitude' => ['nullable', 'numeric'],
         ]);
 
-        $channel = $this->requireActiveIntegration();
-        $twilio = $this->twilioClientForCompany(Auth::user()->company);
-        $to = $conversation->wa_id ?: $conversation->phone;
+        $this->requireActiveIntegration();
+        // Validates the company has working Twilio credentials before we queue
+        // anything, so a misconfigured integration still fails fast. The actual
+        // Twilio API call happens in the background (SendWhatsAppMessageJob).
+        $this->twilioClientForCompany(Auth::user()->company);
 
         $body = null;
         $mediaUrl = null;
@@ -321,24 +324,14 @@ class WhatsAppController extends Controller
             $body = $validated['text'] ?? null;
         }
 
-        try {
-            $sent = $twilio->sendWhatsApp(
-                (string) $channel->from_number,
-                (string) $to,
-                $body,
-                $channel->statusCallbackUrl(),
-                $mediaUrl
-            );
-        } catch (\Throwable $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
-
+        // The message row is created now, in a "queued" state, so it appears in
+        // the conversation immediately while the job sends it in the background.
         $message = WhatsAppMessage::create([
             'company_id' => $conversation->company_id,
             'whatsapp_conversation_id' => $conversation->id,
             'user_id' => Auth::id(),
             'direction' => 'outbound',
-            'wamid' => $sent->sid,
+            'wamid' => null,
             'type' => $type,
             'text' => $validated['text'] ?? ($type === 'location' ? $body : null),
             'media_url' => $mediaUrl,
@@ -346,8 +339,7 @@ class WhatsAppController extends Controller
             'file_size' => $validated['file_size'] ?? null,
             'latitude' => $validated['latitude'] ?? null,
             'longitude' => $validated['longitude'] ?? null,
-            'status' => $sent->status ?? 'sent',
-            'raw_payload' => ['sid' => $sent->sid, 'status' => $sent->status],
+            'status' => 'queued',
             'sent_at' => now(),
         ]);
 
@@ -365,6 +357,8 @@ class WhatsAppController extends Controller
             'phone' => $conversation->wa_id ?: $conversation->phone,
             'message' => (string) ($validated['text'] ?? $body ?? ''),
         ]);
+
+        SendWhatsAppMessageJob::dispatch($message->id, $body, $mediaUrl);
 
         return response()->json(['data' => $this->formatMessage($message)], 201);
     }

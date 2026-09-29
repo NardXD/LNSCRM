@@ -498,6 +498,7 @@ class UserManagementController extends Controller
             // Only attach permissions that belong to the same company
             if (! empty($permissionIds)) {
                 $role->permissions()->syncWithoutDetaching($permissionIds);
+                User::bumpCompanyPermissionsVersion($role->company_id);
             }
         }
 
@@ -556,6 +557,7 @@ class UserManagementController extends Controller
                 ->pluck('id')
                 ->toArray();
             $role->permissions()->sync($permissionIds);
+            User::bumpCompanyPermissionsVersion($role->company_id);
         }
 
         return response()->json([
@@ -589,6 +591,7 @@ class UserManagementController extends Controller
         }
 
         $role->permissions()->detach();
+        User::bumpCompanyPermissionsVersion($role->company_id);
         $role->delete();
 
         return response()->json([
@@ -1029,6 +1032,7 @@ class UserManagementController extends Controller
 
         // Sync only company-scoped permissions
         $role->permissions()->sync($permissionIds);
+        User::bumpCompanyPermissionsVersion($role->company_id);
 
         return response()->json([
             'success' => true,
@@ -1320,6 +1324,7 @@ class UserManagementController extends Controller
             $employee->role_id = $validated['role_id'];
             // Also sync to roles relationship for backward compatibility
             $employee->roles()->sync([$validated['role_id']]);
+            User::bumpCompanyPermissionsVersion($employee->company_id);
         }
 
         if ($request->filled('sales_rep_id')) {

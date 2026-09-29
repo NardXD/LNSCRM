@@ -144,6 +144,18 @@ class InboxConversation extends Model
         return $this->hasMany(ScheduledInboxReply::class)->orderBy('send_at');
     }
 
+    /**
+     * Pending replies the user actually asked to schedule for later — excludes
+     * rows created only to move an immediate "Send" off the request thread
+     * (is_immediate), which aren't meant to show up as a "scheduled" reply.
+     */
+    public function pendingUserScheduledReplies(): HasMany
+    {
+        return $this->scheduledReplies()
+            ->where('status', ScheduledInboxReply::STATUS_PENDING)
+            ->where('is_immediate', false);
+    }
+
     public function tags(): BelongsToMany
     {
         return $this->belongsToMany(InboxTag::class, 'inbox_conversation_tag')

@@ -6,11 +6,20 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Cache;
 
 class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable;
+
+    /**
+     * In-request memoized permissions, so repeated hasPermission() calls
+     * (e.g. from hasAnyPermission()/hasAllPermissions() loops) don't refetch.
+     *
+     * @var \Illuminate\Support\Collection|null
+     */
+    protected $cachedPermissions = null;
 
     /**
      * The attributes that are mass assignable.
@@ -157,27 +166,55 @@ class User extends Authenticatable
             return collect();
         }
 
-        $permissions = collect();
-
-        // Get permissions from primary role (if role belongs to same company)
-        if ($this->role_id && $this->role && $this->role->company_id === $this->company_id) {
-            $rolePermissions = $this->role->permissions()
-                ->where('company_id', $this->company_id)
-                ->get();
-            $permissions = $permissions->merge($rolePermissions);
+        if ($this->cachedPermissions !== null) {
+            return $this->cachedPermissions;
         }
 
-        // Merge permissions from all roles (filtered by company)
-        foreach ($this->roles as $role) {
-            if ($role->company_id === $this->company_id) {
-                $rolePermissions = $role->permissions()
-                    ->where('company_id', $this->company_id)
-                    ->get();
-                $permissions = $permissions->merge($rolePermissions);
+        $version = Cache::get("company:{$this->company_id}:permissions_version", 1);
+
+        return $this->cachedPermissions = Cache::remember(
+            "user:{$this->id}:permissions:{$this->company_id}:v{$version}",
+            now()->addSeconds(60),
+            function () {
+                $permissions = collect();
+
+                // Get permissions from primary role (if role belongs to same company)
+                if ($this->role_id && $this->role && $this->role->company_id === $this->company_id) {
+                    $rolePermissions = $this->role->permissions()
+                        ->where('company_id', $this->company_id)
+                        ->get();
+                    $permissions = $permissions->merge($rolePermissions);
+                }
+
+                // Merge permissions from all roles (filtered by company)
+                foreach ($this->roles as $role) {
+                    if ($role->company_id === $this->company_id) {
+                        $rolePermissions = $role->permissions()
+                            ->where('company_id', $this->company_id)
+                            ->get();
+                        $permissions = $permissions->merge($rolePermissions);
+                    }
+                }
+
+                return $permissions->unique('id')->values();
             }
+        );
+    }
+
+    /**
+     * Invalidate cached permissions for every user in a company. Call this after
+     * a role's permissions change, or after a user's role assignment changes,
+     * so revoked access takes effect immediately instead of waiting out the TTL.
+     */
+    public static function bumpCompanyPermissionsVersion(?int $companyId): void
+    {
+        if (! $companyId) {
+            return;
         }
 
-        return $permissions->unique('id');
+        $key = "company:{$companyId}:permissions_version";
+        Cache::add($key, 1);
+        Cache::increment($key);
     }
 
     /**
