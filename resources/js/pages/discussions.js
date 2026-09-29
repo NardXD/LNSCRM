@@ -301,6 +301,8 @@
         };
         if (mode === 'inbox') {
             body.shared_inbox_id = Number(el('newInbox').value) || null;
+        } else if (mode === 'me') {
+            body.just_me = true;
         } else {
             body.teammate_ids = Array.from(el('newTeammates').selectedOptions).map((o) => Number(o.value));
         }

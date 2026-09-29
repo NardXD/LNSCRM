@@ -229,6 +229,7 @@ class DiscussionsController extends Controller
             'teammate_ids' => ['nullable', 'array'],
             'teammate_ids.*' => ['integer', 'exists:users,id'],
             'shared_inbox_id' => ['nullable', 'integer', 'exists:shared_inboxes,id'],
+            'just_me' => ['sometimes', 'boolean'],
             'attachment_path' => ['nullable', 'string', 'max:500'],
             'attachment_name' => ['nullable', 'string', 'max:255'],
             'attachment_type' => ['nullable', 'string', 'max:100'],
@@ -236,8 +237,17 @@ class DiscussionsController extends Controller
 
         $teammateIds = array_values(array_unique(array_map('intval', $validated['teammate_ids'] ?? [])));
         $sharedInboxId = isset($validated['shared_inbox_id']) ? (int) $validated['shared_inbox_id'] : null;
+        $justMe = (bool) ($validated['just_me'] ?? false);
 
-        if (($teammateIds !== [] && $sharedInboxId) || ($teammateIds === [] && ! $sharedInboxId)) {
+        // "Just me" is an explicit opt-in for a solo note/task — everything else
+        // still has to pick exactly one of teammates or a shared inbox.
+        if ($justMe) {
+            if ($teammateIds !== [] || $sharedInboxId) {
+                throw ValidationException::withMessages([
+                    'just_me' => 'A note to yourself can\'t also include teammates or a shared inbox.',
+                ]);
+            }
+        } elseif (($teammateIds !== [] && $sharedInboxId) || ($teammateIds === [] && ! $sharedInboxId)) {
             throw ValidationException::withMessages([
                 'teammate_ids' => 'Provide teammates or a shared inbox, not both.',
             ]);

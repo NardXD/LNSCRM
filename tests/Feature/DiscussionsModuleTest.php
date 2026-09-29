@@ -80,6 +80,55 @@ class DiscussionsModuleTest extends TestCase
         ]);
     }
 
+    public function test_create_just_me_note_has_only_creator_as_participant(): void
+    {
+        [$user] = $this->usersWithDiscussions();
+
+        $created = $this->actingAs($user)
+            ->postJson('/api/discussions/conversations', [
+                'subject' => 'Follow up on invoice #123',
+                'comment' => 'Call the client back tomorrow morning',
+                'just_me' => true,
+            ])
+            ->assertCreated()
+            ->json('data');
+
+        $conversation = Conversation::find($created['id']);
+        $this->assertSame([$user->id], $conversation->participants()->pluck('users.id')->all());
+        $this->assertNull($conversation->shared_inbox_id);
+
+        // A solo note can still be snoozed like any other discussion.
+        $this->actingAs($user)
+            ->postJson('/api/discussions/conversations/'.$conversation->id.'/snooze', [
+                'reopen_at' => now()->addDay()->toIso8601String(),
+            ])
+            ->assertOk();
+        $this->assertNotNull($conversation->fresh()->reopen_at);
+    }
+
+    public function test_just_me_rejects_teammates_or_shared_inbox(): void
+    {
+        [$user, $other, $inbox] = $this->usersWithDiscussions();
+
+        $this->actingAs($user)
+            ->postJson('/api/discussions/conversations', [
+                'subject' => 'Mixed',
+                'comment' => 'Nope',
+                'just_me' => true,
+                'teammate_ids' => [$other->id],
+            ])
+            ->assertStatus(422);
+
+        $this->actingAs($user)
+            ->postJson('/api/discussions/conversations', [
+                'subject' => 'Mixed',
+                'comment' => 'Nope',
+                'just_me' => true,
+                'shared_inbox_id' => $inbox->id,
+            ])
+            ->assertStatus(422);
+    }
+
     public function test_create_with_shared_inbox_adds_members(): void
     {
         [$user, $other, $inbox] = $this->usersWithDiscussions();

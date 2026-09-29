@@ -181,11 +181,12 @@
             <h3>New discussion</h3>
             <button type="button" class="inbox-icon-btn" id="btnCloseNew" title="Close">×</button>
         </div>
-        <p class="inbox-modal-help">Invite teammates or a shared inbox, set a topic, and start with a comment.</p>
+        <p class="inbox-modal-help">Invite teammates or a shared inbox, or keep it just for yourself, set a topic, and start with a comment.</p>
         <label>To
             <div class="inbox-connect-modes" style="margin-top:0.35rem;">
                 <label class="inbox-mode-option"><input type="radio" name="toMode" value="teammates" checked><div><strong>Teammates</strong><small>Specific people in your company</small></div></label>
                 <label class="inbox-mode-option"><input type="radio" name="toMode" value="inbox"><div><strong>Shared inbox</strong><small>Visible to all members of that inbox</small></div></label>
+                <label class="inbox-mode-option"><input type="radio" name="toMode" value="me"><div><strong>Just me</strong><small>A private note or task, visible only to you</small></div></label>
             </div>
             <select id="newTeammates" multiple size="6" class="form-input" style="margin-top:0.5rem;"></select>
             <select id="newInbox" class="form-input" style="margin-top:0.5rem;display:none;"><option value="">Select shared inbox…</option></select>
