@@ -2058,6 +2058,7 @@ class InboxController extends Controller
             if (! $sendAt || $sendAt->lte(now())) {
                 return response()->json(['message' => 'Choose a future date and time.'], 422);
             }
+            $this->assignToReplierIfUnassigned($conversation, $request->user());
             $scheduled = ScheduledInboxReply::create([
                 'inbox_conversation_id' => $conversation->id,
                 'user_id' => $request->user()->id,
@@ -2112,6 +2113,8 @@ class InboxController extends Controller
 
         $draftMessageId = (string) ($validated['draft_message_id'] ?? '');
 
+        $this->assignToReplierIfUnassigned($conversation, $request->user());
+
         // The Outlook (Graph API) send happens in the background — see
         // InboxReplyService::dispatchScheduled(), which this row feeds into via
         // ProcessScheduledInboxReplyJob — so this request isn't blocked on it.
@@ -2149,6 +2152,35 @@ class InboxController extends Controller
             'conversation' => $this->formatConversation($conversation),
             'archived' => $archive,
         ]);
+    }
+
+    /**
+     * Replying claims an unowned conversation for the teammate who replied.
+     */
+    private function assignToReplierIfUnassigned(InboxConversation $conversation, User $user): void
+    {
+        if (! empty($conversation->assigned_to)) {
+            return;
+        }
+
+        $conversation->assigned_to = $user->id;
+        $conversation->save();
+        $conversation->setRelation('assignee', $user);
+        $this->syncLeadAssignment($conversation, $user->id);
+
+        $this->recordActivity(
+            $conversation,
+            $user,
+            'assigned',
+            $user->name.' was assigned automatically after replying',
+            [
+                'assignee_id' => $user->id,
+                'assignee_name' => $user->name,
+                'previous_assignee_id' => null,
+                'previous_assignee_name' => null,
+                'auto' => true,
+            ]
+        );
     }
 
     public function saveDraft(Request $request, InboxConversation $conversation): JsonResponse
