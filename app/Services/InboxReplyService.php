@@ -67,7 +67,7 @@ class InboxReplyService
             'to_emails' => $to,
             'cc_emails' => $cc,
             'subject' => $conversation->subject,
-            'body_html' => $body,
+            'body_html' => $this->embedInlineImagesForLocalCopy($body, $attachments),
             'body_text' => strip_tags($body),
             'is_read' => true,
             'sent_at' => now(),
@@ -263,7 +263,7 @@ class InboxReplyService
             'to_emails' => $to,
             'cc_emails' => $cc,
             'subject' => $subject,
-            'body_html' => $body,
+            'body_html' => $this->embedInlineImagesForLocalCopy($body, $attachments),
             'body_text' => strip_tags($body),
             'is_read' => true,
             'sent_at' => now(),
@@ -687,6 +687,40 @@ class InboxReplyService
         }
 
         return [];
+    }
+
+    /**
+     * Swap cid: refs back to data URIs for the local copy of a sent message.
+     * Graph re-keys the message on send, so the draft-time attachment ids we
+     * would otherwise resolve cid: images through no longer exist.
+     *
+     * @param  array<int, mixed>  $attachments
+     */
+    private function embedInlineImagesForLocalCopy(string $body, array $attachments): string
+    {
+        if ($body === '' || ! preg_match('/cid:/i', $body)) {
+            return $body;
+        }
+
+        foreach ($attachments as $attachment) {
+            if (! is_array($attachment) || empty($attachment['isInline'])) {
+                continue;
+            }
+            $cid = trim((string) ($attachment['contentId'] ?? ''), "<> \t\r\n");
+            $bytes = (string) ($attachment['contentBytes'] ?? '');
+            if ($cid === '' || $bytes === '') {
+                continue;
+            }
+            $contentType = (string) ($attachment['contentType'] ?? '') ?: 'application/octet-stream';
+            $dataUri = 'data:'.$contentType.';base64,'.$bytes;
+            $body = preg_replace(
+                '/(src\s*=\s*["\'])cid:'.preg_quote($cid, '/').'(?:@[^"\']*)?(["\'])/i',
+                '$1'.$dataUri.'$2',
+                $body
+            ) ?? $body;
+        }
+
+        return $body;
     }
 
     /**
