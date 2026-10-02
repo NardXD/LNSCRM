@@ -110,6 +110,67 @@ class InboxReplyQueuedTest extends TestCase
         $this->assertCount(1, $shown['scheduled_replies'] ?? []);
     }
 
+    public function test_reply_uses_edited_subject_and_updates_thread_subject(): void
+    {
+        [$user, $inbox] = $this->connectedInboxFixture();
+        $conversation = $this->makeConversation($user, $inbox);
+
+        $sentSubjects = [];
+        $this->mock(OutlookMailService::class, function ($mock) use (&$sentSubjects) {
+            $mock->shouldReceive('sendMail')->andReturnUsing(function ($inbox, $payload) use (&$sentSubjects) {
+                $sentSubjects[] = $payload['subject'];
+
+                return ['sent' => true, 'id' => 'graph-msg-'.count($sentSubjects)];
+            });
+        });
+
+        $this->actingAs($user)
+            ->postJson('/api/inbox/conversations/'.$conversation->id.'/reply', [
+                'to' => 'customer@example.com',
+                'subject' => 'Re: Updated quote for unit 12',
+                'body' => '<p>Hello</p>',
+            ])
+            ->assertOk();
+
+        $this->assertSame(['Re: Updated quote for unit 12'], $sentSubjects);
+        $this->assertSame('Updated quote for unit 12', $conversation->fresh()->subject);
+        $this->assertSame(
+            'Re: Updated quote for unit 12',
+            InboxMessage::query()->where('inbox_conversation_id', $conversation->id)->where('direction', 'outbound')->value('subject')
+        );
+
+        // Without an edited subject, the next reply defaults to the new thread subject.
+        $this->actingAs($user)
+            ->postJson('/api/inbox/conversations/'.$conversation->id.'/reply', [
+                'to' => 'customer@example.com',
+                'body' => '<p>Follow-up</p>',
+            ])
+            ->assertOk();
+
+        $this->assertSame('Re: Updated quote for unit 12', $sentSubjects[1]);
+    }
+
+    public function test_scheduled_reply_keeps_edited_subject(): void
+    {
+        [$user, $inbox] = $this->connectedInboxFixture();
+        $conversation = $this->makeConversation($user, $inbox);
+
+        $this->actingAs($user)
+            ->postJson('/api/inbox/conversations/'.$conversation->id.'/reply', [
+                'to' => 'customer@example.com',
+                'subject' => 'Payment reminder',
+                'body' => '<p>Hello later</p>',
+                'send_at' => now()->addHour()->toIso8601String(),
+            ])
+            ->assertOk()
+            ->assertJsonPath('scheduled', true);
+
+        $this->assertSame(
+            'Payment reminder',
+            ScheduledInboxReply::query()->where('inbox_conversation_id', $conversation->id)->value('subject')
+        );
+    }
+
     /**
      * @return array{0: User, 1: SharedInbox}
      */

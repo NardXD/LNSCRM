@@ -1796,6 +1796,9 @@ class OutlookMailService
             'toRecipients' => array_map(fn ($email) => ['emailAddress' => ['address' => $email]], $toList),
             'ccRecipients' => array_map(fn ($email) => ['emailAddress' => ['address' => $email]], $ccList),
         ];
+        if (filled($payload['subject'] ?? null)) {
+            $update['subject'] = (string) $payload['subject'];
+        }
 
         $patchResp = Http::withToken($account->access_token)
             ->timeout(20)

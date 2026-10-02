@@ -500,7 +500,7 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
             </label>
         </div>
         <label class="inbox-field-inline">Subject
-            <input type="text" id="replySubjectDisplay" class="form-input" readonly tabindex="-1" aria-readonly="true">
+            <input type="text" id="replySubjectDisplay" class="form-input" maxlength="500" autocomplete="off">
         </label>
         <div class="inbox-composer-tools">
             <button type="button" class="inbox-composer-tool" id="btnReplyAttach" title="Attach files">

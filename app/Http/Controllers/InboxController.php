@@ -2005,6 +2005,7 @@ class InboxController extends Controller
             'body' => ['required', 'string', 'max:5000000'],
             'to' => ['nullable', 'string', 'max:2000'],
             'cc' => ['nullable', 'string', 'max:2000'],
+            'subject' => ['nullable', 'string', 'max:500'],
             'inbox_id' => ['nullable', 'integer'],
             'reply_all' => ['nullable', 'boolean'],
             'archive' => ['nullable', 'boolean'],
@@ -2052,6 +2053,8 @@ class InboxController extends Controller
         $attachments = $prepared['attachments'];
 
         $archive = $request->boolean('archive');
+        // Blank means "use the default Re: <thread subject>".
+        $replySubject = trim((string) ($validated['subject'] ?? '')) ?: null;
 
         if (! empty($validated['send_at'])) {
             $sendAt = $this->parseScheduledSendAt($validated['send_at']);
@@ -2066,6 +2069,7 @@ class InboxController extends Controller
                 'type' => ScheduledInboxReply::TYPE_REPLY,
                 'to_emails' => $to,
                 'cc_emails' => $cc,
+                'subject' => $replySubject,
                 'body_html' => $validated['body'],
                 'body_text' => strip_tags($validated['body']),
                 'attachments' => [],
@@ -2127,6 +2131,7 @@ class InboxController extends Controller
             'type' => ScheduledInboxReply::TYPE_REPLY,
             'to_emails' => $to,
             'cc_emails' => $cc,
+            'subject' => $replySubject,
             'body_html' => $validated['body'],
             'body_text' => strip_tags($validated['body']),
             'attachments' => [],
@@ -2190,6 +2195,7 @@ class InboxController extends Controller
             'body' => ['required', 'string', 'max:5000000'],
             'to' => ['nullable', 'string', 'max:2000'],
             'cc' => ['nullable', 'string', 'max:2000'],
+            'subject' => ['nullable', 'string', 'max:500'],
             'inbox_id' => ['nullable', 'integer'],
             'draft_message_id' => ['nullable', 'string', 'max:512'],
             'attachments' => ['nullable', 'array', 'max:25'],
@@ -2248,6 +2254,7 @@ class InboxController extends Controller
             'body' => $prepared['body'],
             'to' => $to,
             'cc' => $cc,
+            'subject' => trim((string) ($validated['subject'] ?? '')) ?: null,
             'attachments' => $prepared['attachments'],
             'reply_to_message_id' => $lastInbound->external_message_id,
             'draft_message_id' => $validated['draft_message_id'] ?? null,

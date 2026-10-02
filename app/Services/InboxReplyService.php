@@ -40,11 +40,15 @@ class InboxReplyService
         $cc = $payload['cc'] ?? null;
         $body = (string) $payload['body'];
         $archive = (bool) ($payload['archive'] ?? false);
+        $customSubject = trim((string) ($payload['subject'] ?? ''));
+        $subject = $customSubject !== ''
+            ? $customSubject
+            : (str_starts_with(strtolower((string) $conversation->subject), 're:') ? '' : 'Re: ').$conversation->subject;
 
         $result = $this->mailService->sendMail($inbox, [
             'to' => $to,
             'cc' => $cc,
-            'subject' => (str_starts_with(strtolower((string) $conversation->subject), 're:') ? '' : 'Re: ').$conversation->subject,
+            'subject' => $subject,
             'body' => $body,
             'reply_to_message_id' => $payload['reply_to_message_id'] ?? null,
             'attachments' => $attachments,
@@ -66,7 +70,7 @@ class InboxReplyService
             'from_email' => $inbox->email ?? $inbox->account?->email,
             'to_emails' => $to,
             'cc_emails' => $cc,
-            'subject' => $conversation->subject,
+            'subject' => $customSubject !== '' ? $customSubject : $conversation->subject,
             'body_html' => $this->embedInlineImagesForLocalCopy($body, $attachments),
             'body_text' => strip_tags($body),
             'is_read' => true,
@@ -87,7 +91,14 @@ class InboxReplyService
             $conversation->reopen_at = null;
         }
 
+        // An edited subject becomes the thread's subject, so the next reply defaults to it.
+        $threadSubject = trim((string) preg_replace('/^\s*((re|fw|fwd)\s*:\s*)+/i', '', $customSubject));
+        if ($threadSubject !== '' && strcasecmp($threadSubject, (string) $conversation->subject) !== 0) {
+            $conversation->subject = mb_substr($threadSubject, 0, 998);
+        }
+
         $conversation->update([
+            'subject' => $conversation->subject,
             'last_message_at' => now(),
             'snippet' => EmailQuotedHistory::snippet($body),
             'message_count' => $conversation->messages()->count(),
@@ -444,6 +455,7 @@ class InboxReplyService
                 'body' => (string) $scheduled->body_html,
                 'to' => (string) $scheduled->to_emails,
                 'cc' => $scheduled->cc_emails,
+                'subject' => $scheduled->subject,
                 'attachments' => $this->loadScheduledAttachments($scheduled),
                 'archive' => $archive,
                 'reply_to_message_id' => $lastInbound?->external_message_id,

@@ -928,7 +928,9 @@
         syncComposerModeButtons('reply');
         openModal('modalReply');
         fillReplyFromSelect();
-        setReplySubjectDisplay(message.subject || replySubjectForDisplay());
+        setReplySubjectDisplay(message.subject || replySubjectForDisplay(), {
+            edited: !!message.subject && message.subject !== replySubjectForDisplay(),
+        });
         if (el('replyTo')) el('replyTo').value = parseEmailList(message.to || message.to_emails).join(', ');
         if (el('replyCc')) el('replyCc').value = parseEmailList(message.cc || message.cc_emails).join(', ');
         setComposerHtml('reply', message.body_html || '');
@@ -5150,7 +5152,9 @@
 
     function populateReplyHeaders(message = null, { replyAll = false, force = false } = {}) {
         fillReplyFromSelect();
-        setReplySubjectDisplay(replySubjectForDisplay());
+        if (force || el('replySubjectDisplay')?.dataset.edited !== '1') {
+            setReplySubjectDisplay(replySubjectForDisplay());
+        }
         const toEl = el('replyTo');
         const ccEl = el('replyCc');
         if (!force && toEl?.value.trim()) return;
@@ -5178,17 +5182,30 @@
         return /^fwd:\s*/i.test(value) ? value : 'Fwd: ' + value;
     }
 
-    // Mirrors the "Re: " prefixing InboxReplyService applies server-side, so this
-    // read-only display matches the subject Outlook will actually send with.
+    // Mirrors the "Re: " prefixing InboxReplyService applies server-side; the field is
+    // editable, and an edited value is sent as the reply's subject.
     function replySubjectForDisplay(subject) {
         const value = String(subject ?? state.conversation?.subject ?? '').trim() || '(no subject)';
         return /^re:\s*/i.test(value) ? value : 'Re: ' + value;
     }
 
-    function setReplySubjectDisplay(text) {
+    function setReplySubjectDisplay(text, { edited = false } = {}) {
         const node = el('replySubjectDisplay');
-        if (node) node.value = text || '';
+        if (!node) return;
+        node.value = text || '';
+        node.dataset.edited = edited ? '1' : '';
     }
+
+    // Only a subject the user changed is sent; otherwise the server keeps its default.
+    function editedReplySubject() {
+        const node = el('replySubjectDisplay');
+        const value = (node?.value || '').trim();
+        return node?.dataset.edited === '1' && value ? value : null;
+    }
+
+    el('replySubjectDisplay')?.addEventListener('input', (e) => {
+        e.target.dataset.edited = '1';
+    });
 
     function quotedForwardHtml(message) {
         const name = message.from_name || message.from_email || 'Unknown';
@@ -5282,7 +5299,9 @@
         syncComposerModeButtons('resend');
         openModal('modalReply');
         fillReplyFromSelect();
-        setReplySubjectDisplay(source.subject || replySubjectForDisplay());
+        setReplySubjectDisplay(source.subject || replySubjectForDisplay(), {
+            edited: !!source.subject && replySubjectForDisplay(source.subject) !== replySubjectForDisplay(),
+        });
         if (el('replyTo')) el('replyTo').value = parseEmailList(source.to || source.to_emails).join(', ');
         if (el('replyCc')) el('replyCc').value = parseEmailList(source.cc || source.cc_emails).join(', ');
         setComposerHtml('reply', source.body_html || plainToHtml(source.body_text || ''));
@@ -8353,6 +8372,8 @@
             html: getComposerHtml('reply'),
             to: el('replyTo')?.value || '',
             cc: el('replyCc')?.value || '',
+            subject: el('replySubjectDisplay')?.value || '',
+            subjectEdited: el('replySubjectDisplay')?.dataset.edited === '1',
             inboxId: el('replyFrom')?.value || '',
             attachments: (state.replyAttachments || []).map(file => ({ ...file })),
             replyDraftId: state.replyDraftId,
@@ -8372,6 +8393,7 @@
         state.replyDraftId = null;
         if (el('replyTo')) el('replyTo').value = '';
         if (el('replyCc')) el('replyCc').value = '';
+        setReplySubjectDisplay('');
         renderAttachChips('reply');
         hideMentionPopup('reply');
         if (el('composerHint')) el('composerHint').textContent = 'Reply via Outlook';
@@ -8394,6 +8416,7 @@
         if (el('replyFrom') && snapshot.inboxId) el('replyFrom').value = String(snapshot.inboxId);
         if (el('replyTo')) el('replyTo').value = snapshot.to || '';
         if (el('replyCc')) el('replyCc').value = snapshot.cc || '';
+        setReplySubjectDisplay(snapshot.subject || replySubjectForDisplay(), { edited: !!snapshot.subjectEdited });
         setComposerHtml('reply', snapshot.html || '');
         renderAttachChips('reply');
         if (el('composerHint')) el('composerHint').textContent = snapshot.hint || 'Reply via Outlook';
@@ -8478,6 +8501,8 @@
             attachments: prepared.attachments,
         };
         if (inboxId) payload.inbox_id = inboxId;
+        const subject = editedReplySubject();
+        if (subject) payload.subject = subject;
         if (archive) payload.archive = true;
         if (sendAt) payload.send_at = sendAt;
         if (snapshot.replyDraftId) payload.draft_message_id = snapshot.replyDraftId;
@@ -8517,6 +8542,8 @@
         try {
             const payload = { body: html, to, cc: cc || null };
             if (inboxId) payload.inbox_id = inboxId;
+            const subject = editedReplySubject();
+            if (subject) payload.subject = subject;
             if (state.replyDraftId) payload.draft_message_id = state.replyDraftId;
             const prepared = prepareEmailSendPayload(payload.body, state.replyAttachments);
             payload.body = prepared.body;
