@@ -61,6 +61,8 @@ class InboxThreadMergeService
             $this->restoreOwnedRecords($target, $source, $ids);
 
             $source->merged_into_id = null;
+            // Keep a hand-split thread from being regrouped by contact on the next sync/backfill.
+            $source->auto_group_disabled = true;
             $this->refreshStats($source);
             $this->refreshStats($target);
         });
@@ -241,6 +243,7 @@ class InboxThreadMergeService
     private function refreshStats(InboxConversation $conversation): void
     {
         $latest = $conversation->messages()
+            ->reorder()
             ->orderByDesc('sent_at')
             ->orderByDesc('id')
             ->first();
@@ -249,8 +252,18 @@ class InboxThreadMergeService
         if ($latest) {
             $conversation->last_message_at = $latest->sent_at;
             $conversation->snippet = EmailQuotedHistory::snippet($latest->body_html, $latest->body_text ?: $conversation->snippet);
-            $conversation->from_name = $latest->from_name ?: $conversation->from_name;
-            $conversation->from_email = $latest->from_email ?: $conversation->from_email;
+        }
+        // Show the customer, not our own mailbox, when the latest message is a reply we sent.
+        $latestInbound = $conversation->messages()
+            ->where('direction', 'inbound')
+            ->reorder()
+            ->orderByDesc('sent_at')
+            ->orderByDesc('id')
+            ->first();
+        $sender = $latestInbound ?: $latest;
+        if ($sender) {
+            $conversation->from_name = $sender->from_name ?: $conversation->from_name;
+            $conversation->from_email = $sender->from_email ?: $conversation->from_email;
         }
         $conversation->save();
     }

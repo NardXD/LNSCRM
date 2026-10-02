@@ -274,10 +274,41 @@ class InboxReplyService
             $conversation->update(['message_count' => $conversation->messages()->count()]);
         }
 
+        $conversation = $this->joinContactThread($inbox, $actor, $conversation, $to);
+
         return [
-            'message' => $message,
+            'message' => $message->fresh() ?? $message,
             'conversation' => $conversation->fresh(['assignee', 'tags', 'inbox', 'messages']) ?? $conversation,
         ];
+    }
+
+    /**
+     * A new email to an address that already has a thread joins it (Front-style),
+     * treated like a reply: held threads reopen and an unassigned thread goes to the sender.
+     */
+    private function joinContactThread(SharedInbox $inbox, User $actor, InboxConversation $sent, string $to): InboxConversation
+    {
+        $contactThreads = app(InboxContactThreadService::class);
+        $contactEmail = $contactThreads->contactEmailFor($inbox, 'outbound', null, $to);
+        if (! $contactEmail) {
+            return $sent;
+        }
+        $sent->update(['contact_email' => $contactEmail]);
+
+        $home = $contactThreads->groupConversation($sent);
+        if ((int) $home->id === (int) $sent->id) {
+            return $sent;
+        }
+
+        if ($home->folder === 'inbox' && $home->status === 'archived') {
+            $home->applyOpenFromHold();
+        }
+        if (! $home->assigned_to) {
+            $home->assigned_to = $actor->id;
+        }
+        $home->save();
+
+        return $home;
     }
 
     /**

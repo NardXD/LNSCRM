@@ -1903,6 +1903,27 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
 }
 .inbox-activity-line strong { color: var(--inbox-text); font-weight: 600; }
 .inbox-activity-time { white-space: nowrap; opacity: 0.85; }
+.inbox-subject-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0.9rem 0 0.35rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--inbox-muted);
+}
+.inbox-subject-divider::before,
+.inbox-subject-divider::after {
+    content: '';
+    flex: 1;
+    border-top: 1px solid var(--inbox-border);
+}
+.inbox-subject-divider span {
+    max-width: 70%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .inbox-history-list {
     display: grid;
     gap: 0.55rem;

@@ -5960,7 +5960,20 @@
             })),
         ].sort((a, b) => String(a.sort).localeCompare(String(b.sort)));
 
-        el('threadMessages').innerHTML = timeline.map(item => item.html).join('')
+        // Grouped-by-contact threads mix several emails; mark where a new subject starts.
+        const subjectKey = (subject) => String(subject || '').replace(/^\s*((re|fw|fwd|aw|sv)\s*:\s*)+/i, '').trim().toLowerCase();
+        let lastSubjectKey = null;
+        const timelineHtml = timeline.map(item => {
+            if (item.type !== 'email' || !item.message || item.message.is_draft) return item.html;
+            const key = subjectKey(item.message.subject);
+            const divider = key && lastSubjectKey !== null && key !== lastSubjectKey
+                ? `<div class="inbox-subject-divider"><span>${escapeHtml(item.message.subject)}</span></div>`
+                : '';
+            if (key) lastSubjectKey = key;
+            return divider + item.html;
+        });
+
+        el('threadMessages').innerHTML = timelineHtml.join('')
             || '<div class="inbox-empty">No messages</div>';
 
         timeline.forEach(item => {

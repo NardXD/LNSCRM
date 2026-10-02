@@ -19,6 +19,7 @@ class InboxConversation extends Model
         'snippet',
         'from_name',
         'from_email',
+        'contact_email',
         'status',
         'assigned_to',
         'lead_id',
@@ -28,13 +29,27 @@ class InboxConversation extends Model
         'reopen_at',
         'reopened_from',
         'merged_into_id',
+        'auto_group_disabled',
     ];
 
     protected $casts = [
         'is_read' => 'boolean',
+        'auto_group_disabled' => 'boolean',
         'last_message_at' => 'datetime',
         'reopen_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        // Received threads default their contact to the sender; sent rows set it from the recipient.
+        static::saving(function (self $conversation) {
+            if (blank($conversation->contact_email)
+                && filled($conversation->from_email)
+                && ! in_array($conversation->folder, ['sent', 'drafts'], true)) {
+                $conversation->contact_email = strtolower(trim((string) $conversation->from_email));
+            }
+        });
+    }
 
     /**
      * Move a held (archived or snoozed) thread back to Open and remember which hold it left.

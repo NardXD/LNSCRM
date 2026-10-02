@@ -832,6 +832,46 @@ class OutlookMailService
 
         $writingToMergeTarget = false;
         $sourceConversationId = null;
+        $groupedByContact = false;
+        $homePreviousLastMessageAt = null;
+        if ($isNew && ! ($msg['isDraft'] ?? false)) {
+            $contactThreads = $this->contactThreads();
+            $conversation->contact_email = $contactThreads->contactEmailFor(
+                $inbox,
+                $direction,
+                $fromEmail,
+                $this->graphRecipientAddresses($msg['toRecipients'] ?? [])
+            );
+            $contactHome = $contactThreads->homeForSyncedConversation(
+                $inbox,
+                $conversation->contact_email,
+                $folder,
+                $conversationId
+            );
+            if ($contactHome) {
+                // Same address already has a thread: keep this Outlook conversation as a merged
+                // child (so later syncs follow merged_into_id) and write the message to the home thread.
+                $conversation->fill([
+                    'folder' => $folder,
+                    'status' => $status,
+                    'subject' => $subject,
+                    'snippet' => EmailQuotedHistory::snippet(null, $msg['bodyPreview'] ?? ''),
+                    'from_name' => $fromName,
+                    'from_email' => $fromEmail,
+                    'last_message_at' => $receivedAt,
+                    'message_count' => 0,
+                    'merged_into_id' => $contactHome->id,
+                ]);
+                $conversation->save();
+
+                $sourceConversationId = (int) $conversation->id;
+                $homePreviousLastMessageAt = $contactHome->last_message_at?->copy();
+                $conversation = $contactHome;
+                $writingToMergeTarget = true;
+                $groupedByContact = true;
+            }
+        }
+
         if (! $isNew && $conversation->merged_into_id) {
             $mergeRoot = $conversation->mergeRoot();
             if ((int) $mergeRoot->id !== (int) $conversation->id) {
@@ -854,6 +894,12 @@ class OutlookMailService
             $conversation->from_email = $fromEmail;
         } else {
             $conversation->snippet = EmailQuotedHistory::snippet(null, $msg['bodyPreview'] ?? '') ?: $conversation->snippet;
+            // Newest received email decides the thread's subject/sender, so replies answer it.
+            if ($direction === 'inbound' && (! $conversation->last_message_at || $receivedAt->gte($conversation->last_message_at))) {
+                $conversation->subject = $subject;
+                $conversation->from_name = $fromName;
+                $conversation->from_email = $fromEmail;
+            }
         }
 
         if (! $conversation->last_message_at || $receivedAt->gt($conversation->last_message_at)) {
@@ -864,6 +910,10 @@ class OutlookMailService
         }
 
         $conversation->save();
+
+        if ($groupedByContact && $direction === 'inbound') {
+            $this->contactThreads()->reopenForNewMessage($conversation, $receivedAt, $homePreviousLastMessageAt);
+        }
 
         $externalMessageId = $this->truncate($msg['id'] ?? null, 512);
         if ($externalMessageId) {
@@ -969,6 +1019,10 @@ class OutlookMailService
             }
 
             $messageDirection = ($msg['isDraft'] ?? false) ? 'outbound' : $direction;
+            if ($isNew && ! $groupedByContact && $folder === 'inbox' && $messageDirection === 'inbound') {
+                // First received thread for this address: pull in sent-only threads to the same contact.
+                $conversation = $this->contactThreads()->groupConversation($conversation);
+            }
             if ($folder === 'inbox' && $messageDirection === 'inbound' && $inbox->type === SharedInbox::TYPE_SHARED) {
                 // New inbound mail makes the thread unread again for every shared member.
                 InboxConversationUserRead::query()
@@ -1015,6 +1069,11 @@ class OutlookMailService
         }
 
         return $isNew;
+    }
+
+    private function contactThreads(): InboxContactThreadService
+    {
+        return app(InboxContactThreadService::class);
     }
 
     private function notifyAssigneeOfCustomerReply(
