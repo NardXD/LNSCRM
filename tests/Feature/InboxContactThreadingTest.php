@@ -117,6 +117,33 @@ class InboxContactThreadingTest extends TestCase
         $this->assertSame(4, InboxConversation::query()->notMerged()->where('folder', 'inbox')->count());
     }
 
+    public function test_automated_sender_patterns(): void
+    {
+        $service = app(\App\Services\InboxContactThreadService::class);
+        $inbox = $this->inbox->fresh('account');
+
+        foreach ([
+            'googlemybusiness-noreply@google.com',
+            'viva-noreply@microsoft.com',
+            'notifications@app.bamboohr.com',
+            'bizlinknotification@bpi.com.ph',
+            'otp@onewaysms.com',
+            'sms.alerts@bank.test',
+            'mailer-daemon@outlook.test',
+        ] as $email) {
+            $this->assertFalse($service->isGroupable($inbox, $email), $email);
+        }
+
+        foreach ([
+            'scottp@customer.test',
+            'kikayj12@yahoo.com',
+            'alberta@customer.test',
+            'cmpapas@gmail.com',
+        ] as $email) {
+            $this->assertTrue($service->isGroupable($inbox, $email), $email);
+        }
+    }
+
     public function test_excluded_address_from_config_is_not_grouped(): void
     {
         config(['inbox.group_by_contact_exclude' => ['@forms.test']]);
@@ -224,6 +251,27 @@ class InboxContactThreadingTest extends TestCase
         $this->assertSame('open', $john->status);
         $this->assertSame('Newer', $john->subject);
         $this->assertSame(2, InboxMessage::query()->where('inbox_conversation_id', $john->id)->count());
+    }
+
+    public function test_address_over_thread_limit_is_never_grouped(): void
+    {
+        config(['inbox.group_by_contact' => false, 'inbox.group_by_contact_max_threads' => 3]);
+        foreach (range(1, 4) as $i) {
+            $this->receive("p{$i}", "conv-p{$i}", 'service@paypal.test', "Receipt {$i}", now()->subDays(10 - $i));
+        }
+        foreach (range(1, 3) as $i) {
+            $this->receive("j{$i}", "conv-j{$i}", 'john@customer.test', "Q {$i}", now()->subDays(10 - $i));
+        }
+        config(['inbox.group_by_contact' => true]);
+
+        $this->artisan('inbox:group-by-contact')->assertSuccessful();
+
+        $this->assertSame(4, InboxConversation::query()->notMerged()->where('contact_email', 'service@paypal.test')->count());
+        $this->assertSame(1, InboxConversation::query()->notMerged()->where('contact_email', 'john@customer.test')->count());
+
+        // Live sync leaves the bulk sender alone too.
+        $this->receive('p5', 'conv-p5', 'service@paypal.test', 'Receipt 5', now());
+        $this->assertSame(5, InboxConversation::query()->notMerged()->where('contact_email', 'service@paypal.test')->count());
     }
 
     private function receive(string $id, string $conversationId, string $from, string $subject, $at): void

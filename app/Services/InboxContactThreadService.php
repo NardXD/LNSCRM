@@ -20,9 +20,15 @@ use Illuminate\Support\Facades\Log;
 class InboxContactThreadService
 {
     /** Local parts of automated senders that should never be grouped. */
-    private const AUTOMATED_LOCAL_PARTS = [
+    /** Matched anywhere in the local part (googlemybusiness-noreply@, bizlinknotification@). */
+    private const AUTOMATED_FRAGMENTS = [
         'noreply', 'no-reply', 'no_reply', 'donotreply', 'do-not-reply', 'do_not_reply',
-        'mailer-daemon', 'postmaster', 'bounce', 'bounces',
+        'notification', 'mailer-daemon', 'postmaster',
+    ];
+
+    /** Short words matched only as a whole word (otp@, sms.alerts@), so names like "scottp" don't trip them. */
+    private const AUTOMATED_WORDS = [
+        'otp', 'alert', 'alerts', 'notify', 'bounce', 'bounces', 'daemon',
     ];
 
     /** Public mail providers: sharing one with our mailbox doesn't make an address internal. */
@@ -68,10 +74,8 @@ class InboxContactThreadService
             }
         }
 
-        foreach (self::AUTOMATED_LOCAL_PARTS as $automated) {
-            if ($local === $automated || str_starts_with($local, $automated.'+')) {
-                return false;
-            }
+        if ($this->isAutomatedLocalPart($local)) {
+            return false;
         }
 
         foreach ((array) config('inbox.group_by_contact_exclude', []) as $excluded) {
@@ -82,6 +86,19 @@ class InboxContactThreadService
         }
 
         return true;
+    }
+
+    private function isAutomatedLocalPart(string $local): bool
+    {
+        foreach (self::AUTOMATED_FRAGMENTS as $fragment) {
+            if (str_contains($local, $fragment)) {
+                return true;
+            }
+        }
+
+        $words = preg_split('/[^a-z0-9]+/', $local, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        return array_intersect($words, self::AUTOMATED_WORDS) !== [];
     }
 
     /**
@@ -132,6 +149,10 @@ class InboxContactThreadService
             return null;
         }
 
+        if ($this->exceedsThreadLimit($inbox->id, (string) $contactEmail)) {
+            return null;
+        }
+
         $home = $this->eligible($inbox->id, (string) $contactEmail)->first();
         if (! $home || ($folder === 'inbox' && $home->folder !== 'inbox')) {
             return null;
@@ -161,7 +182,7 @@ class InboxContactThreadService
         }
 
         $threads = $this->eligible($inbox->id, (string) $conversation->contact_email)->get();
-        if ($threads->count() < 2) {
+        if ($threads->count() < 2 || $threads->count() > $this->maxThreads()) {
             return $conversation;
         }
 
@@ -199,6 +220,19 @@ class InboxContactThreadService
         $this->syncLatestSubject($home);
 
         return $home->fresh() ?? $home;
+    }
+
+    public function maxThreads(): int
+    {
+        return max(2, (int) config('inbox.group_by_contact_max_threads', 40));
+    }
+
+    /**
+     * Bulk senders keep many separate threads; once past the limit they are never grouped.
+     */
+    public function exceedsThreadLimit(int $inboxId, string $contactEmail): bool
+    {
+        return $this->eligible($inboxId, $contactEmail)->reorder()->count() > $this->maxThreads();
     }
 
     /**

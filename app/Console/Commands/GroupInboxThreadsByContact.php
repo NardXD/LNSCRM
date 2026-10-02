@@ -56,7 +56,10 @@ class GroupInboxThreadsByContact extends Command
                 ->orderByDesc('threads')
                 ->get();
 
-            $grouped = $groups->filter(fn ($g) => $contactThreads->isGroupable($inbox, $g->contact_email))->values();
+            $max = $contactThreads->maxThreads();
+            $groupable = $groups->filter(fn ($g) => $contactThreads->isGroupable($inbox, $g->contact_email));
+            $grouped = $groupable->filter(fn ($g) => (int) $g->threads <= $max)->values();
+            $bulk = $groupable->filter(fn ($g) => (int) $g->threads > $max)->values();
             $excluded = $groups->reject(fn ($g) => $contactThreads->isGroupable($inbox, $g->contact_email))->values();
 
             $merges = (int) $grouped->sum(fn ($g) => $g->threads - 1);
@@ -66,6 +69,10 @@ class GroupInboxThreadsByContact extends Command
 
             if ($grouped->isNotEmpty()) {
                 $this->table(['Contact', 'Threads'], $grouped->take(15)->map(fn ($g) => [$g->contact_email, $g->threads])->all());
+            }
+            if ($bulk->isNotEmpty()) {
+                $this->line("Kept separate (more than {$max} threads, {$bulk->count()} addresses): "
+                    .$bulk->take(10)->map(fn ($g) => "{$g->contact_email} ({$g->threads})")->implode(', '));
             }
             if ($excluded->isNotEmpty()) {
                 $this->line('Kept separate (internal, automated or excluded): '
