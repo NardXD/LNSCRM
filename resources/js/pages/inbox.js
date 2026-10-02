@@ -787,11 +787,18 @@
             contentBytes: file.contentBytes,
         }));
         let inlineCount = 0;
+        const inlineByBytes = new Map();
         const preparedBody = String(body || '').replace(
             /<img\b[^>]*\ssrc=(["'])data:image\/([^;]+);base64,([^"']+)\1[^>]*>/gi,
             (match, quote, ext, bytes) => {
+                // Identical images (e.g. repeated in a quoted thread) share one attachment.
+                const existingId = inlineByBytes.get(bytes);
+                if (existingId) {
+                    return match.replace(/src=(["'])data:image\/[^"']+\1/i, `src=${quote}cid:${existingId}${quote}`);
+                }
                 inlineCount += 1;
                 const contentId = `inbox-img-${inlineCount}-${Math.random().toString(36).slice(2, 8)}`;
+                inlineByBytes.set(bytes, contentId);
                 attachments.push({
                     name: `image-${inlineCount}.${ext}`,
                     contentType: `image/${ext}`,
