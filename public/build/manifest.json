@@ -117,7 +117,7 @@
     ]
   },
   "resources/css/pages/inbox.css": {
-    "file": "assets/inbox-mB119WKG.css",
+    "file": "assets/inbox-B2MBmdNY.css",
     "src": "resources/css/pages/inbox.css",
     "isEntry": true,
     "name": "inbox",
@@ -354,7 +354,7 @@
     "isEntry": true
   },
   "resources/js/pages/inbox.js": {
-    "file": "assets/inbox-DzBnOi00.js",
+    "file": "assets/inbox-BI6EiJPQ.js",
     "name": "inbox",
     "src": "resources/js/pages/inbox.js",
     "isEntry": true
