@@ -141,39 +141,40 @@
 
     .call-cards-row {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(280px, 320px);
-        gap: 1.5rem;
+        grid-template-columns: minmax(300px, 340px) minmax(0, 1fr) minmax(280px, 340px);
+        gap: 1.25rem;
+        align-items: start;
     }
 
     .call-card {
         background: var(--bg-card);
         border: 1px solid var(--border);
         border-radius: 12px;
-        padding: 1.5rem;
-    }
-
-    .call-card {
+        padding: 1.25rem;
         display: flex;
         flex-direction: column;
+        min-width: 0;
     }
 
     .call-card-header {
-        margin-bottom: 1.5rem;
-        padding-bottom: 1rem;
+        margin-bottom: 1rem;
+        padding-bottom: 0.75rem;
         border-bottom: 1px solid var(--border);
     }
 
     .call-card-title {
-        font-size: 1.25rem;
+        font-size: 1.05rem;
         font-weight: 600;
         color: var(--text-primary);
         display: flex;
         align-items: center;
-        gap: 0.75rem;
+        flex-wrap: wrap;
+        gap: 0.5rem 0.75rem;
+        margin: 0;
     }
 
     .twilio-number-display {
-        font-size: 0.875rem;
+        font-size: 0.8rem;
         font-weight: 400;
         color: var(--text-secondary);
         padding: 0.25rem 0.75rem;
@@ -211,8 +212,9 @@
     .call-card-body {
         display: flex;
         flex-direction: column;
-        gap: 1.5rem;
+        gap: 1rem;
         flex: 1;
+        min-width: 0;
     }
 
     .form-group {
@@ -234,8 +236,10 @@
     }
 
     .form-input {
-        flex: 1;
-        padding: 0.75rem 1rem;
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+        padding: 0.55rem 0.75rem;
         border: 1px solid var(--border);
         border-radius: 8px;
         font-size: 0.875rem;
@@ -256,9 +260,15 @@
         box-shadow: 0 0 0 3px rgba(95, 97, 230, 0.1);
     }
 
-    .phone-input-group .btn-primary {
+    .phone-input-group .form-input {
+        flex: 1;
+        font-size: 1rem;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .phone-input-group .btn-primary,
+    .phone-input-group .btn-danger {
         white-space: nowrap;
-        padding: 0.75rem 1.5rem;
         flex-shrink: 0;
     }
 
@@ -278,17 +288,17 @@
     .dialpad {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
-        gap: 0.75rem;
+        gap: 0.5rem;
         width: 100%;
-        max-width: 300px;
+        max-width: 240px;
     }
 
     .dialpad-key {
-        aspect-ratio: 1;
-        min-height: 60px;
+        height: 48px;
+        padding: 0;
         background: var(--bg-card);
-        border: 2px solid var(--border);
-        border-radius: 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -302,8 +312,7 @@
     .dialpad-key:hover {
         background: var(--bg-primary);
         border-color: var(--accent);
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
     }
 
     .dialpad-key:active {
@@ -326,7 +335,7 @@
     }
 
     .dialpad-number {
-        font-size: 1.5rem;
+        font-size: 1.2rem;
         font-weight: 600;
         color: var(--text-primary);
         line-height: 1;
@@ -342,10 +351,10 @@
 
     .btn-delete {
         width: 100%;
-        max-width: 300px;
-        padding: 0.75rem;
+        max-width: 240px;
+        padding: 0.45rem;
         background: var(--bg-primary);
-        border: 2px solid var(--border);
+        border: 1px solid var(--border);
         border-radius: 8px;
         cursor: pointer;
         display: flex;
@@ -364,8 +373,8 @@
     }
 
     .btn-delete svg {
-        width: 20px;
-        height: 20px;
+        width: 18px;
+        height: 18px;
         color: var(--text-secondary);
     }
 
@@ -376,8 +385,9 @@
     .btn-primary, .btn-secondary {
         display: inline-flex;
         align-items: center;
-        gap: 0.5rem;
-        padding: 0.75rem 1.5rem;
+        justify-content: center;
+        gap: 0.4rem;
+        padding: 0.55rem 1rem;
         border-radius: 8px;
         font-size: 0.875rem;
         font-weight: 500;
@@ -394,8 +404,7 @@
 
     .btn-primary:hover:not(:disabled) {
         background: var(--accent-hover);
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
     }
 
     .btn-primary:disabled {
@@ -416,15 +425,23 @@
     }
 
     .btn-primary svg, .btn-secondary svg, .btn-danger svg {
-        width: 18px;
-        height: 18px;
+        width: 16px;
+        height: 16px;
+    }
+
+    /* Small buttons: compound selector so they beat the base padding above regardless of CSS order. */
+    .btn-primary.btn-sm, .btn-secondary.btn-sm, .btn-danger.btn-sm {
+        padding: 0.3rem 0.6rem;
+        font-size: 0.78rem;
+        gap: 0.3rem;
     }
 
     .btn-danger {
         display: inline-flex;
         align-items: center;
-        gap: 0.5rem;
-        padding: 0.75rem 1.5rem;
+        justify-content: center;
+        gap: 0.4rem;
+        padding: 0.55rem 1rem;
         border-radius: 8px;
         font-size: 0.875rem;
         font-weight: 500;
@@ -502,10 +519,10 @@
     .call-log-area {
         background: var(--bg-primary);
         border-radius: 8px;
-        padding: 1rem;
-        max-height: 400px;
+        padding: 0.75rem;
+        max-height: 320px;
         overflow-y: auto;
-        min-height: 300px;
+        min-height: 160px;
         flex: 1;
     }
 
@@ -513,11 +530,11 @@
         display: flex;
         align-items: center;
         gap: 0.75rem;
-        padding: 0.75rem;
-        margin-bottom: 0.5rem;
+        padding: 0.5rem 0.65rem;
+        margin-bottom: 0.4rem;
         background: var(--bg-card);
         border-radius: 6px;
-        font-size: 0.875rem;
+        font-size: 0.82rem;
         color: var(--text-primary);
         border-left: 3px solid var(--border);
         animation: fadeIn 0.3s ease-in;
@@ -584,6 +601,8 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
+        flex-wrap: wrap;
+        gap: 0.5rem;
     }
 
     @keyframes fadeIn {
@@ -603,7 +622,7 @@
         overflow: hidden;
     }
     .phone-lead-card .call-card-header {
-        padding: 1.5rem 1.5rem 1rem;
+        padding: 1.25rem 1.25rem 0.75rem;
         margin-bottom: 0;
     }
     .phone-lead-card .chp-panel,
@@ -623,7 +642,7 @@
 
     @media (max-width: 1200px) {
         .call-cards-row {
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: minmax(300px, 340px) minmax(0, 1fr);
         }
         .phone-lead-card {
             grid-column: 1 / -1;
@@ -633,6 +652,9 @@
     @media (max-width: 1024px) {
         .call-cards-row {
             grid-template-columns: 1fr;
+        }
+        .dialpad, .btn-delete {
+            max-width: 280px;
         }
         .phone-lead-card {
             grid-column: auto;
@@ -644,30 +666,17 @@
             flex-direction: column;
         }
 
-        .phone-input-group .btn-primary {
+        .phone-input-group .btn-primary,
+        .phone-input-group .btn-danger {
             width: 100%;
-        }
-
-        .btn-primary, .btn-secondary, .btn-danger {
-            width: 100%;
-            justify-content: center;
-        }
-
-        .call-log-area {
-            min-height: 200px;
         }
 
         .dialpad {
             max-width: 100%;
-            gap: 0.5rem;
         }
 
         .dialpad-key {
-            min-height: 50px;
-        }
-
-        .dialpad-number {
-            font-size: 1.25rem;
+            height: 52px;
         }
 
         .dialpad-letters {
