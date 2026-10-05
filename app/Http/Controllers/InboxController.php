@@ -54,6 +54,12 @@ class InboxController extends Controller
 {
     private const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
+    /** Files plus inline images per template (stays at the original cap). */
+    private const MAX_TEMPLATE_ATTACHMENTS = 10;
+
+    /** Files plus inline images per sent/drafted reply or compose message. */
+    private const MAX_MESSAGE_ATTACHMENTS = 20;
+
     /** Base64 payload length that can hold ~10 MB decoded. */
     private const MAX_ATTACHMENT_CONTENT_BYTES_CHARS = 15000000;
 
@@ -2045,9 +2051,9 @@ class InboxController extends Controller
             return response()->json(['message' => 'Attachments are too large. Keep each file under 10 MB.'], 422);
         }
 
-        $prepared = $this->prepareTemplateContent((string) $validated['body'], $attachments);
-        if (count($prepared['attachments']) > 10) {
-            return response()->json(['message' => 'Too many attachments. Use up to 5 files plus a few inline images.'], 422);
+        $prepared = $this->prepareTemplateContent((string) $validated['body'], $attachments, self::MAX_MESSAGE_ATTACHMENTS);
+        if (count($prepared['attachments']) > self::MAX_MESSAGE_ATTACHMENTS) {
+            return response()->json(['message' => 'Too many attachments and inline images ('.count($prepared['attachments']).'). The maximum is '.self::MAX_MESSAGE_ATTACHMENTS.' per message.'], 422);
         }
         $validated['body'] = $prepared['body'];
         $attachments = $prepared['attachments'];
@@ -2237,9 +2243,9 @@ class InboxController extends Controller
             return response()->json(['message' => 'Attachments are too large. Keep each file under 10 MB.'], 422);
         }
 
-        $prepared = $this->prepareTemplateContent((string) $validated['body'], $attachments);
-        if (count($prepared['attachments']) > 10) {
-            return response()->json(['message' => 'Too many attachments. Use up to 5 files plus a few inline images.'], 422);
+        $prepared = $this->prepareTemplateContent((string) $validated['body'], $attachments, self::MAX_MESSAGE_ATTACHMENTS);
+        if (count($prepared['attachments']) > self::MAX_MESSAGE_ATTACHMENTS) {
+            return response()->json(['message' => 'Too many attachments and inline images ('.count($prepared['attachments']).'). The maximum is '.self::MAX_MESSAGE_ATTACHMENTS.' per message.'], 422);
         }
 
         Log::info('InboxController::saveDraft calling saveDraftReply', [
@@ -2828,9 +2834,9 @@ class InboxController extends Controller
             return response()->json(['message' => 'Attachments are too large. Keep each file under 10 MB.'], 422);
         }
 
-        $prepared = $this->prepareTemplateContent($htmlBody, $attachments);
-        if (count($prepared['attachments']) > 10) {
-            return response()->json(['message' => 'Too many attachments. Use up to 5 files plus a few inline images.'], 422);
+        $prepared = $this->prepareTemplateContent($htmlBody, $attachments, self::MAX_MESSAGE_ATTACHMENTS);
+        if (count($prepared['attachments']) > self::MAX_MESSAGE_ATTACHMENTS) {
+            return response()->json(['message' => 'Too many attachments and inline images ('.count($prepared['attachments']).'). The maximum is '.self::MAX_MESSAGE_ATTACHMENTS.' per message.'], 422);
         }
         $htmlBody = $prepared['body'];
         $attachments = $prepared['attachments'];
@@ -4262,14 +4268,14 @@ class InboxController extends Controller
      * @param  array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>  $attachments
      * @return array{body: string, attachments: array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>}
      */
-    private function prepareTemplateContent(string $body, array $attachments): array
+    private function prepareTemplateContent(string $body, array $attachments, int $maxAttachments = self::MAX_TEMPLATE_ATTACHMENTS): array
     {
         $inlineCount = 0;
 
         $body = preg_replace_callback(
             '/<img\b([^>]*)\ssrc=(["\'])data:image\/([^;]+);base64,([^"\']+)\2([^>]*)>/i',
-            function (array $matches) use (&$attachments, &$inlineCount) {
-                if (count($attachments) >= 10) {
+            function (array $matches) use (&$attachments, &$inlineCount, $maxAttachments) {
+                if (count($attachments) >= $maxAttachments) {
                     return $matches[0];
                 }
 
@@ -5131,9 +5137,9 @@ class InboxController extends Controller
         if ($attachments === false) {
             return response()->json(['message' => 'Attachments are too large. Keep each file under 10 MB.'], 422);
         }
-        $prepared = $this->prepareTemplateContent($htmlBody, $attachments);
-        if (count($prepared['attachments']) > 10) {
-            return response()->json(['message' => 'Too many attachments. Use up to 5 files plus a few inline images.'], 422);
+        $prepared = $this->prepareTemplateContent($htmlBody, $attachments, self::MAX_MESSAGE_ATTACHMENTS);
+        if (count($prepared['attachments']) > self::MAX_MESSAGE_ATTACHMENTS) {
+            return response()->json(['message' => 'Too many attachments and inline images ('.count($prepared['attachments']).'). The maximum is '.self::MAX_MESSAGE_ATTACHMENTS.' per message.'], 422);
         }
         $plain = trim(strip_tags($prepared['body']));
         if ($plain === '' && $prepared['attachments'] === []) {

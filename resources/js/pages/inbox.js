@@ -812,6 +812,16 @@
         return { body: preparedBody, attachments };
     }
 
+    // Everything goes up as one base64 JSON request, so cap the combined size of files
+    // and inline images before sending instead of failing on the server (413 / Graph).
+    function emailPayloadSizeError(body, files) {
+        const { attachments } = prepareEmailSendPayload(body, files);
+        const totalBytes = attachments.reduce((sum, a) => sum + Math.floor(String(a.contentBytes || '').length * 0.75), 0);
+        if (totalBytes <= MAX_TOTAL_ATTACH_BYTES) return '';
+        const mb = (totalBytes / (1024 * 1024)).toFixed(1);
+        return `Attachments and inline images total ${mb} MB. The maximum per email is ${MAX_TOTAL_ATTACH_LABEL}. Remove some files or images and try again.`;
+    }
+
     function syncComposerModeButtons(mode) {
         state.composerMode = mode || 'comment';
         document.querySelectorAll('[data-composer-mode]').forEach(btn => {
@@ -1376,6 +1386,8 @@
     const MAX_ATTACH_BYTES = 10 * 1024 * 1024;
     const MAX_ATTACH_COUNT = 5;
     const MAX_ATTACH_LABEL = '10 MB';
+    const MAX_TOTAL_ATTACH_BYTES = 25 * 1024 * 1024;
+    const MAX_TOTAL_ATTACH_LABEL = '25 MB';
     const TEMPLATE_PAGE_SIZE = 5;
     const SIGNATURE_PAGE_SIZE = 5;
 
@@ -8492,6 +8504,8 @@
         const archive = !!opts.archive;
         const sendAt = opts.sendAt || null;
         const conversationId = state.selectedId;
+        const sizeError = emailPayloadSizeError(html, state.replyAttachments);
+        if (sizeError) return alert(sizeError);
         const snapshot = captureReplySendSnapshot();
         const prepared = prepareEmailSendPayload(html, snapshot.attachments);
         const payload = {
@@ -9163,6 +9177,8 @@
         if (isComposerEmpty('compose')) return alert('Write a message first.');
 
         const sendAt = opts.sendAt || null;
+        const sizeError = emailPayloadSizeError(html, state.composeAttachments);
+        if (sizeError) return alert(sizeError);
         const snapshot = captureComposeSendSnapshot();
         const prepared = prepareEmailSendPayload(html, snapshot.attachments);
         const payload = {
