@@ -158,16 +158,43 @@ class InboundCallQueueService
     /**
      * @param  array<int>  $excludeUserIds
      */
-    public function pickNextAgent(int $companyId, array $excludeUserIds = []): ?User
+    public function pickNextAgent(int $companyId, array $excludeUserIds = [], ?array $onlyUserIds = null): ?User
     {
+        $agents = $this->availableAgents($companyId, $excludeUserIds);
+        if ($onlyUserIds !== null) {
+            $agents = $agents->filter(fn (User $user) => in_array((int) $user->id, $onlyUserIds, true))->values();
+        }
+
         return $this->pickNextFromPool(
             $companyId,
-            $this->availableAgents($companyId, $excludeUserIds),
+            $agents,
             CallRoundRobinState::class,
             'last_assigned_user_id',
             $excludeUserIds,
             'call'
         );
+    }
+
+    /**
+     * Agents whose voice number is the dialed number (or its paired local/mobile number).
+     * Null when nobody is assigned, so callers can fall back to the whole company queue.
+     *
+     * @return array<int>|null
+     */
+    public function agentIdsForCalledNumber(int $companyId, ?string $called): ?array
+    {
+        if (! $called) {
+            return null;
+        }
+
+        $ids = User::query()
+            ->where('company_id', $companyId)
+            ->whereIn('twilio_number', app(TwilioCompanyService::class)->numberGroup($called))
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        return $ids === [] ? null : $ids;
     }
 
     /**

@@ -8,9 +8,23 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('contracts', function (Blueprint $table) {
-            $table->foreignId('lead_id')->nullable()->after('client_id')->constrained()->nullOnDelete();
-        });
+        if (! Schema::hasColumn('contracts', 'lead_id')) {
+            Schema::table('contracts', function (Blueprint $table) {
+                $table->foreignId('lead_id')->nullable()->after('client_id')->constrained()->nullOnDelete();
+            });
+        }
+
+        if (! Schema::hasColumn('contracts', 'client_id')) {
+            return;
+        }
+
+        $hasClientForeign = collect(Schema::getForeignKeys('contracts'))
+            ->contains(fn (array $fk) => ($fk['columns'] ?? []) === ['client_id']);
+        if ($hasClientForeign) {
+            Schema::table('contracts', function (Blueprint $table) {
+                $table->dropForeign(['client_id']);
+            });
+        }
 
         foreach (Schema::getIndexes('contracts') as $index) {
             $name = $index['name'] ?? '';
@@ -23,7 +37,6 @@ return new class extends Migration
         }
 
         Schema::table('contracts', function (Blueprint $table) {
-            $table->dropForeign(['client_id']);
             $table->dropColumn('client_id');
         });
     }

@@ -428,6 +428,63 @@ class PhoneSystemController extends Controller
         ]);
     }
 
+    /**
+     * Pair a local main number with a mobile number used as outbound caller ID.
+     */
+    public function pairNumber(Request $request, TwilioPhoneNumber $twilioPhoneNumber): JsonResponse
+    {
+        $user = Auth::user();
+        if ((int) $twilioPhoneNumber->company_id !== (int) $user->company_id) {
+            return response()->json(['success' => false, 'message' => 'Number not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'paired_phone_number' => ['nullable', 'string', 'max:20'],
+        ]);
+
+        $paired = null;
+        if (! empty($validated['paired_phone_number'])) {
+            $paired = $this->twilioCompany->normalizePhone($validated['paired_phone_number']);
+
+            if ($paired === $twilioPhoneNumber->phone_number) {
+                return response()->json(['success' => false, 'message' => 'A number cannot be paired with itself.'], 422);
+            }
+
+            $inInventory = TwilioPhoneNumber::query()
+                ->where('company_id', $user->company_id)
+                ->where('phone_number', $paired)
+                ->exists();
+            if (! $inInventory) {
+                return response()->json(['success' => false, 'message' => 'Select a number from your company inventory.'], 422);
+            }
+
+            $conflict = TwilioPhoneNumber::query()
+                ->where('company_id', $user->company_id)
+                ->whereKeyNot($twilioPhoneNumber->id)
+                ->where(function ($query) use ($paired) {
+                    $query->where('paired_phone_number', $paired)
+                        ->orWhere(function ($inner) use ($paired) {
+                            $inner->where('phone_number', $paired)->whereNotNull('paired_phone_number');
+                        });
+                })
+                ->exists();
+            $isPairedElsewhere = TwilioPhoneNumber::query()
+                ->where('company_id', $user->company_id)
+                ->where('paired_phone_number', $twilioPhoneNumber->phone_number)
+                ->exists();
+            if ($conflict || $isPairedElsewhere) {
+                return response()->json(['success' => false, 'message' => 'One of these numbers is already part of another pair.'], 422);
+            }
+        }
+
+        $twilioPhoneNumber->update(['paired_phone_number' => $paired]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->formatNumber($twilioPhoneNumber->fresh()),
+        ]);
+    }
+
     public function unassignNumber(Request $request, TwilioPhoneNumber $twilioPhoneNumber): JsonResponse
     {
         $user = Auth::user();
@@ -813,6 +870,7 @@ class PhoneSystemController extends Controller
             'id' => $number->id,
             'phone_number' => $formatted['phone_number'],
             'friendly_name' => $formatted['friendly_name'] ?? $number->friendly_name,
+            'paired_phone_number' => $number->paired_phone_number,
             'capabilities' => $number->capabilities,
             'assigned_user_id' => $formatted['assigned_user_id'],
             'assigned_user_name' => $formatted['assigned_user_name'],

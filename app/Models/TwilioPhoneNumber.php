@@ -10,6 +10,7 @@ class TwilioPhoneNumber extends Model
     protected $fillable = [
         'company_id',
         'phone_number',
+        'paired_phone_number',
         'twilio_sid',
         'friendly_name',
         'capabilities',

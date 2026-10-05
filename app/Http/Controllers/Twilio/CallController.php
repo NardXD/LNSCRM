@@ -75,7 +75,14 @@ class CallController extends Controller
                 // Request is expecting JSON
             }
 
-            $phoneNumber = $request->input('phone', '+639957802471'); // Default or from request
+            $phoneNumber = trim((string) $request->input('phone', ''));
+            if ($phoneNumber === '') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Phone number is required.',
+                    'call_sid' => null,
+                ], 422);
+            }
 
             Log::info('Initiating Twilio call', [
                 'phone_number' => $phoneNumber,
@@ -220,6 +227,9 @@ class CallController extends Controller
                     'call_sid' => null,
                 ], 500);
             }
+
+            // Show the paired mobile number as caller ID when the agent's number has one.
+            $twilioFrom = app(\App\Services\TwilioCompanyService::class)->outboundCallerId($twilioFrom) ?? $twilioFrom;
 
             // Initialize TwilioService with database credentials
             $twilio = new TwilioService($twilioSid, $twilioToken);
@@ -548,7 +558,11 @@ class CallController extends Controller
         $queue->releaseFromCall($callSid);
 
         if ($companyId > 0 && $callSid !== '') {
-            $next = $queue->pickNextAgent($companyId, $attempted);
+            $next = $queue->pickNextAgent(
+                $companyId,
+                $attempted,
+                $queue->agentIdsForCalledNumber($companyId, $assignment['to'] ?? $called)
+            );
             if ($next) {
                 $queue->markBusy($next, $callSid);
                 $queue->rememberAssignment($callSid, $companyId, (int) $next->id, $attempted);
@@ -588,7 +602,13 @@ class CallController extends Controller
                 return '    <Say voice="alice">No agent is available for this number. Please try again later.</Say>'."\n";
             }
 
-            $agent = $queue->pickNextAgent((int) $company->id);
+            $twilioCompany = app(\App\Services\TwilioCompanyService::class);
+            $mainNumber = $twilioCompany->mainNumberFor($called);
+            $agent = $queue->pickNextAgent(
+                (int) $company->id,
+                [],
+                $queue->agentIdsForCalledNumber((int) $company->id, $called)
+            );
 
             if (! $agent) {
                 Log::warning('Inbound call - no available agents in queue', [
@@ -601,13 +621,13 @@ class CallController extends Controller
 
             if ($callSid !== '') {
                 $queue->markBusy($agent, $callSid);
-                $queue->rememberAssignment($callSid, (int) $company->id, (int) $agent->id, [], 0, $caller, $called);
+                $queue->rememberAssignment($callSid, (int) $company->id, (int) $agent->id, [], 0, $caller, $mainNumber);
             }
 
             app(\App\Services\LeadAutoCreateService::class)->fromCallLegs(
                 (int) $company->id,
                 $caller,
-                $called,
+                $mainNumber,
                 'inbound'
             );
 
@@ -771,7 +791,9 @@ class CallController extends Controller
         $destination = $this->resolveE164Destination($request);
         $identity = $this->resolveClientIdentity($request);
         $agent = $identity ? User::query()->find($identity) : null;
-        $callerId = $this->normalizeE164($agent?->twilio_number);
+        $callerId = $this->normalizeE164(
+            app(\App\Services\TwilioCompanyService::class)->outboundCallerId($agent?->twilio_number)
+        );
 
         if (! $destination) {
             return '    <Say voice="alice">No destination number was provided.</Say>'."\n";

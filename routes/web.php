@@ -368,6 +368,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
             Route::post('/purchase', [PhoneSystemController::class, 'purchaseNumber'])->name('twilio.numbers.purchase');
             Route::post('/sync', [PhoneSystemController::class, 'syncNumbers'])->name('twilio.numbers.sync');
             Route::post('/{twilioPhoneNumber}/assign', [PhoneSystemController::class, 'assignNumber'])->name('twilio.numbers.assign');
+            Route::post('/{twilioPhoneNumber}/pair', [PhoneSystemController::class, 'pairNumber'])->name('twilio.numbers.pair');
             Route::post('/{twilioPhoneNumber}/unassign', [PhoneSystemController::class, 'unassignNumber'])->name('twilio.numbers.unassign');
         });
     });

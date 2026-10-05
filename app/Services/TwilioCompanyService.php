@@ -8,6 +8,7 @@ use App\Models\TwilioPhoneNumber;
 use App\Models\User;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Twilio\Rest\Client;
 
 class TwilioCompanyService
@@ -148,6 +149,72 @@ class TwilioCompanyService
         }
 
         return User::query()->where('twilio_sms_number', $normalized)->first();
+    }
+
+    /**
+     * Resolve a local-main / mobile pairing for either number of the pair.
+     *
+     * @return array{main: string, mobile: string}|null
+     */
+    public function pairFor(?string $number): ?array
+    {
+        if (! $number || ! Schema::hasColumn('twilio_phone_numbers', 'paired_phone_number')) {
+            return null;
+        }
+
+        $normalized = $this->normalizePhone($number);
+        $row = TwilioPhoneNumber::query()
+            ->whereNotNull('paired_phone_number')
+            ->where(function ($query) use ($normalized) {
+                $query->where('phone_number', $normalized)
+                    ->orWhere('paired_phone_number', $normalized);
+            })
+            ->first();
+
+        if (! $row) {
+            return null;
+        }
+
+        return [
+            'main' => $this->normalizePhone($row->phone_number),
+            'mobile' => $this->normalizePhone($row->paired_phone_number),
+        ];
+    }
+
+    /**
+     * Outbound caller ID for an agent's voice number: the paired mobile when one exists.
+     */
+    public function outboundCallerId(?string $agentNumber): ?string
+    {
+        if (! $agentNumber) {
+            return null;
+        }
+
+        return $this->pairFor($agentNumber)['mobile'] ?? $this->normalizePhone($agentNumber);
+    }
+
+    /**
+     * The CRM-facing (local main) number for a dialed number.
+     */
+    public function mainNumberFor(?string $number): ?string
+    {
+        if (! $number) {
+            return $number;
+        }
+
+        return $this->pairFor($number)['main'] ?? $number;
+    }
+
+    /**
+     * Every number whose assigned agents should receive calls to $number.
+     *
+     * @return array<int, string>
+     */
+    public function numberGroup(string $number): array
+    {
+        $pair = $this->pairFor($number);
+
+        return $pair ? array_values(array_unique([$pair['main'], $pair['mobile']])) : [$this->normalizePhone($number)];
     }
 
     public function normalizePhone(string $number): string

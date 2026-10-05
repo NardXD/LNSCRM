@@ -12,6 +12,7 @@
         numbersPurchase: @json(route('twilio.numbers.purchase', [], false)),
         numbersSync: @json(route('twilio.numbers.sync', [], false)),
         numbersAssign: @json(url('/twilio/numbers/__ID__/assign')),
+        numbersPair: @json(url('/twilio/numbers/__ID__/pair')),
         numbersUnassign: @json(url('/twilio/numbers/__ID__/unassign')),
         numbersEmployees: @json(route('twilio.numbers.employees', [], false)),
         agentPresence: @json(route('twilio.agent-presence', [], false)),
@@ -275,8 +276,35 @@
                         <div class="phone-list-item-actions">
                             ${numberUnassignButtons(n)}
                         </div>
+                        <div class="phone-list-item-actions phone-pair-row">
+                            <label>Outbound caller ID (mobile)
+                                <select class="form-input" data-pair-select="${n.id}">
+                                    <option value="">None</option>
+                                    ${numbers.filter((o) => o.id !== n.id).map((o) =>
+                                        `<option value="${escapeHtml(o.phone_number)}"${o.phone_number === n.paired_phone_number ? ' selected' : ''}>${escapeHtml(o.phone_number)}</option>`
+                                    ).join('')}
+                                </select>
+                            </label>
+                            <button type="button" class="btn-secondary btn-sm" data-pair-save="${n.id}">Save pairing</button>
+                        </div>
                     </div>
                 `).join('');
+                list.querySelectorAll('[data-pair-save]').forEach((btn) => {
+                    btn.addEventListener('click', async () => {
+                        const id = btn.getAttribute('data-pair-save');
+                        const value = list.querySelector(`[data-pair-select="${id}"]`)?.value || '';
+                        try {
+                            await apiFetch(routes.numbersPair.replace('__ID__', id), {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ paired_phone_number: value || null }),
+                            });
+                            loadNumbersPanel();
+                        } catch (e) {
+                            alert(e.message);
+                        }
+                    });
+                });
                 list.querySelectorAll('[data-unassign]').forEach((btn) => {
                     btn.addEventListener('click', async () => {
                         await apiFetch(routes.numbersUnassign.replace('__ID__', btn.getAttribute('data-unassign')), {
