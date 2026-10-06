@@ -9,13 +9,31 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('inbox_messages', function (Blueprint $table) {
-            // The teammate who sent this message from the CRM. Shared inboxes send as
-            // the shared mailbox address, so from_email can't tell teammates apart;
-            // this powers Views → Sent ("mail I sent", personal and shared).
-            $table->foreignId('sent_by_user_id')->nullable()->after('direction')->constrained('users')->nullOnDelete();
-            $table->index(['sent_by_user_id', 'inbox_conversation_id'], 'inbox_msg_sent_by_idx');
-        });
+        // Each step is guarded: MySQL DDL isn't transactional, so an interrupted run
+        // can leave the column in place without the migration being recorded.
+
+        // The teammate who sent this message from the CRM. Shared inboxes send as
+        // the shared mailbox address, so from_email can't tell teammates apart;
+        // this powers Views → Sent ("mail I sent", personal and shared).
+        if (! Schema::hasColumn('inbox_messages', 'sent_by_user_id')) {
+            Schema::table('inbox_messages', function (Blueprint $table) {
+                $table->unsignedBigInteger('sent_by_user_id')->nullable()->after('direction');
+            });
+        }
+
+        if (! Schema::hasIndex('inbox_messages', 'inbox_msg_sent_by_idx')) {
+            Schema::table('inbox_messages', function (Blueprint $table) {
+                $table->index(['sent_by_user_id', 'inbox_conversation_id'], 'inbox_msg_sent_by_idx');
+            });
+        }
+
+        $hasForeignKey = collect(Schema::getForeignKeys('inbox_messages'))
+            ->contains(fn ($fk) => $fk['columns'] === ['sent_by_user_id']);
+        if (! $hasForeignKey) {
+            Schema::table('inbox_messages', function (Blueprint $table) {
+                $table->foreign('sent_by_user_id')->references('id')->on('users')->nullOnDelete();
+            });
+        }
 
         // Backfill from queued/scheduled sends, which record who sent each message.
         DB::table('scheduled_inbox_replies')
@@ -37,8 +55,9 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('inbox_messages', function (Blueprint $table) {
+            $table->dropForeign(['sent_by_user_id']);
             $table->dropIndex('inbox_msg_sent_by_idx');
-            $table->dropConstrainedForeignId('sent_by_user_id');
+            $table->dropColumn('sent_by_user_id');
         });
     }
 };
