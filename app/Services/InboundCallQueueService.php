@@ -132,6 +132,38 @@ class InboundCallQueueService
         return $presence->fresh();
     }
 
+    /**
+     * Take an agent out of the inbound queue while they place an outbound call.
+     * Agents who are offline stay offline; they are not pulled into the queue afterwards.
+     */
+    public function markBusyForOutbound(User $user, string $callSid, ?string $from = null, ?string $to = null): void
+    {
+        if ($callSid === '') {
+            return;
+        }
+
+        $presence = $this->getOrCreatePresence($user);
+        if ($presence->status === CallAgentPresence::STATUS_OFFLINE) {
+            return;
+        }
+
+        // Keep the call log in place so the stale-busy sweep can tell the call is still live.
+        PhoneCallLog::query()->firstOrCreate(
+            ['call_sid' => $callSid],
+            [
+                'company_id' => $user->company_id,
+                'user_id' => $user->id,
+                'direction' => 'outbound-api',
+                'from_number' => $from,
+                'to_number' => $to,
+                'status' => 'initiated',
+                'started_at' => now(),
+            ]
+        );
+
+        $this->markBusy($user, $callSid);
+    }
+
     public function releaseFromCall(?string $callSid = null, ?User $user = null): void
     {
         $query = CallAgentPresence::query()->where('status', CallAgentPresence::STATUS_BUSY);

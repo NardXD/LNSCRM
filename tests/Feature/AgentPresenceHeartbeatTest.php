@@ -91,6 +91,42 @@ class AgentPresenceHeartbeatTest extends TestCase
         $this->assertNull($presence->current_call_sid);
     }
 
+    public function test_outbound_call_removes_agent_from_inbound_queue_until_it_ends(): void
+    {
+        [$user] = $this->agentUser();
+        $service = app(InboundCallQueueService::class);
+        $service->setAvailable($user);
+
+        $service->markBusyForOutbound($user, 'CA_out', '+15550001111', '+15552223333');
+        $this->assertCount(0, $service->availableAgents((int) $user->company_id));
+        $this->assertSame(
+            CallAgentPresence::STATUS_BUSY,
+            CallAgentPresence::query()->where('user_id', $user->id)->value('status')
+        );
+
+        $this->post('/twilio/status-callback', [
+            'CallSid' => 'CA_out',
+            'CallStatus' => 'no-answer',
+            'Direction' => 'outbound-api',
+        ])->assertOk();
+
+        $this->assertCount(1, $service->availableAgents((int) $user->company_id));
+    }
+
+    public function test_offline_agent_is_not_pulled_into_queue_by_outbound_call(): void
+    {
+        [$user] = $this->agentUser();
+        $service = app(InboundCallQueueService::class);
+        $service->setOffline($user);
+
+        $service->markBusyForOutbound($user, 'CA_out2');
+
+        $this->assertSame(
+            CallAgentPresence::STATUS_OFFLINE,
+            CallAgentPresence::query()->where('user_id', $user->id)->value('status')
+        );
+    }
+
     public function test_stale_busy_agent_is_swept_back_to_available(): void
     {
         [$user] = $this->agentUser();

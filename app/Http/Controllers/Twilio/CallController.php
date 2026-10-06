@@ -251,6 +251,9 @@ class CallController extends Controller
                 $phoneNumber
             );
 
+            // Outbound caller is unavailable for inbound queue calls until this call ends.
+            app(InboundCallQueueService::class)->markBusyForOutbound($user, $call->sid, $twilioFrom, $phoneNumber);
+
             Log::info('Call initiated successfully', [
                 'call_sid' => $call->sid,
                 'phone_number' => $phoneNumber,
@@ -335,7 +338,12 @@ class CallController extends Controller
 
         // Only end queue assignment when the caller actually hangs up or the call fully completes.
         // busy/no-answer/failed during Dial are handled by dialAction so a page refresh can retry the same agent.
-        if ($callSid && in_array($callStatus, ['completed', 'canceled'], true)) {
+        // Outbound agent calls have no dialAction retry, so any final status frees the agent.
+        $isAgentOutbound = ! $request->filled('ParentCallSid')
+            && strtolower((string) $direction) !== 'inbound'
+            && in_array($callStatus, ['busy', 'no-answer', 'failed'], true);
+
+        if ($callSid && ($isAgentOutbound || in_array($callStatus, ['completed', 'canceled'], true))) {
             $queue->releaseFromCall($callSid);
             $queue->forgetAssignment($callSid);
 
@@ -386,6 +394,13 @@ class CallController extends Controller
             } elseif ($isOutboundApi) {
                 $agentId = $this->resolveOutboundAgentId($request, $callSid);
                 $assignedUserId = ($agentId !== null && ctype_digit($agentId)) ? (int) $agentId : null;
+            }
+
+            if ($isClientOrigin && $assignedUserId && $callSid !== '') {
+                $outboundAgent = User::query()->find($assignedUserId);
+                if ($outboundAgent) {
+                    $queue->markBusyForOutbound($outboundAgent, $callSid, $caller, $destination ?: $called);
+                }
             }
 
             if ($assignedUserId) {
