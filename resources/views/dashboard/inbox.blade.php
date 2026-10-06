@@ -15,6 +15,9 @@
 <script>
 if (new URLSearchParams(location.search).get('popout') === '1') {
     document.documentElement.classList.add('inbox-is-popout');
+    if (new URLSearchParams(location.search).get('compose') === '1') {
+        document.documentElement.classList.add('inbox-is-compose-popout');
+    }
     document.title = 'Loading… - Inbox';
 }
 </script>
@@ -412,7 +415,13 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
 {{-- Modals --}}
 <div class="inbox-modal-backdrop" id="modalBackdrop" style="display:none;">
     <div class="inbox-modal inbox-modal-wide" id="modalCompose" style="display:none;">
-        <h3 id="composeModalTitle">New message</h3>
+        <div class="inbox-modal-head">
+            <h3 id="composeModalTitle">New message</h3>
+            <button type="button" class="inbox-btn ghost inbox-compose-popout-btn" id="btnComposePopout" title="Open in a new window">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                Pop out
+            </button>
+        </div>
         <p class="inbox-modal-help" id="composeModalHelp">Send email through a connected Outlook inbox.</p>
         <label class="inbox-field-inline">From
             <select id="composeFrom" class="form-input"></select>

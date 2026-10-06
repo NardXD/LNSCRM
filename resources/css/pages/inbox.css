@@ -3366,3 +3366,29 @@ html.inbox-is-popout .inbox-modal.inbox-inline-composer .inbox-modal-actions {
     background: #fff;
     padding-top: 0.35rem;
 }
+.inbox-compose-popout-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.inbox-compose-popout-btn svg { width: 15px; height: 15px; }
+html.inbox-is-popout .inbox-compose-popout-btn { display: none !important; }
+/* Compose popped out into its own window: the compose card fills the window. */
+html.inbox-is-compose-popout .inbox-shell { display: none !important; }
+html.inbox-is-compose-popout .inbox-modal-backdrop {
+    background: #fff;
+    padding: 0;
+    align-items: stretch;
+}
+html.inbox-is-compose-popout #modalCompose {
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    min-height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    align-content: start;
+}
+html.inbox-is-compose-popout #composeBody {
+    min-height: 320px;
+}

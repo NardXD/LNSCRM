@@ -7,6 +7,8 @@
     const CONNECT = root.dataset.connect;
     const USER_ID = Number(root.dataset.userId || 0);
     const INBOX_POPOUT = new URLSearchParams(window.location.search).get('popout') === '1';
+    // Compose popped out of the main inbox into its own window (no thread behind it).
+    const INBOX_COMPOSE_POPOUT = INBOX_POPOUT && new URLSearchParams(window.location.search).get('compose') === '1';
 
     const MAILBOX_FOLDERS = [
         { view: 'open', label: 'Inbox', countKey: 'open_count' },
@@ -838,6 +840,7 @@
     }
 
     function shouldDockComposerModal(id) {
+        if (INBOX_COMPOSE_POPOUT) return false;
         return INBOX_POPOUT && (id === 'modalReply' || id === 'modalCompose');
     }
 
@@ -2471,6 +2474,13 @@
         if (wasInline || INBOX_POPOUT) {
             syncComposerModeButtons('comment');
             hideMentionPopup('comment');
+        }
+        if (INBOX_COMPOSE_POPOUT) {
+            // Deferred so a send can queue its undo toast first; the window then
+            // closes once the send commits (see commitComposeSend).
+            setTimeout(() => {
+                if (!pendingUndoSend && el('modalBackdrop')?.style.display === 'none') closeComposePopoutWindow();
+            }, 0);
         }
     }
 
@@ -8738,7 +8748,7 @@
         await loadConversations({ append: false });
     });
     document.querySelectorAll('[data-close-modal]').forEach(b => b.addEventListener('click', closeModal));
-    el('modalBackdrop').addEventListener('click', (e) => { if (e.target === el('modalBackdrop')) closeModal(); });
+    el('modalBackdrop').addEventListener('click', (e) => { if (e.target === el('modalBackdrop') && !INBOX_COMPOSE_POPOUT) closeModal(); });
 
     el('btnToggleInboxTools').addEventListener('click', () => {
         state.inboxToolsOpen = !state.inboxToolsOpen;
@@ -9119,6 +9129,104 @@
         setTimeout(() => el('composeBody')?.focus(), 50);
     }
 
+    // Pop-out compose: the main window keeps the in-progress message until the new
+    // window asks for it over postMessage (attachments are too big for storage).
+    const composePopoutHandoffs = {};
+
+    function composePopoutUrl(token) {
+        const url = new URL(window.location.href);
+        url.search = '';
+        url.searchParams.set('popout', '1');
+        url.searchParams.set('compose', '1');
+        url.searchParams.set('handoff', token);
+        return url.toString();
+    }
+
+    function popOutCompose() {
+        const snapshot = captureComposeSendSnapshot();
+        const token = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        const win = window.open(
+            composePopoutUrl(token),
+            'inbox-compose-' + token,
+            'popup=yes,width=900,height=820,resizable=yes,scrollbars=yes'
+        );
+        if (!win) {
+            alert('Allow pop-ups to open this message in a new window.');
+            return;
+        }
+        composePopoutHandoffs[token] = snapshot;
+        clearComposeComposer();
+        closeModal();
+        win.focus();
+    }
+
+    function requestComposeHandoff(token) {
+        return new Promise(resolve => {
+            if (!token || !window.opener) return resolve(null);
+            const finish = (snapshot) => {
+                clearTimeout(timer);
+                window.removeEventListener('message', onMessage);
+                resolve(snapshot);
+            };
+            const timer = setTimeout(() => finish(null), 5000);
+            function onMessage(e) {
+                if (e.origin !== window.location.origin || e.source !== window.opener) return;
+                if (e.data?.type !== 'inbox-compose-handoff' || e.data.token !== token) return;
+                finish(e.data.snapshot || null);
+            }
+            window.addEventListener('message', onMessage);
+            try {
+                window.opener.postMessage({ type: 'inbox-compose-handoff-request', token }, window.location.origin);
+            } catch (_) {
+                finish(null);
+            }
+        });
+    }
+
+    async function openComposePopout(handoffPromise) {
+        const snapshot = await handoffPromise;
+        document.title = (snapshot?.subject || 'New message') + ' - Inbox';
+        if (!snapshot) {
+            openComposeModal();
+            return;
+        }
+        openComposeModal({
+            inboxId: snapshot.inboxId,
+            to: snapshot.to,
+            cc: snapshot.cc,
+            subject: snapshot.subject,
+            bodyHtml: snapshot.html || '',
+            attachments: snapshot.attachments,
+            draftConversationId: snapshot.draftConversationId,
+            title: snapshot.title,
+            help: snapshot.help,
+            focus: 'composeBody',
+        });
+    }
+
+    function closeComposePopoutWindow(detail = {}) {
+        try {
+            window.opener?.postMessage({ type: 'inbox-compose-done', ...detail }, window.location.origin);
+        } catch (_) {}
+        window.close();
+        // window.close() is ignored when the page wasn't opened by script.
+        setTimeout(() => { window.location.href = window.location.pathname; }, 300);
+    }
+
+    window.addEventListener('message', (e) => {
+        if (e.origin !== window.location.origin) return;
+        const data = e.data || {};
+        if (data.type === 'inbox-compose-handoff-request' && data.token) {
+            const snapshot = composePopoutHandoffs[data.token] || null;
+            delete composePopoutHandoffs[data.token];
+            e.source?.postMessage({ type: 'inbox-compose-handoff', token: data.token, snapshot }, window.location.origin);
+        } else if (data.type === 'inbox-compose-done' && !INBOX_POPOUT) {
+            loadBootstrap().then(() => loadConversations()).catch(() => {});
+        }
+    });
+
+    el('btnComposePopout')?.addEventListener('click', popOutCompose);
+
     async function commitComposeSend(payload, { inboxId, sendAt = null, alreadyCleared = false } = {}) {
         el('btnSendCompose').disabled = true;
         el('btnSendCompose').textContent = sendAt ? 'Scheduling…' : 'Sending…';
@@ -9130,6 +9238,12 @@
             el('btnSendCompose').disabled = false;
             el('btnSendCompose').textContent = 'Send';
             if (el('btnSendComposeMenu')) el('btnSendComposeMenu').disabled = false;
+        }
+
+        if (INBOX_COMPOSE_POPOUT) {
+            clearComposeComposer();
+            closeComposePopoutWindow({ inboxId, conversationId: data.conversation?.id || null, scheduled: !!data.scheduled });
+            return;
         }
 
         if (!alreadyCleared) {
@@ -9383,6 +9497,8 @@
             }
             closeTemplatePickers();
             if (state.checkedIds.length) clearCheckedConversations();
+            // In a popped-out compose window, Escape would close the window and drop the draft.
+            if (INBOX_COMPOSE_POPOUT && el('modalCompose')?.style.display === 'grid') return;
             if (el('modalBackdrop')?.style.display === 'flex') {
                 closeModal();
             }
@@ -9400,6 +9516,9 @@
     // Popout: fetch the thread immediately — don't wait on sidebar bootstrap/counts.
     const popoutOpenPromise = (INBOX_POPOUT && startupConversationId)
         ? openConversation(startupConversationId, startupMessageId ? { messageId: startupMessageId } : {})
+        : null;
+    const composeHandoffPromise = INBOX_COMPOSE_POPOUT
+        ? requestComposeHandoff(startupParams.get('handoff') || '')
         : null;
 
     // Shell first (lite), then counts in parallel with the conversation list.
@@ -9419,6 +9538,10 @@
         const conversationId = startupConversationId;
         const messageId = startupMessageId;
         const labelId = startupLabelId;
+        if (INBOX_COMPOSE_POPOUT) {
+            await openComposePopout(composeHandoffPromise);
+            return;
+        }
         if (labelId && !INBOX_POPOUT) {
             state.selectedLabelId = labelId;
             state.selectedInboxId = null;
@@ -9446,6 +9569,10 @@
             }
         }
     }).catch(err => {
+        if (INBOX_COMPOSE_POPOUT) {
+            alert(err.message || 'Could not open compose.');
+            return;
+        }
         if (INBOX_POPOUT) {
             if (state.conversation) {
                 console.warn('Inbox popout bootstrap failed', err);
