@@ -70,6 +70,46 @@ class AgentPresenceHeartbeatTest extends TestCase
         $this->assertTrue($presence->last_heartbeat_at->greaterThan(now()->subMinute()));
     }
 
+    public function test_completed_dial_releases_agent_without_redialing(): void
+    {
+        [$user] = $this->agentUser();
+        $service = app(InboundCallQueueService::class);
+        $service->setAvailable($user);
+        $service->markBusy($user, 'CA_done');
+        $service->rememberAssignment('CA_done', (int) $user->company_id, (int) $user->id);
+
+        $response = $this->post('/twilio/dial-action', [
+            'CallSid' => 'CA_done',
+            'DialCallStatus' => 'completed',
+            'DialCallDuration' => '42',
+        ]);
+
+        $response->assertOk();
+        $this->assertStringNotContainsString('<Dial', $response->getContent());
+        $presence = CallAgentPresence::query()->where('user_id', $user->id)->first();
+        $this->assertSame(CallAgentPresence::STATUS_AVAILABLE, $presence->status);
+        $this->assertNull($presence->current_call_sid);
+    }
+
+    public function test_stale_busy_agent_is_swept_back_to_available(): void
+    {
+        [$user] = $this->agentUser();
+        // Requests switch to the company timezone; write timestamps under the same one.
+        $this->actingAs($user);
+        \App\Services\TimezoneService::setApplicationTimezone();
+        $service = app(InboundCallQueueService::class);
+        $service->setAvailable($user);
+        $service->markBusy($user, 'CA_missed');
+
+        CallAgentPresence::query()->where('user_id', $user->id)->update([
+            'updated_at' => now()->subMinutes(5),
+        ]);
+        $this->actingAs($user)
+            ->getJson('/twilio/agent-presence')
+            ->assertOk()
+            ->assertJsonPath('data.me.status', 'available');
+    }
+
     /**
      * @return array{0: User}
      */

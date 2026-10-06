@@ -45,6 +45,7 @@ class InboundCallQueueService
 
     public function setAvailable(User $user): CallAgentPresence
     {
+        $this->releaseStaleBusy((int) $user->company_id);
         $presence = $this->getOrCreatePresence($user);
 
         // Don't interrupt an in-progress queued call; just keep the heartbeat fresh.
@@ -153,6 +154,53 @@ class InboundCallQueueService
                 'current_call_sid' => null,
             ])->save();
         }
+    }
+
+    /**
+     * Safety net for missed webhooks: free agents whose "busy" call has already ended,
+     * or whose browser stopped sending heartbeats.
+     */
+    public function releaseStaleBusy(?int $companyId = null): int
+    {
+        $terminal = ['completed', 'canceled', 'busy', 'no-answer', 'failed'];
+        $grace = now()->subSeconds(30);
+        $heartbeatCutoff = now()->subSeconds($this->heartbeatTtlSeconds());
+        $maxAge = now()->subHours(3);
+
+        $presences = CallAgentPresence::query()
+            ->where('status', CallAgentPresence::STATUS_BUSY)
+            ->when($companyId, fn ($q) => $q->where('company_id', $companyId))
+            ->get();
+
+        $released = 0;
+        foreach ($presences as $presence) {
+            $freshHeartbeat = $presence->last_heartbeat_at && $presence->last_heartbeat_at->gte($heartbeatCutoff);
+            $log = $presence->current_call_sid
+                ? PhoneCallLog::query()->where('call_sid', $presence->current_call_sid)->first()
+                : null;
+
+            $callEnded = ! $presence->current_call_sid
+                || ($log && ($log->ended_at || in_array($log->status, $terminal, true)))
+                || (! $log && $presence->updated_at && $presence->updated_at->lt($grace));
+            $tooOld = $presence->updated_at && $presence->updated_at->lt($maxAge);
+            // Background tabs throttle timers, so only trust a dead heartbeat after a long silence.
+            $abandoned = ! $freshHeartbeat && $presence->updated_at && $presence->updated_at->lt(now()->subMinutes(10));
+
+            if (! $callEnded && ! $tooOld && ! $abandoned) {
+                continue;
+            }
+            if ($callEnded && $presence->updated_at && $presence->updated_at->gte($grace)) {
+                continue; // give in-flight webhooks a moment before sweeping
+            }
+
+            $presence->fill([
+                'status' => $freshHeartbeat ? CallAgentPresence::STATUS_AVAILABLE : CallAgentPresence::STATUS_OFFLINE,
+                'current_call_sid' => null,
+            ])->save();
+            $released++;
+        }
+
+        return $released;
     }
 
     /**
@@ -410,6 +458,7 @@ class InboundCallQueueService
      */
     public function availableAgents(int $companyId, array $excludeUserIds = []): Collection
     {
+        $this->releaseStaleBusy($companyId);
         $cutoff = now()->subSeconds($this->heartbeatTtlSeconds());
 
         $presences = CallAgentPresence::query()
@@ -440,6 +489,7 @@ class InboundCallQueueService
      */
     public function queueSnapshot(int $companyId): array
     {
+        $this->releaseStaleBusy($companyId);
         $cutoff = now()->subSeconds($this->heartbeatTtlSeconds());
 
         $presences = CallAgentPresence::query()

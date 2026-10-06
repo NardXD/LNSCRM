@@ -338,6 +338,13 @@ class CallController extends Controller
         if ($callSid && in_array($callStatus, ['completed', 'canceled'], true)) {
             $queue->releaseFromCall($callSid);
             $queue->forgetAssignment($callSid);
+
+            // The callback may come from the child (agent) leg while presence holds the parent SID.
+            $parentSid = (string) ($request->input('ParentCallSid') ?? '');
+            if ($parentSid !== '') {
+                $queue->releaseFromCall($parentSid);
+                $queue->forgetAssignment($parentSid);
+            }
         }
 
         return response('OK', 200);
@@ -484,37 +491,8 @@ class CallController extends Controller
         }
 
         if (in_array($dialStatus, ['completed', 'answered'], true)) {
-            if (
-                $companyId > 0
-                && $callSid !== ''
-                && $currentUserId > 0
-                && $clientRetries < 4
-            ) {
-                $sameAgent = User::query()->find($currentUserId);
-                if ($sameAgent) {
-                    $queue->markBusy($sameAgent, $callSid);
-                    $queue->rememberAssignment(
-                        $callSid,
-                        $companyId,
-                        (int) $sameAgent->id,
-                        $attempted,
-                        $clientRetries + 1
-                    );
-                    $twiml .= $this->dialClientTwiml($sameAgent, $dialRecordAttrs, 20, $callSid);
-                    $twiml .= '</Response>';
-
-                    Log::info('Reconnecting queued agent after answered-call disconnect', [
-                        'call_sid' => $callSid,
-                        'user_id' => $sameAgent->id,
-                        'dial_status' => $dialStatus,
-                        'dial_duration' => $dialDuration,
-                        'client_retries' => $clientRetries + 1,
-                    ]);
-
-                    return response($twiml, 200)->header('Content-Type', 'text/xml');
-                }
-            }
-
+            // A completed dial means the conversation is over. Never re-dial the agent here:
+            // doing so re-marked them busy after every call and left them stuck "On call".
             $queue->releaseFromCall($callSid);
             $queue->forgetAssignment($callSid);
             $twiml .= '</Response>';
@@ -667,7 +645,7 @@ class CallController extends Controller
         $identity = htmlspecialchars((string) $user->id, ENT_XML1);
         $parent = htmlspecialchars($parentCallSid, ENT_XML1);
         $xml = '    <Dial timeout="'.$timeout.'" answerOnMedia="true" '.$dialRecordAttrs.' action="'.$action.'">'."\n";
-        $xml .= '        <Client statusCallback="'.$statusCb.'" statusCallbackEvent="answered">'."\n";
+        $xml .= '        <Client statusCallback="'.$statusCb.'" statusCallbackEvent="answered completed">'."\n";
         $xml .= '            <Identity>'.$identity.'</Identity>'."\n";
         if ($parent !== '') {
             $xml .= '            <Parameter name="parent_call_sid" value="'.$parent.'"/>'."\n";
@@ -882,6 +860,20 @@ class CallController extends Controller
             'status' => $status,
             'event' => $event,
         ]);
+
+        if (in_array($status, ['completed', 'canceled', 'failed', 'busy', 'no-answer'], true)) {
+            $endedParent = (string) ($request->input('ParentCallSid') ?? '');
+            $endedSid = (string) ($request->input('CallSid') ?? '');
+            // Keep the parent assignment for dialAction retries on busy/failed; only fully end on completed/canceled.
+            if (in_array($status, ['completed', 'canceled'], true)) {
+                foreach (array_filter([$endedParent, $endedSid]) as $sid) {
+                    $queue->releaseFromCall($sid);
+                    $queue->forgetAssignment($sid);
+                }
+            }
+
+            return response('OK', 200);
+        }
 
         if (! $answered) {
             return response('OK', 200);

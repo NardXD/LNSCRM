@@ -41,8 +41,9 @@ class PhoneSystemController extends Controller
     public function agentPresence(Request $request): JsonResponse
     {
         $user = Auth::user();
-        $presence = $this->callQueue->getOrCreatePresence($user);
+        // Snapshot first: it sweeps stale "busy" rows so the presence read below is current.
         $snapshot = $this->callQueue->queueSnapshot((int) $user->company_id);
+        $presence = $this->callQueue->getOrCreatePresence($user);
 
         return response()->json([
             'success' => true,
