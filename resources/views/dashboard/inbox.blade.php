@@ -59,6 +59,9 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
                     <span>Open</span><span class="inbox-count" id="countOpen">0</span>
                 </button>
                 <div id="viewGroups"></div>
+                <button type="button" class="inbox-nav-item" data-view="sent" data-scope="all" title="Mail you sent, from your personal and shared inboxes">
+                    <span>Sent</span>
+                </button>
             </div>
 
             <div class="inbox-nav-section inbox-labels-section">

@@ -12,6 +12,7 @@ class InboxMessage extends Model
         'source_conversation_id',
         'external_message_id',
         'direction',
+        'sent_by_user_id',
         'is_draft',
         'from_name',
         'from_email',

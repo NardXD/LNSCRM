@@ -59,6 +59,7 @@ class InboxSentAttachmentsTest extends TestCase
 
         $message = InboxMessage::query()->findOrFail($messageId);
         $this->assertSame('graph-msg-compose-1', $message->external_message_id);
+        $this->assertSame($user->id, (int) $message->sent_by_user_id);
         $this->assertNotEmpty($message->attachments);
         $this->assertSame('graph-attach-1', $message->attachments[0]['id']);
         $this->assertSame('quote.pdf', $message->attachments[0]['name']);
@@ -132,6 +133,7 @@ class InboxSentAttachmentsTest extends TestCase
 
         $this->assertNotNull($outbound);
         $this->assertSame('graph-msg-reply-1', $outbound->external_message_id);
+        $this->assertSame($user->id, (int) $outbound->sent_by_user_id);
         $this->assertSame('graph-attach-2', $outbound->attachments[0]['id']);
         $this->assertArrayNotHasKey('path', $outbound->attachments[0]);
 

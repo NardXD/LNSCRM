@@ -787,6 +787,8 @@ class InboxController extends Controller
             $query->where('folder', 'inbox')->where('status', 'open')->whereNull('assigned_to');
         } elseif ($view === 'drafts') {
             $query->where('folder', 'drafts');
+        } elseif ($view === 'sent' && empty($validated['inbox_id'])) {
+            $this->constrainSentByLoggedInUser($query, $user);
         } elseif ($view === 'sent') {
             $query->where('folder', 'sent');
         } elseif ($view === 'trash') {
@@ -3778,6 +3780,31 @@ class InboxController extends Controller
         return response()->json([
             'message' => 'You do not have permission to perform this action.',
         ], 403);
+    }
+
+    /**
+     * Views → Sent: threads with mail this teammate sent — anything sent from their
+     * personal mailbox, plus messages they sent from the CRM through a shared inbox.
+     */
+    private function constrainSentByLoggedInUser($query, User $user): void
+    {
+        $personalInboxIds = $this->accessibleInboxes($user)
+            ->where('type', SharedInbox::TYPE_PERSONAL)
+            ->pluck('id');
+
+        $sentMessages = fn ($messages) => $messages
+            ->where('direction', 'outbound')
+            ->where('is_draft', false);
+
+        $query->whereNotIn('folder', ['drafts', 'trash', 'spam'])
+            ->where(function ($q) use ($user, $personalInboxIds, $sentMessages) {
+                $q->where(function ($personal) use ($personalInboxIds, $sentMessages) {
+                    $personal->whereIn('inbox_conversations.shared_inbox_id', $personalInboxIds)
+                        ->whereHas('messages', $sentMessages);
+                })->orWhereHas('messages', function ($messages) use ($user, $sentMessages) {
+                    $sentMessages($messages)->where('sent_by_user_id', $user->id);
+                });
+            });
     }
 
     private function accessibleInboxes(User $user)
