@@ -389,6 +389,14 @@
         return false;
     }
 
+    function isForwardedMessageNode(node) {
+        const text = node.nodeType === Node.TEXT_NODE
+            ? String(node.textContent || '')
+            : emailNodeMeaningfulText(node);
+        return /^-{2,}\s*(?:Forwarded message|Original message)\s*-{2,}/i.test(text.trim().slice(0, 200))
+            && /Forwarded message/i.test(text.slice(0, 200));
+    }
+
     function isEmptyQuoteBoundary(node) {
         if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
         if (!node.matches?.('#appendonsend, [id$="appendonsend"]')) return false;
@@ -406,6 +414,8 @@
                 continue;
             }
             if (isEmailQuoteStartNode(node)) {
+                // A forward is the content the sender wants shown, not reply history.
+                if (isForwardedMessageNode(node)) return null;
                 return sawReplyText ? node : null;
             }
             const text = node.nodeType === Node.TEXT_NODE
