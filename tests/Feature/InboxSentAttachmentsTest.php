@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Company;
 use App\Models\InboxConversation;
 use App\Models\InboxMessage;
+use App\Models\LeadLabel;
 use App\Models\OutlookMailAccount;
 use App\Models\Permission;
 use App\Models\Role;
@@ -19,6 +20,80 @@ use Tests\TestCase;
 class InboxSentAttachmentsTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_compose_attaches_unique_company_labels_to_the_sent_conversation(): void
+    {
+        [$user, $inbox] = $this->connectedInboxFixture();
+        $first = LeadLabel::query()->create(['company_id' => $user->company_id, 'name' => 'Follow up', 'color' => '#2563eb']);
+        $second = LeadLabel::query()->create(['company_id' => $user->company_id, 'name' => 'Important', 'color' => '#dc2626']);
+
+        $this->mock(OutlookMailService::class, function ($mock) {
+            $mock->shouldReceive('sendMail')->once()->andReturn([
+                'sent' => true,
+                'id' => 'graph-msg-labelled',
+                'conversationId' => 'graph-conv-labelled',
+            ]);
+        });
+
+        $response = $this->actingAs($user)->postJson('/api/inbox/compose', [
+            'inbox_id' => $inbox->id,
+            'to' => 'labelled@example.com',
+            'subject' => 'Labelled message',
+            'body' => '<p>Hello</p>',
+            'label_ids' => [$first->id, $second->id, $first->id],
+        ])->assertCreated();
+
+        $conversation = InboxConversation::query()->findOrFail($response->json('conversation.id'));
+        $this->assertEqualsCanonicalizing(
+            [$first->id, $second->id],
+            $conversation->leadLabels()->pluck('lead_labels.id')->all()
+        );
+        $response->assertJsonCount(2, 'conversation.lead_labels');
+    }
+
+    public function test_compose_rejects_a_foreign_company_label_before_sending(): void
+    {
+        [$user, $inbox] = $this->connectedInboxFixture();
+        $otherCompany = Company::query()->create([
+            'name' => 'Other',
+            'subdomain' => 'other-compose-label',
+            'status' => 'active',
+            'email' => 'admin-other-compose-label@lns.test',
+        ]);
+        $foreign = LeadLabel::query()->create(['company_id' => $otherCompany->id, 'name' => 'Private', 'color' => '#111827']);
+
+        $this->mock(OutlookMailService::class, function ($mock) {
+            $mock->shouldNotReceive('sendMail');
+        });
+
+        $this->actingAs($user)->postJson('/api/inbox/compose', [
+            'inbox_id' => $inbox->id,
+            'to' => 'customer@example.com',
+            'subject' => 'Invalid label',
+            'body' => '<p>Hello</p>',
+            'label_ids' => [$foreign->id],
+        ])->assertUnprocessable()->assertJsonValidationErrors('label_ids');
+
+        $this->assertDatabaseCount('inbox_conversations', 0);
+    }
+
+    public function test_scheduled_compose_attaches_labels_to_the_draft_conversation(): void
+    {
+        [$user, $inbox] = $this->connectedInboxFixture();
+        $label = LeadLabel::query()->create(['company_id' => $user->company_id, 'name' => 'Scheduled', 'color' => '#7c3aed']);
+
+        $response = $this->actingAs($user)->postJson('/api/inbox/compose', [
+            'inbox_id' => $inbox->id,
+            'to' => 'later@example.com',
+            'subject' => 'Send later',
+            'body' => '<p>Later</p>',
+            'send_at' => now()->addHour()->toIso8601String(),
+            'label_ids' => [$label->id],
+        ])->assertCreated()->assertJsonPath('scheduled', true);
+
+        $conversation = InboxConversation::query()->findOrFail($response->json('conversation.id'));
+        $this->assertTrue($conversation->leadLabels()->whereKey($label->id)->exists());
+    }
 
     public function test_compose_uses_outlook_attachment_metadata_on_the_sent_message(): void
     {

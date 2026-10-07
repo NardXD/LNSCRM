@@ -7,13 +7,13 @@ use App\Jobs\ProcessScheduledInboxReplyJob;
 use App\Models\InboxConversation;
 use App\Models\InboxConversationActivity;
 use App\Models\InboxConversationComment;
+use App\Models\InboxConversationFollower;
+use App\Models\InboxConversationUserRead;
 use App\Models\InboxMessage;
 use App\Models\InboxSignature;
 use App\Models\InboxTag;
 use App\Models\InboxTemplate;
 use App\Models\InboxUserSetting;
-use App\Models\InboxConversationFollower;
-use App\Models\InboxConversationUserRead;
 use App\Models\Lead;
 use App\Models\LeadLabel;
 use App\Models\OutlookMailAccount;
@@ -46,6 +46,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -2295,6 +2296,8 @@ class InboxController extends Controller
     {
         $user = $request->user();
         $validated = $request->validate($this->shareDraftRules(true));
+        $composeLabelsProvided = array_key_exists('label_ids', $validated);
+        $composeLabels = $this->resolveComposeLabels($validated, (int) $user->company_id);
 
         $inbox = $this->accessibleInboxes($user)
             ->where('id', $validated['inbox_id'])
@@ -2341,10 +2344,19 @@ class InboxController extends Controller
         ], $draftConversation);
 
         $this->recordSharedDraftActivity($result['conversation'], $user, $shareWith, $prepared['plain']);
+        if ($composeLabelsProvided) {
+            $this->syncComposeLabels($result['conversation'], $composeLabels, $user);
+        }
 
         return response()->json([
             'shared' => true,
-            'conversation' => $this->formatConversation($result['conversation'], true),
+            'conversation' => $this->formatConversation($result['conversation']->fresh([
+                'assignee',
+                'tags',
+                'leadLabels',
+                'inbox',
+                'messages',
+            ]) ?? $result['conversation'], true),
             'message' => $this->formatMessage($result['message']),
         ], 201);
     }
@@ -2784,6 +2796,8 @@ class InboxController extends Controller
             'body' => ['required', 'string', 'max:5000000'],
             'send_at' => ['nullable', 'date', 'after:now'],
             'draft_conversation_id' => ['nullable', 'integer'],
+            'label_ids' => ['nullable', 'array', 'max:50'],
+            'label_ids.*' => ['integer'],
             'attachments' => ['nullable', 'array', 'max:25'],
             'attachments.*.name' => ['required_with:attachments', 'string', 'max:255'],
             'attachments.*.contentType' => ['nullable', 'string', 'max:120'],
@@ -2804,6 +2818,9 @@ class InboxController extends Controller
         if (! $inbox->account) {
             return response()->json(['message' => 'This inbox is not connected to Outlook.'], 422);
         }
+
+        $composeLabelsProvided = array_key_exists('label_ids', $validated);
+        $composeLabels = $this->resolveComposeLabels($validated, (int) $user->company_id);
 
         $toEmails = collect(explode(',', $validated['to']))
             ->map(fn ($e) => trim($e))
@@ -2920,6 +2937,10 @@ class InboxController extends Controller
                 ]);
             }
 
+            if ($composeLabelsProvided) {
+                $this->syncComposeLabels($conversation, $composeLabels, $user);
+            }
+
             $this->recordActivity(
                 $conversation,
                 $user,
@@ -2956,6 +2977,10 @@ class InboxController extends Controller
             ], $draftConversation);
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 502);
+        }
+
+        if ($composeLabelsProvided) {
+            $this->syncComposeLabels($result['conversation'], $composeLabels, $user);
         }
 
         $this->applyLeadRules($result['conversation'], LeadRuleEngine::TRIGGER_OUTBOUND_MESSAGE_NEW);
@@ -4811,6 +4836,7 @@ class InboxController extends Controller
                 $row->is_subscribed = $subscribed;
                 $row->save();
                 $newlyAdded[] = $userId;
+
                 continue;
             }
 
@@ -5151,9 +5177,99 @@ class InboxController extends Controller
         if ($compose) {
             $rules['subject'] = ['required', 'string', 'max:500'];
             $rules['draft_conversation_id'] = ['nullable', 'integer'];
+            $rules['label_ids'] = ['nullable', 'array', 'max:50'];
+            $rules['label_ids.*'] = ['integer'];
         }
 
         return $rules;
+    }
+
+    /**
+     * Resolve compose labels inside the authenticated company boundary.
+     * Duplicate IDs are normalized; missing or foreign-company IDs are rejected.
+     *
+     * @param  array<string, mixed>  $validated
+     * @return Collection<int, LeadLabel>
+     */
+    private function resolveComposeLabels(array $validated, int $companyId): Collection
+    {
+        $ids = collect($validated['label_ids'] ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        $labels = LeadLabel::query()
+            ->where('company_id', $companyId)
+            ->whereIn('id', $ids->all())
+            ->get()
+            ->sortBy(fn (LeadLabel $label) => $ids->search((int) $label->id))
+            ->values();
+
+        if ($labels->count() !== $ids->count()) {
+            throw ValidationException::withMessages([
+                'label_ids' => ['One or more selected labels are invalid.'],
+            ]);
+        }
+
+        return $labels;
+    }
+
+    /**
+     * Synchronize labels selected in compose and retain existing lead-label side effects.
+     *
+     * @param  Collection<int, LeadLabel>  $labels
+     */
+    private function syncComposeLabels(InboxConversation $conversation, Collection $labels, User $actor): void
+    {
+        $ids = $labels->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $changes = $conversation->leadLabels()->sync($ids);
+        $addedIds = array_map('intval', $changes['attached'] ?? []);
+        $removedIds = array_map('intval', $changes['detached'] ?? []);
+
+        foreach ($labels->whereIn('id', $addedIds) as $label) {
+            $this->recordActivity(
+                $conversation,
+                $actor,
+                'label_added',
+                $actor->name.' added label: '.$label->name,
+                ['label_id' => $label->id, 'label_name' => $label->name]
+            );
+        }
+
+        if ($removedIds !== []) {
+            $removed = LeadLabel::query()
+                ->where('company_id', $conversation->company_id)
+                ->whereIn('id', $removedIds)
+                ->get();
+            foreach ($removed as $label) {
+                $this->recordActivity(
+                    $conversation,
+                    $actor,
+                    'label_removed',
+                    $actor->name.' removed label: '.$label->name,
+                    ['label_id' => $label->id, 'label_name' => $label->name]
+                );
+            }
+        }
+
+        $lead = $this->matchingLead($conversation);
+        if (! $lead || $ids === []) {
+            return;
+        }
+
+        $leadChanges = $lead->labels()->syncWithoutDetaching($ids);
+        $leadAddedIds = array_map('intval', $leadChanges['attached'] ?? []);
+        foreach ($labels->whereIn('id', $leadAddedIds) as $label) {
+            $this->leadActivity->recordLabel($lead, $label->name, true, labelId: $label->id, applyRules: false);
+            ApplyLeadLabeledRulesJob::dispatchAfterResponse((int) $lead->id, (string) $label->name, (int) $label->id);
+        }
+        if ($leadAddedIds !== []) {
+            $this->crmLookup->refreshLeadInIndexes($lead);
+        }
     }
 
     /**
