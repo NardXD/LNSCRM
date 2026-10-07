@@ -1480,6 +1480,49 @@ html.inbox-is-popout .main-content { margin-left: 0 !important; }
     padding: 0.4rem 0.7rem;
     text-align: center;
 }
+.inbox-compose-label-pop { position: relative; }
+.inbox-compose-label-menu.inbox-pop-menu {
+    left: 0;
+    right: auto;
+    width: min(320px, calc(100vw - 32px));
+    padding: 0;
+    gap: 0;
+    overflow: hidden;
+}
+.inbox-compose-label-head {
+    padding: 0.75rem 0.9rem;
+    border-bottom: 1px solid var(--inbox-border);
+    color: var(--inbox-muted);
+    font-size: 0.76rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.inbox-compose-label-menu .inbox-assign-search { padding: 0.65rem 0.55rem 0.4rem; }
+.inbox-compose-label-list {
+    max-height: min(230px, 35vh);
+    padding: 0 0.35rem;
+    overflow-y: auto;
+}
+.inbox-compose-label-menu .inbox-tag-add-option { padding: 0.45rem 0.5rem; }
+.inbox-compose-label-menu .inbox-participant-avatar {
+    width: 28px;
+    height: 28px;
+    font-size: 0.72rem;
+}
+.inbox-pop-menu button.inbox-compose-label-confirm {
+    width: calc(100% - 1rem);
+    margin: 0.55rem;
+    padding: 0.52rem 0.7rem;
+    background: var(--inbox-accent);
+    color: #fff;
+    text-align: center;
+}
+.inbox-pop-menu button.inbox-compose-label-confirm:hover {
+    background: var(--inbox-accent);
+    color: #fff;
+    filter: brightness(0.96);
+}
 .inbox-tags-add.is-busy,
 #tagsMenu.is-busy .inbox-tags-add {
     position: relative;

@@ -441,6 +441,17 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
             <input type="text" id="composeSubject" class="form-input" placeholder="Subject">
         </label>
         <div class="inbox-composer-tools">
+            <div class="inbox-pop inbox-compose-label-pop" id="composeLabelsPop">
+                <button type="button" class="inbox-composer-tool" id="btnComposeLabels" aria-haspopup="menu" aria-expanded="false" aria-controls="composeLabelsMenu">+ Label</button>
+                <div class="inbox-pop-menu inbox-compose-label-menu" id="composeLabelsMenu" hidden role="menu" aria-label="Add labels">
+                    <div class="inbox-compose-label-head">Add a label</div>
+                    <div class="inbox-assign-search">
+                        <input type="search" id="composeLabelsSearch" placeholder="Search labels to add…" autocomplete="off" aria-label="Search labels to add">
+                    </div>
+                    <div class="inbox-assign-list inbox-compose-label-list" id="composeLabelsList"></div>
+                    <button type="button" class="inbox-btn primary inbox-compose-label-confirm" id="btnConfirmComposeLabels">Add labels</button>
+                </div>
+            </div>
             <button type="button" class="inbox-composer-tool" id="btnComposeAttach" title="Attach files">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                 Attach
@@ -939,4 +950,3 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
 
 </div>{{-- /.inbox-page-wrapper --}}
 @endsection
-

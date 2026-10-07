@@ -122,6 +122,8 @@
         advancedOpen: false,
         replyAttachments: [],
         composeAttachments: [],
+        composeLabelIds: [],
+        composeLabelPickerIds: [],
         commentAttachments: [],
         templateAttachments: [],
         composerMode: 'comment',
@@ -982,8 +984,13 @@
         setComposerHtml('compose', message.body_html || '');
         state.composeDraftConversationId = state.conversation?.id || null;
         state.composeAttachments = [];
+        state.composeLabelIds = (state.conversation?.lead_labels || []).map(label => Number(label.id)).filter(id => id > 0);
+        state.composeLabelPickerIds = [...state.composeLabelIds];
         state.shareDraftSelected.compose = {};
+        if (el('composeLabelsSearch')) el('composeLabelsSearch').value = '';
+        el('btnComposeLabels')?.setAttribute('aria-expanded', 'false');
         renderAttachChips('compose');
+        renderComposeLabels();
         hideMentionPopup('compose');
         refreshTemplateSelects();
         setComposeModalCopy('Edit draft', 'Send this draft through a connected Outlook inbox.');
@@ -2683,9 +2690,14 @@
             applyComposerSignature('compose');
         }
         state.composeAttachments = opts.attachments || [];
+        state.composeLabelIds = Array.isArray(opts.labelIds) ? opts.labelIds.map(Number).filter(id => id > 0) : [];
+        state.composeLabelPickerIds = [...state.composeLabelIds];
         state.composeDraftConversationId = opts.draftConversationId || null;
         state.shareDraftSelected.compose = {};
+        if (el('composeLabelsSearch')) el('composeLabelsSearch').value = '';
+        el('btnComposeLabels')?.setAttribute('aria-expanded', 'false');
         renderAttachChips('compose');
+        renderComposeLabels();
         hideMentionPopup('compose');
         refreshTemplateSelects();
         setComposeModalCopy(
@@ -2702,6 +2714,43 @@
 
     function allLeadLabelsSorted() {
         return (state.leadLabels || []).slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+    }
+
+    function renderComposeLabels(query = '') {
+        const list = el('composeLabelsList');
+        const button = el('btnComposeLabels');
+        const confirm = el('btnConfirmComposeLabels');
+        if (!list || !button || !confirm) return;
+
+        const selected = new Set((state.composeLabelPickerIds || []).map(Number));
+        const labels = allLeadLabelsSorted();
+        const q = String(query || '').trim().toLowerCase();
+        const visible = labels.filter(label => !q || String(label.name || '').toLowerCase().includes(q));
+        const appliedCount = (state.composeLabelIds || []).length;
+        button.textContent = appliedCount ? `+ Label (${appliedCount})` : '+ Label';
+        confirm.textContent = selected.size ? `Add ${selected.size} label${selected.size === 1 ? '' : 's'}` : 'Add labels';
+        confirm.disabled = false;
+
+        list.innerHTML = visible.length
+            ? visible.map(label => {
+                const checked = selected.has(Number(label.id));
+                return `<button type="button" class="inbox-tag-add-option ${checked ? 'is-selected' : ''}" data-compose-label="${label.id}" role="menuitemcheckbox" aria-checked="${checked ? 'true' : 'false'}">
+                    <span class="inbox-tag-check" aria-hidden="true">✓</span>
+                    <span class="inbox-participant-avatar" style="background:${escapeHtml(label.color || '#64748b')}">${escapeHtml(initials(label.name))}</span>
+                    <span class="inbox-participant-name">${escapeHtml(label.name || 'Label')}</span>
+                </button>`;
+            }).join('')
+            : `<div class="inbox-assign-empty">${labels.length ? 'No matching labels' : 'No labels available'}</div>`;
+    }
+
+    function toggleComposeLabel(labelId) {
+        const id = Number(labelId);
+        if (!id) return;
+        const selected = new Set((state.composeLabelPickerIds || []).map(Number));
+        if (selected.has(id)) selected.delete(id);
+        else selected.add(id);
+        state.composeLabelPickerIds = [...selected];
+        renderComposeLabels(el('composeLabelsSearch')?.value || '');
     }
 
     function currentSidebarLabelIds() {
@@ -4743,7 +4792,7 @@
 
     function closeThreadPops() {
         closeSearchSelects();
-        ['threadMoreMenu', 'snoozeMenu', 'assignMenu', 'commentEmojiMenu', 'sendReplyMenu', 'composeSendMenu', 'participantsMenu', 'tagsMenu', 'sortMenu', 'bulkAssignMenu', 'bulkTagMenu'].forEach(id => {
+        ['threadMoreMenu', 'snoozeMenu', 'assignMenu', 'commentEmojiMenu', 'sendReplyMenu', 'composeSendMenu', 'composeLabelsMenu', 'participantsMenu', 'tagsMenu', 'sortMenu', 'bulkAssignMenu', 'bulkTagMenu'].forEach(id => {
             const node = el(id);
             if (node) node.hidden = true;
         });
@@ -4960,6 +5009,7 @@
             if (inboxId) payload.inbox_id = inboxId;
             if (isCompose) {
                 payload.subject = subject;
+                payload.label_ids = [...(state.composeLabelIds || [])];
                 if (state.composeDraftConversationId) payload.draft_conversation_id = state.composeDraftConversationId;
             }
             const path = isCompose
@@ -4969,8 +5019,11 @@
             closeThreadPops();
             if (isCompose) {
                 state.composeAttachments = [];
+                state.composeLabelIds = [];
+                state.composeLabelPickerIds = [];
                 state.composeDraftConversationId = data.conversation?.id || null;
                 renderAttachChips('compose');
+                renderComposeLabels();
                 hideMentionPopup('compose');
                 closeModal();
                 if (inboxId) {
@@ -8728,6 +8781,30 @@
     });
     el('btnCompose').addEventListener('click', openComposeModal);
     el('btnComposeHeader').addEventListener('click', openComposeModal);
+    el('btnComposeLabels')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.composeLabelPickerIds = [...(state.composeLabelIds || [])];
+        togglePop('composeLabelsMenu', e.currentTarget);
+        if (!el('composeLabelsMenu')?.hidden) {
+            if (el('composeLabelsSearch')) el('composeLabelsSearch').value = '';
+            renderComposeLabels(el('composeLabelsSearch')?.value || '');
+            el('composeLabelsSearch')?.focus();
+        }
+    });
+    el('composeLabelsSearch')?.addEventListener('input', (e) => renderComposeLabels(e.target.value));
+    el('composeLabelsSearch')?.addEventListener('click', (e) => e.stopPropagation());
+    el('composeLabelsList')?.addEventListener('click', (e) => {
+        const option = e.target.closest('[data-compose-label]');
+        if (!option) return;
+        e.stopPropagation();
+        toggleComposeLabel(option.dataset.composeLabel);
+    });
+    el('btnConfirmComposeLabels')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.composeLabelIds = [...new Set((state.composeLabelPickerIds || []).map(Number).filter(id => id > 0))];
+        closeThreadPops();
+        renderComposeLabels();
+    });
 
     el('btnSortMenu')?.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -9118,6 +9195,7 @@
             subject: el('composeSubject')?.value || '',
             inboxId: el('composeFrom')?.value || '',
             attachments: (state.composeAttachments || []).map(file => ({ ...file })),
+            labelIds: [...(state.composeLabelIds || [])],
             draftConversationId: state.composeDraftConversationId,
             title: el('composeModalTitle')?.textContent || 'New message',
             help: el('composeModalHelp')?.textContent || 'Send email through a connected Outlook inbox.',
@@ -9126,8 +9204,11 @@
 
     function clearComposeComposer() {
         state.composeAttachments = [];
+        state.composeLabelIds = [];
+        state.composeLabelPickerIds = [];
         state.composeDraftConversationId = null;
         renderAttachChips('compose');
+        renderComposeLabels();
         hideMentionPopup('compose');
         setComposerHtml('compose', '');
         if (el('composeTo')) el('composeTo').value = '';
@@ -9156,9 +9237,12 @@
         if (el('composeSubject')) el('composeSubject').value = snapshot.subject || '';
         setComposerHtml('compose', snapshot.html || '');
         state.composeAttachments = snapshot.attachments || [];
+        state.composeLabelIds = snapshot.labelIds || [];
+        state.composeLabelPickerIds = [...state.composeLabelIds];
         state.composeDraftConversationId = snapshot.draftConversationId || null;
         state.shareDraftSelected.compose = {};
         renderAttachChips('compose');
+        renderComposeLabels();
         hideMentionPopup('compose');
         setComposeModalCopy(snapshot.title || 'New message', snapshot.help || 'Send email through a connected Outlook inbox.');
         openModal('modalCompose');
@@ -9233,6 +9317,7 @@
             subject: snapshot.subject,
             bodyHtml: snapshot.html || '',
             attachments: snapshot.attachments,
+            labelIds: snapshot.labelIds,
             draftConversationId: snapshot.draftConversationId,
             title: snapshot.title,
             help: snapshot.help,
@@ -9338,6 +9423,7 @@
             subject,
             body: prepared.body,
             attachments: prepared.attachments,
+            label_ids: [...(state.composeLabelIds || [])],
         };
         if (sendAt) payload.send_at = sendAt;
         if (snapshot.draftConversationId) payload.draft_conversation_id = snapshot.draftConversationId;

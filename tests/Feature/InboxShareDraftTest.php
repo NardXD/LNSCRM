@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Company;
 use App\Models\InboxConversation;
 use App\Models\InboxMessage;
+use App\Models\LeadLabel;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\SharedInbox;
@@ -27,6 +28,11 @@ class InboxShareDraftTest extends TestCase
         Storage::fake('local');
 
         [$user, $other, $outsider, $inbox, $conversation] = $this->sharedInboxFixture();
+        $label = LeadLabel::query()->create([
+            'company_id' => $user->company_id,
+            'name' => 'Needs review',
+            'color' => '#2563eb',
+        ]);
 
         $this->actingAs($user)
             ->postJson('/api/inbox/compose/share-draft', [
@@ -35,6 +41,7 @@ class InboxShareDraftTest extends TestCase
                 'cc' => 'cc@example.com',
                 'subject' => 'Quote follow-up',
                 'body' => '<p>Please review this draft</p>',
+                'label_ids' => [$label->id],
                 'share_with_user_ids' => [$other->id, $outsider->id],
                 'attachments' => [[
                     'name' => 'notes.txt',
@@ -46,6 +53,7 @@ class InboxShareDraftTest extends TestCase
             ->assertJsonPath('shared', true)
             ->assertJsonPath('conversation.folder', 'drafts')
             ->assertJsonPath('conversation.assigned_to', $other->id)
+            ->assertJsonPath('conversation.lead_labels.0.id', $label->id)
             ->assertJsonPath('message.is_draft', true)
             ->assertJsonPath('message.subject', 'Quote follow-up');
 
@@ -53,6 +61,7 @@ class InboxShareDraftTest extends TestCase
         $this->assertNotNull($draftConversation);
         $this->assertSame($other->id, $draftConversation->assigned_to);
         $this->assertStringStartsWith('local-draft-', (string) $draftConversation->external_conversation_id);
+        $this->assertTrue($draftConversation->leadLabels()->whereKey($label->id)->exists());
 
         $draft = InboxMessage::query()
             ->where('inbox_conversation_id', $draftConversation->id)
