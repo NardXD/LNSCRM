@@ -8748,7 +8748,13 @@
         await loadConversations({ append: false });
     });
     document.querySelectorAll('[data-close-modal]').forEach(b => b.addEventListener('click', closeModal));
-    el('modalBackdrop').addEventListener('click', (e) => { if (e.target === el('modalBackdrop') && !INBOX_COMPOSE_POPOUT) closeModal(); });
+    // Compose/reply drafts are never dismissed by a stray click outside the modal
+    // (or a text-drag released over the backdrop) — use Cancel/Esc instead.
+    el('modalBackdrop').addEventListener('click', (e) => {
+        if (e.target !== el('modalBackdrop') || INBOX_COMPOSE_POPOUT) return;
+        if (el('modalCompose')?.style.display === 'grid' || el('modalReply')?.style.display === 'grid') return;
+        closeModal();
+    });
 
     el('btnToggleInboxTools').addEventListener('click', () => {
         state.inboxToolsOpen = !state.inboxToolsOpen;
@@ -8795,7 +8801,6 @@
         };
         editor.querySelectorAll('select[data-html-font], select[data-html-size], input[data-html-color]').forEach(ctrl => {
             ctrl.addEventListener('mousedown', () => saveHtmlEditorSelection(kind));
-            ctrl.addEventListener('focus', () => saveHtmlEditorSelection(kind));
         });
         editor.addEventListener('change', (e) => {
             const t = e.target;
