@@ -3392,3 +3392,47 @@ html.inbox-is-compose-popout #modalCompose {
 html.inbox-is-compose-popout #composeBody {
     min-height: 320px;
 }
+
+.inbox-html-toolbar-full { row-gap: 0.3rem; padding-bottom: 0.4rem; }
+.inbox-html-toolbar-full select {
+    border: 1px solid var(--inbox-border);
+    background: #fff;
+    border-radius: 6px;
+    padding: 0.25rem 0.3rem;
+    font-size: 0.75rem;
+    color: var(--inbox-text);
+    max-width: 8rem;
+}
+.inbox-html-toolbar-sep {
+    width: 1px;
+    height: 1.2rem;
+    background: var(--inbox-border);
+    margin: 0 0.2rem;
+}
+.inbox-html-color {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.7rem;
+    height: 1.65rem;
+    border: 1px solid var(--inbox-border);
+    border-radius: 6px;
+    background: #fff;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    color: var(--inbox-text);
+}
+.inbox-html-color:hover { border-color: var(--inbox-accent); }
+.inbox-html-color-hl { background: #fff59d; padding: 0 0.2rem; }
+.inbox-html-color input[type="color"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    padding: 0;
+    border: 0;
+}

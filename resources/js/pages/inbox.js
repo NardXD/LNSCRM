@@ -8748,7 +8748,13 @@
         await loadConversations({ append: false });
     });
     document.querySelectorAll('[data-close-modal]').forEach(b => b.addEventListener('click', closeModal));
-    el('modalBackdrop').addEventListener('click', (e) => { if (e.target === el('modalBackdrop') && !INBOX_COMPOSE_POPOUT) closeModal(); });
+    // Compose/reply drafts are never dismissed by a stray click outside the modal
+    // (or a text-drag released over the backdrop) — use Cancel/Esc instead.
+    el('modalBackdrop').addEventListener('click', (e) => {
+        if (e.target !== el('modalBackdrop') || INBOX_COMPOSE_POPOUT) return;
+        if (el('modalCompose')?.style.display === 'grid' || el('modalReply')?.style.display === 'grid') return;
+        closeModal();
+    });
 
     el('btnToggleInboxTools').addEventListener('click', () => {
         state.inboxToolsOpen = !state.inboxToolsOpen;
@@ -8780,6 +8786,34 @@
                 saveHtmlEditorSelection(kind);
             }
         });
+        // Selects and color pickers steal focus, so remember the selection when
+        // they open and restore it before applying the command.
+        const applyToolbarValue = (cmd, value) => {
+            const ed = getHtmlEditor(kind);
+            if (!ed.visual || !value) return;
+            ed.visual.focus();
+            restoreHtmlEditorSelection(kind);
+            const css = cmd === 'hiliteColor' || cmd === 'foreColor';
+            if (css) document.execCommand('styleWithCSS', false, true);
+            document.execCommand(cmd, false, value);
+            if (css) document.execCommand('styleWithCSS', false, false);
+            if (ed.source) ed.source.value = sanitizeHtml(ed.visual.innerHTML || '');
+        };
+        editor.querySelectorAll('select[data-html-font], select[data-html-size], input[data-html-color]').forEach(ctrl => {
+            ctrl.addEventListener('mousedown', () => saveHtmlEditorSelection(kind));
+        });
+        editor.addEventListener('change', (e) => {
+            const t = e.target;
+            if (t.matches('select[data-html-font]')) {
+                applyToolbarValue('fontName', t.value);
+                t.value = '';
+            } else if (t.matches('select[data-html-size]')) {
+                applyToolbarValue('fontSize', t.value);
+                t.value = '';
+            } else if (t.matches('input[data-html-color]')) {
+                applyToolbarValue(t.dataset.htmlColor, t.value);
+            }
+        });
         editor.addEventListener('click', (e) => {
             const modeBtn = e.target.closest('[data-html-mode]');
             if (modeBtn) {
@@ -8805,6 +8839,8 @@
             const cmd = cmdBtn.dataset.cmd;
             if (cmd === 'createLink') {
                 openHtmlLinkDialog(kind);
+            } else if (cmd.startsWith('formatBlock:')) {
+                document.execCommand('formatBlock', false, cmd.split(':')[1]);
             } else {
                 document.execCommand(cmd, false, null);
             }

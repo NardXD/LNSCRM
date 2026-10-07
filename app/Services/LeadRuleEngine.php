@@ -318,9 +318,6 @@ class LeadRuleEngine
             }
 
             if ($field === 'lead_label') {
-                if (! $lead) {
-                    return false;
-                }
                 $wanted = collect(is_array($value) ? $value : [$value])
                     ->map(fn ($item) => trim((string) $item))
                     ->filter()
@@ -328,7 +325,10 @@ class LeadRuleEngine
                 if ($wanted->isEmpty()) {
                     continue;
                 }
-                $hasAny = $this->leadHasAnyLabel($lead, $wanted->all());
+                // No lead yet (e.g. a new inbox thread): check the thread's own labels.
+                $hasAny = $lead
+                    ? $this->leadHasAnyLabel($lead, $wanted->all())
+                    : $this->threadHasAnyLabel($context, $wanted->all());
                 $missing = in_array($operator, ['does_not_have', 'not_equals'], true);
                 if ($missing ? $hasAny : ! $hasAny) {
                     return false;
@@ -1121,6 +1121,36 @@ class LeadRuleEngine
                 return mb_strtolower($label->name) === mb_strtolower($item)
                     || (string) $label->id === $item;
             });
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     * @param  list<string>  $wanted
+     */
+    private function threadHasAnyLabel(array $context, array $wanted): bool
+    {
+        $conversationId = (int) ($context['inbox_conversation_id'] ?? 0);
+        if ($conversationId < 1 || $wanted === []) {
+            return false;
+        }
+
+        $conversation = InboxConversation::query()
+            ->when(! empty($context['company_id']), fn ($q) => $q->where('company_id', (int) $context['company_id']))
+            ->whereKey($conversationId)
+            ->first();
+        if (! $conversation) {
+            return false;
+        }
+
+        return $conversation->leadLabels()->get()->contains(function (LeadLabel $label) use ($wanted) {
+            foreach ($wanted as $item) {
+                if (mb_strtolower($label->name) === mb_strtolower($item) || (string) $label->id === $item) {
+                    return true;
+                }
+            }
+
+            return false;
         });
     }
 
