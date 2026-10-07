@@ -458,12 +458,12 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
         </div>
         <div class="inbox-attach-chips" id="composeAttachChips"></div>
         <div class="inbox-mention-popup" id="composeMentionPopup" hidden></div>
-        <label class="inbox-message-field">Message
+        <div class="inbox-message-field"><span class="inbox-message-field-label">Message</span>
             <div class="inbox-html-editor inbox-composer-html-editor" data-html-editor="compose">
                 @include('dashboard.partials.inbox-full-toolbar')
                 <div id="composeBody" class="inbox-composer-editor form-input" contenteditable="true" data-placeholder="Write your message… Type @ to mention teammates." role="textbox" aria-multiline="true"></div>
             </div>
-        </label>
+        </div>
         <div class="inbox-modal-actions">
             <button type="button" class="inbox-btn ghost" data-close-modal>Cancel</button>
             <div class="inbox-send-group inbox-pop" id="composeSendPop">
@@ -525,12 +525,12 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
         </div>
         <div class="inbox-attach-chips" id="replyAttachChips"></div>
         <div class="inbox-mention-popup" id="replyMentionPopup" hidden></div>
-        <label class="inbox-message-field">Message
+        <div class="inbox-message-field"><span class="inbox-message-field-label">Message</span>
             <div class="inbox-html-editor inbox-composer-html-editor" data-html-editor="reply">
                 @include('dashboard.partials.inbox-full-toolbar')
                 <div id="replyBody" class="inbox-composer-editor form-input" contenteditable="true" data-placeholder="Write a reply… Type @ to mention teammates." role="textbox" aria-multiline="true"></div>
             </div>
-        </label>
+        </div>
         <div class="inbox-modal-actions">
             <span class="inbox-composer-hint" id="composerHint">Reply via Outlook</span>
             <button type="button" class="inbox-btn ghost" data-close-modal>Cancel</button>
