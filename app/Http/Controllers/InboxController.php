@@ -926,6 +926,7 @@ class InboxController extends Controller
         if ($hasMore) {
             $rows = $rows->take($perPage);
         }
+        $this->shareLabelsAcrossFolderCopies($rows);
 
         $matchedMessageId = null;
         if ($idQuery && $rows->isNotEmpty()) {
@@ -1130,6 +1131,8 @@ class InboxController extends Controller
         }
 
         // Opening a thread does not auto-subscribe (Front: invite / comment / reply / @mention does).
+
+        $this->shareLabelsAcrossFolderCopies(collect([$conversation]));
 
         return response()->json([
             'conversation' => $this->formatConversation($conversation, true),
@@ -4492,6 +4495,42 @@ class InboxController extends Controller
                 ])
                 : [],
         ];
+    }
+
+    /**
+     * One Outlook conversation is stored as a separate row per folder (inbox, sent, ...),
+     * and labels live on the row they were added to. Show the labels of every folder copy
+     * on each row, so a label added in Open also appears on the same thread in Sent
+     * (e.g. when the shared mailbox is BCC'd on its own outgoing mail).
+     *
+     * @param  Collection<int, InboxConversation>  $rows
+     */
+    private function shareLabelsAcrossFolderCopies(Collection $rows): void
+    {
+        $rows = $rows->filter(fn (InboxConversation $c) => filled($c->external_conversation_id))->values();
+        if ($rows->isEmpty()) {
+            return;
+        }
+
+        $siblings = InboxConversation::query()
+            ->with('leadLabels:id,name,color')
+            ->whereIn('shared_inbox_id', $rows->pluck('shared_inbox_id')->unique())
+            ->whereIn('external_conversation_id', $rows->pluck('external_conversation_id')->unique())
+            ->get(['id', 'shared_inbox_id', 'external_conversation_id'])
+            ->groupBy(fn (InboxConversation $c) => $c->shared_inbox_id.'|'.$c->external_conversation_id);
+
+        foreach ($rows as $row) {
+            $copies = $siblings->get($row->shared_inbox_id.'|'.$row->external_conversation_id);
+            if (! $copies || $copies->count() < 2) {
+                continue;
+            }
+            $row->loadMissing('leadLabels');
+            $merged = $row->leadLabels
+                ->concat($copies->flatMap(fn (InboxConversation $c) => $c->leadLabels))
+                ->unique('id')
+                ->values();
+            $row->setRelation('leadLabels', $merged);
+        }
     }
 
     private function formatConversation(InboxConversation $c, bool $withMessages = false): array
