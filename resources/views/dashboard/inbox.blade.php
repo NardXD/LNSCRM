@@ -460,14 +460,7 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
         <div class="inbox-mention-popup" id="composeMentionPopup" hidden></div>
         <label class="inbox-message-field">Message
             <div class="inbox-html-editor inbox-composer-html-editor" data-html-editor="compose">
-                <div class="inbox-html-toolbar">
-                    <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
-                    <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
-                    <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
-                    <button type="button" data-cmd="insertUnorderedList" title="Bullet list">• List</button>
-                    <button type="button" data-html-link title="Insert or edit a link on selected text or image">Link</button>
-                    <button type="button" data-cmd="removeFormat" title="Clear formatting">Clear</button>
-                </div>
+                @include('dashboard.partials.inbox-full-toolbar')
                 <div id="composeBody" class="inbox-composer-editor form-input" contenteditable="true" data-placeholder="Write your message… Type @ to mention teammates." role="textbox" aria-multiline="true"></div>
             </div>
         </label>
@@ -534,14 +527,7 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
         <div class="inbox-mention-popup" id="replyMentionPopup" hidden></div>
         <label class="inbox-message-field">Message
             <div class="inbox-html-editor inbox-composer-html-editor" data-html-editor="reply">
-                <div class="inbox-html-toolbar">
-                    <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
-                    <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
-                    <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
-                    <button type="button" data-cmd="insertUnorderedList" title="Bullet list">• List</button>
-                    <button type="button" data-html-link title="Insert or edit a link on selected text or image">Link</button>
-                    <button type="button" data-cmd="removeFormat" title="Clear formatting">Clear</button>
-                </div>
+                @include('dashboard.partials.inbox-full-toolbar')
                 <div id="replyBody" class="inbox-composer-editor form-input" contenteditable="true" data-placeholder="Write a reply… Type @ to mention teammates." role="textbox" aria-multiline="true"></div>
             </div>
         </label>
