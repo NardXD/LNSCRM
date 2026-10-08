@@ -670,6 +670,18 @@ class UserManagementController extends Controller
             );
             Permission::firstOrCreate(
                 [
+                    'slug' => 'view_phone_reports',
+                    'company_id' => $user->company_id,
+                ],
+                [
+                    'name' => 'view_phone_reports',
+                    'display_name' => 'Phone Reports',
+                    'description' => 'Access to the phone system reports page: call durations, per-user totals and recordings',
+                    'category' => 'main',
+                ]
+            );
+            Permission::firstOrCreate(
+                [
                     'slug' => 'view_hiring_queue',
                     'company_id' => $user->company_id,
                 ],
@@ -715,6 +727,7 @@ class UserManagementController extends Controller
             'Phone System' => [
                 'view_phone_system',
                 'view_call_history',
+                'view_phone_reports',
                 'manage_phone_contacts',
                 'manage_twilio_numbers',
                 'module_slug' => 'phone-system',

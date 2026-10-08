@@ -816,6 +816,15 @@ class OutlookMailService
             $msg['receivedDateTime'] ?? $msg['sentDateTime'] ?? $msg['lastModifiedDateTime'] ?? null
         );
 
+        // A bounce / Non-Delivery Report (e.g. "Undeliverable: …" from Microsoft
+        // Outlook / postmaster) is its own Graph conversation sent *from* postmaster
+        // *to* our mailbox, so it matches neither the original thread's conversationId
+        // nor its contact. Detect it here so it can be grouped under the customer it
+        // failed to reach instead of landing on a standalone row.
+        $isBounce = $direction === 'inbound'
+            && ! ($msg['isDraft'] ?? false)
+            && $this->looksLikeBounce($fromEmail, $subject);
+
         $isNew = false;
         $conversation = InboxConversation::firstOrNew([
             'shared_inbox_id' => $inbox->id,
@@ -841,6 +850,15 @@ class OutlookMailService
                 $fromEmail,
                 $this->graphRecipientAddresses($msg['toRecipients'] ?? [])
             );
+            if ($isBounce) {
+                // Group under the customer the message failed to reach (pulled from the
+                // NDR body/subject), not under postmaster — so the bounce merges into
+                // the original thread instead of starting a new one.
+                $failedRecipient = $this->bounceFailedRecipient($inbox, $msg, $subject);
+                if ($failedRecipient) {
+                    $conversation->contact_email = $failedRecipient;
+                }
+            }
             $contactHome = $contactThreads->homeForSyncedConversation(
                 $inbox,
                 $conversation->contact_email,
@@ -894,7 +912,7 @@ class OutlookMailService
             $conversation->snippet = EmailQuotedHistory::snippet(null, $msg['bodyPreview'] ?? '');
             $conversation->from_name = $fromName;
             $conversation->from_email = $fromEmail;
-        } else {
+        } elseif (! $isBounce) {
             $conversation->snippet = EmailQuotedHistory::snippet(null, $msg['bodyPreview'] ?? '') ?: $conversation->snippet;
             // Newest received email decides the thread's subject/sender, so replies answer it.
             if ($direction === 'inbound' && (! $conversation->last_message_at || $receivedAt->gte($conversation->last_message_at))) {
@@ -903,6 +921,8 @@ class OutlookMailService
                 $conversation->from_email = $fromEmail;
             }
         }
+        // A bounce is written into the home thread as a message, but must never take
+        // over the row's subject/sender/snippet — the customer stays the thread's face.
 
         if (! $conversation->last_message_at || $receivedAt->gt($conversation->last_message_at)) {
             $conversation->last_message_at = $receivedAt;
@@ -1039,7 +1059,7 @@ class OutlookMailService
                     ->where('is_read', true)
                     ->update(['is_read' => false]);
             }
-            if ($folder === 'inbox' && $messageDirection === 'inbound') {
+            if ($folder === 'inbox' && $messageDirection === 'inbound' && ! $isBounce) {
                 $fresh = $conversation->fresh(['inbox']);
                 if ($fresh) {
                     $bodyForRules = $bodyText ?: (string) ($fresh->snippet ?? '');
@@ -1083,6 +1103,61 @@ class OutlookMailService
     private function contactThreads(): InboxContactThreadService
     {
         return app(InboxContactThreadService::class);
+    }
+
+    /**
+     * Whether an inbound message is a bounce / Non-Delivery Report (NDR).
+     * Keyed on the postmaster/mailer-daemon sender or a delivery-failure subject —
+     * the two signals Exchange ("Undeliverable: …") and Gmail ("Delivery Status
+     * Notification (Failure)") NDRs reliably carry.
+     */
+    private function looksLikeBounce(?string $fromEmail, string $subject): bool
+    {
+        $local = strtolower((string) strtok((string) $fromEmail, '@'));
+        if ($local !== '' && (str_contains($local, 'postmaster') || str_contains($local, 'mailer-daemon'))) {
+            return true;
+        }
+
+        return (bool) preg_match(
+            '/^\s*(undeliverable|undelivered mail returned|mail delivery (failed|subsystem)'
+            .'|delivery (status notification|has failed|failure)|returned mail|failure notice)/i',
+            $subject
+        );
+    }
+
+    /**
+     * The customer address an NDR failed to reach, read from the bounce body/subject,
+     * or null when none is found. Used to group the bounce under that customer's thread
+     * instead of under postmaster (which isGroupable() rejects, so it never groups).
+     *
+     * @param  array<string, mixed>  $msg
+     */
+    private function bounceFailedRecipient(SharedInbox $inbox, array $msg, string $subject): ?string
+    {
+        $haystack = (string) ($msg['bodyPreview'] ?? '');
+        $body = $msg['body']['content'] ?? null;
+        if (is_string($body) && $body !== '') {
+            // Full body is present only once a thread is hydrated; during list sync the
+            // bodyPreview alone already carries "Your message to <addr> couldn't be…".
+            $haystack .= "\n".strip_tags($body);
+        }
+        $haystack .= "\n".$subject;
+
+        if (! preg_match_all('/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,24}/i', $haystack, $matches)) {
+            return null;
+        }
+
+        $contactThreads = $this->contactThreads();
+        foreach ($matches[0] as $candidate) {
+            $candidate = InboxContactThreadService::normalize($candidate);
+            // isGroupable rejects our own mailbox, same-domain colleagues and automated
+            // addresses — exactly the ones that must not become the thread's contact.
+            if ($candidate && $contactThreads->isGroupable($inbox, $candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     private function notifyAssigneeOfCustomerReply(

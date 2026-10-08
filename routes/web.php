@@ -55,6 +55,7 @@ use App\Http\Controllers\TicketController;
 use App\Http\Controllers\TimeTrackingController;
 use App\Http\Controllers\Twilio\CallController;
 use App\Http\Controllers\Twilio\FlexController;
+use App\Http\Controllers\Twilio\PhoneReportController;
 use App\Http\Controllers\Twilio\PhoneSystemController;
 use App\Http\Controllers\ViberController;
 use App\Http\Controllers\WhatsAppController;
@@ -371,6 +372,15 @@ Route::middleware(['auth', 'company.active'])->group(function () {
             Route::post('/{twilioPhoneNumber}/pair', [PhoneSystemController::class, 'pairNumber'])->name('twilio.numbers.pair');
             Route::post('/{twilioPhoneNumber}/unassign', [PhoneSystemController::class, 'unassignNumber'])->name('twilio.numbers.unassign');
         });
+    });
+
+    // Phone System Reports (call durations, per-user totals and recordings)
+    Route::get('/phone-system/reports', [PhoneReportController::class, 'index'])->middleware('permission:view_phone_reports')->name('phone-reports');
+    Route::prefix('api/phone-system/reports')->middleware('permission:view_phone_reports')->group(function () {
+        Route::get('/', [PhoneReportController::class, 'summary'])->name('api.phone-reports.summary');
+        Route::get('/calls', [PhoneReportController::class, 'calls'])->name('api.phone-reports.calls');
+        Route::get('/export', [PhoneReportController::class, 'export'])->name('api.phone-reports.export');
+        Route::get('/calls/{phoneCallLog}/recording', [PhoneReportController::class, 'recording'])->name('api.phone-reports.recording');
     });
 
     Route::get('/payroll', [PayrollController::class, 'index'])->middleware('permission:view_payroll')->name('payroll');

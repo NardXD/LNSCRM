@@ -309,6 +309,77 @@ class InboxContactThreadingTest extends TestCase
         $this->assertSame(5, InboxConversation::query()->notMerged()->where('contact_email', 'service@paypal.test')->count());
     }
 
+    public function test_undeliverable_bounce_joins_the_original_thread(): void
+    {
+        $this->receive('m1', 'conv-1', 'john@customer.test', 'Storage unit question', now()->subHour());
+        $home = InboxConversation::query()->notMerged()->where('folder', 'inbox')->firstOrFail();
+
+        // Microsoft NDR: its own Graph conversation, from postmaster to our mailbox,
+        // with the failed recipient only inside the body preview.
+        app(OutlookMailService::class)->upsertMessage(
+            $this->inbox->fresh('account'),
+            [
+                'id' => 'ndr-1',
+                'conversationId' => 'conv-bounce',
+                'subject' => 'Undeliverable: Storage unit question',
+                'bodyPreview' => "Your message to john@customer.test couldn't be delivered.",
+                'body' => ['contentType' => 'text', 'content' => "Your message to john@customer.test couldn't be delivered."],
+                'from' => ['emailAddress' => ['address' => 'postmaster@outlook.com', 'name' => 'Microsoft Outlook']],
+                'toRecipients' => [['emailAddress' => ['address' => 'shared@acme-co.test', 'name' => 'Support']]],
+                'ccRecipients' => [],
+                'receivedDateTime' => now()->toIso8601String(),
+                'isRead' => false,
+                'isDraft' => false,
+            ],
+            'inbox',
+            'open',
+            'inbound'
+        );
+
+        // Still one visible thread — the bounce merged in rather than starting a new one.
+        $this->assertSame(1, InboxConversation::query()->notMerged()->where('folder', 'inbox')->count());
+
+        $home->refresh();
+        $this->assertSame(2, InboxMessage::query()->where('inbox_conversation_id', $home->id)->count());
+        // The NDR is present inside the thread…
+        $this->assertSame(1, InboxMessage::query()
+            ->where('inbox_conversation_id', $home->id)
+            ->where('external_message_id', 'ndr-1')
+            ->where('from_email', 'postmaster@outlook.com')
+            ->count());
+        // …but the customer, not postmaster, stays the thread's face.
+        $this->assertSame('john@customer.test', $home->from_email);
+        $this->assertSame('Storage unit question', $home->subject);
+    }
+
+    public function test_bounce_without_a_matching_thread_stays_on_its_own_row(): void
+    {
+        // No prior conversation with this customer: the bounce has nothing to join and
+        // must not crash or wrongly group — it simply stays a standalone row.
+        app(OutlookMailService::class)->upsertMessage(
+            $this->inbox->fresh('account'),
+            [
+                'id' => 'ndr-2',
+                'conversationId' => 'conv-bounce-2',
+                'subject' => 'Undeliverable: Quote request',
+                'bodyPreview' => "Your message to nobody@customer.test couldn't be delivered.",
+                'from' => ['emailAddress' => ['address' => 'postmaster@outlook.com', 'name' => 'Microsoft Outlook']],
+                'toRecipients' => [['emailAddress' => ['address' => 'shared@acme-co.test', 'name' => 'Support']]],
+                'ccRecipients' => [],
+                'receivedDateTime' => now()->toIso8601String(),
+                'isRead' => false,
+                'isDraft' => false,
+            ],
+            'inbox',
+            'open',
+            'inbound'
+        );
+
+        $this->assertSame(1, InboxConversation::query()->notMerged()->where('folder', 'inbox')->count());
+        $bounce = InboxConversation::query()->notMerged()->where('folder', 'inbox')->firstOrFail();
+        $this->assertSame('nobody@customer.test', $bounce->contact_email);
+    }
+
     private function receive(string $id, string $conversationId, string $from, string $subject, $at): void
     {
         $this->sync($id, $conversationId, $from, $subject, $at, 'inbox', 'inbound', 'shared@acme-co.test');

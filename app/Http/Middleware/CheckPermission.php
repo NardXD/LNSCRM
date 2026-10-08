@@ -77,6 +77,8 @@ class CheckPermission
         'client-management' => 'client-management',
         'leads' => 'client-management',
         'lead-reports' => 'client-management',
+        'phone-reports' => 'phone-system',
+        'api.phone-reports' => 'phone-system',
         'hiring-queue' => 'client-management',
         'tickets' => 'tickets',
         'knowledge-base' => 'knowledge-base',
