@@ -20,33 +20,35 @@
         border-radius: 12px;
         overflow: hidden;
     }
-    .sched-table { width: 100%; min-width: 640px; border-collapse: collapse; font-size: 0.875rem; }
-    .sched-table th, .sched-table td {
+    .sched-table { width: 100%; min-width: 680px; border-collapse: collapse; font-size: 0.75rem; }
+    .sched-table th {
         text-align: left;
-        padding: 0.7rem 1rem;
-        border-bottom: 1px solid var(--border, #e5e7eb);
-        vertical-align: middle;
-    }
-    .sched-table thead th {
-        font-size: 0.72rem;
+        padding: 0.45rem 0.65rem;
+        font-size: 0.625rem;
         text-transform: uppercase;
-        letter-spacing: 0.04em;
+        letter-spacing: 0.05em;
         color: var(--text-secondary, #6b7280);
+        border-bottom: 1px solid var(--border, #e5e7eb);
         background: var(--bg-primary, #fafafa);
         white-space: nowrap;
     }
+    .sched-table td {
+        padding: 0.5rem 0.65rem;
+        border-bottom: 1px solid var(--border, #e5e7eb);
+        vertical-align: top;
+    }
     .sched-table tbody tr:last-child td { border-bottom: none; }
-    .sched-table tbody tr:hover { background: var(--accent-light, #f0f0ff); }
+    .sched-table tbody tr:hover { background: var(--bg-primary, #fafafa); }
     .sched-when { font-weight: 600; color: var(--text-primary, #111827); white-space: nowrap; }
-    .sched-subject { font-weight: 600; color: var(--text-primary, #111827); max-width: 360px; overflow-wrap: anywhere; }
-    .sched-to { color: var(--text-secondary, #6b7280); max-width: 220px; overflow-wrap: anywhere; }
-    .sched-meta { color: var(--text-secondary, #6b7280); font-size: 0.76rem; margin-top: 0.2rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
-    .sched-due-note { color: #92400e; font-size: 0.72rem; margin-left: 0.3rem; }
+    .sched-subject { font-weight: 600; color: var(--text-primary, #111827); max-width: 340px; overflow-wrap: anywhere; }
+    .sched-to { color: var(--text-secondary, #6b7280); max-width: 200px; overflow-wrap: anywhere; }
+    .sched-meta { color: var(--text-secondary, #6b7280); font-size: 0.6875rem; margin-top: 0.2rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .sched-due-note { color: #92400e; font-size: 0.6875rem; margin-left: 0.3rem; }
     .sched-type-pill {
         display: inline-block;
-        padding: 0.1rem 0.5rem;
+        padding: 0.08rem 0.45rem;
         border-radius: 999px;
-        font-size: 0.72rem;
+        font-size: 0.625rem;
         font-weight: 600;
         background: var(--accent-light, #f0f0ff);
         color: var(--accent, #5f61e6);
@@ -54,10 +56,12 @@
     }
     .sched-status-badge {
         display: inline-block;
-        padding: 0.12rem 0.5rem;
+        padding: 0.1rem 0.45rem;
         border-radius: 999px;
-        font-size: 0.72rem;
-        font-weight: 600;
+        font-size: 0.625rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
         white-space: nowrap;
     }
     .sched-status-badge.is-scheduled { background: #e0e7ff; color: #3730a3; }
@@ -65,13 +69,13 @@
     .sched-status-badge.is-sent      { background: #dcfce7; color: #166534; }
     .sched-status-badge.is-failed    { background: #fee2e2; color: #991b1b; }
     .sched-status-badge.is-cancelled { background: #f3f4f6; color: #6b7280; }
-    .sched-row-actions { display: flex; gap: 0.4rem; justify-content: flex-end; white-space: nowrap; }
+    .sched-row-actions { display: flex; gap: 0.35rem; justify-content: flex-end; white-space: nowrap; }
     .sched-link {
         color: var(--accent, #5f61e6);
         text-decoration: none;
         font-weight: 600;
-        font-size: 0.82rem;
-        padding: 0.3rem 0.5rem;
+        font-size: 0.72rem;
+        padding: 0.25rem 0.45rem;
         border-radius: 6px;
     }
     .sched-link:hover { background: var(--accent-light, #f0f0ff); }
@@ -80,8 +84,8 @@
         background: var(--bg-card, #fff);
         color: #b91c1c;
         font-weight: 600;
-        font-size: 0.82rem;
-        padding: 0.3rem 0.6rem;
+        font-size: 0.72rem;
+        padding: 0.25rem 0.5rem;
         border-radius: 6px;
         cursor: pointer;
     }
@@ -94,7 +98,21 @@
     }
     .sched-empty svg { width: 42px; height: 42px; margin-bottom: 0.75rem; color: var(--text-muted, #9ca3af); }
     .sched-empty h3 { color: var(--text-primary, #111827); margin-bottom: 0.35rem; font-size: 1rem; }
-    .sched-tablewrap { overflow-x: auto; }
+    .sched-card > .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .sched-pagination {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        padding: 0.5rem 0.75rem;
+        border-top: 1px solid var(--border, #e5e7eb);
+        font-size: 0.6875rem;
+        color: var(--text-secondary, #6b7280);
+        background: var(--bg-card, #fff);
+    }
+    .sched-pagination > div { display: flex; gap: 0.35rem; align-items: center; }
+    .sched-pagination .btn[aria-disabled="true"] { opacity: 0.5; pointer-events: none; }
     .sched-tz-note { color: var(--text-muted, #9ca3af); font-size: 0.78rem; margin-top: 0.25rem; }
     .sched-scope-toggle {
         display: inline-flex;
@@ -171,8 +189,8 @@
                 @endif
             </div>
         @else
-            <div class="sched-tablewrap">
-                <table class="sched-table">
+            <div class="table-container">
+                <table class="sched-table data-table">
                     <thead>
                         <tr>
                             <th>Status</th>
@@ -235,6 +253,21 @@
                         @endforeach
                     </tbody>
                 </table>
+            </div>
+            <div class="sched-pagination">
+                <span>Showing {{ $scheduledFrom }}–{{ $scheduledTo }} of {{ $scheduledSendsCount }}</span>
+                <div>
+                    @if($scheduledPrevUrl)
+                        <a class="btn btn-secondary btn-sm" href="{{ $scheduledPrevUrl }}">Previous</a>
+                    @else
+                        <span class="btn btn-secondary btn-sm" aria-disabled="true">Previous</span>
+                    @endif
+                    @if($scheduledNextUrl)
+                        <a class="btn btn-secondary btn-sm" href="{{ $scheduledNextUrl }}">Next</a>
+                    @else
+                        <span class="btn btn-secondary btn-sm" aria-disabled="true">Next</span>
+                    @endif
+                </div>
             </div>
         @endif
     </div>

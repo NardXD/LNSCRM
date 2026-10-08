@@ -212,13 +212,33 @@ class InboxController extends Controller
             'failed' => $scheduled->where('status', ScheduledInboxReply::STATUS_FAILED)->count(),
         ];
 
+        // Paginate the already-ordered rows (active first, then history).
+        $perPage = 20;
+        $total = $rows->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min(max(1, (int) $request->query('page', 1)), $lastPage);
+        $pageRows = $rows->forPage($page, $perPage)->values();
+        $from = $total === 0 ? 0 : (($page - 1) * $perPage) + 1;
+        $to = min($page * $perPage, $total);
+
+        $pageUrl = fn (int $target) => route('inbox.scheduled', array_filter([
+            'scope' => $scope === 'all' ? 'all' : null,
+            'page' => $target > 1 ? $target : null,
+        ]));
+
         return view('dashboard.inbox-scheduled', [
-            'scheduledSends' => $rows,
-            'scheduledSendsCount' => $rows->count(),
+            'scheduledSends' => $pageRows,
+            'scheduledSendsCount' => $total,
             'scheduledCounts' => $counts,
             'scheduledTimezone' => $tz,
             'scheduledCanViewAll' => $canViewAll,
             'scheduledScope' => $scope,
+            'scheduledPage' => $page,
+            'scheduledLastPage' => $lastPage,
+            'scheduledFrom' => $from,
+            'scheduledTo' => $to,
+            'scheduledPrevUrl' => $page > 1 ? $pageUrl($page - 1) : null,
+            'scheduledNextUrl' => $page < $lastPage ? $pageUrl($page + 1) : null,
         ]);
     }
 
