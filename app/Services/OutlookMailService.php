@@ -341,7 +341,7 @@ class OutlookMailService
         array $state
     ): array {
         $mailboxPath = $this->mailboxPath($inbox);
-        $select = 'id,conversationId,subject,bodyPreview,from,toRecipients,ccRecipients,replyTo,receivedDateTime,sentDateTime,lastModifiedDateTime,isRead,isDraft';
+        $select = 'id,conversationId,subject,bodyPreview,from,toRecipients,ccRecipients,bccRecipients,replyTo,receivedDateTime,sentDateTime,lastModifiedDateTime,isRead,isDraft';
         $deltaLink = is_string($state['delta_link'] ?? null) && $state['delta_link'] !== ''
             ? $state['delta_link']
             : null;
@@ -672,7 +672,7 @@ class OutlookMailService
         // (Oldest-first + early-stop on count delta left new messages stuck behind
         // tens of thousands of already-synced pages.)
         $orderField = $folder === 'drafts' ? 'lastModifiedDateTime' : 'receivedDateTime';
-        $select = 'id,conversationId,subject,bodyPreview,from,toRecipients,ccRecipients,replyTo,receivedDateTime,sentDateTime,lastModifiedDateTime,isRead,isDraft';
+        $select = 'id,conversationId,subject,bodyPreview,from,toRecipients,ccRecipients,bccRecipients,replyTo,receivedDateTime,sentDateTime,lastModifiedDateTime,isRead,isDraft';
 
         $account = $this->refreshTokenIfNeeded($account);
 
@@ -954,6 +954,9 @@ class OutlookMailService
                 if ($existing->reply_to_emails === null && array_key_exists('replyTo', $msg)) {
                     $existing->reply_to_emails = $this->graphRecipientAddresses($msg['replyTo'] ?? []) ?: '';
                 }
+                if ($existing->bcc_emails === null && array_key_exists('bccRecipients', $msg)) {
+                    $existing->bcc_emails = $this->graphRecipientAddresses($msg['bccRecipients'] ?? []) ?: null;
+                }
                 if (array_key_exists('isDraft', $msg)) {
                     $existing->is_draft = (bool) $msg['isDraft'];
                 }
@@ -977,6 +980,7 @@ class OutlookMailService
 
             $toEmails = $this->graphRecipientAddresses($msg['toRecipients'] ?? []);
             $ccEmails = $this->graphRecipientAddresses($msg['ccRecipients'] ?? []);
+            $bccEmails = $this->graphRecipientAddresses($msg['bccRecipients'] ?? []);
             $replyToEmails = array_key_exists('replyTo', $msg)
                 ? ($this->graphRecipientAddresses($msg['replyTo'] ?? []) ?: '')
                 : null;
@@ -1005,6 +1009,9 @@ class OutlookMailService
                 if ($ccEmails) {
                     $localOutbound->cc_emails = $ccEmails;
                 }
+                if ($bccEmails) {
+                    $localOutbound->bcc_emails = $bccEmails;
+                }
                 if ($replyToEmails !== null) {
                     $localOutbound->reply_to_emails = $replyToEmails;
                 }
@@ -1030,6 +1037,7 @@ class OutlookMailService
                 'from_email' => $fromEmail,
                 'to_emails' => $toEmails ?: null,
                 'cc_emails' => $ccEmails ?: null,
+                'bcc_emails' => $bccEmails ?: null,
                 'reply_to_emails' => $replyToEmails,
                 'subject' => $subject === '(No subject)' ? null : $subject,
                 'body_html' => $safeHtml,
@@ -1561,6 +1569,7 @@ class OutlookMailService
      *     subject: string,
      *     body: string,
      *     cc?: string|null,
+     *     bcc?: string|null,
      *     reply_to_message_id?: string|null,
      *     honor_recipients?: bool,
      *     attachments?: array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>
@@ -1579,6 +1588,7 @@ class OutlookMailService
 
         $toList = array_values(array_filter(array_map('trim', explode(',', $payload['to']))));
         $ccList = array_values(array_filter(array_map('trim', explode(',', (string) ($payload['cc'] ?? '')))));
+        $bccList = array_values(array_filter(array_map('trim', explode(',', (string) ($payload['bcc'] ?? '')))));
 
         $message = [
             'subject' => $payload['subject'],
@@ -1595,6 +1605,12 @@ class OutlookMailService
             $message['ccRecipients'] = array_map(fn ($email) => [
                 'emailAddress' => ['address' => $email],
             ], $ccList);
+        }
+
+        if ($bccList !== []) {
+            $message['bccRecipients'] = array_map(fn ($email) => [
+                'emailAddress' => ['address' => $email],
+            ], $bccList);
         }
 
         $attachments = $payload['attachments'] ?? [];
@@ -1621,9 +1637,9 @@ class OutlookMailService
         }
 
         $hasAttachments = ! empty($message['attachments']);
-        $honorRecipients = ! empty($payload['honor_recipients']) || $ccList !== [];
+        $honorRecipients = ! empty($payload['honor_recipients']) || $ccList !== [] || $bccList !== [];
 
-        // Graph /reply ignores To/CC and returns no message id — use it only for plain replies.
+        // Graph /reply ignores To/CC/BCC and returns no message id — use it only for plain replies.
         if (! empty($payload['reply_to_message_id'])
             && ! str_starts_with((string) $payload['reply_to_message_id'], 'local-')
             && ! $hasAttachments
@@ -1768,6 +1784,7 @@ class OutlookMailService
      *     body: string,
      *     to: string,
      *     cc?: ?string,
+     *     bcc?: ?string,
      *     attachments?: array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>,
      *     reply_to_message_id: string,
      *     draft_message_id?: ?string,
@@ -1871,6 +1888,7 @@ class OutlookMailService
 
         $toList = array_values(array_filter(array_map('trim', explode(',', (string) $payload['to']))));
         $ccList = array_values(array_filter(array_map('trim', explode(',', (string) ($payload['cc'] ?? '')))));
+        $bccList = array_values(array_filter(array_map('trim', explode(',', (string) ($payload['bcc'] ?? '')))));
 
         $update = [
             'body' => [
@@ -1879,6 +1897,7 @@ class OutlookMailService
             ],
             'toRecipients' => array_map(fn ($email) => ['emailAddress' => ['address' => $email]], $toList),
             'ccRecipients' => array_map(fn ($email) => ['emailAddress' => ['address' => $email]], $ccList),
+            'bccRecipients' => array_map(fn ($email) => ['emailAddress' => ['address' => $email]], $bccList),
         ];
         if (filled($payload['subject'] ?? null)) {
             $update['subject'] = (string) $payload['subject'];

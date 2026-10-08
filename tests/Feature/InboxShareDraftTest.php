@@ -39,6 +39,7 @@ class InboxShareDraftTest extends TestCase
                 'inbox_id' => $inbox->id,
                 'to' => 'customer@example.com',
                 'cc' => 'cc@example.com',
+                'bcc' => 'private-one@example.com; private-two@example.com',
                 'subject' => 'Quote follow-up',
                 'body' => '<p>Please review this draft</p>',
                 'label_ids' => [$label->id],
@@ -69,6 +70,7 @@ class InboxShareDraftTest extends TestCase
             ->first();
         $this->assertNotNull($draft);
         $this->assertSame('customer@example.com', $draft->to_emails);
+        $this->assertSame('private-one@example.com, private-two@example.com', $draft->bcc_emails);
         $this->assertNotEmpty($draft->attachments);
         $this->assertTrue(Storage::disk('local')->exists($draft->attachments[0]['path']));
 

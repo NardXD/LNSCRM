@@ -28,6 +28,7 @@ class ScheduledInboxReply extends Model
         'type',
         'to_emails',
         'cc_emails',
+        'bcc_emails',
         'subject',
         'body_html',
         'body_text',
