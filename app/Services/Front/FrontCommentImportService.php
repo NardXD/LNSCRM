@@ -759,7 +759,9 @@ class FrontCommentImportService
      */
     private function commentBodies(string $body): array
     {
-        $stripped = trim(html_entity_decode(strip_tags($body), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $body = $this->decodeCommentEntities($body);
+        $stripped = str_replace("\u{00A0}", ' ', html_entity_decode(strip_tags($body), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $stripped = trim($stripped);
 
         if ($body !== strip_tags($body)) {
             $html = strip_tags($body, '<p><br><br/><a><strong><em><b><i><ul><ol><li><code><pre><blockquote><span>');
@@ -768,6 +770,23 @@ class FrontCommentImportService
         }
 
         return [nl2br(e($body), false), $stripped !== '' ? $stripped : trim($body)];
+    }
+
+    private function decodeCommentEntities(string $body): string
+    {
+        // Front exports can encode entities once or twice (for example &nbsp;
+        // and &amp;nbsp;). Decode both layers before escaping/sanitizing the
+        // stored HTML so the entity is not presented as literal text.
+        for ($pass = 0; $pass < 2; ++$pass) {
+            $decoded = html_entity_decode($body, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            if ($decoded === $body) {
+                break;
+            }
+
+            $body = $decoded;
+        }
+
+        return $body;
     }
 
     private function alreadySynced(Company $company, string $frontConversationId, ?Carbon $frontUpdatedAt): bool

@@ -83,6 +83,73 @@ class FrontCommentImportTest extends TestCase
         $this->assertSame(1710000000, $comment->created_at?->getTimestamp());
     }
 
+    public function test_decodes_single_and_double_encoded_entities_in_imported_comments(): void
+    {
+        [$company, $sharedInbox] = $this->seedInboxConversation(
+            subject: 'Storage inquiry',
+            fromEmail: 'jane@example.com'
+        );
+
+        User::query()->create([
+            'name' => 'Alex Agent',
+            'email' => 'alex@lns.test',
+            'password' => Hash::make('password'),
+            'company_id' => $company->id,
+            'is_active' => true,
+        ]);
+
+        $path = $this->writeExport([
+            'inboxes' => [[
+                'id' => 'inb_sales',
+                'name' => $sharedInbox->name,
+                'conversations' => [[
+                    'id' => 'cnv_1',
+                    'subject' => 'Storage inquiry',
+                    'recipient' => ['handle' => 'jane@example.com'],
+                    'comments' => [
+                        [
+                            'id' => 'com_entity_plain',
+                            'body' => 'w.&nbsp;Single',
+                            'author' => ['email' => 'alex@lns.test'],
+                        ],
+                        [
+                            'id' => 'com_entity_html',
+                            'body' => '<p>w.&amp;nbsp;Double</p>',
+                            'author' => ['email' => 'alex@lns.test'],
+                        ],
+                        [
+                            'id' => 'com_entity_unsafe',
+                            'body' => '&lt;script&gt;alert(1)&lt;/script&gt;<strong>Safe</strong>',
+                            'author' => ['email' => 'alex@lns.test'],
+                        ],
+                    ],
+                ]],
+            ]],
+        ]);
+
+        $stats = app(FrontCommentImportService::class)->importFromFile($company, $path, [
+            'inbox_map' => ['inb_sales' => $sharedInbox->id],
+        ]);
+
+        $this->assertSame(3, $stats['comments_imported']);
+
+        $plain = InboxConversationComment::query()->where('front_comment_id', 'com_entity_plain')->firstOrFail();
+        $this->assertSame('w. Single', $plain->body_text);
+        $this->assertStringNotContainsString('&amp;nbsp;', $plain->body_html);
+        $this->assertStringNotContainsString('&nbsp;', $plain->body_html);
+
+        $html = InboxConversationComment::query()->where('front_comment_id', 'com_entity_html')->firstOrFail();
+        $this->assertSame('w. Double', $html->body_text);
+        $this->assertStringNotContainsString('&amp;nbsp;', $html->body_html);
+        $this->assertStringNotContainsString('&nbsp;', $html->body_html);
+        $this->assertStringContainsString('<p>', $html->body_html);
+
+        $unsafe = InboxConversationComment::query()->where('front_comment_id', 'com_entity_unsafe')->firstOrFail();
+        $this->assertStringNotContainsString('<script', $unsafe->body_html);
+        $this->assertStringContainsString('<strong>Safe</strong>', $unsafe->body_html);
+        $this->assertSame('alert(1)Safe', $unsafe->body_text);
+    }
+
     public function test_keeps_front_author_name_when_teammate_is_not_a_crm_user(): void
     {
         [$company, $sharedInbox, $conversation] = $this->seedInboxConversation(
