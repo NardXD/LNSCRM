@@ -604,6 +604,31 @@
         return (wrap.textContent || '').trim();
     }
 
+    function decodeCommentEntities(value) {
+        let decoded = String(value || '');
+        for (let pass = 0; pass < 2; pass++) {
+            const textarea = document.createElement('textarea');
+            textarea.innerHTML = decoded;
+            const next = textarea.value;
+            if (next === decoded) break;
+            decoded = next;
+        }
+        return decoded;
+    }
+
+    function commentPlainText(comment) {
+        const text = comment?.body_text || htmlToPlain(comment?.body_html || '') || '';
+        return decodeCommentEntities(text).replace(/\u00a0/g, ' ');
+    }
+
+    function formatCommentBodyHtml(comment) {
+        const bodyHtml = decodeCommentEntities(comment?.body_html || '');
+        return formatMessageBodyHtml({
+            body_html: bodyHtml,
+            body_text: commentPlainText(comment),
+        });
+    }
+
     function getHtmlEditor(kind) {
         // Reply/compose bodies are plain contenteditable divs with no raw-HTML
         // source view (unlike template/signature), so `source` stays null —
@@ -5730,7 +5755,7 @@
 
     function commentCardHtml(comment, expanded) {
         const name = comment.user?.name || 'Teammate';
-        const preview = String(comment.body_text || htmlToPlain(comment.body_html || '') || '').replace(/\s+/g, ' ').trim();
+        const preview = commentPlainText(comment).replace(/\s+/g, ' ').trim();
         const attachments = (comment.attachments || []).map(commentAttachmentHtml).join('');
         const canEdit = !!comment.can_edit;
         const commentId = escapeHtml(String(comment.id));
@@ -5758,7 +5783,7 @@
                     </div>
                 </div>
                 <div class="inbox-msg-expanded">
-                    <div class="inbox-msg-body">${formatMessageBodyHtml(comment)}</div>
+                    <div class="inbox-msg-body">${formatCommentBodyHtml(comment)}</div>
                     ${attachments ? `<div class="inbox-msg-attachments">${attachments}</div>` : ''}
                     ${canEdit ? `
                     <div class="inbox-comment-editor">
@@ -8313,7 +8338,9 @@
         document.querySelectorAll('.inbox-msg.internal.is-editing').forEach(node => {
             if (node !== card) node.classList.remove('is-editing');
         });
-        editor.innerHTML = sanitizeHtml(comment.body_html || plainToHtml(comment.body_text || ''));
+        editor.innerHTML = comment.body_html
+            ? sanitizeHtml(decodeCommentEntities(comment.body_html))
+            : plainToHtml(commentPlainText(comment));
         if (!htmlToPlain(editor.innerHTML)) editor.innerHTML = '';
         card.classList.add('is-editing');
         editor.focus();
