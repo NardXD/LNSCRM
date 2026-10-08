@@ -2,9 +2,13 @@
 
 namespace App\Services;
 
+use App\Models\Company;
 use App\Models\PhoneCallLog;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class PhoneCallLogService
 {
@@ -169,5 +173,52 @@ class PhoneCallLogService
         $log->save();
 
         return $log;
+    }
+
+    /**
+     * Proxy a call recording from Twilio. Callers must authorize access to the log first.
+     */
+    public function recordingResponse(PhoneCallLog $phoneCallLog, Company $company, bool $download = false): Response
+    {
+        if (! $phoneCallLog->hasRecording()) {
+            abort(404, 'Recording not available.');
+        }
+
+        $integration = $this->twilioCompany->getActiveIntegration($company);
+        $credentials = $integration ? $this->twilioCompany->getCredentials($integration) : null;
+        if (! $credentials) {
+            abort(500, 'Twilio not configured.');
+        }
+
+        $recordingUrl = $phoneCallLog->recording_url;
+        if ($phoneCallLog->recording_sid && $credentials['sid']) {
+            $recordingUrl = sprintf(
+                'https://api.twilio.com/2010-04-01/Accounts/%s/Recordings/%s.mp3',
+                $credentials['sid'],
+                $phoneCallLog->recording_sid
+            );
+        } elseif ($recordingUrl && ! str_ends_with(strtolower($recordingUrl), '.mp3')) {
+            $recordingUrl .= '.mp3';
+        }
+
+        $response = Http::withBasicAuth($credentials['sid'], $credentials['token'])
+            ->timeout(60)
+            ->withHeaders(['Accept' => 'audio/mpeg, audio/*, */*'])
+            ->get($recordingUrl);
+
+        if (! $response->successful()) {
+            Log::warning('Failed to fetch Twilio call recording', [
+                'call_log_id' => $phoneCallLog->id,
+                'recording_sid' => $phoneCallLog->recording_sid,
+                'status' => $response->status(),
+            ]);
+            abort(502, 'Unable to load recording from Twilio.');
+        }
+
+        return response($response->body(), 200, [
+            'Content-Type' => $response->header('Content-Type') ?: 'audio/mpeg',
+            'Content-Disposition' => ($download ? 'attachment' : 'inline').'; filename="call-'.$phoneCallLog->id.'.mp3"',
+            'Cache-Control' => 'private, max-age=3600',
+        ]);
     }
 }

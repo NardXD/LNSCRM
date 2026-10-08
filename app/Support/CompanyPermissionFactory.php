@@ -57,6 +57,7 @@ class CompanyPermissionFactory
             'phone-system' => ['name' => 'view_phone_system', 'slug' => 'view_phone_system', 'display_name' => 'Phone System', 'description' => 'Access to phone system module', 'category' => 'main'],
             'view_call_history' => ['name' => 'view_call_history', 'slug' => 'view_call_history', 'display_name' => 'View Call History', 'description' => 'View persisted phone call history', 'category' => 'main'],
             'manage_phone_contacts' => ['name' => 'manage_phone_contacts', 'slug' => 'manage_phone_contacts', 'display_name' => 'Manage Phone Contacts', 'description' => 'Create and manage phone system contacts', 'category' => 'main'],
+            'view_phone_reports' => ['name' => 'view_phone_reports', 'slug' => 'view_phone_reports', 'display_name' => 'Phone Reports', 'description' => 'Access to the phone system reports page: call durations, per-user totals and recordings', 'category' => 'main'],
             'view_sms' => ['name' => 'view_sms', 'slug' => 'view_sms', 'display_name' => 'View SMS', 'description' => 'View SMS conversations via Twilio', 'category' => 'main'],
             'send_sms' => ['name' => 'send_sms', 'slug' => 'send_sms', 'display_name' => 'Send SMS', 'description' => 'Send SMS messages via Twilio', 'category' => 'main'],
             'view_broadcast_messaging' => ['name' => 'view_broadcast_messaging', 'slug' => 'view_broadcast_messaging', 'display_name' => 'View Broadcast Messaging', 'description' => 'Access to broadcast messaging history and details', 'category' => 'main'],

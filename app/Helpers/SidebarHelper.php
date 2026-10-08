@@ -95,8 +95,8 @@ class SidebarHelper
             ],
             [
                 'route' => 'reports',
-                'permission_any' => ['view_lead_reports', 'view_facebook_reports'],
-                'module_slugs' => ['client-management', 'facebook'],
+                'permission_any' => ['view_lead_reports', 'view_facebook_reports', 'view_phone_reports'],
+                'module_slugs' => ['client-management', 'facebook', 'phone-system'],
                 'label' => 'Reports',
                 'icon' => 'bar-chart',
                 'category' => 'main',

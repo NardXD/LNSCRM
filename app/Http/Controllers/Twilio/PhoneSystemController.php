@@ -170,47 +170,7 @@ class PhoneSystemController extends Controller
             abort(403, 'You do not have access to this recording.');
         }
 
-        if (! $phoneCallLog->hasRecording()) {
-            abort(404, 'Recording not available.');
-        }
-
-        $company = $user->company;
-        $integration = $this->twilioCompany->getActiveIntegration($company);
-        $credentials = $integration ? $this->twilioCompany->getCredentials($integration) : null;
-        if (! $credentials) {
-            abort(500, 'Twilio not configured.');
-        }
-
-        $recordingUrl = $phoneCallLog->recording_url;
-        if ($phoneCallLog->recording_sid && $credentials['sid']) {
-            $recordingUrl = sprintf(
-                'https://api.twilio.com/2010-04-01/Accounts/%s/Recordings/%s.mp3',
-                $credentials['sid'],
-                $phoneCallLog->recording_sid
-            );
-        } elseif ($recordingUrl && ! str_ends_with(strtolower($recordingUrl), '.mp3')) {
-            $recordingUrl .= '.mp3';
-        }
-
-        $response = \Illuminate\Support\Facades\Http::withBasicAuth($credentials['sid'], $credentials['token'])
-            ->timeout(60)
-            ->withHeaders(['Accept' => 'audio/mpeg, audio/*, */*'])
-            ->get($recordingUrl);
-
-        if (! $response->successful()) {
-            Log::warning('Failed to fetch Twilio call recording', [
-                'call_log_id' => $phoneCallLog->id,
-                'recording_sid' => $phoneCallLog->recording_sid,
-                'status' => $response->status(),
-            ]);
-            abort(502, 'Unable to load recording from Twilio.');
-        }
-
-        return response($response->body(), 200, [
-            'Content-Type' => $response->header('Content-Type') ?: 'audio/mpeg',
-            'Content-Disposition' => 'inline; filename="call-'.$phoneCallLog->id.'.mp3"',
-            'Cache-Control' => 'private, max-age=3600',
-        ]);
+        return $this->callLogService->recordingResponse($phoneCallLog, $user->company);
     }
 
     public function contacts(Request $request): JsonResponse
