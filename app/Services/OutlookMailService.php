@@ -833,7 +833,6 @@ class OutlookMailService
         $writingToMergeTarget = false;
         $sourceConversationId = null;
         $groupedByContact = false;
-        $homePreviousLastMessageAt = null;
         if ($isNew && ! ($msg['isDraft'] ?? false)) {
             $contactThreads = $this->contactThreads();
             $conversation->contact_email = $contactThreads->contactEmailFor(
@@ -865,7 +864,6 @@ class OutlookMailService
                 $conversation->save();
 
                 $sourceConversationId = (int) $conversation->id;
-                $homePreviousLastMessageAt = $contactHome->last_message_at?->copy();
                 $conversation = $contactHome;
                 $writingToMergeTarget = true;
                 $groupedByContact = true;
@@ -880,6 +878,10 @@ class OutlookMailService
                 $writingToMergeTarget = true;
             }
         }
+
+        // Keep this before last_message_at is advanced below. It lets a genuinely new
+        // inbound message reopen both an existing Outlook thread and a contact-grouped one.
+        $previousLastMessageAt = $conversation->last_message_at?->copy();
 
         if (! $writingToMergeTarget) {
             // Don't overwrite local archive/workflow moves back from sync for inbox threads
@@ -911,10 +913,6 @@ class OutlookMailService
 
         $conversation->save();
 
-        if ($groupedByContact && $direction === 'inbound') {
-            $this->contactThreads()->reopenForNewMessage($conversation, $receivedAt, $homePreviousLastMessageAt);
-        }
-
         $externalMessageId = $this->truncate($msg['id'] ?? null, 512);
         if ($externalMessageId) {
             $messageHome = $this->messageHomeConversation($inbox, $conversation, $folder, $conversationId);
@@ -944,6 +942,17 @@ class OutlookMailService
                 }
 
                 return false;
+            }
+
+            // Reopen only after proving this Graph message has not already been imported.
+            // This covers replies on the same Outlook conversationId as well as messages
+            // grouped into the thread by contact, while repeat syncs remain idempotent.
+            if ($folder === 'inbox' && $direction === 'inbound' && ! ($msg['isDraft'] ?? false)) {
+                $this->contactThreads()->reopenForNewMessage(
+                    $conversation,
+                    $receivedAt,
+                    $previousLastMessageAt
+                );
             }
 
             $toEmails = $this->graphRecipientAddresses($msg['toRecipients'] ?? []);
