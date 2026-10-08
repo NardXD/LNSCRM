@@ -6,6 +6,7 @@ use App\Models\InboxConversation;
 use App\Models\InboxConversationActivity;
 use App\Models\InboxConversationComment;
 use App\Models\InboxMessage;
+use App\Models\SharedInbox;
 use App\Support\EmailQuotedHistory;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -253,13 +254,21 @@ class InboxThreadMergeService
             $conversation->last_message_at = $latest->sent_at;
             $conversation->snippet = EmailQuotedHistory::snippet($latest->body_html, $latest->body_text ?: $conversation->snippet);
         }
-        // Show the customer, not our own mailbox, when the latest message is a reply we sent.
-        $latestInbound = $conversation->messages()
+        // Show the customer, not our own mailbox, when the latest message is a reply we sent —
+        // and never an automated sender (a bounce/NDR from postmaster, mailer-daemon, …),
+        // which would otherwise hijack the row when it is the most recent inbound message.
+        $inbox = $conversation->inbox ?: SharedInbox::query()->find($conversation->shared_inbox_id);
+        $contacts = app(InboxContactThreadService::class);
+        $recentInbound = $conversation->messages()
             ->where('direction', 'inbound')
             ->reorder()
             ->orderByDesc('sent_at')
             ->orderByDesc('id')
-            ->first();
+            ->limit(25)
+            ->get();
+        $latestInbound = $recentInbound->first(
+            fn (InboxMessage $m) => $inbox && $contacts->isGroupable($inbox, $m->from_email)
+        ) ?: $recentInbound->first();
         $sender = $latestInbound ?: $latest;
         if ($sender) {
             $conversation->from_name = $sender->from_name ?: $conversation->from_name;
