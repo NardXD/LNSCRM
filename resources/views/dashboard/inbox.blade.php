@@ -434,9 +434,12 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
                 <input type="text" id="composeTo" class="form-input" placeholder="name@company.com, other@company.com">
             </label>
             <label class="inbox-field-inline">Cc
-                <input type="text" id="composeCc" class="form-input" placeholder="optional">
+                <input type="text" id="composeCc" class="form-input" placeholder="optional; separate multiple emails with commas or semicolons">
             </label>
         </div>
+        <label class="inbox-field-inline">Bcc
+            <input type="text" id="composeBcc" class="form-input" placeholder="optional; separate multiple emails with commas or semicolons" autocomplete="off">
+        </label>
         <label class="inbox-field-inline">Subject
             <input type="text" id="composeSubject" class="form-input" placeholder="Subject">
         </label>
@@ -512,9 +515,12 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
                 <input type="text" id="replyTo" class="form-input" placeholder="name@company.com, other@company.com" autocomplete="off">
             </label>
             <label class="inbox-field-inline">Cc
-                <input type="text" id="replyCc" class="form-input" placeholder="optional" autocomplete="off">
+                <input type="text" id="replyCc" class="form-input" placeholder="optional; separate multiple emails with commas or semicolons" autocomplete="off">
             </label>
         </div>
+        <label class="inbox-field-inline">Bcc
+            <input type="text" id="replyBcc" class="form-input" placeholder="optional; separate multiple emails with commas or semicolons" autocomplete="off">
+        </label>
         <label class="inbox-field-inline">Subject
             <input type="text" id="replySubjectDisplay" class="form-input" maxlength="500" autocomplete="off">
         </label>

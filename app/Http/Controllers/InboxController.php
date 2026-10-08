@@ -2017,6 +2017,7 @@ class InboxController extends Controller
             'body' => ['required', 'string', 'max:5000000'],
             'to' => ['nullable', 'string', 'max:2000'],
             'cc' => ['nullable', 'string', 'max:2000'],
+            'bcc' => ['nullable', 'string', 'max:2000'],
             'subject' => ['nullable', 'string', 'max:500'],
             'inbox_id' => ['nullable', 'integer'],
             'reply_all' => ['nullable', 'boolean'],
@@ -2050,7 +2051,7 @@ class InboxController extends Controller
         if ($targets instanceof JsonResponse) {
             return $targets;
         }
-        ['to' => $to, 'cc' => $cc] = $targets;
+        ['to' => $to, 'cc' => $cc, 'bcc' => $bcc] = $targets;
 
         $attachments = $this->normalizeAttachments($validated['attachments'] ?? []);
         if ($attachments === false) {
@@ -2081,6 +2082,7 @@ class InboxController extends Controller
                 'type' => ScheduledInboxReply::TYPE_REPLY,
                 'to_emails' => $to,
                 'cc_emails' => $cc,
+                'bcc_emails' => $bcc,
                 'subject' => $replySubject,
                 'body_html' => $validated['body'],
                 'body_text' => strip_tags($validated['body']),
@@ -2143,6 +2145,7 @@ class InboxController extends Controller
             'type' => ScheduledInboxReply::TYPE_REPLY,
             'to_emails' => $to,
             'cc_emails' => $cc,
+            'bcc_emails' => $bcc,
             'subject' => $replySubject,
             'body_html' => $validated['body'],
             'body_text' => strip_tags($validated['body']),
@@ -2207,6 +2210,7 @@ class InboxController extends Controller
             'body' => ['required', 'string', 'max:5000000'],
             'to' => ['nullable', 'string', 'max:2000'],
             'cc' => ['nullable', 'string', 'max:2000'],
+            'bcc' => ['nullable', 'string', 'max:2000'],
             'subject' => ['nullable', 'string', 'max:500'],
             'inbox_id' => ['nullable', 'integer'],
             'draft_message_id' => ['nullable', 'string', 'max:512'],
@@ -2242,7 +2246,7 @@ class InboxController extends Controller
         if ($targets instanceof JsonResponse) {
             return $targets;
         }
-        ['to' => $to, 'cc' => $cc] = $targets;
+        ['to' => $to, 'cc' => $cc, 'bcc' => $bcc] = $targets;
 
         $attachments = $this->normalizeAttachments($validated['attachments'] ?? []);
         if ($attachments === false) {
@@ -2266,6 +2270,7 @@ class InboxController extends Controller
             'body' => $prepared['body'],
             'to' => $to,
             'cc' => $cc,
+            'bcc' => $bcc,
             'subject' => trim((string) ($validated['subject'] ?? '')) ?: null,
             'attachments' => $prepared['attachments'],
             'reply_to_message_id' => $lastInbound->external_message_id,
@@ -2312,7 +2317,7 @@ class InboxController extends Controller
             return response()->json(['message' => 'Select at least one teammate to share this draft with.'], 422);
         }
 
-        $parsed = $this->validatedComposeRecipients($validated);
+        $parsed = $this->validatedComposeRecipients($validated, $inbox->email ?: $inbox->account?->email);
         if ($parsed instanceof JsonResponse) {
             return $parsed;
         }
@@ -2337,6 +2342,7 @@ class InboxController extends Controller
         $result = $this->replyService->shareDraft($inbox, $user, [
             'to' => $parsed['to'],
             'cc' => $parsed['cc'],
+            'bcc' => $parsed['bcc'],
             'subject' => $validated['subject'],
             'body' => $prepared['body'],
             'attachments' => $prepared['attachments'],
@@ -2399,6 +2405,7 @@ class InboxController extends Controller
         $result = $this->replyService->shareDraft($inbox, $request->user(), [
             'to' => $targets['to'],
             'cc' => $targets['cc'],
+            'bcc' => $targets['bcc'],
             'subject' => $conversation->subject,
             'body' => $prepared['body'],
             'attachments' => $prepared['attachments'],
@@ -2421,8 +2428,8 @@ class InboxController extends Controller
     }
 
     /**
-     * @param  array{body: string, to?: ?string, cc?: ?string, reply_all?: mixed}  $validated
-     * @return array{to: string, cc: ?string}|JsonResponse
+     * @param  array{body: string, to?: ?string, cc?: ?string, bcc?: ?string, reply_all?: mixed}  $validated
+     * @return array{to: string, cc: ?string, bcc: ?string}|JsonResponse
      */
     private function resolveReplyRecipients(
         Request $request,
@@ -2435,6 +2442,7 @@ class InboxController extends Controller
         $mailboxEmail = strtolower(trim((string) ($inbox->email ?: $inbox->account->email ?: '')));
         $requestedTo = $this->normalizeRecipientEmails($validated['to'] ?? null);
         $requestedCc = $this->normalizeRecipientEmails($validated['cc'] ?? null);
+        $requestedBcc = $this->normalizeRecipientEmails($validated['bcc'] ?? null);
         $honorRecipients = $request->exists('to') || $request->exists('cc');
         $sourceReplyTo = $this->normalizeRecipientEmails($source?->reply_to_emails);
         $sourceFrom = $this->normalizeRecipientEmails($source?->from_email);
@@ -2478,6 +2486,10 @@ class InboxController extends Controller
             ->reject(fn ($email) => $email === '' || $toEmails->contains($email))
             ->unique()
             ->values();
+        $bccEmails = $requestedBcc
+            ->reject(fn ($email) => $email === '' || $email === $mailboxEmail || $toEmails->contains($email) || $ccEmails->contains($email))
+            ->unique()
+            ->values();
 
         if ($toEmails->isEmpty()) {
             return response()->json(['message' => 'No recipient found.'], 422);
@@ -2488,10 +2500,16 @@ class InboxController extends Controller
                 return response()->json(['message' => "Invalid recipient: {$email}"], 422);
             }
         }
+        foreach ($bccEmails as $email) {
+            if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return response()->json(['message' => "Invalid BCC recipient: {$email}"], 422);
+            }
+        }
 
         return [
             'to' => $toEmails->implode(', '),
             'cc' => $ccEmails->isNotEmpty() ? $ccEmails->implode(', ') : null,
+            'bcc' => $bccEmails->isNotEmpty() ? $bccEmails->implode(', ') : null,
         ];
     }
 
@@ -2792,6 +2810,7 @@ class InboxController extends Controller
             'inbox_id' => ['required', 'integer'],
             'to' => ['required', 'string', 'max:2000'],
             'cc' => ['nullable', 'string', 'max:2000'],
+            'bcc' => ['nullable', 'string', 'max:2000'],
             'subject' => ['required', 'string', 'max:500'],
             'body' => ['required', 'string', 'max:5000000'],
             'send_at' => ['nullable', 'date', 'after:now'],
@@ -2822,28 +2841,9 @@ class InboxController extends Controller
         $composeLabelsProvided = array_key_exists('label_ids', $validated);
         $composeLabels = $this->resolveComposeLabels($validated, (int) $user->company_id);
 
-        $toEmails = collect(explode(',', $validated['to']))
-            ->map(fn ($e) => trim($e))
-            ->filter()
-            ->values();
-
-        if ($toEmails->isEmpty()) {
-            return response()->json(['message' => 'Add at least one recipient.'], 422);
-        }
-
-        foreach ($toEmails as $email) {
-            if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                return response()->json(['message' => "Invalid recipient: {$email}"], 422);
-            }
-        }
-
-        $ccEmails = $this->normalizeRecipientEmails($validated['cc'] ?? null)
-            ->reject(fn ($email) => $toEmails->contains($email))
-            ->values();
-        foreach ($ccEmails as $email) {
-            if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                return response()->json(['message' => "Invalid recipient: {$email}"], 422);
-            }
+        $parsed = $this->validatedComposeRecipients($validated, $inbox->email ?: $inbox->account?->email);
+        if ($parsed instanceof JsonResponse) {
+            return $parsed;
         }
 
         $htmlBody = $validated['body'];
@@ -2888,8 +2888,9 @@ class InboxController extends Controller
             }
         }
 
-        $to = $toEmails->implode(', ');
-        $cc = $ccEmails->isNotEmpty() ? $ccEmails->implode(', ') : null;
+        $to = $parsed['to'];
+        $cc = $parsed['cc'];
+        $bcc = $parsed['bcc'];
         $fromEmail = $inbox->email ?? $inbox->account->email;
 
         if (! empty($validated['send_at'])) {
@@ -2922,6 +2923,7 @@ class InboxController extends Controller
                 'type' => ScheduledInboxReply::TYPE_COMPOSE,
                 'to_emails' => $to,
                 'cc_emails' => $cc,
+                'bcc_emails' => $bcc,
                 'subject' => $validated['subject'],
                 'body_html' => $htmlBody,
                 'body_text' => strip_tags($htmlBody),
@@ -2971,6 +2973,7 @@ class InboxController extends Controller
             $result = $this->replyService->sendCompose($inbox, $user, [
                 'to' => $to,
                 'cc' => $cc,
+                'bcc' => $bcc,
                 'subject' => $validated['subject'],
                 'body' => $htmlBody,
                 'attachments' => $attachments,
@@ -4900,6 +4903,7 @@ class InboxController extends Controller
             'type' => $reply->type ?: ScheduledInboxReply::TYPE_REPLY,
             'to' => $reply->to_emails,
             'cc' => $reply->cc_emails,
+            'bcc' => $reply->bcc_emails,
             'subject' => $reply->subject,
             'body_html' => $reply->body_html,
             'body_text' => $reply->body_text,
@@ -5075,9 +5079,11 @@ class InboxController extends Controller
             'from_email' => $m->from_email,
             'to_emails' => $m->to_emails,
             'cc_emails' => $m->cc_emails,
+            'bcc_emails' => $m->bcc_emails,
             'reply_to_emails' => $m->reply_to_emails,
             'to' => $this->parseEmailList($m->to_emails),
             'cc' => $this->parseEmailList($m->cc_emails),
+            'bcc' => $this->parseEmailList($m->bcc_emails),
             'reply_to' => $this->parseEmailList($m->reply_to_emails),
             'subject' => $m->subject,
             'body_html' => $this->rewriteCidImagesForClient((string) ($m->body_html ?? ''), $m, $allAttachments),
@@ -5164,6 +5170,7 @@ class InboxController extends Controller
             'body' => ['required', 'string', 'max:5000000'],
             'to' => [$compose ? 'required' : 'nullable', 'string', 'max:2000'],
             'cc' => ['nullable', 'string', 'max:2000'],
+            'bcc' => ['nullable', 'string', 'max:2000'],
             'inbox_id' => [$compose ? 'required' : 'nullable', 'integer'],
             'share_with_user_ids' => ['required', 'array', 'min:1', 'max:20'],
             'share_with_user_ids.*' => ['integer'],
@@ -5274,14 +5281,11 @@ class InboxController extends Controller
 
     /**
      * @param  array<string, mixed>  $validated
-     * @return array{to: string, cc: ?string}|JsonResponse
+     * @return array{to: string, cc: ?string, bcc: ?string}|JsonResponse
      */
-    private function validatedComposeRecipients(array $validated): array|JsonResponse
+    private function validatedComposeRecipients(array $validated, ?string $mailboxEmail = null): array|JsonResponse
     {
-        $toEmails = collect(explode(',', (string) ($validated['to'] ?? '')))
-            ->map(fn ($e) => trim($e))
-            ->filter()
-            ->values();
+        $toEmails = $this->normalizeRecipientEmails($validated['to'] ?? null);
         if ($toEmails->isEmpty()) {
             return response()->json(['message' => 'Add at least one recipient.'], 422);
         }
@@ -5298,10 +5302,20 @@ class InboxController extends Controller
                 return response()->json(['message' => "Invalid recipient: {$email}"], 422);
             }
         }
+        $mailboxEmail = strtolower(trim((string) $mailboxEmail));
+        $bccEmails = $this->normalizeRecipientEmails($validated['bcc'] ?? null)
+            ->reject(fn ($email) => $email === $mailboxEmail || $toEmails->contains($email) || $ccEmails->contains($email))
+            ->values();
+        foreach ($bccEmails as $email) {
+            if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return response()->json(['message' => "Invalid BCC recipient: {$email}"], 422);
+            }
+        }
 
         return [
             'to' => $toEmails->implode(', '),
             'cc' => $ccEmails->isNotEmpty() ? $ccEmails->implode(', ') : null,
+            'bcc' => $bccEmails->isNotEmpty() ? $bccEmails->implode(', ') : null,
         ];
     }
 

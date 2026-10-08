@@ -27,6 +27,7 @@ class InboxReplyService
      *     body: string,
      *     to: string,
      *     cc?: ?string,
+     *     bcc?: ?string,
      *     attachments?: array<int, array{name: string, contentType: string, contentBytes: string}>,
      *     archive?: bool,
      *     reply_to_message_id?: ?string,
@@ -38,6 +39,7 @@ class InboxReplyService
         $attachments = $payload['attachments'] ?? [];
         $to = (string) $payload['to'];
         $cc = $payload['cc'] ?? null;
+        $bcc = $payload['bcc'] ?? null;
         $body = (string) $payload['body'];
         $archive = (bool) ($payload['archive'] ?? false);
         $customSubject = trim((string) ($payload['subject'] ?? ''));
@@ -48,6 +50,7 @@ class InboxReplyService
         $result = $this->mailService->sendMail($inbox, [
             'to' => $to,
             'cc' => $cc,
+            'bcc' => $bcc,
             'subject' => $subject,
             'body' => $body,
             'reply_to_message_id' => $payload['reply_to_message_id'] ?? null,
@@ -71,6 +74,7 @@ class InboxReplyService
             'from_email' => $inbox->email ?? $inbox->account?->email,
             'to_emails' => $to,
             'cc_emails' => $cc,
+            'bcc_emails' => $bcc,
             'subject' => $customSubject !== '' ? $customSubject : $conversation->subject,
             'body_html' => $this->embedInlineImagesForLocalCopy($body, $attachments),
             'body_text' => strip_tags($body),
@@ -194,6 +198,7 @@ class InboxReplyService
      *     body: string,
      *     to: string,
      *     cc?: ?string,
+     *     bcc?: ?string,
      *     subject: string,
      *     attachments?: array<int, array{name: string, contentType: string, contentBytes: string}>,
      * }  $payload
@@ -208,12 +213,14 @@ class InboxReplyService
         $attachments = $payload['attachments'] ?? [];
         $to = (string) $payload['to'];
         $cc = $payload['cc'] ?? null;
+        $bcc = $payload['bcc'] ?? null;
         $subject = (string) $payload['subject'];
         $body = (string) $payload['body'];
 
         $result = $this->mailService->sendMail($inbox, [
             'to' => $to,
             'cc' => $cc,
+            'bcc' => $bcc,
             'subject' => $subject,
             'body' => $body,
             'attachments' => $attachments,
@@ -275,6 +282,7 @@ class InboxReplyService
             'from_email' => $fromEmail,
             'to_emails' => $to,
             'cc_emails' => $cc,
+            'bcc_emails' => $bcc,
             'subject' => $subject,
             'body_html' => $this->embedInlineImagesForLocalCopy($body, $attachments),
             'body_text' => strip_tags($body),
@@ -457,6 +465,7 @@ class InboxReplyService
                 'body' => (string) $scheduled->body_html,
                 'to' => (string) $scheduled->to_emails,
                 'cc' => $scheduled->cc_emails,
+                'bcc' => $scheduled->bcc_emails,
                 'subject' => $scheduled->subject,
                 'attachments' => $this->loadScheduledAttachments($scheduled),
                 'archive' => $archive,
@@ -561,6 +570,7 @@ class InboxReplyService
                 'body' => (string) $scheduled->body_html,
                 'to' => (string) $scheduled->to_emails,
                 'cc' => $scheduled->cc_emails,
+                'bcc' => $scheduled->bcc_emails,
                 'subject' => $subject,
                 'attachments' => $this->loadScheduledAttachments($scheduled),
             ], $draft);
@@ -613,6 +623,7 @@ class InboxReplyService
      * @param  array{
      *     to: string,
      *     cc?: ?string,
+     *     bcc?: ?string,
      *     subject?: ?string,
      *     body: string,
      *     attachments?: array<int, array{name: string, contentType: string, contentBytes: string, isInline?: bool, contentId?: string}>,
@@ -628,6 +639,7 @@ class InboxReplyService
     ): array {
         $to = (string) $payload['to'];
         $cc = $payload['cc'] ?? null;
+        $bcc = $payload['bcc'] ?? null;
         $body = (string) $payload['body'];
         $shareWith = collect($payload['share_with_users'] ?? []);
         $assignee = $shareWith->first();
@@ -677,6 +689,7 @@ class InboxReplyService
             'from_email' => $fromEmail,
             'to_emails' => $to,
             'cc_emails' => $cc,
+            'bcc_emails' => $bcc,
             'subject' => $subject !== '' ? $subject : $conversation->subject,
             'body_html' => $body,
             'body_text' => strip_tags($body),

@@ -88,6 +88,62 @@ class OutlookMailServiceSyncTest extends TestCase
         $this->assertNotNull($state['next_link'], 'The resume point must be preserved on failure.');
     }
 
+    public function test_send_mail_maps_each_bcc_address_to_a_graph_recipient(): void
+    {
+        $inbox = $this->makeInbox();
+        Http::fake(function (\Illuminate\Http\Client\Request $request) {
+            if (str_ends_with($request->url(), '/messages')) {
+                return Http::response(['id' => 'draft-bcc', 'conversationId' => 'conv-bcc'], 201);
+            }
+
+            return Http::response([], 202);
+        });
+
+        app(OutlookMailService::class)->sendMail($inbox->fresh(['account']), [
+            'to' => 'customer@example.com',
+            'cc' => null,
+            'bcc' => 'first@example.com, second@example.com',
+            'subject' => 'Private copies',
+            'body' => '<p>Hello</p>',
+        ]);
+
+        Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
+            if (! str_ends_with($request->url(), '/messages')) {
+                return false;
+            }
+
+            return data_get($request->data(), 'bccRecipients') === [
+                ['emailAddress' => ['address' => 'first@example.com']],
+                ['emailAddress' => ['address' => 'second@example.com']],
+            ];
+        });
+    }
+
+    public function test_sent_sync_imports_multiple_graph_bcc_recipients(): void
+    {
+        $inbox = $this->makeInbox();
+        $message = $this->messageStub('sent-bcc');
+        $message['from'] = ['emailAddress' => ['address' => 'shared@example.com', 'name' => 'Shared']];
+        $message['bccRecipients'] = [
+            ['emailAddress' => ['address' => 'first@example.com']],
+            ['emailAddress' => ['address' => 'second@example.com']],
+        ];
+
+        Http::fake([
+            'graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages*' => Http::sequence()
+                ->push(['value' => [$message]], 200)
+                ->push(['value' => []], 200),
+            'graph.microsoft.com/*' => Http::response(['value' => []], 200),
+        ]);
+
+        app(OutlookMailService::class)->syncInbox($inbox->fresh(['account']), 'sent');
+
+        $this->assertSame(
+            'first@example.com, second@example.com',
+            InboxMessage::query()->where('external_message_id', 'sent-bcc')->value('bcc_emails')
+        );
+    }
+
     public function test_full_sync_completes_backfill_and_switches_to_cheap_incremental_mode(): void
     {
         $inbox = $this->makeInbox();

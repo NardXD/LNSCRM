@@ -171,6 +171,40 @@ class InboxReplyQueuedTest extends TestCase
         );
     }
 
+    public function test_reply_normalizes_and_deduplicates_multiple_bcc_recipients(): void
+    {
+        [$user, $inbox] = $this->connectedInboxFixture();
+        $conversation = $this->makeConversation($user, $inbox);
+
+        $this->actingAs($user)
+            ->postJson('/api/inbox/conversations/'.$conversation->id.'/reply', [
+                'to' => 'customer@example.com',
+                'cc' => 'copy@example.com',
+                'bcc' => ' First@example.com; first@example.com, customer@example.com, copy@example.com; mailbox@example.com; second@example.com ',
+                'body' => '<p>Hello later</p>',
+                'send_at' => now()->addHour()->toIso8601String(),
+            ])
+            ->assertOk();
+
+        $scheduled = ScheduledInboxReply::query()->where('inbox_conversation_id', $conversation->id)->firstOrFail();
+        $this->assertSame('first@example.com, second@example.com', $scheduled->bcc_emails);
+    }
+
+    public function test_invalid_bcc_identifies_the_offending_address(): void
+    {
+        [$user, $inbox] = $this->connectedInboxFixture();
+        $conversation = $this->makeConversation($user, $inbox);
+
+        $this->actingAs($user)
+            ->postJson('/api/inbox/conversations/'.$conversation->id.'/reply', [
+                'to' => 'customer@example.com',
+                'bcc' => 'valid@example.com; not-an-email',
+                'body' => '<p>Hello</p>',
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Invalid BCC recipient: not-an-email');
+    }
+
     /**
      * @return array{0: User, 1: SharedInbox}
      */

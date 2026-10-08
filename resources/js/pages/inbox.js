@@ -958,6 +958,7 @@
         });
         if (el('replyTo')) el('replyTo').value = parseEmailList(message.to || message.to_emails).join(', ');
         if (el('replyCc')) el('replyCc').value = parseEmailList(message.cc || message.cc_emails).join(', ');
+        if (el('replyBcc')) el('replyBcc').value = parseEmailList(message.bcc || message.bcc_emails).join(', ');
         setComposerHtml('reply', message.body_html || '');
         el('composerHint').textContent = 'Send draft via Outlook';
         el('replyBody')?.focus();
@@ -990,6 +991,7 @@
         fillComposeFromSelect(inboxId);
         if (el('composeTo')) el('composeTo').value = parseEmailList(message.to || message.to_emails).join(', ');
         if (el('composeCc')) el('composeCc').value = parseEmailList(message.cc || message.cc_emails).join(', ');
+        if (el('composeBcc')) el('composeBcc').value = parseEmailList(message.bcc || message.bcc_emails).join(', ');
         if (el('composeSubject')) el('composeSubject').value = message.subject || state.conversation?.subject || '';
         setComposerHtml('compose', message.body_html || '');
         state.composeDraftConversationId = state.conversation?.id || null;
@@ -2692,6 +2694,7 @@
         }
         el('composeTo').value = opts.to || '';
         el('composeCc').value = opts.cc || '';
+        el('composeBcc').value = opts.bcc || '';
         el('composeSubject').value = opts.subject || '';
         if (opts.bodyHtml != null) {
             if (opts.withSignature) applyComposerSignature('compose', opts.bodyHtml);
@@ -4075,6 +4078,7 @@
             state.replyDraftId = null;
             if (el('replyTo')) el('replyTo').value = '';
             if (el('replyCc')) el('replyCc').value = '';
+            if (el('replyBcc')) el('replyBcc').value = '';
             state.expandedMessageIds = {};
             state.focusMessageId = options.messageId ? String(options.messageId) : null;
             if (state.focusMessageId) {
@@ -4993,6 +4997,7 @@
         if (isComposerEmpty(kind)) return alert('Write a message first.');
         const to = (el(isCompose ? 'composeTo' : 'replyTo')?.value || '').trim();
         const cc = (el(isCompose ? 'composeCc' : 'replyCc')?.value || '').trim();
+        const bcc = (el(isCompose ? 'composeBcc' : 'replyBcc')?.value || '').trim();
         const inboxId = Number(el(isCompose ? 'composeFrom' : 'replyFrom')?.value || 0);
         const subject = isCompose ? (el('composeSubject')?.value || '').trim() : '';
         if (!to) return alert('Add at least one To recipient.');
@@ -5013,6 +5018,7 @@
                 body: prepared.body,
                 to,
                 cc: cc || null,
+                bcc: bcc || null,
                 share_with_user_ids: ids,
                 attachments: prepared.attachments,
             };
@@ -5242,10 +5248,12 @@
         }
         const toEl = el('replyTo');
         const ccEl = el('replyCc');
+        const bccEl = el('replyBcc');
         if (!force && toEl?.value.trim()) return;
         const { to, cc } = defaultReplyRecipients(message, replyAll);
         if (toEl) toEl.value = to.join(', ');
         if (ccEl) ccEl.value = cc.join(', ');
+        if (bccEl) bccEl.value = '';
     }
 
     function startReplyFromMessage(message, replyAll) {
@@ -5349,6 +5357,7 @@
             help: 'Forward this email as a new message.',
             to: '',
             cc: '',
+            bcc: '',
             subject: forwardSubject(source.subject || state.conversation?.subject),
             bodyHtml: quotedForwardHtml(source),
             withSignature: true,
@@ -5389,6 +5398,7 @@
         });
         if (el('replyTo')) el('replyTo').value = parseEmailList(source.to || source.to_emails).join(', ');
         if (el('replyCc')) el('replyCc').value = parseEmailList(source.cc || source.cc_emails).join(', ');
+        if (el('replyBcc')) el('replyBcc').value = '';
         setComposerHtml('reply', source.body_html || plainToHtml(source.body_text || ''));
         state.replyAttachments = [];
         renderAttachChips('reply');
@@ -8457,6 +8467,7 @@
             html: getComposerHtml('reply'),
             to: el('replyTo')?.value || '',
             cc: el('replyCc')?.value || '',
+            bcc: el('replyBcc')?.value || '',
             subject: el('replySubjectDisplay')?.value || '',
             subjectEdited: el('replySubjectDisplay')?.dataset.edited === '1',
             inboxId: el('replyFrom')?.value || '',
@@ -8478,6 +8489,7 @@
         state.replyDraftId = null;
         if (el('replyTo')) el('replyTo').value = '';
         if (el('replyCc')) el('replyCc').value = '';
+        if (el('replyBcc')) el('replyBcc').value = '';
         setReplySubjectDisplay('');
         renderAttachChips('reply');
         hideMentionPopup('reply');
@@ -8501,6 +8513,7 @@
         if (el('replyFrom') && snapshot.inboxId) el('replyFrom').value = String(snapshot.inboxId);
         if (el('replyTo')) el('replyTo').value = snapshot.to || '';
         if (el('replyCc')) el('replyCc').value = snapshot.cc || '';
+        if (el('replyBcc')) el('replyBcc').value = snapshot.bcc || '';
         setReplySubjectDisplay(snapshot.subject || replySubjectForDisplay(), { edited: !!snapshot.subjectEdited });
         setComposerHtml('reply', snapshot.html || '');
         renderAttachChips('reply');
@@ -8572,6 +8585,7 @@
         if (isComposerEmpty('reply')) return alert('Write a reply first.');
         const to = (el('replyTo')?.value || '').trim();
         const cc = (el('replyCc')?.value || '').trim();
+        const bcc = (el('replyBcc')?.value || '').trim();
         const inboxId = Number(el('replyFrom')?.value || 0);
         if (!to) return alert('Add at least one To recipient.');
         const archive = !!opts.archive;
@@ -8585,6 +8599,7 @@
             body: prepared.body,
             to,
             cc: cc || null,
+            bcc: bcc || null,
             attachments: prepared.attachments,
         };
         if (inboxId) payload.inbox_id = inboxId;
@@ -8620,6 +8635,7 @@
         if (isComposerEmpty('reply')) return alert('Write a reply first.');
         const to = (el('replyTo')?.value || '').trim();
         const cc = (el('replyCc')?.value || '').trim();
+        const bcc = (el('replyBcc')?.value || '').trim();
         const inboxId = Number(el('replyFrom')?.value || 0);
         if (!to) return alert('Add at least one To recipient.');
         el('btnSendReply').disabled = true;
@@ -8627,7 +8643,7 @@
         const hint = el('composerHint');
         const hintPrevText = hint ? hint.textContent : '';
         try {
-            const payload = { body: html, to, cc: cc || null };
+            const payload = { body: html, to, cc: cc || null, bcc: bcc || null };
             if (inboxId) payload.inbox_id = inboxId;
             const subject = editedReplySubject();
             if (subject) payload.subject = subject;
@@ -9202,6 +9218,7 @@
             html: getComposerHtml('compose'),
             to: el('composeTo')?.value || '',
             cc: el('composeCc')?.value || '',
+            bcc: el('composeBcc')?.value || '',
             subject: el('composeSubject')?.value || '',
             inboxId: el('composeFrom')?.value || '',
             attachments: (state.composeAttachments || []).map(file => ({ ...file })),
@@ -9223,6 +9240,7 @@
         setComposerHtml('compose', '');
         if (el('composeTo')) el('composeTo').value = '';
         if (el('composeCc')) el('composeCc').value = '';
+        if (el('composeBcc')) el('composeBcc').value = '';
         if (el('composeSubject')) el('composeSubject').value = '';
     }
 
@@ -9244,6 +9262,7 @@
         }
         if (el('composeTo')) el('composeTo').value = snapshot.to || '';
         if (el('composeCc')) el('composeCc').value = snapshot.cc || '';
+        if (el('composeBcc')) el('composeBcc').value = snapshot.bcc || '';
         if (el('composeSubject')) el('composeSubject').value = snapshot.subject || '';
         setComposerHtml('compose', snapshot.html || '');
         state.composeAttachments = snapshot.attachments || [];
@@ -9324,6 +9343,7 @@
             inboxId: snapshot.inboxId,
             to: snapshot.to,
             cc: snapshot.cc,
+            bcc: snapshot.bcc,
             subject: snapshot.subject,
             bodyHtml: snapshot.html || '',
             attachments: snapshot.attachments,
@@ -9414,6 +9434,7 @@
         const inboxId = Number(el('composeFrom').value);
         const to = el('composeTo').value.trim();
         const cc = el('composeCc').value.trim();
+        const bcc = el('composeBcc').value.trim();
         const subject = el('composeSubject').value.trim();
         const html = getComposerHtml('compose');
         if (!inboxId) return alert('Select a From inbox.');
@@ -9430,6 +9451,7 @@
             inbox_id: inboxId,
             to,
             cc: cc || null,
+            bcc: bcc || null,
             subject,
             body: prepared.body,
             attachments: prepared.attachments,

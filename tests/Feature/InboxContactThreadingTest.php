@@ -96,6 +96,41 @@ class InboxContactThreadingTest extends TestCase
         $this->assertSame(2, InboxMessage::query()->where('inbox_conversation_id', $home->id)->count());
     }
 
+    public function test_new_email_on_same_outlook_thread_reopens_archived_thread(): void
+    {
+        $this->receive('m1', 'conv-1', 'john@customer.test', 'First', now()->subHour());
+        $home = InboxConversation::query()->firstOrFail();
+        $home->update(['status' => 'archived', 'assigned_to' => $this->user->id]);
+
+        $this->receive('m2', 'conv-1', 'john@customer.test', 'RE: First', now());
+
+        $home->refresh();
+        $this->assertSame('open', $home->status);
+        $this->assertSame('archived', $home->reopened_from);
+        $this->assertSame($this->user->id, (int) $home->assigned_to);
+        $this->assertSame(2, InboxMessage::query()->where('inbox_conversation_id', $home->id)->count());
+        $this->assertDatabaseHas('inbox_conversation_activities', [
+            'inbox_conversation_id' => $home->id,
+            'action' => 'reopened',
+        ]);
+    }
+
+    public function test_repeat_sync_of_existing_message_does_not_reopen_archived_thread(): void
+    {
+        $sentAt = now()->subHour();
+        $this->receive('m1', 'conv-1', 'john@customer.test', 'First', $sentAt);
+        $home = InboxConversation::query()->firstOrFail();
+        $home->update(['status' => 'archived']);
+
+        $this->receive('m1', 'conv-1', 'john@customer.test', 'First', $sentAt);
+
+        $this->assertSame('archived', $home->fresh()->status);
+        $this->assertDatabaseMissing('inbox_conversation_activities', [
+            'inbox_conversation_id' => $home->id,
+            'action' => 'reopened',
+        ]);
+    }
+
     public function test_old_backfilled_email_does_not_reopen_archived_thread(): void
     {
         $this->receive('m1', 'conv-1', 'john@customer.test', 'First', now()->subDays(20));
