@@ -91,6 +91,45 @@
     }
     .sched-cancel-btn:hover { background: #fef2f2; border-color: #fecaca; }
     .sched-cancel-btn:disabled { opacity: 0.6; cursor: default; }
+    .sched-linkbtn {
+        border: none; background: transparent; cursor: pointer; font: inherit;
+        color: var(--accent, #5f61e6); font-weight: 600; font-size: 0.72rem;
+        padding: 0.25rem 0.45rem; border-radius: 6px;
+    }
+    .sched-linkbtn:hover { background: var(--accent-light, #f0f0ff); }
+    .sched-linkbtn:disabled { opacity: 0.6; cursor: default; }
+    /* Failure detail row */
+    .sched-detail-row td { background: #fff7f7; border-top: none; padding-top: 0; }
+    .sched-table tbody tr.sched-detail-row:hover td { background: #fff7f7; }
+    .sched-fail-reason {
+        display: flex; align-items: flex-start; gap: 0.4rem;
+        color: #991b1b; font-size: 0.7rem; line-height: 1.4;
+    }
+    .sched-fail-reason svg { width: 14px; height: 14px; flex-shrink: 0; margin-top: 1px; }
+    .sched-edit {
+        margin-top: 0.6rem; padding: 0.7rem; border: 1px solid var(--border, #e5e7eb);
+        border-radius: 8px; background: var(--bg-card, #fff);
+        display: flex; flex-direction: column; gap: 0.5rem; max-width: 720px;
+    }
+    .sched-edit-grid { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .sched-edit-grid .sched-edit-field { flex: 1 1 220px; }
+    .sched-edit-field { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.68rem; font-weight: 600; color: var(--text-secondary, #6b7280); }
+    .sched-edit-field input {
+        font: inherit; font-size: 0.8rem; font-weight: 400; color: var(--text-primary, #111827);
+        padding: 0.4rem 0.55rem; border: 1px solid var(--border, #e5e7eb); border-radius: 6px;
+        background: var(--bg-card, #fff);
+    }
+    .sched-edit-field input:focus, .sched-edit-body:focus {
+        outline: none; border-color: var(--accent, #5f61e6);
+        box-shadow: 0 0 0 2px rgba(95, 97, 230, 0.12);
+    }
+    .sched-edit-body {
+        min-height: 120px; max-height: 320px; overflow-y: auto;
+        font: inherit; font-size: 0.8rem; font-weight: 400; color: var(--text-primary, #111827);
+        padding: 0.5rem 0.6rem; border: 1px solid var(--border, #e5e7eb); border-radius: 6px;
+        background: var(--bg-card, #fff);
+    }
+    .sched-edit-actions { display: flex; justify-content: flex-end; gap: 0.4rem; }
     .sched-empty {
         text-align: center;
         padding: 3rem 1.5rem;
@@ -138,6 +177,7 @@
 @endpush
 
 @section('content')
+    @php $schedColCount = $scheduledScope === 'all' ? 8 : 7; @endphp
     <div class="page-header sched-header">
         <div>
             <h1 class="page-title">Scheduled Sends</h1>
@@ -242,6 +282,13 @@
                                 <td>
                                     <div class="sched-row-actions">
                                         <a class="sched-link" href="{{ $item['open_url'] }}">Open</a>
+                                        @if($item['can_retry'])
+                                            <button type="button" class="sched-linkbtn sched-retry-btn"
+                                                    data-retry-url="{{ $item['retry_url'] }}"
+                                                    data-row-id="{{ $item['id'] }}">Retry</button>
+                                            <button type="button" class="sched-linkbtn sched-edit-btn"
+                                                    data-row-id="{{ $item['id'] }}">Edit</button>
+                                        @endif
                                         @if($item['can_cancel'])
                                             <button type="button" class="sched-cancel-btn"
                                                     data-cancel-url="{{ $item['cancel_url'] }}"
@@ -250,6 +297,43 @@
                                     </div>
                                 </td>
                             </tr>
+                            @if($item['status'] === 'failed')
+                                <tr class="sched-detail-row" data-detail-for="{{ $item['id'] }}">
+                                    <td colspan="{{ $schedColCount }}">
+                                        <div class="sched-fail-reason">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                                            </svg>
+                                            <span><strong>Why it failed:</strong> {{ $item['error_message'] }}</span>
+                                        </div>
+                                        @if($item['can_retry'])
+                                            <form class="sched-edit" data-retry-url="{{ $item['retry_url'] }}" data-row-id="{{ $item['id'] }}" hidden>
+                                                <div class="sched-edit-grid">
+                                                    <label class="sched-edit-field">To
+                                                        <input type="text" class="sched-edit-to" value="{{ $item['to'] }}" placeholder="name@example.com">
+                                                    </label>
+                                                    <label class="sched-edit-field">Cc
+                                                        <input type="text" class="sched-edit-cc" value="{{ $item['cc'] }}" placeholder="Optional">
+                                                    </label>
+                                                </div>
+                                                <label class="sched-edit-field">Subject
+                                                    <input type="text" class="sched-edit-subject" value="{{ $item['edit_subject'] }}">
+                                                </label>
+                                                <div class="sched-edit-field">
+                                                    <span>Message</span>
+                                                    <div class="sched-edit-body" contenteditable="true" role="textbox" aria-multiline="true"></div>
+                                                    <textarea class="sched-edit-body-src" hidden>{{ $item['edit_body_html'] }}</textarea>
+                                                </div>
+                                                <div class="sched-edit-actions">
+                                                    <button type="button" class="btn btn-secondary btn-sm sched-edit-cancel">Cancel</button>
+                                                    <button type="submit" class="btn btn-primary btn-sm sched-edit-save">Save &amp; retry</button>
+                                                </div>
+                                            </form>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @endif
                         @endforeach
                     </tbody>
                 </table>
@@ -328,6 +412,99 @@
             alert(err.message || 'Could not cancel this scheduled send.');
             btn.disabled = false;
             btn.textContent = original;
+        }
+    });
+
+    async function schedRetry(url, payload) {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': token,
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload || {}),
+        });
+        if (!res.ok) {
+            let msg = 'Could not retry this scheduled send.';
+            try { const data = await res.json(); if (data && data.message) msg = data.message; } catch (_) {}
+            throw new Error(msg);
+        }
+    }
+
+    // Quick retry (no edits)
+    document.addEventListener('click', async function (e) {
+        const btn = e.target.closest('.sched-retry-btn');
+        if (!btn) return;
+        const url = btn.dataset.retryUrl;
+        if (!url) return;
+        if (!window.confirm('Retry this failed send now?')) return;
+        btn.disabled = true;
+        const original = btn.textContent;
+        btn.textContent = 'Retrying…';
+        try {
+            await schedRetry(url, {});
+            window.location.reload();
+        } catch (err) {
+            alert(err.message || 'Could not retry this scheduled send.');
+            btn.disabled = false;
+            btn.textContent = original;
+        }
+    });
+
+    // Toggle the inline edit form (populate the body editor on first open)
+    document.addEventListener('click', function (e) {
+        const btn = e.target.closest('.sched-edit-btn');
+        if (!btn) return;
+        const id = btn.dataset.rowId;
+        const detail = document.querySelector('.sched-detail-row[data-detail-for="' + id + '"]');
+        const form = detail ? detail.querySelector('.sched-edit') : null;
+        if (!form) return;
+        const willShow = form.hidden;
+        form.hidden = !willShow;
+        if (willShow && !form.dataset.ready) {
+            const src = form.querySelector('.sched-edit-body-src');
+            const body = form.querySelector('.sched-edit-body');
+            if (src && body) body.innerHTML = src.value;
+            form.dataset.ready = '1';
+            form.querySelector('.sched-edit-to')?.focus();
+        }
+    });
+
+    // Cancel edit
+    document.addEventListener('click', function (e) {
+        const btn = e.target.closest('.sched-edit-cancel');
+        if (!btn) return;
+        const form = btn.closest('.sched-edit');
+        if (form) form.hidden = true;
+    });
+
+    // Save edits + retry
+    document.addEventListener('submit', async function (e) {
+        const form = e.target.closest('.sched-edit');
+        if (!form) return;
+        e.preventDefault();
+        const url = form.dataset.retryUrl;
+        if (!url) return;
+
+        const to = (form.querySelector('.sched-edit-to')?.value || '').trim();
+        if (!to) { alert('At least one recipient is required.'); return; }
+
+        const payload = {
+            to: to,
+            cc: (form.querySelector('.sched-edit-cc')?.value || '').trim(),
+            subject: form.querySelector('.sched-edit-subject')?.value ?? '',
+            body_html: form.querySelector('.sched-edit-body')?.innerHTML ?? '',
+        };
+
+        const saveBtn = form.querySelector('.sched-edit-save');
+        if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+        try {
+            await schedRetry(url, payload);
+            window.location.reload();
+        } catch (err) {
+            alert(err.message || 'Could not save and retry.');
+            if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save & retry'; }
         }
     });
 })();

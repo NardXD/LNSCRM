@@ -703,6 +703,7 @@ Route::middleware(['auth', 'company.active'])->group(function () {
         Route::post('/conversations/{conversation}/save-draft', [InboxController::class, 'saveDraft'])->name('api.inbox.conversations.save-draft');
         Route::post('/conversations/{conversation}/share-draft', [InboxController::class, 'shareReplyDraft'])->name('api.inbox.conversations.share-draft');
         Route::delete('/conversations/{conversation}/scheduled-replies/{scheduledReply}', [InboxController::class, 'cancelScheduledReply'])->name('api.inbox.conversations.scheduled-replies.cancel');
+        Route::post('/conversations/{conversation}/scheduled-replies/{scheduledReply}/retry', [InboxController::class, 'retryScheduledReply'])->name('api.inbox.conversations.scheduled-replies.retry');
         Route::post('/conversations/{conversation}/comments', [InboxController::class, 'storeComment'])->name('api.inbox.conversations.comments.store');
         Route::patch('/conversations/{conversation}/comments/{comment}', [InboxController::class, 'updateComment'])->name('api.inbox.conversations.comments.update');
         Route::delete('/conversations/{conversation}/comments/{comment}', [InboxController::class, 'destroyComment'])->name('api.inbox.conversations.comments.destroy');

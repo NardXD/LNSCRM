@@ -170,7 +170,9 @@ class InboxController extends Controller
             $sentAt = $reply->sent_at;
             $meta = $statusMeta[$reply->status] ?? ['label' => ucfirst((string) $reply->status), 'class' => 'is-scheduled'];
             $isPending = $reply->status === ScheduledInboxReply::STATUS_PENDING;
+            $isFailed = $reply->status === ScheduledInboxReply::STATUS_FAILED;
             $isOwn = (int) $reply->user_id === (int) $user->id;
+            $canRetry = $isFailed && $isOwn;
 
             return [
                 'id' => $reply->id,
@@ -178,12 +180,21 @@ class InboxController extends Controller
                 'type_label' => $reply->isCompose() ? 'New message' : 'Reply',
                 'subject' => $reply->subject ?: ($conversation?->subject ?: '(no subject)'),
                 'to' => $reply->to_emails,
+                'cc' => $reply->cc_emails,
                 'scheduled_by' => $reply->user?->name ?: $reply->user?->email ?: 'Unknown',
                 'is_own' => $isOwn,
                 'status' => $reply->status,
                 'status_label' => $meta['label'],
                 'status_class' => $meta['class'],
-                'error_message' => $reply->status === ScheduledInboxReply::STATUS_FAILED ? $reply->error_message : null,
+                'error_message' => $isFailed ? ($reply->error_message ?: 'Unknown error.') : null,
+                // Content for the inline "edit & retry" editor (only for the owner's failed sends).
+                'can_retry' => $canRetry,
+                'edit_subject' => $canRetry ? ($reply->subject ?? '') : null,
+                'edit_body_html' => $canRetry ? (string) $reply->body_html : null,
+                'retry_url' => $canRetry ? route('api.inbox.conversations.scheduled-replies.retry', [
+                    'conversation' => $reply->inbox_conversation_id,
+                    'scheduledReply' => $reply->id,
+                ]) : null,
                 'send_at_display' => $sendAt
                     ? $sendAt->copy()->timezone($tz)->format('M j, Y · g:i A')
                     : null,
@@ -2723,6 +2734,94 @@ class InboxController extends Controller
 
         return response()->json([
             'conversation' => $this->formatConversation($conversation),
+        ]);
+    }
+
+    /**
+     * Re-queue a failed "Send later" email so it sends again, optionally after
+     * editing its recipients, subject or body. Owner-only, and only for sends
+     * that actually failed. The existing scheduler/worker handles the resend.
+     */
+    public function retryScheduledReply(
+        Request $request,
+        InboxConversation $conversation,
+        ScheduledInboxReply $scheduledReply
+    ): JsonResponse {
+        $user = $request->user();
+        $this->authorizeConversation($user, $conversation);
+
+        if ((int) $scheduledReply->inbox_conversation_id !== (int) $conversation->id) {
+            return response()->json(['message' => 'Scheduled send not found.'], 404);
+        }
+        if ((int) $scheduledReply->user_id !== (int) $user->id) {
+            return response()->json(['message' => 'You can only retry your own scheduled sends.'], 403);
+        }
+        if ($scheduledReply->status !== ScheduledInboxReply::STATUS_FAILED) {
+            return response()->json(['message' => 'Only failed scheduled sends can be retried.'], 422);
+        }
+
+        $validated = $request->validate([
+            'to' => ['sometimes', 'string', 'max:5000'],
+            'cc' => ['sometimes', 'nullable', 'string', 'max:5000'],
+            'subject' => ['sometimes', 'nullable', 'string', 'max:998'],
+            'body_html' => ['sometimes', 'nullable', 'string', 'max:5000000'],
+        ]);
+
+        $updates = [];
+
+        if (array_key_exists('to', $validated)) {
+            $to = $this->normalizeRecipientEmails($validated['to']);
+            foreach ($to as $email) {
+                if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    return response()->json(['message' => "Invalid recipient: {$email}"], 422);
+                }
+            }
+            if ($to->isEmpty()) {
+                return response()->json(['message' => 'At least one recipient is required.'], 422);
+            }
+            $updates['to_emails'] = $to->implode(', ');
+        }
+
+        if (array_key_exists('cc', $validated)) {
+            $cc = $this->normalizeRecipientEmails($validated['cc']);
+            foreach ($cc as $email) {
+                if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    return response()->json(['message' => "Invalid CC recipient: {$email}"], 422);
+                }
+            }
+            $updates['cc_emails'] = $cc->isNotEmpty() ? $cc->implode(', ') : null;
+        }
+
+        if (array_key_exists('subject', $validated)) {
+            $updates['subject'] = $validated['subject'] !== null ? trim($validated['subject']) : null;
+        }
+
+        if (array_key_exists('body_html', $validated)) {
+            $bodyHtml = (string) ($validated['body_html'] ?? '');
+            $updates['body_html'] = $bodyHtml;
+            $updates['body_text'] = trim(html_entity_decode(strip_tags($bodyHtml)));
+        }
+
+        // Re-queue: back to pending, due now, failure cleared.
+        $updates['status'] = ScheduledInboxReply::STATUS_PENDING;
+        $updates['error_message'] = null;
+        $updates['send_at'] = now();
+
+        $scheduledReply->update($updates);
+
+        $this->recordActivity(
+            $conversation,
+            $user,
+            $scheduledReply->isCompose() ? 'compose_schedule_retried' : 'reply_schedule_retried',
+            $user->name.' retried a failed scheduled '.($scheduledReply->isCompose() ? 'message' : 'reply'),
+            ['scheduled_reply_id' => $scheduledReply->id]
+        );
+
+        ProcessScheduledInboxReplyJob::dispatch($scheduledReply->id);
+
+        return response()->json([
+            'retried' => true,
+            'scheduled_reply' => $this->formatScheduledReply($scheduledReply->fresh(['user:id,name,email'])),
         ]);
     }
 
