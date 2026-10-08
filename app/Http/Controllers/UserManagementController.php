@@ -692,6 +692,18 @@ class UserManagementController extends Controller
                     'category' => 'main',
                 ]
             );
+            Permission::firstOrCreate(
+                [
+                    'slug' => 'view_all_scheduled_sends',
+                    'company_id' => $user->company_id,
+                ],
+                [
+                    'name' => 'view_all_scheduled_sends',
+                    'display_name' => 'View All Scheduled Sends',
+                    'description' => 'See Send later emails scheduled by all users on the Scheduled Sends page, not just your own',
+                    'category' => 'main',
+                ]
+            );
         }
 
         $permissionsQuery = Permission::query();
@@ -767,6 +779,7 @@ class UserManagementController extends Controller
             'Messaging' => ['view_messaging', 'module_slug' => 'messaging'],
             'Inbox' => [
                 'view_inbox',
+                'view_all_scheduled_sends',
                 'create_inbox_tags',
                 'create_inbox_templates',
                 'module_slug' => 'inbox',

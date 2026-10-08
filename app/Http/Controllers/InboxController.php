@@ -82,6 +82,146 @@ class InboxController extends Controller
         return view('dashboard.inbox');
     }
 
+    /**
+     * Human-readable status metadata for a "Send later" email, keyed by the
+     * ScheduledInboxReply status constants.
+     *
+     * @return array<string, array{label: string, class: string}>
+     */
+    private function scheduledSendStatusMeta(): array
+    {
+        return [
+            ScheduledInboxReply::STATUS_PENDING => ['label' => 'Scheduled', 'class' => 'is-scheduled'],
+            ScheduledInboxReply::STATUS_SENDING => ['label' => 'Sending…', 'class' => 'is-sending'],
+            ScheduledInboxReply::STATUS_SENT => ['label' => 'Sent', 'class' => 'is-sent'],
+            ScheduledInboxReply::STATUS_FAILED => ['label' => 'Failed', 'class' => 'is-failed'],
+            ScheduledInboxReply::STATUS_CANCELLED => ['label' => 'Cancelled', 'class' => 'is-cancelled'],
+        ];
+    }
+
+    /**
+     * Standalone page listing the signed-in user's "Send later" emails across
+     * every conversation — the one place to review, track status, or cancel
+     * them. Active items (waiting / sending) always show; sent, failed and
+     * cancelled items show for the last 30 days so the list stays readable.
+     */
+    public function scheduledSends(Request $request): View
+    {
+        $user = $request->user();
+
+        $activeStatuses = [
+            ScheduledInboxReply::STATUS_PENDING,
+            ScheduledInboxReply::STATUS_SENDING,
+        ];
+        $historyStatuses = [
+            ScheduledInboxReply::STATUS_SENT,
+            ScheduledInboxReply::STATUS_FAILED,
+            ScheduledInboxReply::STATUS_CANCELLED,
+        ];
+        $historyCutoff = now()->subDays(30);
+
+        // "View all" is permission-gated and scoped to the user's own company.
+        $canViewAll = $user->hasPermission('view_all_scheduled_sends');
+        $scope = ($request->query('scope') === 'all' && $canViewAll && $user->company_id)
+            ? 'all'
+            : 'mine';
+
+        $scheduled = ScheduledInboxReply::query()
+            ->when($scope === 'all',
+                fn ($q) => $q->whereHas('user', fn ($u) => $u->where('company_id', $user->company_id)),
+                fn ($q) => $q->where('user_id', $user->id),
+            )
+            ->where('is_immediate', false)
+            ->whereHas('conversation')
+            ->where(function ($q) use ($activeStatuses, $historyStatuses, $historyCutoff) {
+                $q->whereIn('status', $activeStatuses)
+                    ->orWhere(function ($hist) use ($historyStatuses, $historyCutoff) {
+                        $hist->whereIn('status', $historyStatuses)
+                            ->where(function ($recent) use ($historyCutoff) {
+                                $recent->where('sent_at', '>=', $historyCutoff)
+                                    ->orWhere('updated_at', '>=', $historyCutoff);
+                            });
+                    });
+            })
+            ->with([
+                'conversation:id,subject,folder,status',
+                'conversation.inbox:id,name,type',
+                'inbox:id,name',
+                'user:id,name,email',
+            ])
+            ->get();
+
+        // Active first (soonest send time), then history (most recently actioned).
+        $active = $scheduled
+            ->filter(fn (ScheduledInboxReply $r) => in_array($r->status, $activeStatuses, true))
+            ->sortBy(fn (ScheduledInboxReply $r) => $r->send_at?->timestamp ?? PHP_INT_MAX);
+        $history = $scheduled
+            ->filter(fn (ScheduledInboxReply $r) => in_array($r->status, $historyStatuses, true))
+            ->sortByDesc(fn (ScheduledInboxReply $r) => ($r->sent_at ?? $r->updated_at ?? $r->send_at)?->timestamp ?? 0);
+        $ordered = $active->concat($history)->values();
+
+        $now = now();
+        $tz = config('app.timezone');
+        $statusMeta = $this->scheduledSendStatusMeta();
+
+        $rows = $ordered->map(function (ScheduledInboxReply $reply) use ($now, $tz, $statusMeta, $user) {
+            $conversation = $reply->conversation;
+            $sendAt = $reply->send_at;
+            $sentAt = $reply->sent_at;
+            $meta = $statusMeta[$reply->status] ?? ['label' => ucfirst((string) $reply->status), 'class' => 'is-scheduled'];
+            $isPending = $reply->status === ScheduledInboxReply::STATUS_PENDING;
+            $isOwn = (int) $reply->user_id === (int) $user->id;
+
+            return [
+                'id' => $reply->id,
+                'conversation_id' => $reply->inbox_conversation_id,
+                'type_label' => $reply->isCompose() ? 'New message' : 'Reply',
+                'subject' => $reply->subject ?: ($conversation?->subject ?: '(no subject)'),
+                'to' => $reply->to_emails,
+                'scheduled_by' => $reply->user?->name ?: $reply->user?->email ?: 'Unknown',
+                'is_own' => $isOwn,
+                'status' => $reply->status,
+                'status_label' => $meta['label'],
+                'status_class' => $meta['class'],
+                'error_message' => $reply->status === ScheduledInboxReply::STATUS_FAILED ? $reply->error_message : null,
+                'send_at_display' => $sendAt
+                    ? $sendAt->copy()->timezone($tz)->format('M j, Y · g:i A')
+                    : null,
+                'sent_at_display' => $sentAt
+                    ? $sentAt->copy()->timezone($tz)->format('M j, Y · g:i A')
+                    : null,
+                'is_past_due' => $isPending && $sendAt ? $sendAt->lt($now) : false,
+                'archive_after' => (bool) $reply->archive_after,
+                'attachment_count' => count($reply->attachments ?? []),
+                'inbox_name' => $reply->inbox?->name ?: $conversation?->inbox?->name,
+                // Only the owner can cancel from here; others' sends are view-only
+                // (cancelling another user's send is still possible from the thread,
+                // where the existing per-conversation access checks apply).
+                'can_cancel' => $isPending && $isOwn,
+                'open_url' => route('inbox', ['conversation' => $reply->inbox_conversation_id]),
+                'cancel_url' => route('api.inbox.conversations.scheduled-replies.cancel', [
+                    'conversation' => $reply->inbox_conversation_id,
+                    'scheduledReply' => $reply->id,
+                ]),
+            ];
+        })->values();
+
+        $counts = [
+            'waiting' => $active->count(),
+            'sent' => $scheduled->where('status', ScheduledInboxReply::STATUS_SENT)->count(),
+            'failed' => $scheduled->where('status', ScheduledInboxReply::STATUS_FAILED)->count(),
+        ];
+
+        return view('dashboard.inbox-scheduled', [
+            'scheduledSends' => $rows,
+            'scheduledSendsCount' => $rows->count(),
+            'scheduledCounts' => $counts,
+            'scheduledTimezone' => $tz,
+            'scheduledCanViewAll' => $canViewAll,
+            'scheduledScope' => $scope,
+        ]);
+    }
+
     public function bootstrap(Request $request): JsonResponse
     {
         $user = $request->user();

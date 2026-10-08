@@ -662,6 +662,9 @@ Route::middleware(['auth', 'company.active'])->group(function () {
     Route::get('/inbox', [InboxController::class, 'index'])
         ->middleware('permission:view_inbox')
         ->name('inbox');
+    Route::get('/inbox/scheduled', [InboxController::class, 'scheduledSends'])
+        ->middleware('permission:view_inbox')
+        ->name('inbox.scheduled');
     Route::get('/inbox/connect/outlook', [InboxController::class, 'redirectOutlook'])
         ->middleware('permission:view_inbox|view_broadcast_messaging|view_quotation_builder_microsoft_365_mail')
         ->name('inbox.connect.outlook');

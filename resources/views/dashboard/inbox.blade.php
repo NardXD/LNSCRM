@@ -62,6 +62,9 @@ if (new URLSearchParams(location.search).get('popout') === '1') {
                 <button type="button" class="inbox-nav-item" data-view="sent" data-scope="all" title="Mail you sent, from your personal and shared inboxes">
                     <span>Sent</span>
                 </button>
+                <a href="{{ route('inbox.scheduled') }}" class="inbox-nav-item" style="text-decoration:none;" title="Emails you queued with Send later">
+                    <span>Scheduled</span>
+                </a>
             </div>
 
             <div class="inbox-nav-section inbox-labels-section">
