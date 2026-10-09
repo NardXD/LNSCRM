@@ -1568,11 +1568,19 @@ class OutlookMailService
 
     /**
      * Look up the current Graph id of a message whose stored id no longer resolves.
+     * Candidates are the attachment-bearing messages of the same Outlook conversation,
+     * closest in time first; the one that holds a matching file (name/size) wins.
+     *
+     * @param  array<string, mixed>  $meta
      */
-    private function relocateMessageId(OutlookMailAccount $account, string $mailboxPath, InboxMessage $message): ?string
+    private function relocateMessageId(OutlookMailAccount $account, string $mailboxPath, InboxMessage $message, array $meta): ?string
     {
         $conversationId = $message->conversation?->external_conversation_id;
-        if (! $conversationId || ! $message->sent_at) {
+        if (! $conversationId) {
+            Log::warning('Outlook message relocate skipped: no external conversation id', [
+                'message_id' => $message->id,
+            ]);
+
             return null;
         }
 
@@ -1587,31 +1595,49 @@ class OutlookMailService
 
         if (! $response->successful()) {
             Log::warning('Outlook message relocate failed', [
-                'message_id' => $message->external_message_id,
+                'message_id' => $message->id,
                 'status' => $response->status(),
+                'body' => mb_substr((string) $response->body(), 0, 300),
             ]);
 
             return null;
         }
 
-        $target = $message->sent_at->getTimestamp();
-        $match = collect($response->json('value') ?? [])->first(function ($item) use ($target) {
-            if (! is_array($item) || empty($item['id']) || empty($item['receivedDateTime'])) {
-                return false;
+        $target = $message->sent_at?->getTimestamp() ?? 0;
+        $candidates = collect($response->json('value') ?? [])
+            ->filter(fn ($item) => is_array($item) && ! empty($item['id']) && ! empty($item['hasAttachments']))
+            ->sortBy(fn ($item) => abs(strtotime((string) ($item['receivedDateTime'] ?? '')) - $target))
+            ->values();
+
+        foreach ($candidates->take(10) as $item) {
+            $list = Http::withToken($account->access_token)
+                ->timeout(60)
+                ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/".rawurlencode((string) $item['id']).'/attachments', [
+                    '$select' => 'id,name,size',
+                ]);
+            if (! $list->successful()) {
+                continue;
             }
+            $found = collect($list->json('value') ?? [])->contains(
+                fn ($a) => is_array($a)
+                    && trim((string) ($a['name'] ?? '')) === (string) ($meta['name'] ?? '')
+                    && (empty($meta['size']) || ! isset($a['size']) || (int) $a['size'] === (int) $meta['size'])
+            );
+            if ($found) {
+                $message->external_message_id = (string) $item['id'];
+                $message->save();
 
-            return ! empty($item['hasAttachments'])
-                && abs(strtotime((string) $item['receivedDateTime']) - $target) <= 2;
-        });
-
-        if (! is_array($match)) {
-            return null;
+                return (string) $item['id'];
+            }
         }
 
-        $message->external_message_id = (string) $match['id'];
-        $message->save();
+        Log::warning('Outlook message relocate found no match', [
+            'message_id' => $message->id,
+            'conversation_messages' => count($response->json('value') ?? []),
+            'with_attachments' => $candidates->count(),
+        ]);
 
-        return (string) $match['id'];
+        return null;
     }
 
     /**
@@ -1632,7 +1658,7 @@ class OutlookMailService
         if ($response->status() === 404) {
             // The message id itself is stale (moved/re-created in Outlook). Find it again
             // by conversation + received time and persist the new id.
-            $newId = $this->relocateMessageId($account, $mailboxPath, $message);
+            $newId = $this->relocateMessageId($account, $mailboxPath, $message, $meta);
             if ($newId) {
                 $encodedMessageId = rawurlencode($newId);
                 $response = Http::withToken($account->access_token)
