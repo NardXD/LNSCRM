@@ -1551,15 +1551,77 @@ class OutlookMailService
                 'message_id' => $message->external_message_id,
                 'attachment_id' => $attachmentId,
                 'status' => $response->status(),
+                'body' => mb_substr((string) $response->body(), 0, 300),
             ]);
 
-            return null;
+            // Stored attachment ids can go stale (message moved/re-synced). Re-list from
+            // Graph, match by name/size, refresh stored metadata and serve the bytes.
+            return $this->recoverStaleAttachment($account, $mailboxPath, $messageId, $message, $meta);
         }
 
         return [
             'name' => (string) ($meta['name'] ?? 'attachment'),
             'content_type' => (string) ($meta['content_type'] ?? 'application/octet-stream'),
             'content' => $response->body(),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $meta
+     * @return array{name: string, content_type: string, content: string}|null
+     */
+    private function recoverStaleAttachment(
+        OutlookMailAccount $account,
+        string $mailboxPath,
+        string $encodedMessageId,
+        InboxMessage $message,
+        array $meta
+    ): ?array {
+        $response = Http::withToken($account->access_token)
+            ->timeout(120)
+            ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/{$encodedMessageId}/attachments", ['$top' => 50]);
+
+        if (! $response->successful()) {
+            Log::warning('Outlook attachment re-list failed', [
+                'message_id' => $message->external_message_id,
+                'status' => $response->status(),
+            ]);
+
+            return null;
+        }
+
+        $items = $response->json('value') ?? [];
+        if (! is_array($items)) {
+            return null;
+        }
+
+        $match = collect($items)->first(function ($item) use ($meta) {
+            if (! is_array($item) || ($item['@odata.type'] ?? '#microsoft.graph.fileAttachment') !== '#microsoft.graph.fileAttachment') {
+                return false;
+            }
+            if (trim((string) ($item['name'] ?? '')) !== (string) ($meta['name'] ?? '')) {
+                return false;
+            }
+
+            return empty($meta['size']) || ! isset($item['size']) || (int) $item['size'] === (int) $meta['size'];
+        });
+
+        if (! is_array($match) || ! is_string($match['contentBytes'] ?? null)) {
+            return null;
+        }
+
+        $content = base64_decode($match['contentBytes'], true);
+        if ($content === false) {
+            return null;
+        }
+
+        $message->attachments = $this->normalizeGraphAttachmentList($items);
+        $message->save();
+
+        return [
+            'name' => (string) ($meta['name'] ?? 'attachment'),
+            'content_type' => (string) ($match['contentType'] ?? $meta['content_type'] ?? 'application/octet-stream'),
+            'content' => $content,
         ];
     }
 
