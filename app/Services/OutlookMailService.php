@@ -1567,6 +1567,54 @@ class OutlookMailService
     }
 
     /**
+     * Look up the current Graph id of a message whose stored id no longer resolves.
+     */
+    private function relocateMessageId(OutlookMailAccount $account, string $mailboxPath, InboxMessage $message): ?string
+    {
+        $conversationId = $message->conversation?->external_conversation_id;
+        if (! $conversationId || ! $message->sent_at) {
+            return null;
+        }
+
+        $escaped = str_replace("'", "''", (string) $conversationId);
+        $response = Http::withToken($account->access_token)
+            ->timeout(60)
+            ->get(self::GRAPH_BASE."/{$mailboxPath}/messages", [
+                '$filter' => "conversationId eq '{$escaped}'",
+                '$select' => 'id,receivedDateTime,hasAttachments',
+                '$top' => 50,
+            ]);
+
+        if (! $response->successful()) {
+            Log::warning('Outlook message relocate failed', [
+                'message_id' => $message->external_message_id,
+                'status' => $response->status(),
+            ]);
+
+            return null;
+        }
+
+        $target = $message->sent_at->getTimestamp();
+        $match = collect($response->json('value') ?? [])->first(function ($item) use ($target) {
+            if (! is_array($item) || empty($item['id']) || empty($item['receivedDateTime'])) {
+                return false;
+            }
+
+            return ! empty($item['hasAttachments'])
+                && abs(strtotime((string) $item['receivedDateTime']) - $target) <= 2;
+        });
+
+        if (! is_array($match)) {
+            return null;
+        }
+
+        $message->external_message_id = (string) $match['id'];
+        $message->save();
+
+        return (string) $match['id'];
+    }
+
+    /**
      * @param  array<string, mixed>  $meta
      * @return array{name: string, content_type: string, content: string}|null
      */
@@ -1580,6 +1628,18 @@ class OutlookMailService
         $response = Http::withToken($account->access_token)
             ->timeout(120)
             ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/{$encodedMessageId}/attachments", ['$top' => 50]);
+
+        if ($response->status() === 404) {
+            // The message id itself is stale (moved/re-created in Outlook). Find it again
+            // by conversation + received time and persist the new id.
+            $newId = $this->relocateMessageId($account, $mailboxPath, $message);
+            if ($newId) {
+                $encodedMessageId = rawurlencode($newId);
+                $response = Http::withToken($account->access_token)
+                    ->timeout(120)
+                    ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/{$encodedMessageId}/attachments", ['$top' => 50]);
+            }
+        }
 
         if (! $response->successful()) {
             Log::warning('Outlook attachment re-list failed', [
