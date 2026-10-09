@@ -76,10 +76,10 @@ class LeadStoreganiseMapper
             'dob' => $dob,
             'hear_about' => $lead->source,
             'customer_type' => $customerType,
-            'residential_type' => $customerType === 'Residential' ? $lead->residential_type : null,
-            'residential_reason' => $customerType === 'Residential' ? $storageReason : null,
-            'commercial_type' => $customerType === 'Commercial' ? $commercialType : null,
-            'commercial_reason' => $customerType === 'Commercial' ? $storageReason : null,
+            'residential_type' => $customerType === 'Personal' ? $lead->residential_type : null,
+            'residential_reason' => $customerType === 'Personal' ? $storageReason : null,
+            'commercial_type' => $customerType === 'Business' ? $commercialType : null,
+            'commercial_reason' => $customerType === 'Business' ? $storageReason : null,
             'site_code' => $site['code'] ?? null,
             'alt_title' => $lead->alt_title,
             'alt_first_name' => $lead->alt_first_name,
@@ -116,8 +116,8 @@ class LeadStoreganiseMapper
     protected function customerTypeLabel(?string $customerType): ?string
     {
         return match ($customerType) {
-            Lead::CUSTOMER_TYPE_RESIDENTIAL => 'Residential',
-            Lead::CUSTOMER_TYPE_BUSINESS => 'Commercial',
+            Lead::CUSTOMER_TYPE_RESIDENTIAL => 'Personal',
+            Lead::CUSTOMER_TYPE_BUSINESS => 'Business',
             default => null,
         };
     }

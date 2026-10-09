@@ -66,7 +66,7 @@ class LeadStoreganiseMapperTest extends TestCase
         $this->assertSame('1300', $custom['lns_postal']);
         $this->assertSame('1990-05-15', $custom['lns_dob']);
         $this->assertSame('Facebook', $custom['lns_hearAbout']);
-        $this->assertSame('Residential', $custom['lns_customerType']);
+        $this->assertSame('Personal', $custom['lns_customerType']);
         $this->assertSame('Condominium', $custom['lns_residentialType']);
         $this->assertSame('Moving', $custom['lns_residentialReason']);
         $this->assertSame('nwp', $custom['lns_siteCode']);
