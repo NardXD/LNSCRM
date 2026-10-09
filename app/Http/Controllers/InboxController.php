@@ -82,6 +82,177 @@ class InboxController extends Controller
         return view('dashboard.inbox');
     }
 
+    /**
+     * Human-readable status metadata for a "Send later" email, keyed by the
+     * ScheduledInboxReply status constants.
+     *
+     * @return array<string, array{label: string, class: string}>
+     */
+    private function scheduledSendStatusMeta(): array
+    {
+        return [
+            ScheduledInboxReply::STATUS_PENDING => ['label' => 'Scheduled', 'class' => 'is-scheduled'],
+            ScheduledInboxReply::STATUS_SENDING => ['label' => 'Sending…', 'class' => 'is-sending'],
+            ScheduledInboxReply::STATUS_SENT => ['label' => 'Sent', 'class' => 'is-sent'],
+            ScheduledInboxReply::STATUS_FAILED => ['label' => 'Failed', 'class' => 'is-failed'],
+            ScheduledInboxReply::STATUS_CANCELLED => ['label' => 'Cancelled', 'class' => 'is-cancelled'],
+        ];
+    }
+
+    /**
+     * Standalone page listing the signed-in user's "Send later" emails across
+     * every conversation — the one place to review, track status, or cancel
+     * them. Active items (waiting / sending) always show; sent, failed and
+     * cancelled items show for the last 30 days so the list stays readable.
+     */
+    public function scheduledSends(Request $request): View
+    {
+        $user = $request->user();
+
+        $activeStatuses = [
+            ScheduledInboxReply::STATUS_PENDING,
+            ScheduledInboxReply::STATUS_SENDING,
+        ];
+        $historyStatuses = [
+            ScheduledInboxReply::STATUS_SENT,
+            ScheduledInboxReply::STATUS_FAILED,
+            ScheduledInboxReply::STATUS_CANCELLED,
+        ];
+        $historyCutoff = now()->subDays(30);
+
+        // "View all" is permission-gated and scoped to the user's own company.
+        $canViewAll = $user->hasPermission('view_all_scheduled_sends');
+        $scope = ($request->query('scope') === 'all' && $canViewAll && $user->company_id)
+            ? 'all'
+            : 'mine';
+
+        $scheduled = ScheduledInboxReply::query()
+            ->when($scope === 'all',
+                fn ($q) => $q->whereHas('user', fn ($u) => $u->where('company_id', $user->company_id)),
+                fn ($q) => $q->where('user_id', $user->id),
+            )
+            ->where('is_immediate', false)
+            ->whereHas('conversation')
+            ->where(function ($q) use ($activeStatuses, $historyStatuses, $historyCutoff) {
+                $q->whereIn('status', $activeStatuses)
+                    ->orWhere(function ($hist) use ($historyStatuses, $historyCutoff) {
+                        $hist->whereIn('status', $historyStatuses)
+                            ->where(function ($recent) use ($historyCutoff) {
+                                $recent->where('sent_at', '>=', $historyCutoff)
+                                    ->orWhere('updated_at', '>=', $historyCutoff);
+                            });
+                    });
+            })
+            ->with([
+                'conversation:id,subject,folder,status',
+                'conversation.inbox:id,name,type',
+                'inbox:id,name',
+                'user:id,name,email',
+            ])
+            ->get();
+
+        // Active first (soonest send time), then history (most recently actioned).
+        $active = $scheduled
+            ->filter(fn (ScheduledInboxReply $r) => in_array($r->status, $activeStatuses, true))
+            ->sortBy(fn (ScheduledInboxReply $r) => $r->send_at?->timestamp ?? PHP_INT_MAX);
+        $history = $scheduled
+            ->filter(fn (ScheduledInboxReply $r) => in_array($r->status, $historyStatuses, true))
+            ->sortByDesc(fn (ScheduledInboxReply $r) => ($r->sent_at ?? $r->updated_at ?? $r->send_at)?->timestamp ?? 0);
+        $ordered = $active->concat($history)->values();
+
+        $now = now();
+        $tz = config('app.timezone');
+        $statusMeta = $this->scheduledSendStatusMeta();
+
+        $rows = $ordered->map(function (ScheduledInboxReply $reply) use ($now, $tz, $statusMeta, $user) {
+            $conversation = $reply->conversation;
+            $sendAt = $reply->send_at;
+            $sentAt = $reply->sent_at;
+            $meta = $statusMeta[$reply->status] ?? ['label' => ucfirst((string) $reply->status), 'class' => 'is-scheduled'];
+            $isPending = $reply->status === ScheduledInboxReply::STATUS_PENDING;
+            $isFailed = $reply->status === ScheduledInboxReply::STATUS_FAILED;
+            $isOwn = (int) $reply->user_id === (int) $user->id;
+            $canRetry = $isFailed && $isOwn;
+
+            return [
+                'id' => $reply->id,
+                'conversation_id' => $reply->inbox_conversation_id,
+                'type_label' => $reply->isCompose() ? 'New message' : 'Reply',
+                'subject' => $reply->subject ?: ($conversation?->subject ?: '(no subject)'),
+                'to' => $reply->to_emails,
+                'cc' => $reply->cc_emails,
+                'scheduled_by' => $reply->user?->name ?: $reply->user?->email ?: 'Unknown',
+                'is_own' => $isOwn,
+                'status' => $reply->status,
+                'status_label' => $meta['label'],
+                'status_class' => $meta['class'],
+                'error_message' => $isFailed ? ($reply->error_message ?: 'Unknown error.') : null,
+                // Content for the inline "edit & retry" editor (only for the owner's failed sends).
+                'can_retry' => $canRetry,
+                'edit_subject' => $canRetry ? ($reply->subject ?? '') : null,
+                'edit_body_html' => $canRetry ? (string) $reply->body_html : null,
+                'retry_url' => $canRetry ? route('api.inbox.conversations.scheduled-replies.retry', [
+                    'conversation' => $reply->inbox_conversation_id,
+                    'scheduledReply' => $reply->id,
+                ]) : null,
+                'send_at_display' => $sendAt
+                    ? $sendAt->copy()->timezone($tz)->format('M j, Y · g:i A')
+                    : null,
+                'sent_at_display' => $sentAt
+                    ? $sentAt->copy()->timezone($tz)->format('M j, Y · g:i A')
+                    : null,
+                'is_past_due' => $isPending && $sendAt ? $sendAt->lt($now) : false,
+                'archive_after' => (bool) $reply->archive_after,
+                'attachment_count' => count($reply->attachments ?? []),
+                'inbox_name' => $reply->inbox?->name ?: $conversation?->inbox?->name,
+                // Only the owner can cancel from here; others' sends are view-only
+                // (cancelling another user's send is still possible from the thread,
+                // where the existing per-conversation access checks apply).
+                'can_cancel' => $isPending && $isOwn,
+                'open_url' => route('inbox', ['conversation' => $reply->inbox_conversation_id]),
+                'cancel_url' => route('api.inbox.conversations.scheduled-replies.cancel', [
+                    'conversation' => $reply->inbox_conversation_id,
+                    'scheduledReply' => $reply->id,
+                ]),
+            ];
+        })->values();
+
+        $counts = [
+            'waiting' => $active->count(),
+            'sent' => $scheduled->where('status', ScheduledInboxReply::STATUS_SENT)->count(),
+            'failed' => $scheduled->where('status', ScheduledInboxReply::STATUS_FAILED)->count(),
+        ];
+
+        // Paginate the already-ordered rows (active first, then history).
+        $perPage = 20;
+        $total = $rows->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min(max(1, (int) $request->query('page', 1)), $lastPage);
+        $pageRows = $rows->forPage($page, $perPage)->values();
+        $from = $total === 0 ? 0 : (($page - 1) * $perPage) + 1;
+        $to = min($page * $perPage, $total);
+
+        $pageUrl = fn (int $target) => route('inbox.scheduled', array_filter([
+            'scope' => $scope === 'all' ? 'all' : null,
+            'page' => $target > 1 ? $target : null,
+        ]));
+
+        return view('dashboard.inbox-scheduled', [
+            'scheduledSends' => $pageRows,
+            'scheduledSendsCount' => $total,
+            'scheduledCounts' => $counts,
+            'scheduledTimezone' => $tz,
+            'scheduledCanViewAll' => $canViewAll,
+            'scheduledScope' => $scope,
+            'scheduledPage' => $page,
+            'scheduledLastPage' => $lastPage,
+            'scheduledFrom' => $from,
+            'scheduledTo' => $to,
+            'scheduledPrevUrl' => $page > 1 ? $pageUrl($page - 1) : null,
+            'scheduledNextUrl' => $page < $lastPage ? $pageUrl($page + 1) : null,
+        ]);
+    }
+
     public function bootstrap(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -2563,6 +2734,94 @@ class InboxController extends Controller
 
         return response()->json([
             'conversation' => $this->formatConversation($conversation),
+        ]);
+    }
+
+    /**
+     * Re-queue a failed "Send later" email so it sends again, optionally after
+     * editing its recipients, subject or body. Owner-only, and only for sends
+     * that actually failed. The existing scheduler/worker handles the resend.
+     */
+    public function retryScheduledReply(
+        Request $request,
+        InboxConversation $conversation,
+        ScheduledInboxReply $scheduledReply
+    ): JsonResponse {
+        $user = $request->user();
+        $this->authorizeConversation($user, $conversation);
+
+        if ((int) $scheduledReply->inbox_conversation_id !== (int) $conversation->id) {
+            return response()->json(['message' => 'Scheduled send not found.'], 404);
+        }
+        if ((int) $scheduledReply->user_id !== (int) $user->id) {
+            return response()->json(['message' => 'You can only retry your own scheduled sends.'], 403);
+        }
+        if ($scheduledReply->status !== ScheduledInboxReply::STATUS_FAILED) {
+            return response()->json(['message' => 'Only failed scheduled sends can be retried.'], 422);
+        }
+
+        $validated = $request->validate([
+            'to' => ['sometimes', 'string', 'max:5000'],
+            'cc' => ['sometimes', 'nullable', 'string', 'max:5000'],
+            'subject' => ['sometimes', 'nullable', 'string', 'max:998'],
+            'body_html' => ['sometimes', 'nullable', 'string', 'max:5000000'],
+        ]);
+
+        $updates = [];
+
+        if (array_key_exists('to', $validated)) {
+            $to = $this->normalizeRecipientEmails($validated['to']);
+            foreach ($to as $email) {
+                if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    return response()->json(['message' => "Invalid recipient: {$email}"], 422);
+                }
+            }
+            if ($to->isEmpty()) {
+                return response()->json(['message' => 'At least one recipient is required.'], 422);
+            }
+            $updates['to_emails'] = $to->implode(', ');
+        }
+
+        if (array_key_exists('cc', $validated)) {
+            $cc = $this->normalizeRecipientEmails($validated['cc']);
+            foreach ($cc as $email) {
+                if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    return response()->json(['message' => "Invalid CC recipient: {$email}"], 422);
+                }
+            }
+            $updates['cc_emails'] = $cc->isNotEmpty() ? $cc->implode(', ') : null;
+        }
+
+        if (array_key_exists('subject', $validated)) {
+            $updates['subject'] = $validated['subject'] !== null ? trim($validated['subject']) : null;
+        }
+
+        if (array_key_exists('body_html', $validated)) {
+            $bodyHtml = (string) ($validated['body_html'] ?? '');
+            $updates['body_html'] = $bodyHtml;
+            $updates['body_text'] = trim(html_entity_decode(strip_tags($bodyHtml)));
+        }
+
+        // Re-queue: back to pending, due now, failure cleared.
+        $updates['status'] = ScheduledInboxReply::STATUS_PENDING;
+        $updates['error_message'] = null;
+        $updates['send_at'] = now();
+
+        $scheduledReply->update($updates);
+
+        $this->recordActivity(
+            $conversation,
+            $user,
+            $scheduledReply->isCompose() ? 'compose_schedule_retried' : 'reply_schedule_retried',
+            $user->name.' retried a failed scheduled '.($scheduledReply->isCompose() ? 'message' : 'reply'),
+            ['scheduled_reply_id' => $scheduledReply->id]
+        );
+
+        ProcessScheduledInboxReplyJob::dispatch($scheduledReply->id);
+
+        return response()->json([
+            'retried' => true,
+            'scheduled_reply' => $this->formatScheduledReply($scheduledReply->fresh(['user:id,name,email'])),
         ]);
     }
 
