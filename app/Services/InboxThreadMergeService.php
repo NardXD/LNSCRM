@@ -252,7 +252,7 @@ class InboxThreadMergeService
         $conversation->message_count = $conversation->messages()->count();
         if ($latest) {
             $conversation->last_message_at = $latest->sent_at;
-            $conversation->snippet = EmailQuotedHistory::snippet($latest->body_html, $latest->body_text ?: $conversation->snippet);
+            $conversation->snippet = EmailQuotedHistory::snippet($latest->body_html, $latest->body_text ?: $conversation->snippet, 500, (string) $latest->subject);
         }
         // Show the customer, not our own mailbox, when the latest message is a reply we sent —
         // and never an automated sender (a bounce/NDR from postmaster, mailer-daemon, …),

@@ -872,7 +872,7 @@ class OutlookMailService
                     'folder' => $folder,
                     'status' => $status,
                     'subject' => $subject,
-                    'snippet' => EmailQuotedHistory::snippet(null, $msg['bodyPreview'] ?? ''),
+                    'snippet' => EmailQuotedHistory::snippet(null, $msg['bodyPreview'] ?? '', 500, (string) ($msg['subject'] ?? '')),
                     'from_name' => $fromName,
                     'from_email' => $fromEmail,
                     'last_message_at' => $receivedAt,
@@ -909,11 +909,11 @@ class OutlookMailService
 
             $conversation->folder = $folder;
             $conversation->subject = $subject;
-            $conversation->snippet = EmailQuotedHistory::snippet(null, $msg['bodyPreview'] ?? '');
+            $conversation->snippet = EmailQuotedHistory::snippet(null, $msg['bodyPreview'] ?? '', 500, (string) ($msg['subject'] ?? ''));
             $conversation->from_name = $fromName;
             $conversation->from_email = $fromEmail;
         } elseif (! $isBounce) {
-            $conversation->snippet = EmailQuotedHistory::snippet(null, $msg['bodyPreview'] ?? '') ?: $conversation->snippet;
+            $conversation->snippet = EmailQuotedHistory::snippet(null, $msg['bodyPreview'] ?? '', 500, (string) ($msg['subject'] ?? '')) ?: $conversation->snippet;
             // Newest received email decides the thread's subject/sender, so replies answer it.
             if ($direction === 'inbound' && (! $conversation->last_message_at || $receivedAt->gte($conversation->last_message_at))) {
                 $conversation->subject = $subject;
@@ -1050,7 +1050,7 @@ class OutlookMailService
             if ((int) $messageHome->id !== (int) $conversation->id) {
                 if (! $messageHome->last_message_at || $receivedAt->gt($messageHome->last_message_at)) {
                     $messageHome->last_message_at = $receivedAt;
-                    $messageHome->snippet = EmailQuotedHistory::snippet($safeHtml, $bodyText ?: ($msg['bodyPreview'] ?? ''));
+                    $messageHome->snippet = EmailQuotedHistory::snippet($safeHtml, $bodyText ?: ($msg['bodyPreview'] ?? ''), 500, (string) ($msg['subject'] ?? ''));
                     $messageHome->save();
                 }
             }
@@ -1370,7 +1370,7 @@ class OutlookMailService
 
         $latest = $conversation->messages()->orderByDesc('sent_at')->orderByDesc('id')->first();
         if ($latest) {
-            $snippet = EmailQuotedHistory::snippet($latest->body_html, $latest->body_text ?: $conversation->snippet);
+            $snippet = EmailQuotedHistory::snippet($latest->body_html, $latest->body_text ?: $conversation->snippet, 500, (string) $latest->subject);
             if ($snippet !== (string) $conversation->snippet) {
                 $conversation->snippet = $snippet;
                 $conversation->save();

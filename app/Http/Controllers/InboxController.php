@@ -4901,6 +4901,7 @@ class InboxController extends Controller
     {
         $html = null;
         $text = (string) ($c->snippet ?? '');
+        $subject = (string) ($c->subject ?? '');
         if ($withMessages && $c->relationLoaded('messages') && $c->messages->isNotEmpty()) {
             $latest = $c->messages->sortBy([
                 ['sent_at', 'asc'],
@@ -4909,10 +4910,11 @@ class InboxController extends Controller
             if ($latest) {
                 $html = $latest->body_html;
                 $text = (string) ($latest->body_text ?: $c->snippet);
+                $subject = (string) ($latest->subject ?: $subject);
             }
         }
 
-        return EmailQuotedHistory::snippet($html, $text);
+        return EmailQuotedHistory::snippet($html, $text, 500, $subject);
     }
 
     /**
@@ -5184,7 +5186,7 @@ class InboxController extends Controller
         return [
             'id' => $c->id,
             'subject' => $c->subject,
-            'snippet' => EmailQuotedHistory::snippet(null, $c->snippet),
+            'snippet' => EmailQuotedHistory::snippet(null, $c->snippet, 500, (string) $c->subject),
             'from_name' => $c->from_name,
             'from_email' => $c->from_email,
             'folder' => $c->folder ?: 'inbox',

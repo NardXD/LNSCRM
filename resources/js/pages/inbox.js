@@ -362,7 +362,7 @@
         const t = String(text || '').replace(/\s+/g, ' ').trim();
         if (!t) return false;
         if (/^-----Original Message-----/i.test(t)) return true;
-        if (/^-----Forwarded message-----/i.test(t)) return true;
+        if (/^-{2,}\s*Forwarded message\s*-{2,}/i.test(t)) return true;
         if (/^_{8,}/.test(t)) return true;
         if (/^On .{8,160} wrote:\s*$/i.test(t)) return true;
         if (/^(From|Van|De|Von|Da)\s*:/i.test(t) && /(Sent|Date|Verzonden|To|À|An|Subject|Onderwerp)\s*:/i.test(t)) return true;
@@ -489,7 +489,7 @@
         const cut = source.search(new RegExp(
             '(?:\\r?\\n)(?:\\s*)(?:'
             + '-----Original Message-----'
-            + '|-----Forwarded message-----'
+            + '|-{2,}\\s*Forwarded message\\s*-{2,}'
             + '|From:\\s.+\\r?\\nSent:\\s'
             + '|On .{8,160} wrote:\\s*$'
             + '|________________________________'
@@ -501,12 +501,22 @@
         return kept || source;
     }
 
+    // Quoted history is only noise on replies. A forward (or a message whose subject was
+    // edited) carries the content the user wants to read in that quoted section, so only
+    // strip it when the subject is clearly a reply.
+    function keepQuotedHistory(message) {
+        return !/^\s*(?:re|aw|sv|antw|res|vs|odp)\s*(?:\[\d+\])?\s*:/i.test(String(message?.subject || ''));
+    }
+
     function mountEmailBody(host, message) {
         if (!host) return;
 
         try {
+            const isForward = keepQuotedHistory(message);
+            const stripHtml = isForward ? (h) => String(h || '').trim() : stripQuotedEmailHistoryHtml;
             const rawHtml = String(message?.body_html || '').trim();
-            const plain = stripQuotedEmailHistoryPlain(String(message?.body_text || '').trim());
+            const plainSource = String(message?.body_text || '').trim();
+            const plain = isForward ? plainSource : stripQuotedEmailHistoryPlain(plainSource);
 
             host.classList.remove('is-framed');
             host.innerHTML = '';
@@ -517,7 +527,7 @@
             }
 
             const parts = extractEmailDocumentParts(rawHtml);
-            const bodyHtml = stripQuotedEmailHistoryHtml(parts.body || sanitizeHtml(decodeEscapedHtml(rawHtml)));
+            const bodyHtml = stripHtml(parts.body || sanitizeHtml(decodeEscapedHtml(rawHtml)));
             if (!bodyHtml) {
                 host.innerHTML = plainToHtml(plain) || '<span style="color:var(--inbox-muted)">No content</span>';
                 return;
@@ -556,6 +566,23 @@
                 root.innerHTML = bodyHtml;
                 shadow.appendChild(root);
                 lazyLoadEmailImages(root);
+
+                // Never hide content for good: if history was trimmed, let the user expand it.
+                const fullHtml = String(parts.body || sanitizeHtml(decodeEscapedHtml(rawHtml))).trim();
+                if (fullHtml.length > bodyHtml.length) {
+                    const toggle = document.createElement('button');
+                    toggle.type = 'button';
+                    toggle.textContent = 'Show quoted text';
+                    toggle.style.cssText = 'margin-top:8px;padding:2px 10px;border:1px solid #d1d5db;border-radius:999px;background:#f9fafb;color:#4b5563;font:12px "Segoe UI",sans-serif;cursor:pointer;';
+                    let expanded = false;
+                    toggle.addEventListener('click', () => {
+                        expanded = !expanded;
+                        root.innerHTML = expanded ? fullHtml : bodyHtml;
+                        lazyLoadEmailImages(root);
+                        toggle.textContent = expanded ? 'Hide quoted text' : 'Show quoted text';
+                    });
+                    shadow.appendChild(toggle);
+                }
                 return;
             }
 
@@ -3456,7 +3483,8 @@
             const preview = messagePreviewText(last);
             if (preview) return preview;
         }
-        return stripQuotedEmailHistoryPlain(String(c?.snippet || '')).replace(/\s+/g, ' ').trim();
+        const rawSnippet = String(c?.snippet || '');
+        return (keepQuotedHistory(c) ? rawSnippet : stripQuotedEmailHistoryPlain(rawSnippet)).replace(/\s+/g, ' ').trim();
     }
 
     function conversationSkeletonMarkup(count = 8) {
@@ -4408,9 +4436,10 @@
 
     function messagePreviewText(m) {
         const html = String(m?.body_html || '').trim();
+        const isForward = keepQuotedHistory(m);
         const source = html
-            ? htmlToPlain(stripQuotedEmailHistoryHtml(html))
-            : stripQuotedEmailHistoryPlain(String(m?.body_text || ''));
+            ? htmlToPlain(isForward ? html : stripQuotedEmailHistoryHtml(html))
+            : (isForward ? String(m?.body_text || '') : stripQuotedEmailHistoryPlain(String(m?.body_text || '')));
         return source.replace(/\s+/g, ' ').trim();
     }
 

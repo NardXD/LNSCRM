@@ -14,14 +14,27 @@ class EmailQuotedHistory
         return preg_match('/^fwd:\s*/i', $value) ? $value : 'Fwd: '.$value;
     }
 
-    public static function snippet(?string $html, ?string $text = null, int $limit = 500): string
+    /**
+     * Quoted history is noise on a reply, but on a forward it is the content the reader
+     * wants. When a subject is known, only strip it if the subject is clearly a reply.
+     */
+    public static function isReplySubject(?string $subject): bool
     {
-        $fromHtml = self::collapseWhitespace(self::stripPlain(self::plainFromHtml((string) $html)));
+        return (bool) preg_match('/^\s*(?:re|aw|sv|antw|res|vs|odp)\s*(?:\[\d+\])?\s*:/i', (string) $subject);
+    }
+
+    public static function snippet(?string $html, ?string $text = null, int $limit = 500, ?string $subject = null): string
+    {
+        $strip = $subject === null
+            ? fn (string $v): string => self::stripPlain($v)
+            : fn (string $v): string => self::isReplySubject($subject) ? self::stripPlain($v) : $v;
+
+        $fromHtml = self::collapseWhitespace($strip(self::plainFromHtml((string) $html)));
         if ($fromHtml !== '') {
             return mb_substr($fromHtml, 0, $limit);
         }
 
-        $fromText = self::collapseWhitespace(self::stripPlain((string) $text));
+        $fromText = self::collapseWhitespace($strip((string) $text));
 
         return mb_substr($fromText, 0, $limit);
     }
@@ -35,7 +48,7 @@ class EmailQuotedHistory
 
         $pattern = '/\n\s*(?:'
             .'-----Original Message-----'
-            .'|-----Forwarded message-----'
+            .'|-{2,}\s*Forwarded message\s*-{2,}'
             .'|From:\s.+\nSent:\s'
             .'|On .{8,160} wrote:\s*$'
             .'|_{8,}'

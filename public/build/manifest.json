@@ -1,6 +1,6 @@
 {
   "resources/css/app.css": {
-    "file": "assets/app-BgQnDIeV.css",
+    "file": "assets/app-_E4-OQGW.css",
     "src": "resources/css/app.css",
     "isEntry": true,
     "name": "app",
@@ -354,7 +354,7 @@
     "isEntry": true
   },
   "resources/js/pages/inbox.js": {
-    "file": "assets/inbox-CmQ1S0w8.js",
+    "file": "assets/inbox-VEwOk3Ta.js",
     "name": "inbox",
     "src": "resources/js/pages/inbox.js",
     "isEntry": true
