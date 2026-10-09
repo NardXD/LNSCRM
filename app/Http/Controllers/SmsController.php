@@ -301,20 +301,22 @@ class SmsController extends Controller
 
     protected function formatConversation(SmsConversation $c): array
     {
+        $lead = $this->crmLookup->matchAssignedLead(
+            $this->crmLookup->assignedLeadIndex((int) $c->company_id),
+            $c->peer_phone,
+            null,
+            $c->name
+        );
+
         return [
             'id' => $c->id,
             'peer_phone' => $c->peer_phone,
             'our_number' => $c->our_number,
-            'name' => $c->name ?: $c->peer_phone,
+            'name' => ($lead['name'] ?? null) ?: ($c->name ?: $c->peer_phone),
             'unread_count' => (int) $c->unread_count,
             'last_message_preview' => $c->last_message_preview,
             'last_message_at' => $c->last_message_at?->toIso8601String(),
-            'lead' => $this->crmLookup->matchAssignedLead(
-                $this->crmLookup->assignedLeadIndex((int) $c->company_id),
-                $c->peer_phone,
-                null,
-                $c->name
-            ),
+            'lead' => $lead,
         ];
     }
 
