@@ -1568,7 +1568,7 @@ class OutlookMailService
 
     /**
      * Look up the current Graph id of a message whose stored id no longer resolves.
-     * Candidates are the attachment-bearing messages of the same Outlook conversation,
+     * Candidates are the messages of the same Outlook conversation,
      * closest in time first; the one that holds a matching file (name/size) wins.
      *
      * @param  array<string, mixed>  $meta
@@ -1605,7 +1605,7 @@ class OutlookMailService
 
         $target = $message->sent_at?->getTimestamp() ?? 0;
         $candidates = collect($response->json('value') ?? [])
-            ->filter(fn ($item) => is_array($item) && ! empty($item['id']) && ! empty($item['hasAttachments']))
+            ->filter(fn ($item) => is_array($item) && ! empty($item['id']))
             ->sortBy(fn ($item) => abs(strtotime((string) ($item['receivedDateTime'] ?? '')) - $target))
             ->values();
 
@@ -1634,7 +1634,11 @@ class OutlookMailService
         Log::warning('Outlook message relocate found no match', [
             'message_id' => $message->id,
             'conversation_messages' => count($response->json('value') ?? []),
-            'with_attachments' => $candidates->count(),
+            'checked' => $candidates->take(10)->map(fn ($i) => [
+                'received' => $i['receivedDateTime'] ?? null,
+                'has_attachments' => $i['hasAttachments'] ?? null,
+            ])->all(),
+            'wanted' => ['name' => $meta['name'] ?? null, 'size' => $meta['size'] ?? null],
         ]);
 
         return null;
