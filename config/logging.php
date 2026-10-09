@@ -52,6 +52,13 @@ return [
 
     'channels' => [
 
+        // storaganize logs
+        'pushstoraganize' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/pushstoraganize.log'),
+            'level' => 'debug',
+        ],
+
         'stack' => [
             'driver' => 'stack',
             'channels' => explode(',', (string) env('LOG_STACK', 'single')),

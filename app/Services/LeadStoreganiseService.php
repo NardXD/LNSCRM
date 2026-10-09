@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Lead;
+use Illuminate\Support\Facades\Log;
 
 class LeadStoreganiseService
 {
@@ -117,10 +118,20 @@ class LeadStoreganiseService
         $payload = $this->mapper->toUserPayload($lead, $site, $email, includePassword: true);
         $created = $this->storeganise->createUser($payload);
         if (! ($created['success'] ?? false)) {
+
+            Log::channel('pushstoraganize')->info('Push Storage Create User Response', [
+                'response' => $created,
+            ]);
+
+            Log::channel('pushstoraganize')->info('Push Storage Mapper Response', [
+                'response' => $payload,
+            ]);
+
             return [
                 'success' => false,
                 'error' => $created['error'] ?? 'Failed to create Storeganise user.',
             ];
+
         }
 
         $userId = (string) ($created['user']['id'] ?? $email);
