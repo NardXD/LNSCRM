@@ -1567,44 +1567,100 @@ class OutlookMailService
     }
 
     /**
+     * Check a stored message id against Outlook and repair it if it went stale.
+     *
+     * @return 'ok'|'relocated'|'would_relocate'|'not_found'|'skipped'|'error'
+     */
+    public function repairStaleMessageId(SharedInbox $inbox, InboxMessage $message, bool $dryRun = false): string
+    {
+        $account = $inbox->account;
+        $files = collect($message->attachments ?? [])->filter(fn ($a) => is_array($a) && ! empty($a['name']));
+        if (! $account || ! $message->external_message_id
+            || str_starts_with((string) $message->external_message_id, 'local-')
+            || $files->isEmpty()
+            || $files->contains(fn ($a) => empty($a['id']))) {
+            return 'skipped';
+        }
+
+        $account = $this->refreshTokenIfNeeded($account);
+        $mailboxPath = $this->mailboxPath($inbox->loadMissing('account'));
+
+        $probe = Http::withToken($account->access_token)
+            ->timeout(60)
+            ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/".rawurlencode((string) $message->external_message_id), [
+                '$select' => 'id',
+            ]);
+        if ($probe->successful()) {
+            return 'ok';
+        }
+        if ($probe->status() !== 404) {
+            return 'error';
+        }
+
+        $newId = $this->relocateMessageId($account, $mailboxPath, $message, $files->first(), ! $dryRun);
+        if (! $newId) {
+            return 'not_found';
+        }
+        if ($dryRun) {
+            return 'would_relocate';
+        }
+
+        // Attachment ids belong to the message id, so refresh them too.
+        $list = Http::withToken($account->access_token)
+            ->timeout(120)
+            ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/".rawurlencode($newId).'/attachments', ['$top' => 50]);
+        if ($list->successful() && is_array($list->json('value'))) {
+            $message->attachments = $this->normalizeGraphAttachmentList($list->json('value'));
+            $message->save();
+        }
+
+        return 'relocated';
+    }
+
+    /**
      * Look up the current Graph id of a message whose stored id no longer resolves.
      * Candidates are the messages of the same Outlook conversation,
      * closest in time first; the one that holds a matching file (name/size) wins.
      *
      * @param  array<string, mixed>  $meta
      */
-    private function relocateMessageId(OutlookMailAccount $account, string $mailboxPath, InboxMessage $message, array $meta): ?string
+    private function relocateMessageId(OutlookMailAccount $account, string $mailboxPath, InboxMessage $message, array $meta, bool $persist = true): ?string
     {
-        $conversationId = $message->conversation?->external_conversation_id;
-        if (! $conversationId) {
-            Log::warning('Outlook message relocate skipped: no external conversation id', [
-                'message_id' => $message->id,
-            ]);
-
-            return null;
+        // A CRM conversation can be a merge/contact-group target holding messages from several
+        // Outlook threads, so gather every Outlook conversationId tied to this message.
+        $home = $message->conversation;
+        $conversationIds = collect([
+            $message->source_conversation_id
+                ? InboxConversation::query()->whereKey($message->source_conversation_id)->value('external_conversation_id')
+                : null,
+            $home?->external_conversation_id,
+        ]);
+        if ($home) {
+            $conversationIds = $conversationIds->merge(
+                InboxConversation::query()->where('merged_into_id', $home->id)->pluck('external_conversation_id')
+            );
         }
+        $conversationIds = $conversationIds->filter()->unique()->take(10)->values();
 
-        $escaped = str_replace("'", "''", (string) $conversationId);
-        $response = Http::withToken($account->access_token)
-            ->timeout(60)
-            ->get(self::GRAPH_BASE."/{$mailboxPath}/messages", [
-                '$filter' => "conversationId eq '{$escaped}'",
-                '$select' => 'id,receivedDateTime,hasAttachments',
-                '$top' => 50,
-            ]);
-
-        if (! $response->successful()) {
-            Log::warning('Outlook message relocate failed', [
-                'message_id' => $message->id,
-                'status' => $response->status(),
-                'body' => mb_substr((string) $response->body(), 0, 300),
-            ]);
-
-            return null;
+        $items = collect();
+        $statuses = [];
+        foreach ($conversationIds as $conversationId) {
+            $escaped = str_replace("'", "''", (string) $conversationId);
+            $response = Http::withToken($account->access_token)
+                ->timeout(60)
+                ->get(self::GRAPH_BASE."/{$mailboxPath}/messages", [
+                    '$filter' => "conversationId eq '{$escaped}'",
+                    '$select' => 'id,receivedDateTime,hasAttachments',
+                    '$top' => 50,
+                ]);
+            $statuses[] = $response->status();
+            if ($response->successful()) {
+                $items = $items->merge($response->json('value') ?? []);
+            }
         }
 
         $target = $message->sent_at?->getTimestamp() ?? 0;
-        $candidates = collect($response->json('value') ?? [])
+        $candidates = $items
             ->filter(fn ($item) => is_array($item) && ! empty($item['id']))
             ->sortBy(fn ($item) => abs(strtotime((string) ($item['receivedDateTime'] ?? '')) - $target))
             ->values();
@@ -1624,16 +1680,64 @@ class OutlookMailService
                     && (empty($meta['size']) || ! isset($a['size']) || (int) $a['size'] === (int) $meta['size'])
             );
             if ($found) {
-                $message->external_message_id = (string) $item['id'];
-                $message->save();
+                if ($persist) {
+                    $message->external_message_id = (string) $item['id'];
+                    $message->save();
+                }
+
+                return (string) $item['id'];
+            }
+        }
+
+        // Last resort: search the whole mailbox for the file name (message may have been
+        // re-threaded or filed under another conversation).
+        $kql = '"attachment:'.str_replace('"', '', (string) ($meta['name'] ?? '')).'"';
+        $search = Http::withToken($account->access_token)
+            ->timeout(60)
+            ->withHeaders(['ConsistencyLevel' => 'eventual'])
+            ->get(self::GRAPH_BASE."/{$mailboxPath}/messages", [
+                '$search' => $kql,
+                '$select' => 'id,subject,receivedDateTime,hasAttachments',
+                '$top' => 25,
+            ]);
+        $searchHits = $search->successful() ? ($search->json('value') ?? []) : [];
+        foreach ($searchHits as $item) {
+            if (! is_array($item) || empty($item['id'])) {
+                continue;
+            }
+            $list = Http::withToken($account->access_token)
+                ->timeout(60)
+                ->get(self::GRAPH_BASE."/{$mailboxPath}/messages/".rawurlencode((string) $item['id']).'/attachments', [
+                    '$select' => 'id,name,size',
+                ]);
+            $found = $list->successful() && collect($list->json('value') ?? [])->contains(
+                fn ($a) => is_array($a)
+                    && trim((string) ($a['name'] ?? '')) === (string) ($meta['name'] ?? '')
+                    && (empty($meta['size']) || ! isset($a['size']) || (int) $a['size'] === (int) $meta['size'])
+            );
+            if ($found) {
+                if ($persist) {
+                    $message->external_message_id = (string) $item['id'];
+                    $message->save();
+                }
 
                 return (string) $item['id'];
             }
         }
 
         Log::warning('Outlook message relocate found no match', [
+            'search_status' => $search->status(),
+            'search_hits' => collect($searchHits)->map(fn ($i) => [
+                'subject' => $i['subject'] ?? null,
+                'received' => $i['receivedDateTime'] ?? null,
+            ])->take(5)->all(),
+            'mailbox_path' => $mailboxPath,
+            'subject' => $message->subject,
+            'sent_at' => (string) $message->sent_at,
             'message_id' => $message->id,
-            'conversation_messages' => count($response->json('value') ?? []),
+            'conversation_ids' => $conversationIds->count(),
+            'filter_statuses' => $statuses,
+            'conversation_messages' => $items->count(),
             'checked' => $candidates->take(10)->map(fn ($i) => [
                 'received' => $i['receivedDateTime'] ?? null,
                 'has_attachments' => $i['hasAttachments'] ?? null,
